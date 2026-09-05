@@ -231,6 +231,11 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     const bool helpcodeSchemaMatches = _activeHelpcodeSchema == preferences.helpcodeSchema;
     HelpcodeUtils::select_helpcode_schema(preferences.helpcodeSchema);
     _activeHelpcodeSchema = preferences.helpcodeSchema;
+    // Applied above the early return, like every other preference a live session can take. It used
+    // to be applied only to a freshly constructed session, and SessionMatchesPreferences does not
+    // compare it, so toggling 启用本地输入模式 changed nothing until something unrelated forced a
+    // rebuild. set_local_mode_options is a plain setter and is safe on a running session.
+    [self applyLocalInputModeOptions];
     if (_session != nullptr && helpcodeSchemaMatches && SessionMatchesPreferences(*_session, preferences))
     {
         return;
@@ -437,11 +442,17 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     }
     const NSEventModifierFlags inputModeModifiers =
         event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    // Both toggles swallow their repeats. Holding the chord past the system repeat delay used to
+    // flip the persisted preference once per repeat and land on whichever parity the repeat count
+    // reached, which is the same reason the voice shortcut above guards on isARepeat.
     if (metasequoia::mac::ShouldToggleInputMode(
             [MetasequoiaPreferencesWindowController storedInputModeShortcutEnabled], event.keyCode,
             inputModeModifiers))
     {
-        [self setEnglishInputMode:![MetasequoiaPreferencesWindowController storedEnglishInputMode] client:sender];
+        if (!event.isARepeat)
+        {
+            [self setEnglishInputMode:![MetasequoiaPreferencesWindowController storedEnglishInputMode] client:sender];
+        }
         return YES;
     }
     if ([MetasequoiaPreferencesWindowController storedEnglishInputMode])
@@ -451,24 +462,19 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     }
     if (metasequoia::mac::IsFullWidthInputToggle(event.keyCode, inputModeModifiers))
     {
-        [MetasequoiaPreferencesWindowController setFullWidthInputEnabled:
-            ![MetasequoiaPreferencesWindowController storedFullWidthInputEnabled]];
+        if (!event.isARepeat)
+        {
+            [MetasequoiaPreferencesWindowController setFullWidthInputEnabled:
+                ![MetasequoiaPreferencesWindowController storedFullWidthInputEnabled]];
+        }
         return YES;
     }
-    if ([MetasequoiaPreferencesWindowController storedFullWidthInputEnabled] && event.characters.length == 1 &&
-        metasequoia::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], inputModeModifiers))
-    {
-        const unichar character = [event.characters characterAtIndex:0];
-        if (metasequoia::mac::IsFullWidthConvertibleCharacter(character) &&
-            ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')) &&
-            (_session == nullptr || !_session->has_composition()))
-        {
-            const unichar fullWidthCharacter = metasequoia::mac::FullWidthCharacter(character);
-            NSString *converted = [NSString stringWithCharacters:&fullWidthCharacter length:1];
-            [sender insertText:converted replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-            return YES;
-        }
-    }
+    // Full-width conversion deliberately happens after the session has declined the key, in the
+    // !result.handled branch below. Converting letters up here instead made Chinese input
+    // impossible: the guard was "no composition is running", which is exactly the state every
+    // composition starts from, so the first letter was always committed full-width and the engine
+    // never saw a keystroke. Lowercase letters compose; the capitals and punctuation the engine
+    // does not take still come back through the fallback and are converted there.
     if (![self prepareSessionIfNeeded])
     {
         return NO;
@@ -656,6 +662,18 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 {
     return _session != nullptr && _session->scheme_type() != SchemeType::JapaneseRomaji &&
            [MetasequoiaPreferencesWindowController storedTraditionalChineseOutputEnabled];
+}
+
+// Dictated text does not come from the session, so it has to follow the script preference even
+// when no session exists — the voice shortcut is dispatched before prepareSessionIfNeeded, and a
+// controller built while English mode is stored, or one whose dictionary keeps failing to prepare,
+// never has one. EngineSchemeForStoredPreference only ever yields Quanpin, Shuangpin or Wubi, so
+// the Japanese romaji exclusion above cannot apply to the stored preference.
+- (BOOL)voiceOutputUsesTraditionalChinese
+{
+    return _session != nullptr
+               ? [self traditionalChineseOutputActive]
+               : [MetasequoiaPreferencesWindowController storedTraditionalChineseOutputEnabled];
 }
 
 // The local input mode is taken as an argument rather than read from the session, because
@@ -920,13 +938,20 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     _voiceMouseMonitor = nil;
 }
 
+// Reached from inside -handleEvent:client: — the voice service calls its completion block inline
+// when the settings do not validate and when recording stops — so the modal loop has to be pushed
+// off the key-event stack. Running it there froze the client application until the alert was
+// dismissed, and this process is LSBackgroundOnly, so the alert itself could be behind that frozen
+// window.
 - (void)showVoiceError:(NSError *)error
 {
-    NSAlert *alert = [NSAlert new];
-    alert.messageText = @"语音输入未完成";
-    alert.informativeText = error.localizedDescription;
-    [alert addButtonWithTitle:@"好"];
-    [alert runModal];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSAlert *alert = [NSAlert new];
+        alert.messageText = @"语音输入未完成";
+        alert.informativeText = error.localizedDescription;
+        [alert addButtonWithTitle:@"好"];
+        [alert runModal];
+    });
 }
 
 - (void)toggleVoiceInput:(id)sender
@@ -953,7 +978,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
         if (error) { [owner showVoiceError:error]; return; }
         if (text.length > 0)
         {
-            NSString *output = MetasequoiaChineseOutputString(text, [owner traditionalChineseOutputActive]);
+            NSString *output = MetasequoiaChineseOutputString(text, [owner voiceOutputUsesTraditionalChinese]);
             [client insertText:output replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
         }
     }];
