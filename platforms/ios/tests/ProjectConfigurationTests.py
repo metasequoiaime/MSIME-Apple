@@ -339,6 +339,11 @@ class ProjectConfigurationTests(unittest.TestCase):
 
         self.assertIn('TextField("在这里试试水杉键盘"', onboarding)
         self.assertIn('.accessibilityIdentifier("keyboardTryoutField")', onboarding)
+        # Without this the keyboard could not be put away without leaving the app.
+        self.assertIn("@FocusState private var tryoutFocused: Bool", onboarding)
+        self.assertIn(".focused($tryoutFocused)", onboarding)
+        self.assertIn('Button("收起键盘") { tryoutFocused = false }', onboarding)
+        self.assertIn('.accessibilityIdentifier("dismissKeyboardButton")', onboarding)
 
     def test_host_app_exposes_the_shared_input_scheme_setting(self):
         onboarding = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()
