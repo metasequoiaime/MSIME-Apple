@@ -475,6 +475,21 @@ class ReleasePackageTests(unittest.TestCase):
                 MACOS_ROOT / "scripts/pkg-postinstall.sh",
                 legacy_scripts / "pkg-postinstall.sh",
             )
+            legacy_resources = legacy_project_root / "platforms/macos/resources"
+            legacy_resources.mkdir(parents=True)
+            shutil.copy2(
+                MACOS_ROOT / "resources/VoiceInput.entitlements",
+                legacy_resources / "VoiceInput.entitlements",
+            )
+
+            # The release workflow copies the packaging script out of the checkout and runs it from
+            # $RUNNER_TEMP, so running it in-tree let an input that resolved relative to the
+            # script's own location pass here and fail there. Everything it reads has to come from
+            # the project root or an explicit override.
+            staged_script = temporary / "staged" / "package-release.sh"
+            staged_script.parent.mkdir()
+            shutil.copy2(MACOS_ROOT / "scripts/package_release.sh", staged_script)
+            staged_script.chmod(0o755)
 
             output = temporary / "output"
             environment = os.environ.copy()
@@ -503,7 +518,7 @@ class ReleasePackageTests(unittest.TestCase):
                 }
             )
             result = subprocess.run(
-                [MACOS_ROOT / "scripts/package_release.sh", f"v{version}", legacy_bundle, output],
+                [staged_script, f"v{version}", legacy_bundle, output],
                 capture_output=True,
                 text=True,
                 env=environment,
@@ -524,7 +539,10 @@ class ReleasePackageTests(unittest.TestCase):
 
             signing_calls = signing_log.read_text()
             self.assertIn("--sign Developer ID Application: Test", signing_calls)
-            self.assertIn(f"--entitlements {MACOS_ROOT}/resources/VoiceInput.entitlements", signing_calls)
+            # Resolved from the project root, not from wherever the script itself happens to sit.
+            self.assertIn(
+                f"--entitlements {legacy_resources.resolve()}/VoiceInput.entitlements", signing_calls
+            )
             self.assertIn("productsign --sign Developer ID Installer: Test", signing_calls)
             notary_calls = [line for line in signing_calls.splitlines() if line.startswith("xcrun notarytool submit ")]
             self.assertEqual(len(notary_calls), 2)
@@ -755,9 +773,9 @@ class ReleasePackageTests(unittest.TestCase):
                 update_names = update_zip.namelist()
                 self.assertIn("MetasequoiaIME.app/Contents/Info.plist", update_names)
                 update_info = plistlib.loads(update_zip.read("MetasequoiaIME.app/Contents/Info.plist"))
-                self.assertFalse(
+                self.assertTrue(
                     update_info["SUEnableAutomaticChecks"],
-                    "Unsigned releases must not poll the intentionally absent Sparkle appcast.",
+                    "Unsigned releases publish a signed appcast, so they must keep checking it.",
                 )
                 self.assertIn(
                     "MetasequoiaIME.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle",
