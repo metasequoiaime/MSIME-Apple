@@ -41,6 +41,30 @@ BOOL WriteToken(NSString *kind, NSString *endpoint, NSString *token, NSError **e
     if (error) *error = Error(@"无法保存到系统钥匙串，请解锁钥匙串后重试。");
     return NO;
 }
+// The account carries the endpoint origin, so editing an endpoint writes a new item and WriteToken
+// only ever deletes the origin it was handed — the bearer token for the previous origin stayed in
+// the login keychain indefinitely. Every save prunes whatever this service owns beyond the two
+// accounts currently in use.
+void PruneTokens(NSArray<NSDictionary *> *keptKeys) {
+    NSMutableSet<NSString *> *keptAccounts = [NSMutableSet set];
+    for (NSDictionary *key in keptKeys) {
+        [keptAccounts addObject:key[(__bridge id)kSecAttrAccount]];
+    }
+    NSDictionary *query = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+                            (__bridge id)kSecAttrService: service,
+                            (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitAll,
+                            (__bridge id)kSecReturnAttributes: @YES};
+    CFTypeRef result = nullptr;
+    if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &result) != errSecSuccess) return;
+    NSArray<NSDictionary *> *items = CFBridgingRelease(result);
+    for (NSDictionary *item in items) {
+        NSString *account = item[(__bridge id)kSecAttrAccount];
+        if (account.length == 0 || [keptAccounts containsObject:account]) continue;
+        SecItemDelete((__bridge CFDictionaryRef)@{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+                                                  (__bridge id)kSecAttrService: service,
+                                                  (__bridge id)kSecAttrAccount: account});
+    }
+}
 BOOL IsEndpoint(NSString *value) {
     NSURLComponents *url = [NSURLComponents componentsWithString:value];
     return [url.scheme.lowercaseString isEqualToString:@"https"] && url.host.length > 0 && !url.user && !url.password && !url.fragment;
@@ -79,6 +103,7 @@ BOOL IsEndpoint(NSString *value) {
 - (BOOL)save:(NSError **)error {
     if (![self validate:error]) return NO;
     if (!WriteToken(@"asr", self.endpoint, self.token, error) || !WriteToken(@"polish", self.polishEndpoint, self.polishToken, error)) return NO;
+    PruneTokens(@[Key(@"asr", self.endpoint), Key(@"polish", self.polishEndpoint)]);
     [[NSUserDefaults standardUserDefaults] setObject:@{
         @"provider":self.provider, @"endpoint":self.endpoint, @"model":self.model, @"modelPath":self.modelPath,
         @"polishEnabled":@(self.polishEnabled), @"polishEndpoint":self.polishEndpoint, @"polishModel":self.polishModel
@@ -102,12 +127,16 @@ BOOL IsEndpoint(NSString *value) {
     dispatch_once(&once, ^{ window = [self new]; });
     return window;
 }
+// The caption is an absolutely positioned label, which AppKit cannot associate with the field on
+// its own, so every field announced itself as a bare "edit text" and the two endpoints and the two
+// keys were indistinguishable under VoiceOver.
 - (NSTextField *)field:(NSString *)title y:(CGFloat)y secure:(BOOL)secure {
     NSTextField *label = [NSTextField labelWithString:title];
     label.frame = NSMakeRect(20, y + 3, 125, 22);
     [self.window.contentView addSubview:label];
     NSTextField *field = secure ? [NSSecureTextField new] : [NSTextField new];
     field.frame = NSMakeRect(150, y, 435, 25);
+    field.accessibilityLabel = title;
     [self.window.contentView addSubview:field];
     return field;
 }
@@ -118,6 +147,7 @@ BOOL IsEndpoint(NSString *value) {
     if (self) {
         window.title = @"语音输入设置";
         _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 455, 435, 28) pullsDown:NO];
+        _provider.accessibilityLabel = @"识别方式";
         [_provider addItemsWithTitles:@[@"云端识别", @"本地 Whisper"]];
         _provider.target = self; _provider.action = @selector(updateEnabled:);
         [window.contentView addSubview:_provider];
