@@ -211,11 +211,17 @@ int RunTest() {
   {
     const auto hints = metasequoia::apple::shuangpin_key_hints(true);
     Require(!hints.empty(), "Double pinyin produced no key hints.");
-    // Xiaohe puts zh on v and ing on ; — the second is unreachable on the letter grid, so a hint
-    // map that leaked it would be describing keys the keyboard does not have.
+    // Xiaohe puts zh on v and ing on k; it is the Microsoft profile that puts ing on ;. Asserting
+    // that one punctuation key is absent proved nothing, because the builder only ever emits the
+    // 26 letters it iterates. Assert the invariant the keyboard actually depends on instead: every
+    // key it describes has to exist on the letter grid.
     Require(hints.count("V") == 1 && hints.at("V").find("zh") != std::string::npos,
             "The V hint did not describe the zh initial.");
-    Require(hints.count(";") == 0, "A hint was produced for a key outside the letter grid.");
+    for (const auto &[key, hint] : hints) {
+      (void)hint;
+      Require(key.size() == 1 && key[0] >= 'A' && key[0] <= 'Z',
+              "A hint was produced for a key outside the letter grid.");
+    }
     // The engine spells the ü finals with a leading v because that is the key sequence. A person
     // reads the hint, so it has to show the vowel.
     bool showsUmlaut = false;

@@ -50,7 +50,7 @@ if(BUILD_TESTING)
     target_compile_options(MetasequoiaLocalInputModeTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME local_input_modes COMMAND MetasequoiaLocalInputModeTests)
     add_executable(MetasequoiaAppleInputSessionAdapterTests
-        platforms/ios/Tests/InputSessionAdapterTests.cpp
+        platforms/ios/tests/InputSessionAdapterTests.cpp
         shared/apple-bridge/InputSessionAdapter.cpp
         shared/apple-bridge/ShuangpinKeymap.cpp)
     target_include_directories(MetasequoiaAppleInputSessionAdapterTests PRIVATE shared/apple-bridge)
@@ -102,6 +102,13 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     endif()
     if(NOT EXISTS "${METASEQUOIA_IME_DICTIONARY}")
         message(FATAL_ERROR "Dictionary not found at ${METASEQUOIA_IME_DICTIONARY}. Run scripts/fetch_dictionary.py first.")
+    endif()
+    # The dictionary is bundled under its own file name, and everything that opens it at runtime
+    # looks for Resources/msime.db by that exact name. A differently named input produced a bundle
+    # that built, signed and packaged cleanly and then could not find its dictionary at all.
+    get_filename_component(dictionary_file_name "${METASEQUOIA_IME_DICTIONARY}" NAME)
+    if(NOT dictionary_file_name STREQUAL "msime.db")
+        message(FATAL_ERROR "METASEQUOIA_IME_DICTIONARY must point at a file named msime.db; got ${dictionary_file_name}.")
     endif()
 
     file(SHA256 "${METASEQUOIA_IME_DICTIONARY}" METASEQUOIA_IME_DICTIONARY_SHA256)
