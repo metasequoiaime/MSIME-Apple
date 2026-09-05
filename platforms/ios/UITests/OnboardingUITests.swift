@@ -31,5 +31,14 @@ final class OnboardingUITests: XCTestCase {
     wait(for: [focused], timeout: 10)
     tryoutField.typeText("test")
     XCTAssertEqual(tryoutField.value as? String, "test")
+
+    // The field had no way to put the keyboard away without leaving the app.
+    let dismissButton = app.buttons["dismissKeyboardButton"]
+    XCTAssertTrue(dismissButton.waitForExistence(timeout: 5))
+    dismissButton.tap()
+    let unfocused = expectation(
+      for: NSPredicate(format: "hasKeyboardFocus == false"), evaluatedWith: tryoutField)
+    wait(for: [unfocused], timeout: 10)
+    XCTAssertEqual(tryoutField.value as? String, "test")
   }
 }

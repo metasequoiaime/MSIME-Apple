@@ -3,6 +3,7 @@ import UIKit
 
 struct OnboardingView: View {
   @State private var sampleText = ""
+  @FocusState private var tryoutFocused: Bool
   @State private var usesShuangpin = InputSchemePreference.usesShuangpin
   @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
 
@@ -114,10 +115,22 @@ struct OnboardingView: View {
         }
 
         VStack(alignment: .leading, spacing: 10) {
-          Text("启用后试一试")
-            .font(.headline)
-            .foregroundStyle(MetasequoiaTheme.ink)
+          HStack {
+            Text("启用后试一试")
+              .font(.headline)
+              .foregroundStyle(MetasequoiaTheme.ink)
+            Spacer(minLength: 8)
+            // The field had no way to put the keyboard away, which also meant the keyboard never
+            // saw a dismissal while this app stayed in front.
+            if tryoutFocused {
+              Button("收起键盘") { tryoutFocused = false }
+                .font(.subheadline)
+                .foregroundStyle(MetasequoiaTheme.forest)
+                .accessibilityIdentifier("dismissKeyboardButton")
+            }
+          }
           TextField("在这里试试水杉键盘", text: $sampleText)
+            .focused($tryoutFocused)
             .textFieldStyle(.plain)
             .padding(.horizontal, 16)
             .frame(minHeight: 52)
