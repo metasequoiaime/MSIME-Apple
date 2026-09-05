@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum supported macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS target architectures")
 
-project(MetasequoiaImeApple VERSION 0.43.1 LANGUAGES CXX OBJCXX) # x-release-please-version
+project(MetasequoiaImeApple VERSION 0.44.0 LANGUAGES CXX OBJCXX) # x-release-please-version
 
 include(CTest)
 

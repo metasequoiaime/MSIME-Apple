@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.43.1...v0.44.0) (2026-09-05)
+
+
+### Features
+
+* **mac:** use shared Engine voice and consolidated data sources ([9c1ac5e](https://github.com/metasequoiaime/MSIME-Apple/commit/9c1ac5e0d6054f06c97fa461d9378cc0a440bde7))
+
 ## [0.43.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.43.0...v0.43.1) (2026-09-05)
 
 
