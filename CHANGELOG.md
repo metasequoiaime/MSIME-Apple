@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.44.0...v0.45.0) (2026-09-05)
+
+
+### Features
+
+* **ios:** let the tryout field put the keyboard away ([2cba7fb](https://github.com/metasequoiaime/MSIME-Apple/commit/2cba7fb22f9aed31863690a874a5877984f09fc5))
+
 ## [0.44.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.43.1...v0.44.0) (2026-09-05)
 
 
