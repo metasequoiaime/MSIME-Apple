@@ -42,6 +42,12 @@ jobs:
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
         run: brew install boost fmt spdlog nlohmann-json
+      # Against /usr/bin/python3 specifically, which is the Command Line Tools interpreter a
+      # contributor gets by default and is several minor versions behind the runner's python3. A
+      # PEP 701 f-string shipped in fetch_dictionary.py and broke build.sh on a clean machine while
+      # CI stayed green, because CI never ran it under that interpreter.
+      - name: Check the tooling parses under the stock macOS interpreter
+        run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
       - name: Validate the product lock
         run: |
           python3 scripts/check-dictionary-contract.py

@@ -67,16 +67,25 @@ def main() -> None:
     tag = data["dictionary"]["tag"]
     print(f"Fetching {tag} from {data['dictionary']['repository']}")
 
-    # Everything is verified in a staging directory first. A failed or tampered download then leaves a previous usable checkout untouched instead of half replacing it. The staging directory sits inside the output directory because that path is gitignored and on the same filesystem, so it neither dirties the submodule checkout around it nor copies across devices.
+    # Everything is verified in a staging directory first. A failed or tampered download then leaves a previous usable checkout untouched instead of half replacing it. The staging directory sits inside the output directory because vendor/MetasequoiaImeDict is gitignored and on the same filesystem, so it neither dirties the checkout around it nor copies across devices.
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    assets = data["dictionary"]["assets"]
     with tempfile.TemporaryDirectory(dir=OUTPUT_DIR) as temporary:
         incoming = Path(temporary)
         product_lock.download_assets(tag, incoming)
         product_lock.verify_assets(incoming, data)
-        print(f"verified {len(data["dictionary"]["assets"])} assets against product-lock.json")
+        # Not an f-string expression: nesting the same quote character inside one needs Python 3.12, and this script has to run under the interpreter a stock macOS ships.
+        print(f"verified {len(assets)} assets against product-lock.json")
         verify_contents(incoming)
-        for name in data["dictionary"]["assets"]:
-            shutil.copyfile(incoming / name, OUTPUT_DIR / name)
+        # Published through a rename so an interrupted publish cannot leave a truncated database that CMake, which only checks that the path exists, would happily bundle.
+        for name in assets:
+            staged = OUTPUT_DIR / f".{name}.incoming"
+            shutil.copyfile(incoming / name, staged)
+            staged.replace(OUTPUT_DIR / name)
+    # The lock names the whole product, so anything else here is left over from a different lock and would otherwise be bundled beside a dictionary it does not describe.
+    for stale in OUTPUT_DIR.iterdir():
+        if stale.is_file() and stale.name not in assets:
+            stale.unlink()
     print(f"staged into {OUTPUT_DIR}")
 
 
