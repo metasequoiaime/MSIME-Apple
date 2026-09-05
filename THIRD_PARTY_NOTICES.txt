@@ -39,14 +39,14 @@ Dictionary and helpcode data
 
 The application installs data built from these repositories:
 
-  MSIME-Dict       https://github.com/metasequoiaime/MSIME-Dict
-  MSIME-HelpCode   https://github.com/metasequoiaime/MSIME-HelpCode
+  MSIME-Engine/dictionary  https://github.com/metasequoiaime/MSIME-Engine/tree/main/dictionary
+  (imported from MSIME-HelpCode and MSIME-Dict, both now archived; the upstream attribution below is retained)
 
-Installed as msime.db and helpcodes/*.txt in the application's Resources directory. The database is the one MSIME-Dict publishes as a release asset; product-lock.json in this repository names the release and records the SHA256 of every file taken from it.
+Installed as msime.db and helpcodes/*.txt in the application's Resources directory. The database is the one MSIME-Engine publishes as a release asset; product-lock.json in this repository names the release and records the SHA256 of every file taken from it. Releases published by the archived MSIME-Dict remain available as immutable historical artefacts.
 
-Neither repository declares a license of its own, because most of their content is not their own work. They aggregate word lists and code tables from upstream projects. The upstream terms, which travel with the data, are as follows.
+The sources do not declare a license of their own, because most of their content is not their own work. They aggregate word lists and code tables from upstream projects. The upstream terms, which travel with the data, are as follows.
 
-Sources of msime.db, via MSIME-Dict:
+Sources of msime.db:
 
   rime-ice                GPL-3.0    https://github.com/iDvel/rime-ice
   CustomPinyinDictionary  none       https://github.com/wuhgit/CustomPinyinDictionary
@@ -56,7 +56,7 @@ Sources of msime.db, via MSIME-Dict:
 
 The Chinese tables that msime.db is built from (cn/BaseDictAllV1Part1.txt and cn/BaseDictAllV1Part2.txt) merge rime-ice with CustomPinyinDictionary. rime-ice is licensed under the GNU General Public License version 3, which is the same license this application is distributed under, so its terms are satisfied by the distribution as a whole; this notice serves as its attribution, and its source remains available at the URL above. The quick phrase table is written by the Metasequoia IME maintainers and is covered by that same license.
 
-Sources of helpcodes/*.txt, now packaged from MSIME-Engine/helpcode (history imported from MSIME-HelpCode):
+Sources of helpcodes/*.txt, packaged from MSIME-Engine/helpcode (history imported from the archived MSIME-HelpCode):
 
   helpcode.txt                    lantian      蓝天小雨点 helpcode scheme
   zrm_helpcode_big_unique.txt     ziranma      自然码, derived from
