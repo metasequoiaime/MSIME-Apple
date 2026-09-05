@@ -671,13 +671,13 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertFalse((MACOS_ROOT / "scripts/build_dictionary.py").exists())
         # A branch or a bare "latest" would make two builds of the same commit ship different data.
         self.assertRegex(lock["tag"], r"\Adict-\d{4}\.\d{2}\.\d{2}\Z")
-        self.assertEqual(lock["repository"], "metasequoiaime/MSIME-Dict")
+        self.assertEqual(lock["repository"], "metasequoiaime/MSIME-Engine")
         # Not read from a gitlink: MSIME-Linux#47 found its dict pin attesting to 55bd649 while the
         # shipped bytes came from 0c7368c, because nothing moves that pin when the tag does.
         self.assertRegex(lock["source_commit"], r"\A[0-9a-f]{40}\Z")
         # The digests are committed rather than taken from the SHA256SUMS.txt that travels with the
         # data, so a retagged release fails the build instead of shipping.
-        for name in ("msime.db", "SHA256SUMS.txt"):
+        for name in ("msime.db", "SHA256SUMS.txt", "dictionary-manifest.json"):
             self.assertRegex(lock["assets"][name], r"\A[0-9a-f]{64}\Z")
         self.assertIn("product_lock.verify_assets", source)
         # The probe that would have caught the old build: quick_parases comes from a stage the
