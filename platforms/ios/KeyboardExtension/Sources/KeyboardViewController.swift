@@ -770,10 +770,17 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     render(snapshot)
   }
 
+  // Gated the same way as handleSpace: a Return that commits a composition has done its job, and
+  // the newline is only the key's own character. Inserting it unconditionally appended a stray
+  // newline after every committed word, and in a field whose return key is 发送 or 完成 it also
+  // fired that field's primary action. macOS swallows Return during a composition for this reason.
   private func handleReturn() {
     playInputClick()
-    render(session.finishComposition())
-    textDocumentProxy.insertText("\n")
+    let snapshot = session.finishComposition()
+    if !snapshot.isHandled {
+      textDocumentProxy.insertText("\n")
+    }
+    render(snapshot)
   }
 
   @objc private func handleInputModeButton(_ sender: UIButton, event: UIEvent) {
