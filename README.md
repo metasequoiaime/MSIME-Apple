@@ -32,7 +32,7 @@ brew install cmake boost fmt spdlog nlohmann-json
 ./platforms/macos/scripts/build.sh
 ```
 
-构建脚本会下载 `product-lock.json` 锁定的那个 MSIME-Dict release，逐个校验 SHA256，再放到 `vendor/MetasequoiaImeDict/out/msime.db`。该数据库文件有意不纳入版本库。Windows 和 Linux 取的是同一份产物，所以三个平台分发的 `msime.db` 逐字节一致。
+构建脚本会下载 `product-lock.json` 锁定的 MSIME-Engine 词库 release，逐个校验 SHA256，再放到 `vendor/MetasequoiaImeDict/out/msime.db`。该数据库文件有意不纳入版本库。Windows 和 Linux 取的是同一份产物，所以三个平台分发的 `msime.db` 逐字节一致。
 
 换用新的词库版本：`python3 scripts/product_lock.py refresh --dictionary-tag dict-YYYY.MM.DD`，然后 review 产生的 diff。
 

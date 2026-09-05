@@ -30,6 +30,8 @@ class ProductLockTests(unittest.TestCase):
 
     def test_modern_dictionary_requires_a_compatible_locked_manifest(self):
         self.data['dictionary']['tag'] = 'dict-2026.09.06'
+        self.data['dictionary']['repository'] = lock.DICTIONARY_REPOSITORY
+        self.data['dictionary']['assets'].pop(lock.PRODUCT_MANIFEST, None)
         with self.assertRaises(ValueError):
             lock.validate(self.data)
         with tempfile.TemporaryDirectory() as temporary:
@@ -38,6 +40,7 @@ class ProductLockTests(unittest.TestCase):
             for name in lock._product.DESKTOP_FILES:
                 (directory / name).write_bytes(b'MSJPDT1\0fixture' if name == 'dict_japanese.dat' else b'fixture')
             product = {'manifest_version': 1, 'format_version': 1, 'profile': 'desktop',
+                       'source': {'repository': self.data['dictionary']['repository'], 'commit': self.data['dictionary']['source_commit'], 'dirty': False},
                        'engine_compatibility': {'dictionary_format': 1, 'japanese_model_magic': 'MSJPDT1'},
                        'files': {name: {'sha256': lock.sha256(directory / name), 'size': (directory / name).stat().st_size}
                                  for name in lock._product.DESKTOP_FILES}}
@@ -47,6 +50,13 @@ class ProductLockTests(unittest.TestCase):
                 self.data['dictionary']['assets'][name] = lock.sha256(directory / name)
             lock.validate(self.data)
             lock.verify_assets(directory, self.data)
+            original_commit = product['source']['commit']
+            product['source']['commit'] = 'f' * 40
+            manifest_path.write_text(json.dumps(product))
+            self.data['dictionary']['assets'][lock.PRODUCT_MANIFEST] = lock.sha256(manifest_path)
+            with self.assertRaises(ValueError):
+                lock.verify_assets(directory, self.data)
+            product['source']['commit'] = original_commit
             # Even a deliberately updated digest cannot declare an unsupported format compatible.
             product['format_version'] = 2
             manifest_path.write_text(json.dumps(product))
@@ -59,6 +69,23 @@ class ProductLockTests(unittest.TestCase):
             value = (name + " fixture").encode()
             (directory / name).write_bytes(value)
             self.data["dictionary"]["assets"][name] = hashlib.sha256(value).hexdigest()
+
+        if lock.PRODUCT_MANIFEST in self.data['dictionary']['assets']:
+            for name in lock._product.DESKTOP_FILES:
+                path = directory / name
+                if not path.exists():
+                    path.write_bytes(b'fixture')
+                if name == 'dict_japanese.dat':
+                    path.write_bytes(b'MSJPDT1\0fixture')
+            product = {'manifest_version': 1, 'format_version': 1, 'profile': 'desktop',
+                       'source': {'repository': self.data['dictionary']['repository'],
+                                  'commit': self.data['dictionary']['source_commit'], 'dirty': False},
+                       'engine_compatibility': {'dictionary_format': 1, 'japanese_model_magic': 'MSJPDT1'},
+                       'files': {name: {'sha256': lock.sha256(directory / name), 'size': (directory / name).stat().st_size}
+                                 for name in lock._product.DESKTOP_FILES}}
+            (directory / lock.PRODUCT_MANIFEST).write_text(json.dumps(product))
+            for name in self.data['dictionary']['assets']:
+                self.data['dictionary']['assets'][name] = lock.sha256(directory / name)
 
     def test_mutable_dictionary_tags_are_rejected(self):
         for tag in ("latest", "main", "../dict-test", "dict-test\n", ""):
