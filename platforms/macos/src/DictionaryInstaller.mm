@@ -376,8 +376,15 @@ BOOL CleanupOrphanedResetTemporaryFiles(NSFileManager *fileManager, NSURL *dataD
     for (NSURL *item in contents)
     {
         NSString *name = item.lastPathComponent;
+        // The install and the helpcode refresh stage under their own UUID and only unwind on the
+        // error paths inside their own function, so a process killed mid-copy leaked the staged
+        // file forever — a full dictionary copy in the case of .msime.db.installing. Every caller
+        // reaches this sweep before staging anything of its own.
         if (![name hasPrefix:@".msime.db.resetting."] &&
             ![name hasPrefix:@".msime.db.sha256.resetting."] &&
+            ![name hasPrefix:@".msime.db.installing."] &&
+            ![name hasPrefix:@".helpcodes.installing."] &&
+            ![name hasPrefix:@".helpcodes.backup."] &&
             ![name hasPrefix:@".metasequoia-learning-reset.tmp."])
         {
             continue;
@@ -563,6 +570,20 @@ BOOL InstallMetasequoiaDictionary(NSURL *source, NSURL *dataDirectory, NSString 
         {
             [fileManager removeItemAtURL:temporary error:nil];
             return NO;
+        }
+
+        // A rollback journal carries no identity of the database it belongs to, so one left behind
+        // by an unclean shutdown would be replayed onto whatever now sits at the msime.db path —
+        // here, a different dictionary. The reset path already discards these; the swap has to as
+        // well. Removed after the swap, never before, so a failure here cannot strip a live
+        // database of the journal it still needs.
+        for (NSString *sidecarName in @[@"msime.db-journal", @"msime.db-wal", @"msime.db-shm"])
+        {
+            NSURL *sidecar = [dataDirectory URLByAppendingPathComponent:sidecarName isDirectory:NO];
+            if (!RemoveIfPresent(fileManager, sidecar, error))
+            {
+                return NO;
+            }
         }
 
         return [dictionaryFingerprint writeToURL:fingerprintFile

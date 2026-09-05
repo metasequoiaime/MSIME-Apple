@@ -578,8 +578,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("productsign", package_script)
         self.assertIn("notarytool", package_script)
         self.assertIn("Commercial release signing requires", package_script)
-        self.assertIn("SUEnableAutomaticChecks false", package_script)
-        self.assertIn("feed that cannot provide a trusted update", package_script)
+        # The appcast is published for unsigned releases too, so packaging must not turn automatic
+        # checks off for them.
+        self.assertNotIn("SUEnableAutomaticChecks", package_script)
+        self.assertIn("METASEQUOIA_VOICE_ENTITLEMENTS", package_script)
+        self.assertIn("Voice input entitlements not found at", package_script)
+        self.assertNotIn("${0:A:h:h}/resources", package_script)
         postinstall_script = MACOS_ROOT / "scripts/pkg-postinstall.sh"
         self.assertTrue(postinstall_script.is_file())
         self.assertIn("launchctl asuser", postinstall_script.read_text())

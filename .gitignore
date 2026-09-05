@@ -1,5 +1,7 @@
 /build*/
 /.DS_Store
+# Where fetch_dictionary.py stages the ~100 MB released dictionary. It stopped being a submodule, so nothing else ignores it, and a routine `git add -A` would try to commit a file over GitHub's 100 MiB limit.
+/vendor/MetasequoiaImeDict/
 /platforms/ios/KeyboardExtension/Resources/msime.db
 /platforms/ios/KeyboardExtension/Resources/msime.db.sha256
 /platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json

@@ -52,7 +52,7 @@ MSIME-Apple/
 │       │   ├── Sources/
 │       │   └── Resources/
 │       ├── SharedUI/
-│       └── Tests/
+│       └── tests/
 ├── shared/
 │   └── apple-bridge/
 │       ├── include/

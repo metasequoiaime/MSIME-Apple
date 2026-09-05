@@ -1,9 +1,14 @@
 #!/bin/zsh
 set -euo pipefail
 
-voice_entitlements=${0:A:h:h}/resources/VoiceInput.entitlements
 project_root=${METASEQUOIA_PROJECT_ROOT:-${0:A:h:h:h:h}}
 project_root=${project_root:A}
+# Derived from the project root like every other input. It used to be derived from $0, which is the
+# script's own location: the release workflow stages this script into $RUNNER_TEMP and runs it from
+# there, so the path resolved outside the checkout entirely. Only the signed branch reads it, which
+# is why unsigned releases never noticed.
+voice_entitlements=${METASEQUOIA_VOICE_ENTITLEMENTS:-$project_root/platforms/macos/resources/VoiceInput.entitlements}
+voice_entitlements=${voice_entitlements:A}
 install_script=${METASEQUOIA_RELEASE_INSTALL_SCRIPT:-$project_root/platforms/macos/scripts/install-release.sh}
 install_script=${install_script:A}
 uninstall_script=${METASEQUOIA_RELEASE_UNINSTALL_SCRIPT:-$project_root/platforms/macos/scripts/uninstall.sh}
@@ -14,6 +19,10 @@ settings_capability_marker="$project_root/platforms/macos/scripts/open-settings.
 include_settings_launcher=false
 installer_distribution=${METASEQUOIA_INSTALLER_DISTRIBUTION:-$project_root/platforms/macos/resources/InstallerDistribution.xml.in}
 installer_distribution=${installer_distribution:A}
+# The one script in the .pkg that macOS runs on its own at install time, so it takes the same
+# trusted-checkout override as the other installer scripts rather than coming from the release tag.
+postinstall_script=${METASEQUOIA_RELEASE_POSTINSTALL_SCRIPT:-$project_root/platforms/macos/scripts/pkg-postinstall.sh}
+postinstall_script=${postinstall_script:A}
 tag_name=${1:-}
 source_bundle=${2:-$project_root/build/MetasequoiaIME.app}
 output_dir=${3:-$project_root/dist}
@@ -78,6 +87,14 @@ if [[ -f "$settings_capability_marker" ]]; then
 fi
 if [[ ! -f "$installer_distribution" ]]; then
     print -u2 "Installer distribution template not found at $installer_distribution"
+    exit 1
+fi
+if [[ ! -f "$voice_entitlements" ]]; then
+    print -u2 "Voice input entitlements not found at $voice_entitlements"
+    exit 1
+fi
+if [[ ! -f "$postinstall_script" ]]; then
+    print -u2 "Installer postinstall script not found at $postinstall_script"
     exit 1
 fi
 bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_bundle/Contents/Info.plist")
@@ -159,12 +176,10 @@ ditto "$source_bundle" "$packaged_bundle"
 mkdir -p "$packaged_bundle/Contents/Resources"
 ditto "$uninstall_script" "$bundled_uninstaller"
 chmod +x "$bundled_uninstaller"
-if [[ "$require_release_signing" != true ]]; then
-    # Unsigned releases intentionally omit appcast.xml, so avoid polling a
-    # feed that cannot provide a trusted update until a signed build is installed.
-    /usr/libexec/PlistBuddy -c 'Set :SUEnableAutomaticChecks false' \
-        "$packaged_bundle/Contents/Info.plist"
-fi
+# Automatic update checks stay at the Info.plist default for every release mode. Unsigned releases
+# do publish appcast.xml — generate-sparkle-appcast.sh accepts the -unsigned-update.zip asset and
+# the feed is signed with the project's Ed25519 update key, which is independent of Apple signing —
+# so disabling checks here left every installed copy blind to updates that were already published.
 if [[ -n "$application_identity" ]]; then
     codesign --force --deep --options runtime --timestamp --entitlements "$voice_entitlements" --sign "$application_identity" "$packaged_bundle"
 else
@@ -190,7 +205,7 @@ fi
 chmod +x "$package_root/Install.command"
 chmod +x "$package_root/Uninstall.command"
 mkdir -p "$pkg_scripts"
-ditto "$project_root/platforms/macos/scripts/pkg-postinstall.sh" "$pkg_scripts/postinstall"
+ditto "$postinstall_script" "$pkg_scripts/postinstall"
 chmod +x "$pkg_scripts/postinstall"
 if [[ -n "$notary_profile" ]]; then
     notary_input="$staging_root/MetasequoiaIME-notary.zip"

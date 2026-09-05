@@ -143,6 +143,7 @@ jobs:
             platforms/macos/scripts/install-release.sh
             platforms/macos/scripts/open-settings.sh
             platforms/macos/scripts/uninstall.sh
+            platforms/macos/scripts/pkg-postinstall.sh
             platforms/macos/scripts/package_release.sh
             platforms/macos/scripts/generate-sparkle-appcast.sh
             platforms/macos/scripts/publish-release.sh
@@ -154,6 +155,7 @@ jobs:
           install -m 0755 .release-automation/platforms/macos/scripts/install-release.sh "$RUNNER_TEMP/install-release.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/open-settings.sh "$RUNNER_TEMP/open-settings.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/uninstall.sh "$RUNNER_TEMP/uninstall.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/pkg-postinstall.sh "$RUNNER_TEMP/pkg-postinstall.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/package_release.sh "$RUNNER_TEMP/package-release.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/generate-sparkle-appcast.sh "$RUNNER_TEMP/generate-sparkle-appcast.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/publish-release.sh "$RUNNER_TEMP/publish-release.sh"
@@ -240,6 +242,7 @@ jobs:
           METASEQUOIA_RELEASE_INSTALL_SCRIPT: ${{ runner.temp }}/install-release.sh
           METASEQUOIA_RELEASE_SETTINGS_SCRIPT: ${{ runner.temp }}/open-settings.sh
           METASEQUOIA_RELEASE_UNINSTALL_SCRIPT: ${{ runner.temp }}/uninstall.sh
+          METASEQUOIA_RELEASE_POSTINSTALL_SCRIPT: ${{ runner.temp }}/pkg-postinstall.sh
           METASEQUOIA_INSTALLER_DISTRIBUTION: ${{ runner.temp }}/InstallerDistribution.xml.in
         run: exec "$RUNNER_TEMP/package-release.sh" "$TAG_NAME" build/MetasequoiaIME.app dist
       - name: Detect the Sparkle update key

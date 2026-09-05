@@ -29,6 +29,8 @@ user_data="$home_directory/Library/Application Support/metasequoiaime"
 preferences_domain="com.houko.inputmethod.MetasequoiaIME"
 preferences_file="$home_directory/Library/Preferences/$preferences_domain.plist"
 defaults_command=${METASEQUOIA_DEFAULTS_COMMAND:-/usr/bin/defaults}
+security_command=${METASEQUOIA_SECURITY_COMMAND:-/usr/bin/security}
+keychain_service="$preferences_domain.voice"
 
 path_exists() {
     [[ -e "$1" || -L "$1" ]]
@@ -201,9 +203,34 @@ if [[ "$remove_user_data" == true && "$preferences_present" == true ]]; then
 fi
 uninstall_complete=true
 
+# The voice input API keys live in the login keychain, not in the preferences domain, so removing
+# user data used to leave the user's cloud bearer tokens behind forever. Deleting a keychain item
+# cannot be rolled back, so this runs only once everything reversible has already succeeded, and a
+# failure here is reported rather than failing the uninstall that already happened. The loop drains
+# the service because editing an endpoint could leave an item per origin.
+keychain_items_removed=0
+keychain_cleanup_failed=false
+if [[ "$remove_user_data" == true ]]; then
+    if [[ -x "$security_command" ]]; then
+        while "$security_command" delete-generic-password -s "$keychain_service" >/dev/null 2>&1; do
+            (( keychain_items_removed += 1 ))
+            if (( keychain_items_removed >= 32 )); then
+                break
+            fi
+        done
+    else
+        keychain_cleanup_failed=true
+    fi
+fi
+
 print "MetasequoiaIME was moved to Trash: $recovery_root"
 if [[ "$remove_user_data" == true ]]; then
     print "User data was moved to Trash."
+    if [[ "$keychain_cleanup_failed" == true ]]; then
+        print "The macOS security command was unavailable; remove the \"$keychain_service\" keychain items manually."
+    elif (( keychain_items_removed > 0 )); then
+        print "Removed $keychain_items_removed voice input key(s) from the login keychain."
+    fi
 else
     print "User data was preserved at $user_data"
 fi

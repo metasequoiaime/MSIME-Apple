@@ -2,7 +2,7 @@
   "schema_version": 1,
   "dictionary": {
     "repository": "metasequoiaime/MSIME-Engine",
-    "tag": "dict-2026.09.06",
+    "tag": "dict-v1.0.0",
     "source_commit": "d0dc0c2b594b5540b5de99ad12085c786410626e",
     "assets": {
       "msime.db": "9e68e88be036206fc14d44db7111376b1d92f9173b04d623e601e31edd664c2f",

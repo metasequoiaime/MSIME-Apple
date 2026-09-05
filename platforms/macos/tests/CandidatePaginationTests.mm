@@ -67,9 +67,11 @@ static void Require(bool condition, const char *message)
 // session without registering an input source or touching the installed dictionary.
 @interface MetasequoiaInputController (PaginationTestFixture)
 - (void)prepareTestPanel:(RecordingCandidatePanel *)panel;
+- (void)prepareEmptyTestPanel:(RecordingCandidatePanel *)panel;
 - (NSUInteger)testCandidateCount;
 - (void)preparePartialInput;
 - (NSString *)testCandidateAtIndex:(NSUInteger)index;
+- (BOOL)testHasComposition;
 @end
 @implementation MetasequoiaInputController (PaginationTestFixture)
 - (void)prepareTestPanel:(RecordingCandidatePanel *)panel
@@ -80,6 +82,15 @@ static void Require(bool condition, const char *message)
     for (char character : std::string("nihao")) _session->handle_character(character);
     [self updateCandidatePanel];
 }
+// Leaves the session empty so a test can drive every keystroke through handleEvent:client: instead
+// of writing into the session directly.
+- (void)prepareEmptyTestPanel:(RecordingCandidatePanel *)panel
+{
+    _candidatePanel = (MetasequoiaCandidatePanel *)panel;
+    _session.reset();
+    [self reloadSessionFromPreferences];
+}
+- (BOOL)testHasComposition { return _session != nullptr && _session->has_composition(); }
 - (void)preparePartialInput
 {
     _session = std::make_unique<metasequoia::InputSession>(SchemeType::Quanpin, true, false, true, false);
@@ -323,6 +334,67 @@ static void RunVoiceTests() {
     [controller cancelVoiceInput]; voice.pending=nil;
 }
 
+// Full-width mode used to convert every letter before the engine saw it, which made Chinese input
+// impossible while it was on, and 启用本地输入模式 was only ever applied to a session at the moment
+// it was constructed, so toggling it did nothing to the session the user was already typing in.
+static void RunFullWidthAndLocalModeTests()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *baseDefaults = @{@"MetasequoiaImeFullWidthInputEnabled": @YES,
+                                   @"MetasequoiaImeCandidateLearning": @NO,
+                                   @"MetasequoiaImeHelpcodeEnabled": @NO,
+                                   @"MetasequoiaImeCandidatePageSize": @9};
+    [defaults setVolatileDomain:baseDefaults forName:NSArgumentDomain];
+
+    PaginationTestController *controller = [PaginationTestController new];
+    RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+    controller.testClient = [RecordingInputClient new];
+    [controller prepareEmptyTestPanel:panel];
+
+    for (NSString *letter in @[@"n", @"i", @"h", @"a", @"o"])
+    {
+        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+                                         timestamp:0 windowNumber:0 context:nil characters:letter
+                       charactersIgnoringModifiers:letter isARepeat:NO keyCode:kVK_ANSI_N];
+        Require([controller handleEvent:event client:controller.testClient],
+                "Full-width mode did not route a letter into the session.");
+    }
+    Require([controller testHasComposition],
+            "Full-width mode swallowed the letters instead of starting a composition.");
+    Require(controller.testClient.committed == nil,
+            "Full-width mode committed a letter that should have been composed.");
+    Require(panel.visible && panel.data.count > 0, "Full-width mode suppressed the candidate window.");
+
+    NSEvent *escape = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+                                      timestamp:0 windowNumber:0 context:nil characters:@""
+                    charactersIgnoringModifiers:@"" isARepeat:NO keyCode:53];
+    Require([controller handleEvent:escape client:controller.testClient] && ![controller testHasComposition],
+            "Escape did not cancel the full-width composition fixture.");
+    controller.testClient.committed = nil;
+
+    // A capital is not composable, so it still comes back through the post-engine fallback and is
+    // the character full-width mode is actually meant to convert.
+    NSEvent *capital = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                   modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0
+                                         context:nil characters:@"U" charactersIgnoringModifiers:@"U"
+                                       isARepeat:NO keyCode:kVK_ANSI_U];
+    Require([controller handleEvent:capital client:controller.testClient] &&
+                [controller.testClient.committed isEqualToString:@"Ｕ"],
+            "Full-width mode did not convert a capital the session declined.");
+    controller.testClient.committed = nil;
+
+    // Flipped after the session exists. It used to take effect only on the next rebuild, so the
+    // trigger stayed dead in the window the user had just changed the setting for.
+    NSMutableDictionary *withLocalModes = [baseDefaults mutableCopy];
+    withLocalModes[@"MetasequoiaImeLocalInputModesEnabled"] = @YES;
+    [defaults setVolatileDomain:withLocalModes forName:NSArgumentDomain];
+    Require([controller handleEvent:capital client:controller.testClient] &&
+                controller.testClient.committed == nil,
+            "Enabling 启用本地输入模式 did not reach the running session.");
+
+    [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
+}
+
 int main()
 {
     @autoreleasepool
@@ -347,7 +419,7 @@ int main()
             "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER)",
             nullptr, nullptr, nullptr) == SQLITE_OK, "Cannot create partial-selection fixture.");
         sqlite3_close(database);
-        try { RunTests(); RunVoiceTests(); }
+        try { RunTests(); RunVoiceTests(); RunFullWidthAndLocalModeTests(); }
         catch (const std::exception &error)
         {
             fprintf(stderr, "%s\n", error.what());
