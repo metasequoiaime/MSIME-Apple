@@ -275,15 +275,12 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("InputSnapshot open_local_mode(char trigger);", adapter_header)
         self.assertIn("openLocalMode:", bridge_header)
 
-        # A mode cannot open on top of a composition, and the engine guards every trigger on that,
-        # so the bridge has to refuse rather than hand the capital over as helpcode.
-        opener = adapter.split("InputSessionAdapter::open_local_mode", 1)[1].split("\n}", 1)[0]
-        self.assertIn("impl_->session.has_composition()", opener)
-        self.assertIn("handle_character(trigger, true)", opener)
+        # InputSessionAdapterTests exercises idle and in-composition mode triggers through the
+        # real adapter. Do not couple this packaging check to the engine facade's method names.
 
         # Only the four this frontend can answer. The rest read others.db, english.db or
         # dict_japanese.dat, none of which are packaged.
-        options = adapter.split("LocalModeOptions options;", 1)[1].split("set_local_mode_options", 1)[0]
+        options = adapter.split("LocalModeOptions options;", 1)[1].split("return session_options", 1)[0]
         for enabled in ("unicode", "date_time", "super_jianpin"):
             self.assertIn(f"options.{enabled} = true;", options)
         # quick_phrase reads quick_parases and temporary_japanese reads dict_japanese.dat, neither of

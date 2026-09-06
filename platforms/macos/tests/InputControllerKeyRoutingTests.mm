@@ -101,20 +101,18 @@ int main()
 
     const std::filesystem::path helpcodeDataDirectory =
         std::filesystem::path(__FILE__).parent_path() / "../../../vendor/MetasequoiaImeEngine/helpcode";
-    require(setenv("METASEQUOIA_IME_DATA_DIR", helpcodeDataDirectory.lexically_normal().c_str(), 1) == 0,
-            "The candidate display test could not select its helpcode data.");
-    require(HelpcodeUtils::select_helpcode_schema(metasequoia::mac::HelpcodeSchemaIdentifier(1)) &&
-                CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true) == "你(rE)" &&
-                HelpcodeUtils::select_helpcode_schema(metasequoia::mac::HelpcodeSchemaIdentifier(2)) &&
-                CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true) == "你(rP)" &&
-                HelpcodeUtils::select_helpcode_schema(metasequoia::mac::HelpcodeSchemaIdentifier(3)) &&
-                CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true) == "你(rG)" &&
-                HelpcodeUtils::select_helpcode_schema(metasequoia::mac::HelpcodeSchemaIdentifier(4)) &&
-                CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true) == "你(rX)" &&
-                HelpcodeUtils::select_helpcode_schema(metasequoia::mac::HelpcodeSchemaIdentifier(0)),
-            "A configured helpcode scheme did not select its packaged engine table.");
-    require(CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true) == "你(rX)" &&
-                CandidateDisplayText(WordItem{"nimen", "你们", 1}, SchemeType::Shuangpin, true) == "你们(rR)",
+    const char *expected[] = {"你(rX)", "你(rE)", "你(rP)", "你(rG)", "你(rX)"};
+    const auto lantian = HelpcodeUtils::load_helpcode_keymap(helpcodeDataDirectory, "lantian");
+    for (int schema = 0; schema < 5; ++schema)
+    {
+        const auto table = HelpcodeUtils::load_helpcode_keymap(
+            helpcodeDataDirectory, metasequoia::mac::HelpcodeSchemaIdentifier(schema));
+        require(CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true, table.get()) == expected[schema],
+                "A configured helpcode scheme did not select its packaged engine table.");
+        require(CandidateDisplayText(WordItem{"ni", "你", 1}, SchemeType::Quanpin, true, lantian.get()) == "你(rX)",
+                "Loading another display keymap changed an existing one.");
+    }
+    require(CandidateDisplayText(WordItem{"nimen", "你们", 1}, SchemeType::Shuangpin, true, lantian.get()) == "你们(rR)",
             "Pinyin candidate display did not append the configured auxiliary code.");
     // A helpcode annotates a word the user could have typed in pinyin. compute_helpcodes still
     // finds Han characters in a synthesised candidate and appends letters for them, so "2026年9月6日"
@@ -134,7 +132,7 @@ int main()
     require(CandidateDisplayText(WordItem{"T", "2026年9月6日", 1}, SchemeType::Quanpin, false) ==
                 "2026年9月6日",
             "A date candidate did not come back unannotated.");
-    require(CandidateDisplayText(WordItem{"T", "2026年9月6日", 1}, SchemeType::Quanpin, true) !=
+    require(CandidateDisplayText(WordItem{"T", "2026年9月6日", 1}, SchemeType::Quanpin, true, lantian.get()) !=
                 "2026年9月6日",
             "The annotation this rule exists to suppress no longer happens, so the rule is dead.");
 

@@ -23,7 +23,6 @@
 #include "CandidateSelectionState.h"
 #include "InputControllerKeyRouting.h"
 #include "core/input_session.h"
-#include "common/helpcode_utils.h"
 
 #import <Carbon/Carbon.h>
 
@@ -98,6 +97,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 {
     std::unique_ptr<metasequoia::InputSession> _session;
     std::string _activeHelpcodeSchema;
+    HelpcodeUtils::SharedKeymap _activeHelpcodeKeymap;
     metasequoia::mac::CandidateSelectionState _candidateSelection;
     MetasequoiaCandidatePanel *_candidatePanel;
     MetasequoiaFloatingToolbarPanel *_floatingToolbarPanel;
@@ -218,7 +218,8 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     }
     if (_session != nullptr && _session->has_composition())
     {
-        HelpcodeUtils::select_helpcode_schema(_activeHelpcodeSchema);
+        // Keep the scheme chosen when this composition began. Preferences from another
+        // controller must not change the helpcodes of this live session.
         return;
     }
 
@@ -229,7 +230,6 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     [_candidatePanel setAttributes:metasequoia::mac::CandidatePanelAttributes(preferences.candidateFontSize)];
     _wubiAutoCommitUniqueEnabled = preferences.wubiAutoCommitUniqueEnabled;
     const bool helpcodeSchemaMatches = _activeHelpcodeSchema == preferences.helpcodeSchema;
-    HelpcodeUtils::select_helpcode_schema(preferences.helpcodeSchema);
     _activeHelpcodeSchema = preferences.helpcodeSchema;
     // Applied above the early return, like every other preference a live session can take. It used
     // to be applied only to a freshly constructed session, and SessionMatchesPreferences does not
@@ -240,9 +240,12 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     {
         return;
     }
+    const auto paths = metasequoia::RuntimePaths::legacy();
     _session = std::make_unique<metasequoia::InputSession>(
         preferences.scheme, preferences.autocorrectEnabled, preferences.helpcodeEnabled,
-        preferences.chinesePunctuationEnabled, preferences.candidateLearningEnabled);
+        preferences.chinesePunctuationEnabled, preferences.candidateLearningEnabled, paths);
+    _session->set_helpcode_schema(preferences.helpcodeSchema);
+    _activeHelpcodeKeymap = HelpcodeUtils::load_helpcode_keymap(paths.resources, preferences.helpcodeSchema);
     [self applyLocalInputModeOptions];
     _candidateSelection.reset();
     _candidateHighlightedIndex = 0;
@@ -791,7 +794,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     for (const WordItem &candidate : _session->candidates())
     {
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
-            candidate, _session->scheme_type(), annotateHelpcodes));
+            candidate, _session->scheme_type(), annotateHelpcodes, _activeHelpcodeKeymap.get()));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
         [data addObject:MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex)];
         ++candidateIndex;

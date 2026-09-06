@@ -18,6 +18,17 @@ This repository is named `MSIME-Apple` because it contains Apple-platform adapte
 
 The engine is the only authority for a composition and its candidates. A platform frontend translates native events into engine calls, renders the returned state, and inserts committed text through the platform API.
 
+The iOS bridge now uses the public `<metasequoia/session.h>` facade: editing actions return commits,
+and value snapshots supply preedit and candidates. macOS still uses the compatibility `InputSession`
+interface directly. Both consume the same pinned Engine. macOS configures helpcodes on each session
+and keeps a matching immutable keymap for candidate annotations; one controller cannot change another
+controller's live scheme. Keymaps are prepared when a session is created, not on each keystroke.
+
+The existing installers and dictionary profiles remain in use. `RuntimePaths::legacy()` captures
+their directory layout when a session is created. Separate immutable resource generations and the
+complete desktop resource ZIP are follow-up migrations; the facade change does not enable extra
+local modes or require desktop dictionaries in the mobile keyboard.
+
 ```text
 MetasequoiaImeEngine (C++17)
           |

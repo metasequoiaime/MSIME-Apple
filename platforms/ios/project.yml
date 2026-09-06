@@ -73,6 +73,7 @@ targets:
           - $(inherited)
           - $(PROJECT_DIR)/../../shared/apple-bridge
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/include
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/utfcpp/source
           - $(BREW_PREFIX)/include
         SKIP_INSTALL: YES

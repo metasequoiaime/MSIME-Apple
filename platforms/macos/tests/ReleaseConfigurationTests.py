@@ -501,8 +501,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertNotIn("Schema", helpcode_enabled_setter)
         self.assertIn("全拼辅助码方案", preferences_controller)
         self.assertIn("双拼辅助码方案", preferences_controller)
-        input_controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
-        self.assertIn("HelpcodeUtils::select_helpcode_schema", input_controller)
+        # Runtime schema selection and isolation are exercised by CandidatePaginationTests;
+        # do not require the retired process-global selector's spelling in the controller.
         self.assertIn("storedChinesePunctuationEnabled", preferences_controller)
         self.assertIn("setChinesePunctuationEnabled", preferences_controller)
         self.assertIn("使用中文标点", preferences_controller)

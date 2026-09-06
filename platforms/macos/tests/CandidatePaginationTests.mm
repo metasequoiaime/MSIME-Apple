@@ -72,6 +72,8 @@ static void Require(bool condition, const char *message)
 - (void)preparePartialInput;
 - (NSString *)testCandidateAtIndex:(NSUInteger)index;
 - (BOOL)testHasComposition;
+- (void)prepareHelpcodeProbe;
+- (void)refreshHelpcodeProbe;
 @end
 @implementation MetasequoiaInputController (PaginationTestFixture)
 - (void)prepareTestPanel:(RecordingCandidatePanel *)panel
@@ -91,6 +93,16 @@ static void Require(bool condition, const char *message)
     [self reloadSessionFromPreferences];
 }
 - (BOOL)testHasComposition { return _session != nullptr && _session->has_composition(); }
+- (void)prepareHelpcodeProbe
+{
+    for (char character : std::string("niA")) _session->handle_character(character);
+}
+- (void)refreshHelpcodeProbe
+{
+    [self reloadSessionFromPreferences];
+    _session->handle_command(metasequoia::Command::Backspace);
+    _session->handle_character('A');
+}
 - (void)preparePartialInput
 {
     _session = std::make_unique<metasequoia::InputSession>(SchemeType::Quanpin, true, false, true, false);
@@ -445,6 +457,53 @@ static void RunChinesePunctuationTests()
     [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
 }
 
+static void RunHelpcodeIsolationTests(NSString *directory)
+{
+    // Add these candidates after the pagination fixtures, whose expected list has 12 entries.
+    sqlite3 *database = nullptr;
+    Require(sqlite3_open([directory stringByAppendingPathComponent:@"msime.db"].fileSystemRepresentation,
+                         &database) == SQLITE_OK, "Cannot open helpcode fixture.");
+    const int result = sqlite3_exec(database,
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+        "INSERT INTO tbl_1_n VALUES('ni','n','你',100),('ni','n','妮',90)", nullptr, nullptr, nullptr);
+    sqlite3_close(database);
+    Require(result == SQLITE_OK, "Cannot create helpcode fixture.");
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSMutableDictionary *preferences = [@{
+        @"MetasequoiaImeInputScheme": @0,
+        @"MetasequoiaImeHelpcodeEnabled": @YES,
+        @"MetasequoiaImeCandidateLearning": @NO,
+        @"MetasequoiaImeQuanpinHelpcodeSchema": @0,
+    } mutableCopy];
+    [defaults setVolatileDomain:preferences forName:NSArgumentDomain];
+    PaginationTestController *first = [[PaginationTestController alloc] init];
+    [first prepareEmptyTestPanel:[[RecordingCandidatePanel alloc] init]];
+    [first prepareHelpcodeProbe];
+    Require([first testCandidateCount] > 0 && [[first testCandidateAtIndex:0] isEqualToString:@"你"],
+            "The first controller did not apply its Lantian helpcodes.");
+
+    preferences[@"MetasequoiaImeQuanpinHelpcodeSchema"] = @1;
+    [defaults setVolatileDomain:preferences forName:NSArgumentDomain];
+    PaginationTestController *second = [[PaginationTestController alloc] init];
+    [second prepareEmptyTestPanel:[[RecordingCandidatePanel alloc] init]];
+    [second prepareHelpcodeProbe];
+    Require([second testCandidateCount] > 0 && [[second testCandidateAtIndex:0] isEqualToString:@"妮"],
+            "The second controller did not apply its Ziranma helpcodes.");
+
+    [first refreshHelpcodeProbe];
+    Require([[first testCandidateAtIndex:0] isEqualToString:@"你"],
+            "Reloading preferences changed the first controller's live composition schema.");
+    [second refreshHelpcodeProbe];
+    Require([[second testCandidateAtIndex:0] isEqualToString:@"妮"],
+            "Another controller changed this session's helpcodes.");
+
+    [first prepareEmptyTestPanel:[[RecordingCandidatePanel alloc] init]];
+    [first prepareHelpcodeProbe];
+    Require([[first testCandidateAtIndex:0] isEqualToString:@"妮"],
+            "A new composition did not pick up the updated schema preference.");
+    [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
+}
+
 int main()
 {
     @autoreleasepool
@@ -453,6 +512,12 @@ int main()
         NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         std::filesystem::create_directories(directory.fileSystemRepresentation);
         setenv("METASEQUOIA_IME_DATA_DIR", directory.fileSystemRepresentation, 1);
+        NSString *helpcodeDirectory = [directory stringByAppendingPathComponent:@"helpcodes"];
+        std::filesystem::create_directories(helpcodeDirectory.fileSystemRepresentation);
+        Require([@"你=ab\n妮=cd\n" writeToFile:[helpcodeDirectory stringByAppendingPathComponent:@"helpcode.txt"]
+                                   atomically:YES encoding:NSUTF8StringEncoding error:nil], "Cannot write Lantian fixture.");
+        Require([@"你=cb\n妮=ad\n" writeToFile:[helpcodeDirectory stringByAppendingPathComponent:@"zrm_helpcode_big_unique.txt"]
+                                   atomically:YES encoding:NSUTF8StringEncoding error:nil], "Cannot write Ziranma fixture.");
         sqlite3 *database = nullptr;
         Require(sqlite3_open([directory stringByAppendingPathComponent:@"msime.db"].fileSystemRepresentation, &database) == SQLITE_OK, "Cannot create fixture.");
         Require(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER)", nullptr, nullptr, nullptr) == SQLITE_OK, "Cannot create table.");
@@ -469,7 +534,7 @@ int main()
             "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER)",
             nullptr, nullptr, nullptr) == SQLITE_OK, "Cannot create partial-selection fixture.");
         sqlite3_close(database);
-        try { RunTests(); RunVoiceTests(); RunFullWidthAndLocalModeTests(); RunChinesePunctuationTests(); }
+        try { RunTests(); RunVoiceTests(); RunFullWidthAndLocalModeTests(); RunChinesePunctuationTests(); RunHelpcodeIsolationTests(directory); }
         catch (const std::exception &error)
         {
             fprintf(stderr, "%s\n", error.what());
