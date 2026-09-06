@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.48.3](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.48.2...v0.48.3) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ios:** use distribution profiles for TestFlight ([e79b19d](https://github.com/metasequoiaime/MSIME-Apple/commit/e79b19d4d33bd2a267be66c0879150609a74c826))
+* **ios:** use distribution profiles for TestFlight ([402ddcd](https://github.com/metasequoiaime/MSIME-Apple/commit/402ddcdc24a27a8fd9f746866b65da04de4f872c))
+* **release:** keep missing testflight profiles non-blocking ([9da4854](https://github.com/metasequoiaime/MSIME-Apple/commit/9da485434dbb9a94aee254cc3c78a5b7f222f573))
+* **release:** keep missing TestFlight profiles non-blocking ([1c305ca](https://github.com/metasequoiaime/MSIME-Apple/commit/1c305ca770019e303d14b4eff88e9485725b6849))
+* **release:** merge testflight signing updates ([0c4cfef](https://github.com/metasequoiaime/MSIME-Apple/commit/0c4cfef62da4fdf0fcb56636c774c68e9f381d7b))
+
 ## [0.48.2](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.48.1...v0.48.2) (2026-09-06)
 
 
