@@ -60,7 +60,7 @@ MSIME-Apple/
 │       └── tests/
 ├── vendor/
 │   ├── MetasequoiaImeEngine/
-│   └── MetasequoiaImeDict/out/   # 从 MSIME-Dict release 下载，非 submodule
+│   └── MetasequoiaImeDict/out/   # 从 MSIME-Engine release 下载，非 submodule
 ├── cmake/
 ├── docs/
 └── CMakeLists.txt

@@ -10,7 +10,7 @@ public:
   explicit Impl(SchemeType scheme = SchemeType::Quanpin)
       : session{scheme, true, true, true, false} {
     // Only the modes this frontend can answer are offered, and that is decided by the dictionary
-    // product it ships. MSIME-Dict's mobile profile is compact pinyin — its manifest declares
+    // product it ships. Engine's mobile dictionary profile is compact pinyin — its manifest declares
     // features ['pinyin'] — so quick phrases have no quick_parases table here, and temporary
     // Japanese no dict_japanese.dat; emoji and kaomoji read others.db and temporary English reads
     // english.db, neither of which is fetched on Apple at all. What is left needs nothing beyond

@@ -5,7 +5,7 @@ This used to be built here, by platforms/macos/scripts/build_dictionary.py, whic
 
 MSIME-Engine publishes msime.db and SHA256SUMS.txt as release assets and both other platforms already take them from there, so take them here too. That is what makes the claim in MSIME-Linux/scripts/fetch_dictionary.py true: all three platforms ship a byte-identical msime.db.
 
-The release tag cannot be overridden from the command line. product-lock.json names it and records the SHA256 of every asset, so a retagged release or a replaced database fails the build instead of shipping: rewriting the upstream SHA256SUMS.txt along with the data does not help, because that file is verified against a committed digest too. Move to a new release with `python3 scripts/product_lock.py refresh --dictionary-tag dict-YYYY.MM.DD` and review the resulting diff.
+The release tag cannot be overridden from the command line. product-lock.json names it and records the SHA256 of every asset, so a retagged release or a replaced database fails the build instead of shipping: rewriting the upstream SHA256SUMS.txt along with the data does not help, because that file is verified against a committed digest too. Move to a new release with `python3 scripts/product_lock.py refresh --dictionary-tag dict-vMAJOR.MINOR.PATCH` and review the resulting diff.
 
     python3 scripts/fetch_dictionary.py
 """

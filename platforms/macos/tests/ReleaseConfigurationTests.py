@@ -674,7 +674,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         self.assertFalse((MACOS_ROOT / "scripts/build_dictionary.py").exists())
         # A branch or a bare "latest" would make two builds of the same commit ship different data.
-        self.assertRegex(lock["tag"], r"\Adict-\d{4}\.\d{2}\.\d{2}\Z")
+        self.assertRegex(lock["tag"], r"\Adict-v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\Z")
         self.assertEqual(lock["repository"], "metasequoiaime/MSIME-Engine")
         # Not read from a gitlink: MSIME-Linux#47 found its dict pin attesting to 55bd649 while the
         # shipped bytes came from 0c7368c, because nothing moves that pin when the tag does.

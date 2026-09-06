@@ -40,6 +40,7 @@ Dictionary and helpcode data
 The application installs data built from these repositories:
 
   MSIME-Engine/dictionary  https://github.com/metasequoiaime/MSIME-Engine/tree/main/dictionary
+  MSIME-Engine/helpcode    https://github.com/metasequoiaime/MSIME-Engine/tree/main/helpcode
   (imported from MSIME-HelpCode and MSIME-Dict, both now archived; the upstream attribution below is retained)
 
 Installed as msime.db and helpcodes/*.txt in the application's Resources directory. The database is the one MSIME-Engine publishes as a release asset; product-lock.json in this repository names the release and records the SHA256 of every file taken from it. Releases published by the archived MSIME-Dict remain available as immutable historical artefacts.
