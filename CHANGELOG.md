@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.47.2](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.47.1...v0.47.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ci:** separate automatic and manual release locks ([3951152](https://github.com/metasequoiaime/MSIME-Apple/commit/39511520e5bcdab689d24af25e9ae06dac3554f0))
+* **ci:** separate automatic and manual release locks ([906e14b](https://github.com/metasequoiaime/MSIME-Apple/commit/906e14b5d727fb32d14cacba4a01c01584cbe1ea))
+
 ## [0.47.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.47.0...v0.47.1) (2026-09-06)
 
 
