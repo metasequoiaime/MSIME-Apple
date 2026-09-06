@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.47.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.46.1...v0.47.0) (2026-09-06)
+
+
+### Features
+
+* **release:** separate the automatic build channel from the release channel ([b357a51](https://github.com/metasequoiaime/MSIME-Apple/commit/b357a51cccd83f3272503d365dda931b95b77649))
+* **release:** separate the automatic build channel from the release channel ([9b490a5](https://github.com/metasequoiaime/MSIME-Apple/commit/9b490a570e5c3fc0826ed4c87111f158727cf364))
+
 ## [0.46.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.46.0...v0.46.1) (2026-09-06)
 
 
