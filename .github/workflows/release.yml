@@ -22,6 +22,7 @@ jobs:
   prepare:
     name: Prepare release metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       actions: write
       contents: write
