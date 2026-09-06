@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.46.0...v0.46.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **scripts:** tell a missing submodule apart from a drifted validator ([#273](https://github.com/metasequoiaime/MSIME-Apple/issues/273)) ([3f60dc0](https://github.com/metasequoiaime/MSIME-Apple/commit/3f60dc056ec2052bfccca87bb9a1213929686cda))
+
 ## [0.46.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.45.2...v0.46.0) (2026-09-06)
 
 
