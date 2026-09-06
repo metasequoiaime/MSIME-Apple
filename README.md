@@ -13,7 +13,7 @@
 
 iOS 版本不会移植 Windows 的 TSF 或 WebView2 宿主，而是复用 `MetasequoiaImeEngine`，并提供 iOS 专用的 UI 与文本文档适配层。
 
-当前版本支持全拼输入、来自官方水杉词库的实时候选、拼音候选旁的辅助码提示、通过原生候选窗口或数字键 1–9 选择候选、空格上屏首选、回车上屏原始输入、退格、Esc、焦点切换时自动上屏、Shift+Space 在中文与直接英文输入之间切换，以及可选的全角模式（Option+Shift+H 切换）。原生的可拖动悬浮状态栏会持续显示中英文、标点、全角和简繁输出状态，并提供一键打开设置的入口；可在「外观」页中隐藏。启用全角模式后，未处于组词状态的 ASCII 字母、数字、标点和空格会转换为对应的 Unicode 全角形式，不影响拼音组词。默认输出简体；输入法菜单和悬浮状态栏可以把可见候选和上屏的中文切换为繁体字，不改变词库键值和学习数据。「词库与数据」页中的「启用本地输入模式」默认关闭；打开后，未处于组词状态时 Shift+U 输入 Unicode 码点、Shift+T 输入日期时间、Shift+K 输入快捷短语、Shift+J 使用超级简拼，关闭时这些组合照常输入大写字母。引擎另外几个本地模式（表情、颜文字、临时英文、临时日文）需要 others.db、english.db 与 dict_japanese.dat，本安装包不附带这些文件，因此始终关闭。
+当前版本支持全拼输入、来自官方水杉词库的实时候选、拼音候选旁的辅助码提示、通过原生候选窗口或数字键 1–9 选择候选、空格上屏首选、回车上屏原始输入、退格、Esc、焦点切换时自动上屏、Shift+Space 在中文与直接英文输入之间切换，以及可选的全角模式（Option+Shift+H 切换）。原生的可拖动悬浮状态栏会持续显示中英文、标点、全角和简繁输出状态，并提供一键打开设置的入口；可在「外观」页中隐藏。启用全角模式后，中文模式下组词引擎不接受的字符会转换为对应的 Unicode 全角形式：大写字母、数字、空格，以及关闭「中文标点转换」时的标点（打开时标点仍按中文标点输出，例如 `。` 而不是 `．`）。小写字母始终用于拼音组词，不受全角影响；直接英文输入模式下按键原样透传，也不做全角转换。默认输出简体；输入法菜单和悬浮状态栏可以把可见候选和上屏的中文切换为繁体字，不改变词库键值和学习数据。「词库与数据」页中的「启用本地输入模式」默认关闭；打开后，未处于组词状态时 Shift+U 输入 Unicode 码点、Shift+T 输入日期时间、Shift+K 输入快捷短语、Shift+J 使用超级简拼，关闭时这些组合照常输入大写字母。引擎另外几个本地模式（表情、颜文字、临时英文、临时日文）需要 others.db、english.db 与 dict_japanese.dat，本安装包不附带这些文件，因此始终关闭。
 
 ## 环境要求
 
@@ -88,8 +88,12 @@ ctest --test-dir build-test --output-on-failure --timeout 20
 - `MetasequoiaIME-vX.Y.Z-macos-universal-update.zip`
 - `MetasequoiaIME-vX.Y.Z-macos-universal-update.zip.sha256`
 - `appcast.xml`
+- `MetasequoiaIME-vX.Y.Z-ios-unsigned.xcarchive.zip`
+- `MetasequoiaIME-vX.Y.Z-ios-unsigned.xcarchive.zip.sha256`
 
-当未配置 Apple 发布凭据时，工作流会发布同样的四份产物，但在扩展名前加上 `-unsigned`，并在 GitHub Release 中附加警告。未签名产物仅用于测试，可能需要在 macOS 隐私与安全性设置中显式放行。
+当未配置 Apple 发布凭据时，工作流会发布同样的四份 macOS 产物，但在扩展名前加上 `-unsigned`，并在 GitHub Release 中附加警告。未签名产物仅用于测试，可能需要在 macOS 隐私与安全性设置中显式放行。
+
+iOS 产物是未签名的 `.xcarchive`，**不是可直接安装的 App**。iOS 没有「在隐私与安全性中放行」这种机制，自定义键盘只能通过 App Store 或 TestFlight 安装。发布它是为了重新签名：持有 Apple Developer Program 账号的维护者可以直接从该归档导出 IPA，无需重新构建，导出的就是这个 tag 构建并测试过的产物。仓库目前没有配置任何 Apple 签名凭据，所以 iOS 归档在任何发布模式下都是未签名的，文件名不带 `-unsigned` 之外的后缀区分。
 
 常规安装请使用 ZIP 并运行其中的 `Install.command`，或使用 PKG 通过 macOS 原生安装器安装。两种方式都会安装当前用户的 bundle，并尝试自动注册并启用水杉，无需注销或重启 Mac。如果没有已登录的图形界面用户，或 macOS 拦截了未签名 App，可稍后在「系统设置 > 键盘 > 文本输入 > 编辑」中启用。
 

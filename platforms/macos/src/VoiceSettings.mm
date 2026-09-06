@@ -71,17 +71,30 @@ BOOL IsEndpoint(NSString *value) {
 }
 }
 @implementation MetasequoiaVoiceSettings
+// dictionaryForKey: type-checks the container and nothing inside it, and the NSString * properties
+// enforce nothing at runtime, so a non-string leaf reached -length or -isEqualToString: and killed
+// the input method with an unrecognized selector. The domain is only written here, so this needs an
+// out-of-band edit (defaults write, a managed preference, a corrupt plist) — but the whole IME dies
+// on the next Control+Option+V, and again on the one after that.
+static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fallback) {
+    id value = saved[key];
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : fallback;
+}
+
 + (instancetype)loadSettings {
     MetasequoiaVoiceSettings *value = [self new];
     NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"voiceInput"];
     if (!saved) saved = @{};
-    value.provider = saved[@"provider"] ? saved[@"provider"] : @"cloud";
-    value.endpoint = saved[@"endpoint"] ? saved[@"endpoint"] : @"https://api.siliconflow.cn/v1/audio/transcriptions";
-    value.model = saved[@"model"] ? saved[@"model"] : @"FunAudioLLM/SenseVoiceSmall";
-    value.modelPath = saved[@"modelPath"] ? saved[@"modelPath"] : @"";
-    value.polishEnabled = [saved[@"polishEnabled"] boolValue];
-    value.polishEndpoint = saved[@"polishEndpoint"] ? saved[@"polishEndpoint"] : @"https://api.siliconflow.cn/v1/chat/completions";
-    value.polishModel = saved[@"polishModel"] ? saved[@"polishModel"] : @"Qwen/Qwen3-8B";
+    value.provider = StringSetting(saved, @"provider", @"cloud");
+    value.endpoint = StringSetting(saved, @"endpoint", @"https://api.siliconflow.cn/v1/audio/transcriptions");
+    value.model = StringSetting(saved, @"model", @"FunAudioLLM/SenseVoiceSmall");
+    value.modelPath = StringSetting(saved, @"modelPath", @"");
+    id polishEnabled = saved[@"polishEnabled"];
+    value.polishEnabled = [polishEnabled isKindOfClass:[NSNumber class]] || [polishEnabled isKindOfClass:[NSString class]]
+                              ? [polishEnabled boolValue]
+                              : NO;
+    value.polishEndpoint = StringSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
+    value.polishModel = StringSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
     value.token = ReadToken(@"asr", value.endpoint);
     value.polishToken = ReadToken(@"polish", value.polishEndpoint);
     return value;

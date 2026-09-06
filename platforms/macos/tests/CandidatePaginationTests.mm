@@ -395,6 +395,56 @@ static void RunFullWidthAndLocalModeTests()
     [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
 }
 
+// The engine's handle_punctuation switch and the controller's dispatch whitelist have to agree.
+// ` $ ^ _ were added to the engine alongside < > and only the latter pair was picked up here, so
+// those four kept inserting ASCII while 中文标点 was on.
+static void RunChinesePunctuationTests()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setVolatileDomain:@{@"MetasequoiaImeChinesePunctuation": @YES,
+                                  @"MetasequoiaImeCandidateLearning": @NO,
+                                  @"MetasequoiaImeHelpcodeEnabled": @NO}
+                        forName:NSArgumentDomain];
+
+    PaginationTestController *controller = [PaginationTestController new];
+    RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+    controller.testClient = [RecordingInputClient new];
+    [controller prepareEmptyTestPanel:panel];
+
+    NSDictionary<NSString *, NSString *> *expected = @{
+        @"`": @"·", @"$": @"￥", @"^": @"……", @"_": @"——",
+        @",": @"，", @"\\": @"、",
+    };
+    for (NSString *typed in expected)
+    {
+        controller.testClient.committed = nil;
+        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                     modifierFlags:0 timestamp:0 windowNumber:0 context:nil
+                                        characters:typed charactersIgnoringModifiers:typed
+                                         isARepeat:NO keyCode:kVK_ANSI_Grave];
+        Require([controller handleEvent:event client:controller.testClient],
+                "The controller did not handle a Chinese punctuation key.");
+        Require([controller.testClient.committed isEqualToString:expected[typed]],
+                "A punctuation key did not produce the engine's Chinese punctuation.");
+    }
+
+    // With the preference off the engine declines them, and the ASCII passthrough stays in charge.
+    [defaults setVolatileDomain:@{@"MetasequoiaImeChinesePunctuation": @NO,
+                                  @"MetasequoiaImeCandidateLearning": @NO,
+                                  @"MetasequoiaImeHelpcodeEnabled": @NO}
+                        forName:NSArgumentDomain];
+    controller.testClient.committed = nil;
+    NSEvent *dollar = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                  modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0
+                                        context:nil characters:@"$" charactersIgnoringModifiers:@"4"
+                                      isARepeat:NO keyCode:kVK_ANSI_4];
+    Require(![controller handleEvent:dollar client:controller.testClient] &&
+                controller.testClient.committed == nil,
+            "A punctuation key was consumed while 中文标点转换 was off.");
+
+    [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
+}
+
 int main()
 {
     @autoreleasepool
@@ -419,7 +469,7 @@ int main()
             "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER)",
             nullptr, nullptr, nullptr) == SQLITE_OK, "Cannot create partial-selection fixture.");
         sqlite3_close(database);
-        try { RunTests(); RunVoiceTests(); RunFullWidthAndLocalModeTests(); }
+        try { RunTests(); RunVoiceTests(); RunFullWidthAndLocalModeTests(); RunChinesePunctuationTests(); }
         catch (const std::exception &error)
         {
             fprintf(stderr, "%s\n", error.what());

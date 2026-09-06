@@ -189,7 +189,7 @@ jobs:
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
-        run: brew install boost fmt spdlog nlohmann-json
+        run: brew install boost fmt spdlog nlohmann-json xcodegen
       - name: Import Developer ID signing certificates
         if: ${{ steps.signing.outputs.signing_enabled == 'true' }}
         env:
@@ -246,6 +246,16 @@ jobs:
           METASEQUOIA_RELEASE_POSTINSTALL_SCRIPT: ${{ runner.temp }}/pkg-postinstall.sh
           METASEQUOIA_INSTALLER_DISTRIBUTION: ${{ runner.temp }}/InstallerDistribution.xml.in
         run: exec "$RUNNER_TEMP/package-release.sh" "$TAG_NAME" build/MetasequoiaIME.app dist
+      # The iOS artifact is an unsigned .xcarchive, because no Apple signing identity is configured
+      # for this repository. It is not installable on its own — a custom keyboard reaches users only
+      # through the App Store or TestFlight — but it lets a maintainer with a Developer Program
+      # membership export an IPA from the exact bits this tag built, without a rebuild.
+      - name: Package the iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Build the unsigned iOS archive
+        env:
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: exec platforms/ios/scripts/package_ios_archive.sh "$TAG_NAME" dist
       - name: Detect the Sparkle update key
         id: sparkle
         env:

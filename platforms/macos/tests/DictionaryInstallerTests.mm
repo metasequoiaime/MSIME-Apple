@@ -307,11 +307,23 @@ int main()
                                                "拟好", 999),
                 "Failed to create the user dictionary journal fixture.");
         WriteString(@"old-fingerprint", [replayDirectory URLByAppendingPathComponent:@"msime.db.sha256"]);
+        // A rollback journal left by an unclean shutdown belongs to the dictionary being replaced,
+        // not to the one being installed, and SQLite would replay it onto whatever now sits at the
+        // msime.db path. Planted here so the swap has to discard all three sidecars.
+        for (NSString *sidecar in @[@"msime.db-journal", @"msime.db-wal", @"msime.db-shm"])
+        {
+            WriteString(@"stale-sidecar", [replayDirectory URLByAppendingPathComponent:sidecar]);
+        }
         Require(InstallMetasequoiaDictionary(replaySource, replayDirectory,
                                              SHA256Fingerprint(replaySource), &error),
                 error.localizedDescription.UTF8String);
         Require(ReadWeight(replayDestination, "拟好") == 999,
                 "The user dictionary journal was not replayed onto the upgraded dictionary.");
+        for (NSString *sidecar in @[@"msime.db-journal", @"msime.db-wal", @"msime.db-shm"])
+        {
+            Require(![fileManager fileExistsAtPath:[replayDirectory URLByAppendingPathComponent:sidecar].path],
+                    "Installing a new dictionary left a stale SQLite sidecar beside it.");
+        }
 
         NSURL *resetDirectory = CreateDirectory(root, @"reset-learning");
         NSURL *resetSource = [root URLByAppendingPathComponent:@"reset-source.db"];

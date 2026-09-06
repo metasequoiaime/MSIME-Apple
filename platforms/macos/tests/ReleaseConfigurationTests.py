@@ -276,6 +276,25 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
         self.assertEqual(package["release-type"], "simple")
         self.assertIn({"type": "generic", "path": "CMakeLists.txt"}, package["extra-files"])
+        # The iOS marketing version used to sit at 0.1.0 forever, so an iOS artifact would have
+        # carried a version matching no release. release-please bumps it with everything else now.
+        self.assertIn(
+            {"type": "generic", "path": "platforms/ios/project.yml"}, package["extra-files"]
+        )
+        project_spec = (PROJECT_ROOT / "platforms/ios/project.yml").read_text()
+        self.assertIn("x-release-please-version", project_spec)
+        version = (PROJECT_ROOT / "version.txt").read_text().strip()
+        self.assertIn(f"MARKETING_VERSION: {version} # x-release-please-version", project_spec)
+        # Every release publishes the unsigned iOS archive alongside the macOS assets.
+        self.assertIn("platforms/ios/scripts/package_ios_archive.sh", workflow)
+        self.assertIn("platforms/ios/scripts/prepare_dictionary.py", workflow)
+        self.assertIn("xcodegen", workflow)
+        publish_script = (MACOS_ROOT / "scripts/publish-release.sh").read_text()
+        self.assertIn("ios-unsigned.xcarchive.zip", publish_script)
+        archive_script = (PROJECT_ROOT / "platforms/ios/scripts/package_ios_archive.sh").read_text()
+        self.assertIn("CODE_SIGNING_ALLOWED=NO", archive_script)
+        # The archive is worthless if it silently drops the extension the product exists for.
+        self.assertIn("PlugIns/MetasequoiaKeyboard.appex", archive_script)
         self.assertNotIn("generated", (package["pull-request-header"] + package["pull-request-footer"]).lower())
         self.assertTrue(package["draft"])
         self.assertTrue(package["force-tag-creation"])

@@ -94,6 +94,21 @@ class UninstallTests(unittest.TestCase):
             home / "Library/Preferences/com.houko.inputmethod.MetasequoiaIME.plist"
         )
         environment["METASEQUOIA_DEFAULTS_COMMAND"] = str(fake_defaults)
+        # uninstall.sh drains the voice keychain by calling delete-generic-password until it fails.
+        # Injected unconditionally: without it the loop runs zero iterations under the test HOME, so
+        # a wrong service name or a dropped cap would never be noticed, and nothing should ever risk
+        # reaching the real /usr/bin/security from a test.
+        fake_security = fake_bin / "security"
+        fake_security.write_text(
+            "#!/bin/sh\n"
+            'printf "%s\\n" "$*" >> "$FAKE_SECURITY_LOG"\n'
+            'count=$(grep -c . "$FAKE_SECURITY_LOG")\n'
+            'test "$count" -le "${FAKE_SECURITY_ITEMS:-0}"\n'
+        )
+        fake_security.chmod(0o755)
+        environment["METASEQUOIA_SECURITY_COMMAND"] = str(fake_security)
+        environment["FAKE_SECURITY_LOG"] = str(home.parent / "security.log")
+        environment.setdefault("FAKE_SECURITY_ITEMS", "0")
         environment["FAKE_PKILL_LOG"] = str(home.parent / "pkill.log")
         if extra_environment is not None:
             environment.update(extra_environment)
@@ -406,6 +421,69 @@ fi
             self.assertEqual(len(recovery_directories), 1)
             self.assertEqual((recovery_directories[0] / "Preferences.plist").read_text(), "preferences\n")
             self.assertIn("rollback was incomplete", result.stderr)
+
+
+    def test_removing_user_data_drains_the_voice_keychain_items(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory) / "home"
+            self.create_installation(home)
+            security_log = home.parent / "security.log"
+
+            result = self.run_uninstaller(
+                home, ("--remove-user-data",), extra_environment={"FAKE_SECURITY_ITEMS": "2"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = security_log.read_text().splitlines()
+            # Two items removed, then one call that reports nothing left and ends the loop.
+            self.assertEqual(len(calls), 3)
+            for call in calls:
+                self.assertEqual(
+                    call, "delete-generic-password -s com.houko.inputmethod.MetasequoiaIME.voice"
+                )
+            self.assertIn("Removed 2 voice input key(s)", result.stdout)
+
+    def test_keychain_drain_stops_at_the_iteration_cap(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory) / "home"
+            self.create_installation(home)
+            security_log = home.parent / "security.log"
+
+            # A security command that always succeeds would otherwise spin forever.
+            result = self.run_uninstaller(
+                home, ("--remove-user-data",), extra_environment={"FAKE_SECURITY_ITEMS": "10000"}
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(security_log.read_text().splitlines()), 32)
+
+    def test_default_uninstall_never_touches_the_keychain(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory) / "home"
+            self.create_installation(home)
+            security_log = home.parent / "security.log"
+
+            result = self.run_uninstaller(home)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(security_log.exists())
+
+    def test_missing_security_command_reports_manual_cleanup_without_failing(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory) / "home"
+            self.create_installation(home)
+            unusable = home.parent / "not-executable-security"
+            unusable.write_text("#!/bin/sh\nexit 0\n")
+
+            result = self.run_uninstaller(
+                home,
+                ("--remove-user-data",),
+                extra_environment={"METASEQUOIA_SECURITY_COMMAND": str(unusable)},
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("remove the", result.stdout)
+            self.assertIn("keychain items manually", result.stdout)
 
 
 if __name__ == "__main__":

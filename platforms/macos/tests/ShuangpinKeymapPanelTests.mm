@@ -136,8 +136,20 @@ int main(int argc, const char *argv[])
             Require([zeroInitialText containsString:pair],
                     "The keymap hint dropped a zero-initial syllable from the engine's Xiaohe profile.");
         }
-        Require([zeroInitialText isEqualToString:MetasequoiaXiaoheZeroInitialText()],
-                "The zero-initial line was not stable across calls.");
+        // The builder caches into a function-local static, so comparing two calls compared one
+        // pointer with itself and could never fail — deleting the sort that this was meant to
+        // protect left the suite green. Assert the ordering property directly instead: the entries
+        // come out of an unordered_map, so only the sort keeps the line from rendering in an order
+        // that depends on the toolchain's hashing.
+        NSString *zeroInitialPrefix = @"零声母  ";
+        Require([zeroInitialText hasPrefix:zeroInitialPrefix],
+                "The zero-initial line lost its label.");
+        NSArray<NSString *> *renderedEntries =
+            [[zeroInitialText substringFromIndex:zeroInitialPrefix.length] componentsSeparatedByString:@" · "];
+        Require(renderedEntries.count == xiaohe.zero_initials.size(),
+                "The zero-initial line did not list every syllable exactly once.");
+        Require([renderedEntries isEqualToArray:[renderedEntries sortedArrayUsingSelector:@selector(compare:)]],
+                "The zero-initial line was not in a deterministic order.");
 
         Require(MetasequoiaShouldShowShuangpinKeymap(YES, YES, YES) &&
                     !MetasequoiaShouldShowShuangpinKeymap(NO, YES, YES) &&

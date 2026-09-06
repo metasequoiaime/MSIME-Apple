@@ -34,11 +34,17 @@ archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.zip"
 update_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX-update.zip"
 installer="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.pkg"
 appcast="$dist_dir/appcast.xml"
+# The iOS archive carries no Apple signature in any release mode, so its name does not take
+# ASSET_SUFFIX — there is no signed counterpart for it to be distinguished from.
+ios_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip"
 artifacts=("$installer" "$installer.sha256" "$archive" "$archive.sha256" "$update_archive" "$update_archive.sha256")
 # The Sparkle appcast is signed with the project's Ed25519 update key, which is independent of Apple code signing, so publish it whenever the release job produced one.
 if [[ -f "$appcast" ]]; then
     artifacts+=("$appcast")
 fi
+# Required rather than optional: the iOS build is part of every release run, so a missing archive
+# means the step failed silently rather than that iOS is not being shipped.
+artifacts+=("$ios_archive" "$ios_archive.sha256")
 for artifact in "${artifacts[@]}"; do
     if [[ ! -f "$artifact" ]]; then
         printf 'Release artifact is missing: %s\n' "$artifact" >&2
@@ -62,11 +68,12 @@ done
     verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
     verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
     verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
+    verify_checksum_manifest "$(basename "$ios_archive")" "$(basename "$ios_archive.sha256")"
 )
 
 mode_marker="<!-- metasequoia-release-mode:$release_mode -->"
 opposite_marker="<!-- metasequoia-release-mode:$opposite_mode -->"
-install_guidance_marker="<!-- metasequoia-install-guidance:v1 -->"
+install_guidance_marker="<!-- metasequoia-install-guidance:v2 -->"
 current_notes=$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json body --jq '.body // ""')
 if [[ "$current_notes" == *"$opposite_marker"* ]]; then
     printf '%s\n' "Release $TAG_NAME is already locked to $opposite_mode artifacts; refusing to switch it to $release_mode." >&2
@@ -90,12 +97,15 @@ if [[ "$current_notes" != *"$mode_marker"* || "$current_notes" != *"$install_gui
             printf '%s\n' '### Install on macOS'
             printf '%s\n' '- **Recommended: ZIP.** Verify its `.sha256`, extract it, then run `Install.command`. It installs for the current user, registers and enables the exact input source, and does not automatically log out or restart the Mac.'
             printf '%s\n' '- **PKG option.** The native Installer copies the same app and attempts to register and enable 水杉 for the logged-in GUI user. If no GUI user is logged in or macOS blocks the app, enable it later in System Settings > Keyboard > Text Input > Edit. The package does not force a logout or restart; macOS may still require a later logout before a newly copied input method appears.'
+            printf '\n%s\n' '### iOS'
+            printf '%s\n' '- The `-ios-unsigned.xcarchive.zip` asset is an **unsigned archive, not an installable app.** iOS has no equivalent of allowing an unsigned build in Privacy & Security, and a custom keyboard can only be installed through the App Store or TestFlight.'
+            printf '%s\n' '- It is published so a maintainer with an Apple Developer Program membership can export an IPA from the exact bits this tag built, without rebuilding.'
         fi
     } > "$release_notes"
     gh release edit "$TAG_NAME" --repo "$GH_REPO" --notes-file "$release_notes"
 fi
 
-upload_args=("$installer" "$installer.sha256" "$archive" "$archive.sha256" "$update_archive" "$update_archive.sha256")
+upload_args=("$installer" "$installer.sha256" "$archive" "$archive.sha256" "$update_archive" "$update_archive.sha256" "$ios_archive" "$ios_archive.sha256")
 if [[ -f "$appcast" ]]; then
     upload_args+=("$appcast")
 fi

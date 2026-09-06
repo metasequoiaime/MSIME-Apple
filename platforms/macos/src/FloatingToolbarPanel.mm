@@ -76,6 +76,11 @@ NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame
 NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    // Every item targets the panel, an NSWindow subclass, and NSMenu's automatic enabling asks
+    // NSWindow's own -validateMenuItem: about each one. NSWindow implements -hideToolbar: for real
+    // toolbars and answers NO when the window has none, which greyed out 隐藏悬浮状态栏 and swallowed
+    // the click. The input menu already opts out of automatic enabling for the same reason.
+    menu.autoenablesItems = NO;
     for (NSMenuItem *item in @[
              [[NSMenuItem alloc] initWithTitle:@"表情与符号…"
                                        action:@selector(openCharacterPalette:)
@@ -85,6 +90,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
          ])
     {
         item.target = target;
+        item.enabled = YES;
         [menu addItem:item];
     }
     [menu addItem:[NSMenuItem separatorItem]];
@@ -92,12 +98,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                                     action:@selector(openWebsite:)
                                              keyEquivalent:@""];
     website.target = target;
+    website.enabled = YES;
     [menu addItem:website];
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏悬浮状态栏"
-                                                 action:@selector(hideToolbar:)
+                                                 action:@selector(dismissFloatingToolbar:)
                                           keyEquivalent:@""];
     hide.target = target;
+    hide.enabled = YES;
     [menu addItem:hide];
     return menu;
 }
@@ -314,7 +322,7 @@ traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
     [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self];
 }
 
-- (void)hideToolbar:(id)sender
+- (void)dismissFloatingToolbar:(id)sender
 {
     (void)sender;
     [self.toolbarDelegate floatingToolbarDidRequestHide:self];

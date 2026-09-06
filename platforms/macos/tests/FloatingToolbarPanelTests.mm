@@ -191,6 +191,17 @@ int main()
                     [utilityMenu itemAtIndex:5].separatorItem &&
                     [[utilityMenu itemAtIndex:6].title isEqualToString:@"隐藏悬浮状态栏"],
                 "The toolbar utility menu did not expose the expected native actions.");
+        // performActionForItemAtIndex: dispatches without validating, so it happily fires an item
+        // AppKit would have greyed out for the user. Ask the menu to update itself first and
+        // require every real item to survive that: 隐藏悬浮状态栏 was dead in the shipped build
+        // because NSWindow's own -validateMenuItem: vetoed it, and this test still passed.
+        [utilityMenu update];
+        for (NSInteger index = 0; index < utilityMenu.numberOfItems; ++index)
+        {
+            NSMenuItem *item = [utilityMenu itemAtIndex:index];
+            require(item.separatorItem || item.isEnabled,
+                    "A toolbar utility menu item is disabled and cannot be clicked.");
+        }
         [utilityMenu performActionForItemAtIndex:0];
         [utilityMenu performActionForItemAtIndex:1];
         [utilityMenu performActionForItemAtIndex:2];

@@ -602,10 +602,16 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
                     }
                 }
             }
+            // Mirrors the engine's own switch in handle_punctuation. ` $ ^ _ were added there
+            // alongside < >, and only the latter pair was picked up here, so those four kept
+            // inserting ASCII while 中文标点 was on. handle_punctuation returns an unhandled result
+            // when the preference is off, which leaves the existing ASCII and full-width fallback
+            // in charge exactly as before.
             else if (character == ',' || character == '.' || character == '?' || character == '!' ||
                      character == ';' || character == ':' || character == '"' || character == '\'' ||
                      character == '(' || character == ')' || character == '[' || character == ']' ||
-                     character == '<' || character == '>' || character == '\\')
+                     character == '<' || character == '>' || character == '\\' ||
+                     character == '`' || character == '$' || character == '^' || character == '_')
             {
                 result = _session->handle_punctuation(static_cast<char>(character));
             }

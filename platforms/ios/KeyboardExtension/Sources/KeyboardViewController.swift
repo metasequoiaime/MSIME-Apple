@@ -37,6 +37,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
   private var lastShiftTapTime: TimeInterval?
+  // UIKit sends textWillChange/textDidChange for the keyboard's own edits too, not just for edits
+  // the host makes. textWillChange cancels the composition, so every commit that was meant to leave
+  // a residual composition running destroyed it a runloop turn later. The proxy is cross-process,
+  // so the callback does not arrive inside insertText and a simple set/clear flag is already false
+  // by the time it lands — the count has to stay raised until the callback consumes it.
+  private var pendingOwnEdits = 0
 
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
   private static let candidatePageSize = 9
@@ -72,13 +78,25 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
+    // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
+    // host-initiated change is treated as an echo, not a counter that stays raised forever.
+    pendingOwnEdits = 0
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
   }
 
   override func textWillChange(_ textInput: UITextInput?) {
     super.textWillChange(textInput)
-    render(session.cancel())
+    // Our own edit coming back to us: the composition it produced is still the live one.
+    if pendingOwnEdits > 0 {
+      pendingOwnEdits -= 1
+      return
+    }
+    // A genuine host-initiated change — the caret moved, the field was cleared, the document was
+    // swapped. Commit what is composed rather than discarding it, the way macOS commits on every
+    // automatic boundary.
+    render(session.finishComposition())
   }
 
   override func textDidChange(_ textInput: UITextInput?) {
@@ -89,6 +107,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    // Putting the keyboard away used to drop whatever was composed. macOS commits in
+    // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
+    // throw them away.
+    render(session.finishComposition())
+    pendingOwnEdits = 0
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
     diagnosticDismissTimer = nil
@@ -343,7 +366,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
-      textDocumentProxy.insertText(output)
+      insertOwnText(output)
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
         lastShiftTapTime = nil
@@ -355,7 +378,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
-      textDocumentProxy.insertText(symbol)
+      insertOwnText(symbol)
       return
     }
 
@@ -382,7 +405,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
-        textDocumentProxy.insertText(symbol)
+        insertOwnText(symbol)
       }
       render(snapshot)
       return
@@ -402,8 +425,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       return
     }
 
-    render(session.commitRaw())
-    textDocumentProxy.insertText(symbol)
+    // A symbol the session declines is an automatic commit, and macOS resolves those with
+    // finish_composition — the leading candidate. commitRaw committed the raw pinyin letters
+    // instead, so typing "nihao" then "@" produced "nihao@" rather than "你好@".
+    render(session.finishComposition())
+    insertOwnText(symbol)
   }
 
   private func toggleInputMode() {
@@ -709,7 +735,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     playInputClick()
     let snapshot = session.handleBackspace()
     if !snapshot.isHandled {
-      textDocumentProxy.deleteBackward()
+      deleteOwnBackward()
     }
     render(snapshot)
   }
@@ -765,7 +791,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     playInputClick()
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
-      textDocumentProxy.insertText(" ")
+      insertOwnText(" ")
     }
     render(snapshot)
   }
@@ -778,7 +804,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     playInputClick()
     let snapshot = session.finishComposition()
     if !snapshot.isHandled {
-      textDocumentProxy.insertText("\n")
+      insertOwnText("\n")
     }
     render(snapshot)
   }
@@ -790,9 +816,21 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     handleInputModeList(from: sender, with: event)
   }
 
+  // Every document mutation the keyboard makes goes through here so textWillChange can tell its own
+  // echo apart from a genuine host-initiated change.
+  private func insertOwnText(_ text: String) {
+    pendingOwnEdits += 1
+    textDocumentProxy.insertText(text)
+  }
+
+  private func deleteOwnBackward() {
+    pendingOwnEdits += 1
+    textDocumentProxy.deleteBackward()
+  }
+
   private func render(_ snapshot: MetasequoiaInputSnapshot) {
     if let commitText = snapshot.commitText {
-      textDocumentProxy.insertText(chineseOutput(commitText))
+      insertOwnText(chineseOutput(commitText))
     }
     hasComposition = !snapshot.preedit.isEmpty
     showDiagnostic(snapshot.diagnosticText)

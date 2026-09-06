@@ -18,7 +18,12 @@ if [[ -z "$console_uid" || ! "$console_uid" =~ '^[0-9]+$' || "$console_uid" -lt 
     exit 0
 fi
 
-user_home=$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')
+# The plist form rather than the plain one: dscl -read folds a value containing a space onto an
+# indented continuation line, so awk '{print $2}' returned a fragment and the guard below rejected
+# it. A relocated or directory-service-managed home on a path with a space then silently skipped
+# registration, and the user had to enable the input source by hand.
+user_home=$(/usr/bin/dscl -plist . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null |
+    /usr/bin/xmllint --xpath 'string(//array/string[1])' - 2>/dev/null)
 if [[ -z "$user_home" || "$user_home" != /* || "$user_home" == / ]]; then
     print -u2 "Could not resolve the GUI user's home directory; input source registration will be deferred."
     exit 0

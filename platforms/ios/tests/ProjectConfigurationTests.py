@@ -18,15 +18,26 @@ class ProjectConfigurationTests(unittest.TestCase):
 
         self.assertFalse(manifest["NSPrivacyTracking"])
         self.assertEqual(manifest["NSPrivacyCollectedDataTypes"], [])
+        # SystemBootTime covers ProcessInfo.processInfo.systemUptime, which the keyboard uses to
+        # time the double tap on shift. It is on Apple's required-reason list, so leaving it out
+        # returns ITMS-91053 at upload time rather than failing anything at runtime.
         self.assertEqual(
             manifest["NSPrivacyAccessedAPITypes"],
             [
                 {
                     "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
                     "NSPrivacyAccessedAPITypeReasons": ["CA92.1", "1C8F.1"],
-                }
+                },
+                {
+                    "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+                    "NSPrivacyAccessedAPITypeReasons": ["35F9.1"],
+                },
             ],
         )
+        controller_source = (
+            IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift"
+        ).read_text()
+        self.assertIn("ProcessInfo.processInfo.systemUptime", controller_source)
         self.assertEqual(
             project.count("platforms/ios/SharedResources/PrivacyInfo.xcprivacy"),
             2,
@@ -105,7 +116,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         # The engine and the packaged dictionary stay simplified, so conversion belongs at the
         # render and commit boundary only. Converting the preedit would rewrite pinyin, and
         # converting before selection would break the engine index the candidate chips carry.
-        self.assertIn("textDocumentProxy.insertText(chineseOutput(commitText))", controller)
+        self.assertIn("insertOwnText(chineseOutput(commitText))", controller)
         self.assertIn("let display = chineseOutput(candidate)", controller)
         self.assertIn('configuration.title = "\\(number)  \\(display)"', controller)
         self.assertIn("self.render(self.session.selectCandidate(at: UInt(index)))", controller)
@@ -423,6 +434,25 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("session.handleCharacter(symbol)", controller)
         self.assertLess(controller.index(separator_route), controller.index(punctuation_route))
 
+    def test_own_document_edits_do_not_cancel_the_composition(self):
+        controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
+
+        # UIKit delivers textWillChange for the keyboard's own insertions too, so cancelling there
+        # destroyed every composition a partial commit was meant to leave running. Each own edit
+        # raises a count that the matching callback consumes; a genuine host change commits.
+        self.assertIn("private var pendingOwnEdits = 0", controller)
+        will_change = controller.split("override func textWillChange", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("pendingOwnEdits > 0", will_change)
+        self.assertIn("pendingOwnEdits -= 1", will_change)
+        self.assertIn("session.finishComposition()", will_change)
+        self.assertNotIn("session.cancel()", will_change)
+        # Only the two funnels may touch the proxy, otherwise an edit escapes the accounting.
+        self.assertEqual(controller.count("textDocumentProxy.insertText("), 1)
+        self.assertEqual(controller.count("textDocumentProxy.deleteBackward("), 1)
+        # Putting the keyboard away commits rather than discarding, as macOS does.
+        disappear = controller.split("override func viewWillDisappear", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("session.finishComposition()", disappear)
+
     def test_keyboard_exposes_a_local_chinese_english_mode_switch(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
@@ -430,8 +460,8 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("languageModeButton", controller)
         self.assertIn("toggleInputMode", controller)
         self.assertIn("render(session.handleCharacter(character))", controller)
-        self.assertIn("textDocumentProxy.insertText(output)", controller)
-        self.assertIn("if !isChineseMode {\n      textDocumentProxy.insertText(symbol)", controller)
+        self.assertIn("insertOwnText(output)", controller)
+        self.assertIn("if !isChineseMode {\n      insertOwnText(symbol)", controller)
         self.assertIn("isChineseMode ? session.finishComposition() : session.cancel()", controller)
         self.assertIn("isChineseMode ? \"中\" : \"英\"", controller)
         self.assertIn('languageModeButton.accessibilityIdentifier = "languageModeButton"', controller)
