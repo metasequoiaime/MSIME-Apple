@@ -22,7 +22,7 @@
 #include "StringConversion.h"
 #include "CandidateSelectionState.h"
 #include "InputControllerKeyRouting.h"
-#include "core/input_session.h"
+#include <metasequoia/session.h>
 
 #import <Carbon/Carbon.h>
 
@@ -72,21 +72,21 @@ SessionPreferences ReadSessionPreferences()
     };
 }
 
-// helpcode_enabled() reports false for every scheme that has no helpcodes, so comparing it directly can never match a Wubi session built with the preference on, and the caller would rebuild the engine on every keystroke. Only the schemes that carry helpcodes can be compared on it.
+// Helpcode preferences only affect pinyin schemes; changing that preference must not rebuild a Wubi session.
 bool SchemeUsesHelpcodes(SchemeType scheme)
 {
     return scheme == SchemeType::Quanpin || scheme == SchemeType::Shuangpin;
 }
 
-bool SessionMatchesPreferences(const metasequoia::InputSession &session, const SessionPreferences &preferences)
+bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const SessionPreferences &preferences)
 {
     const bool helpcodeMatches = !SchemeUsesHelpcodes(preferences.scheme) ||
-                                 session.helpcode_enabled() == preferences.helpcodeEnabled;
-    return session.scheme_type() == preferences.scheme &&
-           session.quanpin_autocorrect_enabled() == preferences.autocorrectEnabled &&
+                                 options.helpcode == preferences.helpcodeEnabled;
+    return options.scheme == preferences.scheme &&
+           options.autocorrect == preferences.autocorrectEnabled &&
            helpcodeMatches &&
-           session.chinese_punctuation_enabled() == preferences.chinesePunctuationEnabled &&
-           session.candidate_learning_enabled() == preferences.candidateLearningEnabled;
+           options.chinese_punctuation == preferences.chinesePunctuationEnabled &&
+           options.learning == preferences.candidateLearningEnabled;
 }
 } // namespace
 
@@ -95,7 +95,9 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
 @implementation MetasequoiaInputController
 {
-    std::unique_ptr<metasequoia::InputSession> _session;
+    std::unique_ptr<metasequoia::Session> _session;
+    metasequoia::SessionOptions _sessionOptions;
+    metasequoia::SessionSnapshot _sessionSnapshot;
     std::string _activeHelpcodeSchema;
     HelpcodeUtils::SharedKeymap _activeHelpcodeKeymap;
     metasequoia::mac::CandidateSelectionState _candidateSelection;
@@ -185,7 +187,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 {
     [self refreshFloatingToolbar];
     if ([notification.name isEqualToString:MetasequoiaTraditionalChineseOutputDidChangeNotification] &&
-        _serverActive && _session != nullptr && _session->has_composition())
+        _serverActive && _session != nullptr && !_sessionSnapshot.preedit.empty())
     {
         [self refreshCandidatePanelPreservingSelection];
     }
@@ -216,7 +218,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     {
         [_shuangpinKeymapPanel orderOut:nil];
     }
-    if (_session != nullptr && _session->has_composition())
+    if (_session != nullptr && !_sessionSnapshot.preedit.empty())
     {
         // Keep the scheme chosen when this composition began. Preferences from another
         // controller must not change the helpcodes of this live session.
@@ -231,22 +233,26 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     _wubiAutoCommitUniqueEnabled = preferences.wubiAutoCommitUniqueEnabled;
     const bool helpcodeSchemaMatches = _activeHelpcodeSchema == preferences.helpcodeSchema;
     _activeHelpcodeSchema = preferences.helpcodeSchema;
-    // Applied above the early return, like every other preference a live session can take. It used
-    // to be applied only to a freshly constructed session, and SessionMatchesPreferences does not
-    // compare it, so toggling 启用本地输入模式 changed nothing until something unrelated forced a
-    // rebuild. set_local_mode_options is a plain setter and is safe on a running session.
-    [self applyLocalInputModeOptions];
-    if (_session != nullptr && helpcodeSchemaMatches && SessionMatchesPreferences(*_session, preferences))
+    _localInputModesEnabled = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled];
+    if (_session != nullptr && helpcodeSchemaMatches && SessionMatchesPreferences(_sessionOptions, preferences) &&
+        _sessionOptions.local_modes.unicode == _localInputModesEnabled)
     {
         return;
     }
     const auto paths = metasequoia::RuntimePaths::legacy();
-    _session = std::make_unique<metasequoia::InputSession>(
-        preferences.scheme, preferences.autocorrectEnabled, preferences.helpcodeEnabled,
-        preferences.chinesePunctuationEnabled, preferences.candidateLearningEnabled, paths);
-    _session->set_helpcode_schema(preferences.helpcodeSchema);
+    metasequoia::SessionOptions options;
+    options.paths = paths;
+    options.scheme = preferences.scheme;
+    options.autocorrect = preferences.autocorrectEnabled;
+    options.helpcode = preferences.helpcodeEnabled;
+    options.helpcode_schema = preferences.helpcodeSchema;
+    options.chinese_punctuation = preferences.chinesePunctuationEnabled;
+    options.learning = preferences.candidateLearningEnabled;
+    options.local_modes = [self localInputModeOptions];
+    _session = std::make_unique<metasequoia::Session>(options);
+    _sessionOptions = options;
+    _sessionSnapshot = _session->snapshot();
     _activeHelpcodeKeymap = HelpcodeUtils::load_helpcode_keymap(paths.resources, preferences.helpcodeSchema);
-    [self applyLocalInputModeOptions];
     _candidateSelection.reset();
     _candidateHighlightedIndex = 0;
     _candidatePageStart = 0;
@@ -264,14 +270,8 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 // four need nothing beyond what is here: Unicode parses its own input, date and time has a built-in
 // provider, quick phrases live in msime.db's quick_parases table, and super jianpin uses the pinyin
 // tables. Turning the whole family off by preference keeps Shift+letter inserting a capital.
-- (void)applyLocalInputModeOptions
+- (metasequoia::LocalModeOptions)localInputModeOptions
 {
-    if (_session == nullptr)
-    {
-        return;
-    }
-
-    _localInputModesEnabled = [MetasequoiaPreferencesWindowController storedLocalInputModesEnabled];
     metasequoia::LocalModeOptions options;
     options.unicode = _localInputModesEnabled;
     options.date_time = _localInputModesEnabled;
@@ -281,7 +281,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     options.kaomoji = false;
     options.temporary_english = false;
     options.temporary_japanese = false;
-    _session->set_local_mode_options(options);
+    return options;
 }
 
 - (BOOL)prepareSessionIfNeeded
@@ -329,12 +329,12 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
 - (void)trackCandidateAtIndex:(NSUInteger)index
 {
-    if (_session == nullptr || index >= _candidateData.count || index >= _session->candidates().size())
+    if (_session == nullptr || index >= _candidateData.count || index >= _sessionSnapshot.candidates.size())
     {
         return;
     }
 
-    _candidateSelection.update(static_cast<size_t>(index), _session->candidates()[index].word);
+    _candidateSelection.update(static_cast<size_t>(index), _sessionSnapshot.candidates[index].word);
     _candidateHighlightedIndex = index;
     _candidatePageStart = metasequoia::mac::CandidatePageStart(
         index, _candidateData.count, _candidatePageSize);
@@ -493,7 +493,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
     // Captured before the key is dispatched: a commit clears the local mode, and applyResult still
     // needs to know which one produced the text it is inserting.
-    const metasequoia::LocalInputMode localModeForKey = _session->local_input_mode();
+    const metasequoia::LocalInputMode localModeForKey = _sessionSnapshot.local_mode;
     metasequoia::KeyResult result;
     const BOOL candidatePageShortcutModified =
         (modifiers & (NSEventModifierFlagShift | NSEventModifierFlagCommand | NSEventModifierFlagControl |
@@ -549,13 +549,13 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
                            pageStart:_candidatePageStart];
         return YES;
     case metasequoia::mac::ControllerKeyAction::Backspace:
-        result = _session->handle_command(metasequoia::Command::Backspace);
+        result = _session->command(metasequoia::Command::Backspace);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitRaw:
-        result = _session->handle_command(metasequoia::Command::CommitRaw);
+        result = _session->command(metasequoia::Command::CommitRaw);
         break;
     case metasequoia::mac::ControllerKeyAction::Cancel:
-        result = _session->handle_command(metasequoia::Command::Cancel);
+        result = _session->command(metasequoia::Command::Cancel);
         break;
     case metasequoia::mac::ControllerKeyAction::CommitCandidate:
         result = _candidateSelection.commit(*_session);
@@ -577,29 +577,29 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
             // composition, and a capital that is not one of the triggers still comes back unhandled
             // so the application inserts it.
             else if (_localInputModesEnabled && character >= 'A' && character <= 'Z' &&
-                     !_session->has_composition() && (modifiers & NSEventModifierFlagShift) != 0 &&
+                     _sessionSnapshot.preedit.empty() && (modifiers & NSEventModifierFlagShift) != 0 &&
                      (modifiers & ~NSEventModifierFlagShift) == 0)
             {
-                result = _session->handle_character(static_cast<char>(character), true);
+                result = _session->character(static_cast<char>(character), true);
             }
-            else if (character == '\'' && _session->has_composition())
+            else if (character == '\'' && !_sessionSnapshot.preedit.empty())
             {
-                result = _session->handle_character(static_cast<char>(character));
+                result = _session->character(static_cast<char>(character));
             }
             // Unicode mode reads a hex code point, so while it is open its digits and its optional
             // "+" are input rather than candidate numbers. Every other local mode takes letters
             // only and leaves the digits to selection, which is what they already did.
             else if ((character >= '0' && character <= '9') || character == '+')
             {
-                if (_session->local_input_mode() == metasequoia::LocalInputMode::Unicode)
+                if (_sessionSnapshot.local_mode == metasequoia::LocalInputMode::Unicode)
                 {
-                    result = _session->handle_character(static_cast<char>(character));
+                    result = _session->character(static_cast<char>(character));
                 }
                 else if (character >= '1' && character <= '9')
                 {
                     result = _candidateSelection.commit_number(
                         *_session, static_cast<char>(character), _candidatePageSize);
-                    if (!result.handled && _session->has_composition())
+                    if (!result.handled && !_sessionSnapshot.preedit.empty())
                     {
                         return YES;
                     }
@@ -616,7 +616,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
                      character == '<' || character == '>' || character == '\\' ||
                      character == '`' || character == '$' || character == '^' || character == '_')
             {
-                result = _session->handle_punctuation(static_cast<char>(character));
+                result = _session->punctuation(static_cast<char>(character));
             }
         }
         break;
@@ -625,8 +625,9 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
     if (!result.handled)
     {
+        _sessionSnapshot = _session->snapshot();
         [self commitLeadingCandidate:sender];
-        if (_session != nullptr && !_session->has_composition() &&
+        if (_session != nullptr && _sessionSnapshot.preedit.empty() &&
             [MetasequoiaPreferencesWindowController storedFullWidthInputEnabled] && event.characters.length == 1)
         {
             const unichar character = [event.characters characterAtIndex:0];
@@ -647,7 +648,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 - (void)commitLeadingCandidate:(id)sender
 {
     [self cancelVoiceInput];
-    if (_session == nullptr || !_session->has_composition())
+    if (_session == nullptr || _sessionSnapshot.preedit.empty())
     {
         return;
     }
@@ -657,9 +658,9 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
     // arrowed onto — type shi, press Down to highlight 时, click into another application, and 是
     // was committed. The rest of the composition still finishes from the engine's first candidate,
     // which is what the default argument means and what this path already did.
-    const metasequoia::LocalInputMode localMode = _session->local_input_mode();
+    const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
     const auto result =
-        _session->finish_composition(_candidateSelection.live_selected_index(*_session).value_or(0));
+        _session->finish(_candidateSelection.live_selected_index(_sessionSnapshot).value_or(0));
     if (result.handled)
     {
         [self applyResult:result localMode:localMode client:sender];
@@ -669,7 +670,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 // Single source of truth for the traditional-output predicate so the candidate panel and the committed text can never disagree about which script the user sees.
 - (BOOL)traditionalChineseOutputActive
 {
-    return _session != nullptr && _session->scheme_type() != SchemeType::JapaneseRomaji &&
+    return _session != nullptr && _sessionSnapshot.scheme != SchemeType::JapaneseRomaji &&
            [MetasequoiaPreferencesWindowController storedTraditionalChineseOutputEnabled];
 }
 
@@ -693,6 +694,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
           localMode:(metasequoia::LocalInputMode)localMode
              client:(id)sender
 {
+    _sessionSnapshot = _session->snapshot();
     id<IMKTextInput> client = sender;
     const NSRange replacementRange = NSMakeRange(NSNotFound, NSNotFound);
     if (result.commit.has_value())
@@ -703,7 +705,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
                                                            traditionalOutput);
         [client insertText:commit replacementRange:replacementRange];
         _candidateSelection.reset();
-        if (!_session->has_composition())
+        if (_sessionSnapshot.preedit.empty())
         {
             [_candidatePanel hide];
             [_shuangpinKeymapPanel orderOut:nil];
@@ -711,7 +713,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
         }
     }
 
-    NSString *preedit = MetasequoiaStringFromUtf8(_session->preedit());
+    NSString *preedit = MetasequoiaStringFromUtf8(_sessionSnapshot.preedit);
     [client setMarkedText:preedit selectionRange:NSMakeRange(preedit.length, 0) replacementRange:replacementRange];
     [self updateCandidatePanel];
     [self updateShuangpinKeymapPanelForClient:client];
@@ -719,8 +721,8 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
 - (void)updateShuangpinKeymapPanelForClient:(id<IMKTextInput>)client
 {
-    const BOOL hasComposition = _session != nullptr && _session->has_composition();
-    const BOOL isShuangpin = _session != nullptr && _session->scheme_type() == SchemeType::Shuangpin;
+    const BOOL hasComposition = _session != nullptr && !_sessionSnapshot.preedit.empty();
+    const BOOL isShuangpin = _session != nullptr && _sessionSnapshot.scheme == SchemeType::Shuangpin;
     if (!MetasequoiaShouldShowShuangpinKeymap(isShuangpin, _shuangpinKeymapEnabled, hasComposition) ||
         client == nil)
     {
@@ -738,7 +740,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
         return;
     }
 
-    NSString *preedit = MetasequoiaStringFromUtf8(_session->preedit());
+    NSString *preedit = MetasequoiaStringFromUtf8(_sessionSnapshot.preedit);
     NSString *highlightedKey = @"";
     if (preedit.length > 0)
     {
@@ -775,6 +777,7 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 
 - (void)rebuildCandidatePanelPreservingSelection:(BOOL)preserveSelection
 {
+    _sessionSnapshot = _session->snapshot();
     const std::optional<size_t> preservedSelection =
         preserveSelection ? _candidateSelection.selected_index() : std::nullopt;
     if (!preserveSelection)
@@ -784,23 +787,23 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
         _candidatePageStart = 0;
     }
     _candidateLineIdentifiersCollapsed = NO;
-    NSMutableArray *data = [NSMutableArray arrayWithCapacity:_session->candidates().size()];
-    const metasequoia::LocalInputMode localMode = _session->local_input_mode();
+    NSMutableArray *data = [NSMutableArray arrayWithCapacity:_sessionSnapshot.candidates.size()];
+    const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
     const BOOL traditionalOutput = [self traditionalChineseOutputActive] &&
                                    metasequoia::mac::ScriptConversionAppliesToLocalMode(localMode);
     const bool annotateHelpcodes =
-        _session->helpcode_enabled() && metasequoia::mac::HelpcodesAnnotateLocalMode(localMode);
+        (_sessionOptions.helpcode && SchemeUsesHelpcodes(_sessionSnapshot.scheme)) && metasequoia::mac::HelpcodesAnnotateLocalMode(localMode);
     NSUInteger candidateIndex = 0;
-    for (const WordItem &candidate : _session->candidates())
+    for (const WordItem &candidate : _sessionSnapshot.candidates)
     {
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
-            candidate, _session->scheme_type(), annotateHelpcodes, _activeHelpcodeKeymap.get()));
+            candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get()));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
         [data addObject:MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex)];
         ++candidateIndex;
     }
     _candidateData = [data copy];
-    if (_session->has_composition() && _candidateData.count > 0)
+    if (!_sessionSnapshot.preedit.empty() && _candidateData.count > 0)
     {
         const NSUInteger selectedIndex = preservedSelection.has_value() && preservedSelection.value() < _candidateData.count
                                              ? preservedSelection.value() : 0;
@@ -888,12 +891,12 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
             index = _candidatePageStart + static_cast<NSUInteger>(selectedLine);
         }
     }
-    if (index == NSNotFound || index >= _session->candidates().size())
+    if (index == NSNotFound || index >= _sessionSnapshot.candidates.size())
     {
         return;
     }
-    const metasequoia::LocalInputMode localMode = _session->local_input_mode();
-    const auto result = _session->select_candidate(static_cast<size_t>(index));
+    const metasequoia::LocalInputMode localMode = _sessionSnapshot.local_mode;
+    const auto result = _session->select(static_cast<size_t>(index));
     if (result.handled)
     {
         [self applyResult:result localMode:localMode client:self.client];
@@ -903,13 +906,13 @@ bool SessionMatchesPreferences(const metasequoia::InputSession &session, const S
 - (id)composedString:(id)sender
 {
     (void)sender;
-    return _session == nullptr ? @"" : MetasequoiaStringFromUtf8(_session->preedit());
+    return _session == nullptr ? @"" : MetasequoiaStringFromUtf8(_sessionSnapshot.preedit);
 }
 
 - (NSAttributedString *)originalString:(id)sender
 {
     (void)sender;
-    NSString *raw = _session == nullptr ? @"" : MetasequoiaStringFromUtf8(_session->preedit());
+    NSString *raw = _session == nullptr ? @"" : MetasequoiaStringFromUtf8(_sessionSnapshot.preedit);
     return [[NSAttributedString alloc] initWithString:raw];
 }
 

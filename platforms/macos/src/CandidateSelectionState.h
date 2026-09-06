@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CandidatePageSize.h"
-#include "core/input_session.h"
+#include <metasequoia/session.h>
 
 #include <cstddef>
 #include <optional>
@@ -43,13 +43,13 @@ class CandidateSelectionState
     // A tracked index only means something while the candidate list still holds the same word at
     // it. The list is rebuilt on every keystroke, so an index kept across one is not the candidate
     // the user was looking at.
-    std::optional<size_t> live_selected_index(const InputSession &session) const
+    std::optional<size_t> live_selected_index(const SessionSnapshot &snapshot) const
     {
         if (!selected_candidate_.has_value())
         {
             return std::nullopt;
         }
-        const auto &candidates = session.candidates();
+        const auto &candidates = snapshot.candidates;
         if (selected_candidate_->index < candidates.size()
             && candidates[selected_candidate_->index].word == selected_candidate_->word)
         {
@@ -58,20 +58,20 @@ class CandidateSelectionState
         return std::nullopt;
     }
 
-    KeyResult commit(InputSession &session) const
+    KeyResult commit(Session &session) const
     {
-        if (const auto index = live_selected_index(session))
+        if (const auto index = live_selected_index(session.snapshot()))
         {
-            const KeyResult selected = session.select_candidate(*index);
+            const KeyResult selected = session.select(*index);
             if (selected.handled)
             {
                 return selected;
             }
         }
-        return session.handle_command(Command::CommitCandidate);
+        return session.command(Command::CommitCandidate);
     }
 
-    KeyResult commit_number(InputSession &session, char character, size_t pageSize = candidates_per_page) const
+    KeyResult commit_number(Session &session, char character, size_t pageSize = candidates_per_page) const
     {
         if (character < '1' || character > '9')
         {
@@ -85,15 +85,16 @@ class CandidateSelectionState
             return {};
         }
 
-        const auto &candidates = session.candidates();
+        const auto snapshot = session.snapshot();
+        const auto &candidates = snapshot.candidates;
         if (!selected_candidate_.has_value() || selected_candidate_->index >= candidates.size()
             || candidates[selected_candidate_->index].word != selected_candidate_->word)
         {
-            return session.handle_candidate_key(character);
+            return session.candidate_key(character);
         }
 
         const size_t pageStart = selected_candidate_->index / pageSize * pageSize;
-        return session.select_candidate(pageStart + candidateOffset);
+        return session.select(pageStart + candidateOffset);
     }
 
   private:

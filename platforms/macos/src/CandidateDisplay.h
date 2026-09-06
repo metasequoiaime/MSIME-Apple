@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/helpcode_utils.h"
-#include "core/input_session.h"
+#include <metasequoia/session.h>
 #include "core/scheme_type.h"
 #include "core/word_item.h"
 

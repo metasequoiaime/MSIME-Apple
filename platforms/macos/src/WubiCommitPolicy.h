@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/input_session.h"
+#include <metasequoia/session.h>
 
 #include <cstddef>
 
@@ -12,14 +12,15 @@ inline bool ShouldAutoCommitUniqueWubiCandidate(bool enabled, SchemeType scheme,
     return enabled && scheme == SchemeType::Wubi && codeLength == 4 && candidateCount == 1;
 }
 
-inline KeyResult HandleCharacterWithWubiAutoCommit(InputSession &session, char character, bool enabled)
+inline KeyResult HandleCharacterWithWubiAutoCommit(Session &session, char character, bool enabled)
 {
-    KeyResult result = session.handle_character(character);
+    KeyResult result = session.character(character);
+    const auto snapshot = session.snapshot();
     if (result.handled &&
-        ShouldAutoCommitUniqueWubiCandidate(enabled, session.scheme_type(), session.preedit().size(),
-                                            session.candidates().size()))
+        ShouldAutoCommitUniqueWubiCandidate(enabled, snapshot.scheme, snapshot.preedit.size(),
+                                            snapshot.candidates.size()))
     {
-        result = session.handle_command(Command::CommitCandidate);
+        result = session.command(Command::CommitCandidate);
     }
     return result;
 }

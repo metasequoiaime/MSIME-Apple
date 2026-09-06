@@ -1,3 +1,4 @@
+#include "PublicSessionTestOptions.h"
 // Exercise the real controller with a recording window boundary. A headless
 // IMKCandidates cannot render without a registered input-method client.
 #include "../src/MetasequoiaInputController.mm"
@@ -79,9 +80,9 @@ static void Require(bool condition, const char *message)
 - (void)prepareTestPanel:(RecordingCandidatePanel *)panel
 {
     _candidatePanel = (MetasequoiaCandidatePanel *)panel;
-    _session = std::make_unique<metasequoia::InputSession>();
+    _session.reset();
     [self reloadSessionFromPreferences];
-    for (char character : std::string("nihao")) _session->handle_character(character);
+    for (char character : std::string("nihao")) _session->character(character);
     [self updateCandidatePanel];
 }
 // Leaves the session empty so a test can drive every keystroke through handleEvent:client: instead
@@ -92,26 +93,29 @@ static void Require(bool condition, const char *message)
     _session.reset();
     [self reloadSessionFromPreferences];
 }
-- (BOOL)testHasComposition { return _session != nullptr && _session->has_composition(); }
+- (BOOL)testHasComposition { return _session != nullptr && (!_session->snapshot().preedit.empty()); }
 - (void)prepareHelpcodeProbe
 {
-    for (char character : std::string("niA")) _session->handle_character(character);
+    for (char character : std::string("niA")) _session->character(character);
+    _sessionSnapshot = _session->snapshot();
 }
 - (void)refreshHelpcodeProbe
 {
     [self reloadSessionFromPreferences];
-    _session->handle_command(metasequoia::Command::Backspace);
-    _session->handle_character('A');
+    _session->command(metasequoia::Command::Backspace);
+    _session->character('A');
+    _sessionSnapshot = _session->snapshot();
 }
 - (void)preparePartialInput
 {
-    _session = std::make_unique<metasequoia::InputSession>(SchemeType::Quanpin, true, false, true, false);
-    for (char character : std::string("shui'lin")) _session->handle_character(character);
+    _sessionOptions = SessionTestOptions(SchemeType::Quanpin, false, false);
+    _session = std::make_unique<metasequoia::Session>(_sessionOptions);
+    for (char character : std::string("shui'lin")) _session->character(character);
     [self updateCandidatePanel];
 }
-- (NSUInteger)testCandidateCount { return _session->candidates().size(); }
+- (NSUInteger)testCandidateCount { return _session->snapshot().candidates.size(); }
 - (NSString *)testCandidateAtIndex:(NSUInteger)index
-{ return MetasequoiaStringFromUtf8(_session->candidates()[index].word); }
+{ return MetasequoiaStringFromUtf8(_session->snapshot().candidates[index].word); }
 @end
 
 @interface PaginationTestController : MetasequoiaInputController

@@ -1,3 +1,4 @@
+#include "PublicSessionTestOptions.h"
 #include "../src/InputControllerKeyRouting.h"
 #include "../src/CandidatePanelStyle.h"
 #include "../src/CandidatePageSize.h"
@@ -166,7 +167,7 @@ int main()
                          "('aaaa', '候选二', 90)");
     }
     {
-        metasequoia::InputSession enabledSession(SchemeType::Wubi, true, true, true, false);
+        metasequoia::Session enabledSession(SessionTestOptions(SchemeType::Wubi, true, false));
         for (const char character : std::string("abc"))
         {
             const auto result = metasequoia::mac::HandleCharacterWithWubiAutoCommit(enabledSession, character, true);
@@ -174,27 +175,27 @@ int main()
                     "Wubi auto-commit fired before the fourth code.");
         }
         const auto uniqueResult = metasequoia::mac::HandleCharacterWithWubiAutoCommit(enabledSession, 'd', true);
-        require(uniqueResult.handled && uniqueResult.commit == "唯一候选" && !enabledSession.has_composition(),
+        require(uniqueResult.handled && uniqueResult.commit == "唯一候选" && !(!enabledSession.snapshot().preedit.empty()),
                 "The fourth Wubi code did not commit its unique refreshed candidate.");
 
-        metasequoia::InputSession disabledSession(SchemeType::Wubi, true, true, true, false);
+        metasequoia::Session disabledSession(SessionTestOptions(SchemeType::Wubi, true, false));
         for (const char character : std::string("abcd"))
         {
             const auto result = metasequoia::mac::HandleCharacterWithWubiAutoCommit(disabledSession, character, false);
             require(result.handled && !result.commit.has_value(),
                     "Disabled Wubi auto-commit unexpectedly committed a candidate.");
         }
-        require(disabledSession.preedit() == "abcd",
+        require(disabledSession.snapshot().preedit == "abcd",
                 "Disabled Wubi auto-commit did not preserve the four-code composition.");
 
-        metasequoia::InputSession multipleSession(SchemeType::Wubi, true, true, true, false);
+        metasequoia::Session multipleSession(SessionTestOptions(SchemeType::Wubi, true, false));
         for (const char character : std::string("aaaa"))
         {
             const auto result = metasequoia::mac::HandleCharacterWithWubiAutoCommit(multipleSession, character, true);
             require(result.handled && !result.commit.has_value(),
                     "Wubi auto-commit committed a code with multiple candidates.");
         }
-        require(multipleSession.preedit() == "aaaa" && multipleSession.candidates().size() == 2,
+        require(multipleSession.snapshot().preedit == "aaaa" && multipleSession.snapshot().candidates.size() == 2,
                 "The multiple-candidate Wubi fixture did not remain available for selection.");
     }
     std::filesystem::remove_all(dictionaryDirectory);

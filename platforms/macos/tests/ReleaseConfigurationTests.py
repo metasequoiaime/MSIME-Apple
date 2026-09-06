@@ -32,7 +32,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )[0]
         self.assertLess(
             reload_session.index("storedShuangpinKeymapEnabled"),
-            reload_session.index("_session->has_composition()"),
+            reload_session.index("!_sessionSnapshot.preedit.empty()"),
         )
         self.assertIn("ShuangpinKeymapPanel.mm", cmake)
         self.assertIn("ShuangpinKeymapPanelTests.mm", cmake)
@@ -115,7 +115,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
     def test_input_controller_survives_the_engine_helpcode_semantics(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
 
-        # InputSession::helpcode_enabled() reports false for schemes without helpcodes, so an unguarded comparison never matches a Wubi session and rebuilds the engine on every keystroke.
+        # Non-pinyin schemes ignore helpcode preference changes when comparing immutable session options.
         matches = controller.split("bool SessionMatchesPreferences(", 1)[1].split("\n}", 1)[0]
         self.assertIn("SchemeUsesHelpcodes(preferences.scheme)", matches)
         self.assertNotIn("session.helpcode_enabled() == preferences.helpcodeEnabled &&", matches)
@@ -139,10 +139,10 @@ class ReleaseConfigurationTests(unittest.TestCase):
             "uppercase reaches the session from more than one place in the key-routing branch",
         )
         uppercase_branch = character_branch.split("character <= 'Z'", 1)[1].split("}", 1)[0]
-        self.assertIn("!_session->has_composition()", uppercase_branch)
+        self.assertIn("_sessionSnapshot.preedit.empty()", uppercase_branch)
         self.assertIn("_localInputModesEnabled", character_branch)
         self.assertIn("NSEventModifierFlagShift", uppercase_branch)
-        self.assertIn("handle_character(static_cast<char>(character), true)", uppercase_branch)
+        self.assertIn("character(static_cast<char>(character), true)", uppercase_branch)
 
     def test_engine_english_learning_stays_unreachable_from_macos(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
@@ -155,14 +155,14 @@ class ReleaseConfigurationTests(unittest.TestCase):
         # orphan learned English words in a file no macOS code reads, migrates or clears.
         self.assertIn("msime_english.db", installer)
         for switch in (
-            "set_dedicated_english_mode",
+            "set_dedicated_english",
             "set_english_input_options",
             "set_frequency_adjustment",
             "set_mixed_expressive_options",
         ):
             self.assertNotIn(switch, controller, f"{switch} reaches the engine's english.db path; reconcile the filename with msime_english.db first")
         # handle_character's second parameter is what routes Shift+letter into the English and local modes.
-        self.assertIn("_session->handle_character(static_cast<char>(character))", controller)
+        self.assertIn("_session->character(static_cast<char>(character))", controller)
 
     def test_input_controller_owns_a_native_floating_status_toolbar(self):
         cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
@@ -551,7 +551,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         reload_session = input_controller.split("- (void)reloadSessionFromPreferences", 1)[1].split(
             "- (BOOL)prepareSessionIfNeeded", 1
         )[0]
-        self.assertLess(reload_session.index("_session->has_composition()"), reload_session.index("ReadSessionPreferences()"))
+        self.assertLess(reload_session.index("!_sessionSnapshot.preedit.empty()"), reload_session.index("ReadSessionPreferences()"))
         self.assertIn("_candidateSelection.reset();", reload_session)
         self.assertIn("[_candidatePanel hide];", reload_session)
         controller_initialization = input_controller.split("- (instancetype)initWithServer:", 1)[1].split(

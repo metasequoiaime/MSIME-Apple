@@ -1,3 +1,4 @@
+#include "PublicSessionTestOptions.h"
 #include "../src/CandidateSelectionState.h"
 #include "../../../vendor/MetasequoiaImeEngine/core/data_path.h"
 #include "../../../vendor/MetasequoiaImeEngine/user_dictionary/user_dictionary_journal.h"
@@ -37,9 +38,9 @@ private:
   sqlite3 *database_ = nullptr;
 };
 
-void type(metasequoia::InputSession &session, const std::string &text) {
+void type(metasequoia::Session &session, const std::string &text) {
   for (const char character : text) {
-    if (!session.handle_character(character).handled) {
+    if (!session.character(character).handled) {
       throw std::runtime_error("A pinyin character was not handled.");
     }
   }
@@ -54,19 +55,19 @@ void require(bool condition, const char *message) {
 void run_tests() {
   metasequoia::mac::CandidateSelectionState candidate_selection;
 
-  metasequoia::InputSession unarmed_session;
+  metasequoia::Session unarmed_session(SessionTestOptions());
   type(unarmed_session, "nihao");
   const std::string leading_candidate =
-      unarmed_session.candidates().front().word;
-  candidate_selection.update(1, unarmed_session.candidates()[1].word);
+      unarmed_session.snapshot().candidates.front().word;
+  candidate_selection.update(1, unarmed_session.snapshot().candidates[1].word);
   const auto unarmed = candidate_selection.commit(unarmed_session);
   require(unarmed.handled && unarmed.commit == leading_candidate,
           "An unsolicited panel callback replaced the leading candidate.");
 
-  metasequoia::InputSession highlighted_session;
+  metasequoia::Session highlighted_session(SessionTestOptions());
   type(highlighted_session, "nihao");
   const std::string highlighted_candidate =
-      highlighted_session.candidates()[1].word;
+      highlighted_session.snapshot().candidates[1].word;
   candidate_selection.begin_navigation();
   candidate_selection.update(1, highlighted_candidate);
   require(candidate_selection.selected_index() == 1,
@@ -76,12 +77,12 @@ void run_tests() {
       highlighted.handled && highlighted.commit == highlighted_candidate,
       "Space did not commit the candidate highlighted by the native panel.");
 
-  metasequoia::InputSession reset_session;
+  metasequoia::Session reset_session(SessionTestOptions());
   type(reset_session, "nihao");
   const std::string reset_leading_candidate =
-      reset_session.candidates().front().word;
+      reset_session.snapshot().candidates.front().word;
   candidate_selection.begin_navigation();
-  candidate_selection.update(1, reset_session.candidates()[1].word);
+  candidate_selection.update(1, reset_session.snapshot().candidates[1].word);
   candidate_selection.reset();
   require(!candidate_selection.selected_index().has_value(),
           "Reset retained a stale engine index.");
@@ -90,9 +91,9 @@ void run_tests() {
       reset.handled && reset.commit == reset_leading_candidate,
       "Clearing the native highlight did not restore the leading candidate.");
 
-  metasequoia::InputSession stale_session;
+  metasequoia::Session stale_session(SessionTestOptions());
   type(stale_session, "nihao");
-  const std::string stale_fallback = stale_session.candidates().front().word;
+  const std::string stale_fallback = stale_session.snapshot().candidates.front().word;
   candidate_selection.begin_navigation();
   candidate_selection.update(1, "candidate-from-an-old-composition");
   const auto stale = candidate_selection.commit(stale_session);
@@ -103,55 +104,55 @@ void run_tests() {
   // Every automatic commit — losing focus, a modifier, a key the session does not take — finishes
   // the composition, and it has to finish it from the candidate the user arrowed onto rather than
   // from the engine's own first one.
-  metasequoia::InputSession flush_session;
+  metasequoia::Session flush_session(SessionTestOptions());
   type(flush_session, "nihao");
-  const std::string flush_highlighted = flush_session.candidates()[1].word;
+  const std::string flush_highlighted = flush_session.snapshot().candidates[1].word;
   candidate_selection.begin_navigation();
   candidate_selection.update(1, flush_highlighted);
-  require(candidate_selection.live_selected_index(flush_session) == 1,
+  require(candidate_selection.live_selected_index(flush_session.snapshot()) == 1,
           "A live highlight was not offered to the automatic commit.");
-  const auto flushed = flush_session.finish_composition(
-      candidate_selection.live_selected_index(flush_session).value_or(0));
+  const auto flushed = flush_session.finish(
+      candidate_selection.live_selected_index(flush_session.snapshot()).value_or(0));
   require(flushed.handled && flushed.commit == flush_highlighted,
           "An automatic commit discarded the highlighted candidate.");
 
   // With nothing highlighted, and with a highlight that no longer names the same word, the index
   // has to come back empty so the automatic commit keeps its previous behaviour.
-  metasequoia::InputSession flush_default_session;
+  metasequoia::Session flush_default_session(SessionTestOptions());
   type(flush_default_session, "nihao");
   const std::string flush_default_leading =
-      flush_default_session.candidates().front().word;
+      flush_default_session.snapshot().candidates.front().word;
   candidate_selection.reset();
-  require(!candidate_selection.live_selected_index(flush_default_session).has_value(),
+  require(!candidate_selection.live_selected_index(flush_default_session.snapshot()).has_value(),
           "A cleared highlight still offered an index to the automatic commit.");
   candidate_selection.begin_navigation();
   candidate_selection.update(1, "candidate-from-an-old-composition");
-  require(!candidate_selection.live_selected_index(flush_default_session).has_value(),
+  require(!candidate_selection.live_selected_index(flush_default_session.snapshot()).has_value(),
           "A stale highlight still offered an index to the automatic commit.");
-  const auto flushed_default = flush_default_session.finish_composition(
-      candidate_selection.live_selected_index(flush_default_session).value_or(0));
+  const auto flushed_default = flush_default_session.finish(
+      candidate_selection.live_selected_index(flush_default_session.snapshot()).value_or(0));
   require(flushed_default.handled && flushed_default.commit == flush_default_leading,
           "An automatic commit without a highlight did not take the leading candidate.");
 
-  metasequoia::InputSession paged_session;
+  metasequoia::Session paged_session(SessionTestOptions());
   type(paged_session, "nihao");
-  require(paged_session.candidates().size() >= 11,
+  require(paged_session.snapshot().candidates.size() >= 11,
           "The paging fixture did not return enough candidates.");
-  const std::string second_page_candidate = paged_session.candidates()[9].word;
+  const std::string second_page_candidate = paged_session.snapshot().candidates[9].word;
   candidate_selection.begin_navigation();
   candidate_selection.update(9, second_page_candidate);
   const auto unavailable_digit =
       candidate_selection.commit_number(paged_session, '9');
-  require(!unavailable_digit.handled && paged_session.has_composition(),
+  require(!unavailable_digit.handled && (!paged_session.snapshot().preedit.empty()),
           "An unavailable number on the current page changed composition.");
   const auto page_digit = candidate_selection.commit_number(paged_session, '1');
   require(page_digit.handled && page_digit.commit == second_page_candidate,
           "The 1 key did not commit the first candidate on the visible page.");
 
-  metasequoia::InputSession compact_page_session;
+  metasequoia::Session compact_page_session(SessionTestOptions());
   type(compact_page_session, "nihao");
   const std::string compact_page_candidate =
-      compact_page_session.candidates()[5].word;
+      compact_page_session.snapshot().candidates[5].word;
   candidate_selection.begin_navigation();
   candidate_selection.update(5, compact_page_candidate);
   const auto compact_page_digit =

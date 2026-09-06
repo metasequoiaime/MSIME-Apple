@@ -1,8 +1,9 @@
+#include "PublicSessionTestOptions.h"
 // The controller only forwards a capital to the session when nothing is being composed and Shift is
 // the only modifier. These tests pin the engine side of that arrangement: which capitals open a
 // mode, that the rest stay unhandled so the application still inserts them, and that a disabled
 // mode gives its trigger letter back.
-#include "core/input_session.h"
+#include <metasequoia/session.h>
 
 #include <chrono>
 #include <cstdio>
@@ -44,68 +45,72 @@ int RunTest() {
   }
 
   {
-    metasequoia::InputSession session;
-    session.set_local_mode_options(AppleOptions(true));
+    auto options = SessionTestOptions();
+    options.local_modes = AppleOptions(true);
+    metasequoia::Session session(options);
 
-    const auto unicode = session.handle_character('U', true);
-    Require(unicode.handled && session.preedit() == "U",
+    const auto unicode = session.character('U', true);
+    Require(unicode.handled && session.snapshot().preedit == "U",
             "Shift+U did not open the Unicode mode.");
-    Require(session.local_input_mode() == metasequoia::LocalInputMode::Unicode,
+    Require(session.snapshot().local_mode == metasequoia::LocalInputMode::Unicode,
             "Shift+U did not report the Unicode mode.");
 
     // The code point is hexadecimal, so the mode has to take digits as input. The controller routes
     // them here only while this mode is open; every other mode leaves digits to candidate numbers.
-    Require(session.handle_character('4').handled && session.preedit() == "U4",
+    Require(session.character('4').handled && session.snapshot().preedit == "U4",
             "The Unicode mode rejected a hexadecimal digit.");
-    Require(session.handle_command(metasequoia::Command::Cancel).handled,
+    Require(session.command(metasequoia::Command::Cancel).handled,
             "Cancel did not close the Unicode mode.");
-    Require(session.local_input_mode() == metasequoia::LocalInputMode::None,
+    Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
             "Cancel left a local mode open.");
   }
 
   {
-    metasequoia::InputSession session;
-    session.set_local_mode_options(AppleOptions(true));
+    auto options = SessionTestOptions();
+    options.local_modes = AppleOptions(true);
+    metasequoia::Session session(options);
 
     // A capital that opens nothing has to come back unhandled, or the keyboard would swallow it
     // instead of letting the application insert it.
-    const auto passthrough = session.handle_character('Z', true);
+    const auto passthrough = session.character('Z', true);
     Require(!passthrough.handled,
             "A capital that opens no mode was swallowed by the session.");
-    Require(session.local_input_mode() == metasequoia::LocalInputMode::None,
+    Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
             "A capital that opens no mode still changed the local mode.");
 
     // The four modes whose data this bundle does not ship must not open at all.
     for (const char trigger : {'E', 'M', 'Y', 'R'}) {
-      const auto result = session.handle_character(trigger, true);
+      const auto result = session.character(trigger, true);
       Require(!result.handled,
               "A local mode without packaged data was opened by its trigger.");
-      Require(session.local_input_mode() == metasequoia::LocalInputMode::None,
+      Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
               "A local mode without packaged data reported itself as open.");
     }
   }
 
   {
-    metasequoia::InputSession session;
-    session.set_local_mode_options(AppleOptions(false));
+    auto options = SessionTestOptions();
+    options.local_modes = AppleOptions(false);
+    metasequoia::Session session(options);
 
     // With the preference off the trigger is an ordinary capital again.
-    const auto disabled = session.handle_character('U', true);
+    const auto disabled = session.character('U', true);
     Require(!disabled.handled,
             "Shift+U opened the Unicode mode while local modes were disabled.");
-    Require(session.local_input_mode() == metasequoia::LocalInputMode::None,
+    Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
             "A disabled local mode still opened.");
   }
 
   {
-    metasequoia::InputSession session;
-    session.set_local_mode_options(AppleOptions(true));
+    auto options = SessionTestOptions();
+    options.local_modes = AppleOptions(true);
+    metasequoia::Session session(options);
 
     // The engine guards every trigger on there being no composition, which is the same condition
     // the controller checks before forwarding a capital at all.
-    Require(session.handle_character('n').handled, "The guard fixture did not start a composition.");
-    const auto duringComposition = session.handle_character('U', true);
-    Require(session.local_input_mode() == metasequoia::LocalInputMode::None,
+    Require(session.character('n').handled, "The guard fixture did not start a composition.");
+    const auto duringComposition = session.character('U', true);
+    Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
             "A trigger opened a local mode on top of a live composition.");
     (void)duringComposition;
   }

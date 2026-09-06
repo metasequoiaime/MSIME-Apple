@@ -19,8 +19,11 @@ This repository is named `MSIME-Apple` because it contains Apple-platform adapte
 The engine is the only authority for a composition and its candidates. A platform frontend translates native events into engine calls, renders the returned state, and inserts committed text through the platform API.
 
 The iOS bridge now uses the public `<metasequoia/session.h>` facade: editing actions return commits,
-and value snapshots supply preedit and candidates. macOS still uses the compatibility `InputSession`
-interface directly. Both consume the same pinned Engine. macOS configures helpcodes on each session
+and value snapshots supply preedit and candidates. macOS also uses the public `Session` interface. It caches value snapshots after editing
+actions and keeps the immutable creation options for preference comparisons. Active compositions
+retain their options; changed preferences rebuild an idle session. Candidate navigation validates
+its index and word against the current snapshot before selection, and automatic completion uses
+`finish(highlighted_index)` so Engine also commits remaining segments. Both consume the same pinned Engine. macOS configures helpcodes on each session
 and keeps a matching immutable keymap for candidate annotations; one controller cannot change another
 controller's live scheme. Keymaps are prepared when a session is created, not on each keystroke.
 
