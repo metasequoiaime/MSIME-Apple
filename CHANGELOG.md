@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.47.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.47.0...v0.47.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **release:** resolve iOS artifact output path before zipping ([eed9c69](https://github.com/metasequoiaime/MSIME-Apple/commit/eed9c6966aae9c0fd9e98e5a54e30ca6f4c07415))
+* **release:** resolve iOS artifact output path before zipping ([e058dc7](https://github.com/metasequoiaime/MSIME-Apple/commit/e058dc719f90340c88ad82e21a6588fc26800da7))
+
 ## [0.47.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.46.1...v0.47.0) (2026-09-06)
 
 
