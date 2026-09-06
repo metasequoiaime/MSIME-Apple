@@ -281,13 +281,23 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertTrue(package["force-tag-creation"])
         self.assertFalse(package.get("include-component-in-tag", True))
         ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
-        allowed_actions = {"actions/checkout", "googleapis/release-please-action"}
+        allowed_actions = {
+            "actions/checkout", "googleapis/release-please-action", "actions/setup-go",
+            "actions/dependency-review-action", "github/codeql-action/init",
+            "github/codeql-action/analyze",
+        }
         used_actions = set()
-        for workflow_source in (workflow, ci_workflow):
-            uses_lines = [line.strip() for line in workflow_source.splitlines() if line.strip().startswith("uses:")]
+        for workflow_path in (PROJECT_ROOT / ".github/workflows").glob("*.yml"):
+            uses_lines = [line.strip().removeprefix("- ") for line in workflow_path.read_text().splitlines()
+                          if line.strip().removeprefix("- ").startswith("uses:")]
             self.assertGreater(len(uses_lines), 0)
             for uses_line in uses_lines:
                 action_reference = uses_line.removeprefix("uses:").strip().split()[0]
+                if action_reference.startswith("./"):
+                    # Local reusable workflows are pinned by the caller's own commit.
+                    self.assertEqual(action_reference, "./.github/workflows/quality.yml")
+                    self.assertTrue((PROJECT_ROOT / action_reference).is_file())
+                    continue
                 action, separator, revision = action_reference.partition("@")
                 self.assertEqual(separator, "@")
                 self.assertIn(action, allowed_actions)
