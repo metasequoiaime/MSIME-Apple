@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.48.2](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.48.1...v0.48.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ci:** avoid duplicate CodeQL scans on pushes ([1386d3c](https://github.com/metasequoiaime/MSIME-Apple/commit/1386d3cd21bef6bb52b82c9b489cb482d08b5f31))
+* **ci:** avoid duplicate CodeQL scans on pushes ([a472a04](https://github.com/metasequoiaime/MSIME-Apple/commit/a472a04394997f54e315165de0667bba8dc6f70d))
+* **ios:** archive TestFlight builds with distribution signing ([#300](https://github.com/metasequoiaime/MSIME-Apple/issues/300)) ([219405d](https://github.com/metasequoiaime/MSIME-Apple/commit/219405d9e406ad9402c82b040fe9fb982e465493))
+* **ios:** keep TestFlight signing automatic ([#302](https://github.com/metasequoiaime/MSIME-Apple/issues/302)) ([ae95134](https://github.com/metasequoiaime/MSIME-Apple/commit/ae951345ba6725f94c239ef6a21b9b8db35a3c84))
+
 ## [0.48.1](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.48.0...v0.48.1) (2026-09-06)
 
 
