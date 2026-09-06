@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.48.0](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.47.2...v0.48.0) (2026-09-06)
+
+
+### Features
+
+* **ios:** publish signed builds to TestFlight ([#289](https://github.com/metasequoiaime/MSIME-Apple/issues/289)) ([380544b](https://github.com/metasequoiaime/MSIME-Apple/commit/380544bd7c49732564c8cabcb71d646703e72d50))
+
+
+### Bug Fixes
+
+* **release:** target main for release please ([#290](https://github.com/metasequoiaime/MSIME-Apple/issues/290)) ([02b1021](https://github.com/metasequoiaime/MSIME-Apple/commit/02b1021c231db4f1183d05ac8ab8b290eb289cc8))
+
 ## [0.47.2](https://github.com/metasequoiaime/MSIME-Apple/compare/v0.47.1...v0.47.2) (2026-09-06)
 
 
