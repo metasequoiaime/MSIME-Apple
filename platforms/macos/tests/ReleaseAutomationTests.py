@@ -463,12 +463,14 @@ fi
                 "<?xml version=\"1.0\"?><rss><channel><item>test</item></channel></rss>\n"
             )
             # The iOS archive name never carries the signing suffix: it is unsigned in every mode.
-            ios_archive = dist / "MetasequoiaIME-v1.2.3-ios-unsigned.xcarchive.zip"
-            ios_archive.write_bytes(b"test iOS archive artifact\n")
-            ios_digest = hashlib.sha256(ios_archive.read_bytes()).hexdigest()
-            (dist / f"{ios_archive.name}.sha256").write_text(
-                f"{ios_digest}  {ios_archive.name}\n"
-            )
+            for ios_name in (
+                "MetasequoiaIME-v1.2.3-ios-unsigned.xcarchive.zip",
+                "MetasequoiaIME-v1.2.3-ios-unsigned.ipa",
+            ):
+                ios_artifact = dist / ios_name
+                ios_artifact.write_bytes(f"test {ios_name} artifact\n".encode())
+                ios_digest = hashlib.sha256(ios_artifact.read_bytes()).hexdigest()
+                (dist / f"{ios_name}.sha256").write_text(f"{ios_digest}  {ios_name}\n")
             if misdirected_checksum:
                 archive = dist / f"{stem}.zip"
                 archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -516,7 +518,11 @@ fi
         self.assertIn("macos-universal-unsigned.pkg", calls)
         self.assertIn("macos-universal-unsigned-update.zip", calls)
         self.assertIn("ios-unsigned.xcarchive.zip", calls)
-        self.assertIn("unsigned archive, not an installable app", notes)
+        self.assertIn("ios-unsigned.ipa", calls)
+        # The .ipa is the asset a tester can use, so the notes have to lead with it and say plainly
+        # that it still needs signing.
+        self.assertIn("Both iOS assets are **unsigned**", notes)
+        self.assertIn("Sideloadly", notes)
         # The appcast is signed with the Ed25519 update key, not with an Apple identity, so an Apple-unsigned release still publishes it and Sparkle keeps working.
         self.assertIn("appcast.xml", calls)
         self.assertIn("--draft=false", calls)
@@ -525,7 +531,7 @@ fi
         marker = (
             "Existing notes\n\n"
             "<!-- metasequoia-release-mode:unsigned -->\n"
-            "<!-- metasequoia-install-guidance:v2 -->\n"
+            "<!-- metasequoia-install-guidance:v3 -->\n"
         )
         result, calls, notes = self.run_publication("false", "-unsigned", marker)
 
@@ -541,7 +547,7 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Existing notes", notes)
         self.assertEqual(notes.count("metasequoia-release-mode:unsigned"), 1)
-        self.assertIn("metasequoia-install-guidance:v2", notes)
+        self.assertIn("metasequoia-install-guidance:v3", notes)
         self.assertIn("Recommended: ZIP", notes)
         self.assertLess(calls.index("--notes-file"), calls.index("release upload"))
 
@@ -567,6 +573,7 @@ fi
         self.assertIn("macos-universal.pkg", calls)
         # Unsigned in a signed release too, because no iOS signing identity exists.
         self.assertIn("ios-unsigned.xcarchive.zip", calls)
+        self.assertIn("ios-unsigned.ipa", calls)
 
     def test_corrupt_artifact_is_rejected_before_release_metadata_or_assets_change(self):
         result, calls, notes = self.run_publication("false", "-unsigned", corrupt_checksum=True)

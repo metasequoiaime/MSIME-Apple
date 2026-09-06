@@ -101,8 +101,37 @@ fi
 bundle="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.xcarchive.zip"
 rm -f -- "$bundle" "$bundle.sha256"
 ditto -c -k --keepParent "$archive_path" "$bundle"
+
+# The .ipa is the artifact anyone other than the maintainer can actually use. Re-signing tools take
+# an .ipa directly and sign it with the user's own Apple ID; exporting from the .xcarchive instead
+# needs Xcode's Organizer and a Developer Program membership. An .ipa is just a zip whose top-level
+# directory is Payload, so it needs no signing identity to produce — the payload inside is unsigned
+# and has to be re-signed before a device will run it.
+payload_root="$build_root/ipa"
+rm -rf -- "$payload_root"
+mkdir -p "$payload_root/Payload"
+cp -R "$application" "$payload_root/Payload/"
+# Checked on the staged tree rather than by grepping a listing of the finished zip: the payload is
+# what this script controls, and a test that parses another tool's output can fail for reasons that
+# have nothing to do with the payload being wrong.
+staged_extension="$payload_root/Payload/MetasequoiaIME.app/PlugIns/MetasequoiaKeyboard.appex"
+if [[ ! -x "$staged_extension/MetasequoiaKeyboard" || ! -s "$staged_extension/msime.db" ]]; then
+    printf 'The staged .ipa payload is missing the keyboard extension or its dictionary.\n' >&2
+    exit 1
+fi
+
+ipa="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.ipa"
+rm -f -- "$ipa" "$ipa.sha256"
+# zip rather than ditto: ditto writes AppleDouble ._ entries beside the payload, and an .ipa is
+# consumed by tools that do not expect them.
+(cd "$payload_root" && zip -qry "$ipa" Payload)
+# Reads the whole archive back and verifies every CRC, so a truncated or corrupt .ipa cannot ship.
+unzip -tqq "$ipa"
+
 (
     cd "$output_dir"
-    shasum -a 256 "$(basename "$bundle")" > "$(basename "$bundle").sha256"
+    for artifact in "$bundle" "$ipa"; do
+        shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+    done
 )
-printf '%s\n' "$bundle"
+printf '%s\n%s\n' "$bundle" "$ipa"

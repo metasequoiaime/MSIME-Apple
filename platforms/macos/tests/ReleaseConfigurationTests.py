@@ -291,10 +291,19 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("xcodegen", workflow)
         publish_script = (MACOS_ROOT / "scripts/publish-release.sh").read_text()
         self.assertIn("ios-unsigned.xcarchive.zip", publish_script)
+        # The .ipa is the asset a tester can actually re-sign and install, so it has to be uploaded
+        # rather than only checked for existence — an earlier revision added it to one list and not
+        # the other.
+        self.assertIn("ios-unsigned.ipa", publish_script)
+        self.assertIn('"$ios_ipa" "$ios_ipa.sha256")', publish_script.split("upload_args=", 1)[1])
         archive_script = (PROJECT_ROOT / "platforms/ios/scripts/package_ios_archive.sh").read_text()
         self.assertIn("CODE_SIGNING_ALLOWED=NO", archive_script)
         # The archive is worthless if it silently drops the extension the product exists for.
         self.assertIn("PlugIns/MetasequoiaKeyboard.appex", archive_script)
+        # An .ipa is a zip whose top-level directory is Payload; that layout is what re-signing
+        # tools expect, and it needs no signing identity to produce.
+        self.assertIn("Payload", archive_script)
+        self.assertIn("unzip -tqq", archive_script)
         self.assertNotIn("generated", (package["pull-request-header"] + package["pull-request-footer"]).lower())
         self.assertTrue(package["draft"])
         self.assertTrue(package["force-tag-creation"])
