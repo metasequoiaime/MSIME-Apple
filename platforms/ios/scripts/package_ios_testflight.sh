@@ -50,6 +50,8 @@ mkdir -p "$build_root" "$export_path"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
 
+# Explicit distribution signing is required here. Without it Xcode chooses Apple Development for
+# the archive, then exportArchive cannot find a distribution profile for the host or extension.
 xcodebuild archive \
     -project "$build_root/MetasequoiaImeIOS.xcodeproj" \
     -scheme MetasequoiaImeIOS \
@@ -62,6 +64,7 @@ xcodebuild archive \
     CODE_SIGNING_ALLOWED=YES \
     CODE_SIGNING_REQUIRED=YES \
     CODE_SIGN_STYLE=Automatic \
+    CODE_SIGN_IDENTITY="Apple Distribution" \
     DEVELOPMENT_TEAM="$METASEQUOIA_IOS_TEAM_ID" \
     -allowProvisioningUpdates \
     -authenticationKeyPath "$METASEQUOIA_IOS_AUTH_KEY_PATH" \
