@@ -148,6 +148,7 @@ jobs:
             platforms/macos/scripts/package_release.sh
             platforms/macos/scripts/generate-sparkle-appcast.sh
             platforms/macos/scripts/publish-release.sh
+            platforms/ios/scripts/package_ios_testflight.sh
           persist-credentials: false
       - name: Stage trusted release automation
         run: |
@@ -160,6 +161,7 @@ jobs:
           install -m 0755 .release-automation/platforms/macos/scripts/package_release.sh "$RUNNER_TEMP/package-release.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/generate-sparkle-appcast.sh "$RUNNER_TEMP/generate-sparkle-appcast.sh"
           install -m 0755 .release-automation/platforms/macos/scripts/publish-release.sh "$RUNNER_TEMP/publish-release.sh"
+          install -m 0755 .release-automation/platforms/ios/scripts/package_ios_testflight.sh "$RUNNER_TEMP/package-ios-testflight.sh"
       - name: Determine release signing mode
         id: signing
         env:
@@ -246,16 +248,52 @@ jobs:
           METASEQUOIA_RELEASE_POSTINSTALL_SCRIPT: ${{ runner.temp }}/pkg-postinstall.sh
           METASEQUOIA_INSTALLER_DISTRIBUTION: ${{ runner.temp }}/InstallerDistribution.xml.in
         run: exec "$RUNNER_TEMP/package-release.sh" "$TAG_NAME" build/MetasequoiaIME.app dist
-      # The iOS artifact is an unsigned .xcarchive, because no Apple signing identity is configured
-      # for this repository. It is not installable on its own — a custom keyboard reaches users only
-      # through the App Store or TestFlight — but it lets a maintainer with a Developer Program
-      # membership export an IPA from the exact bits this tag built, without a rebuild.
+      # The public iOS artifacts stay unsigned and reproducible. When App Store Connect API key
+      # secrets are configured, the separate TestFlight step below builds an automatically signed upload from the
+      # same tag and sends it to App Store Connect.
       - name: Package the iOS dictionary
         run: python3 platforms/ios/scripts/prepare_dictionary.py
       - name: Build the unsigned iOS archive
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: exec platforms/ios/scripts/package_ios_archive.sh "$TAG_NAME" dist
+      - name: Prepare App Store Connect API key for TestFlight
+        id: testflight_credentials
+        env:
+          IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${IOS_API_KEY_BASE64:-}" && -z "${IOS_API_KEY_ID:-}" && -z "${IOS_API_KEY_ISSUER_ID:-}" ]]; then
+            printf 'enabled=false\n' >> "$GITHUB_OUTPUT"
+            echo 'TestFlight upload skipped: App Store Connect API Key secrets are not configured.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -z "${IOS_API_KEY_BASE64:-}" || -z "${IOS_API_KEY_ID:-}" || -z "${IOS_API_KEY_ISSUER_ID:-}" ]]; then
+            echo 'TestFlight upload requires IOS_APP_STORE_CONNECT_API_KEY_BASE64, IOS_APP_STORE_CONNECT_API_KEY_ID, and IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID.' >&2
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_${IOS_API_KEY_ID}.p8"
+          printf '%s' "$IOS_API_KEY_BASE64" | base64 -D > "$key_path"
+          chmod 600 "$key_path"
+          printf 'enabled=true\nkey_path=%s\n' "$key_path" >> "$GITHUB_OUTPUT"
+      - name: Upload iOS build to TestFlight
+        if: ${{ steps.testflight_credentials.outputs.enabled == 'true' }}
+        env:
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
+          METASEQUOIA_PROJECT_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          export METASEQUOIA_IOS_TEAM_ID="$IOS_TEAM_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_ID="$IOS_API_KEY_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID="$IOS_API_KEY_ISSUER_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_PATH="$IOS_API_KEY_PATH"
+          exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
       - name: Detect the Sparkle update key
         id: sparkle
         env:

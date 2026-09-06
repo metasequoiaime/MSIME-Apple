@@ -30,3 +30,22 @@ The host app exposes the same input-scheme setting as a native segmented control
 The host app also exposes a simplified/traditional output setting, shared through the same App Group and defaulting to simplified. The engine and the packaged dictionary keep their original simplified strings; only the candidates shown in the keyboard and the text it commits are converted, through Core Foundation's `Simplified-Traditional` transform. Candidate selection continues to use engine indexes, and the preedit is left alone because it carries pinyin rather than Chinese output.
 
 `prepare_dictionary.py` first builds the canonical database, then retains all single-syllable entries and common multi-syllable entries with weight 2000 or greater. The generated database and its SHA-256 sidecar are ignored build artifacts. At runtime the extension atomically installs a changed bundled database into its private writable Application Support directory, keeping dictionary access local without requesting Open Access.
+
+## TestFlight publishing
+
+The public release assets remain unsigned and reproducible. When the repository has all three
+`IOS_APP_STORE_CONNECT_API_KEY_BASE64`, `IOS_APP_STORE_CONNECT_API_KEY_ID`, and
+`IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID` Actions secrets, `release.yml` additionally uses Xcode
+automatic signing on the macOS runner and uploads a distribution-signed build to TestFlight. The
+API key must be a Team API key with permission to manage signing assets; the App ID records must exist for
+`com.houko.metasequoiaime.ios` and `com.houko.metasequoiaime.ios.keyboard`.
+
+To create the base64 secret without printing the private key:
+
+```sh
+openssl base64 -A -in AuthKey_<KEY_ID>.p8 | pbcopy
+```
+
+The issuer ID and key ID are entered as plain text in their respective secrets. The workflow uses
+the existing `MACOS_NOTARY_TEAM_ID` secret for the Apple Developer team ID because both workflows
+belong to the same team.

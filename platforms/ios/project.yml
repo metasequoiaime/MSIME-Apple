@@ -18,6 +18,7 @@ settings:
     # target without it links as a bare `-l` and builds products named `.xctest` or `-Runner.app`.
     # Targets that publish a different product name still override this below.
     PRODUCT_NAME: $(TARGET_NAME)
+    DEVELOPMENT_TEAM: LXCL4Z68GU
 
 targets:
   MetasequoiaAppleBridge:
@@ -102,6 +103,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/App/Resources/MetasequoiaImeIOS.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios
         PRODUCT_NAME: MetasequoiaIME
+        CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: MetasequoiaKeyboard
 
@@ -126,6 +128,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios.keyboard
         PRODUCT_NAME: MetasequoiaKeyboard
+        CODE_SIGN_STYLE: Automatic
         SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
