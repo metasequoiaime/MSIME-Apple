@@ -167,13 +167,11 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard\n", project)
         self.assertIn("deploymentTarget:\n    iOS: \"15.0\"", project)
 
-    def test_testflight_archive_requests_distribution_signing(self):
+    def test_testflight_archive_uses_automatic_signing(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
 
-        # Automatic signing otherwise selects Apple Development for the archive. That archive can
-        # be signed successfully but exportArchive then has no distribution profiles to use for
-        # the host or keyboard extension.
-        self.assertIn('CODE_SIGN_IDENTITY="Apple Distribution"', script)
+        self.assertNotIn('CODE_SIGN_IDENTITY="Apple Distribution"', script)
+        self.assertIn("CODE_SIGN_STYLE=Automatic", script)
         self.assertIn('<string>app-store-connect</string>', script)
         self.assertIn('<string>automatic</string>', script)
 
