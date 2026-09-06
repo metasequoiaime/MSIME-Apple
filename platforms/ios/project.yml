@@ -1,7 +1,7 @@
 name: MetasequoiaImeIOS
 
 options:
-  bundleIdPrefix: com.houko.metasequoiaime
+  bundleIdPrefix: app.msime
   createIntermediateGroups: true
   deploymentTarget:
     iOS: "15.0"
@@ -101,7 +101,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: $(PROJECT_DIR)/../../platforms/ios/App/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/App/Resources/MetasequoiaImeIOS.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         PRODUCT_NAME: MetasequoiaIME
         CODE_SIGN_STYLE: Automatic
     dependencies:
@@ -126,7 +126,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MetasequoiaKeyboard
         CODE_SIGN_STYLE: Automatic
         SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h
@@ -145,7 +145,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.uitests
     dependencies:
       - target: MetasequoiaImeIOS
 

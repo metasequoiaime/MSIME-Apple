@@ -2,7 +2,7 @@
 
 This directory contains the native iOS host app, custom keyboard extension, iOS-only shared UI, and their tests. `project.yml` is the reproducible XcodeGen source of truth; generated `.xcodeproj` files are build artifacts and are not committed.
 
-The iOS frontend consumes `MetasequoiaImeEngine` through the Objective-C++ adapter in `shared/apple-bridge`. It must not import AppKit, InputMethodKit, Sparkle, macOS registration helpers, or macOS installer code. The keyboard operates locally without Open Access or network access. The host app and keyboard extension share the selected full-pinyin or Xiaohe double-pinyin scheme through the `group.com.houko.metasequoiaime.ios` App Group.
+The iOS frontend consumes `MetasequoiaImeEngine` through the Objective-C++ adapter in `shared/apple-bridge`. It must not import AppKit, InputMethodKit, Sparkle, macOS registration helpers, or macOS installer code. The keyboard operates locally without Open Access or network access. The host app and keyboard extension share the selected full-pinyin or Xiaohe double-pinyin scheme through the `group.app.msime.ios` App Group.
 
 See [Apple platform architecture](../../docs/apple-platform-architecture.md) for ownership boundaries and the progressive pull-request sequence.
 
@@ -19,7 +19,7 @@ bash platforms/ios/scripts/run_ui_tests.sh
 
 The UI-test runner prefers an already booted iPhone Simulator, otherwise selects the newest available iPhone runtime, waits for its reported boot readiness, and runs the onboarding smoke test without fixed startup delays. Set `IOS_SIMULATOR_UDID` to target a specific device.
 
-`CODE_SIGNING_ALLOWED=NO` above keeps the Simulator build reproducible without a signing identity, but it also means the installed app carries no entitlements and the operating system never provisions the App Group. The host app and the keyboard extension then each get their own `group.com.houko.metasequoiaime.ios` preferences file inside their own container, so a setting changed in the host app never reaches the keyboard and the sharing looks broken when it is not. Build and install with signing enabled when the shared settings themselves are what needs verifying; the two containers are under `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Containers/Data/` and reading both plists tells the two cases apart immediately.
+`CODE_SIGNING_ALLOWED=NO` above keeps the Simulator build reproducible without a signing identity, but it also means the installed app carries no entitlements and the operating system never provisions the App Group. The host app and the keyboard extension then each get their own `group.app.msime.ios` preferences file inside their own container, so a setting changed in the host app never reaches the keyboard and the sharing looks broken when it is not. Build and install with signing enabled when the shared settings themselves are what needs verifying; the two containers are under `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Containers/Data/` and reading both plists tells the two cases apart immediately.
 
 `BREW_PREFIX` defaults to `/opt/homebrew` in `project.yml`; override that build setting when dependencies are installed under another prefix.
 
@@ -38,7 +38,7 @@ The public release assets remain unsigned and reproducible. When the repository 
 `IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID` Actions secrets, `release.yml` additionally uses Xcode
 automatic signing on the macOS runner and uploads a distribution-signed build to TestFlight. The
 API key must be a Team API key with permission to manage signing assets; the App ID records must exist for
-`com.houko.metasequoiaime.ios` and `com.houko.metasequoiaime.ios.keyboard`.
+`app.msime.ios` and `app.msime.ios.keyboard`.
 
 To create the base64 secret without printing the private key:
 

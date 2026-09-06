@@ -1,7 +1,7 @@
 import Foundation
 
 enum InputSchemePreference {
-  static let appGroupIdentifier = "group.com.houko.metasequoiaime.ios"
+  static let appGroupIdentifier = "group.app.msime.ios"
   private static let key = "inputSchemeUsesShuangpin"
 
   static var usesShuangpin: Bool {

@@ -47,7 +47,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         project = (IOS_ROOT / "project.yml").read_text()
         shared_preference = (IOS_ROOT / "SharedUI/InputSchemePreference.swift").read_text()
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
-        group_identifier = "group.com.houko.metasequoiaime.ios"
+        group_identifier = "group.app.msime.ios"
 
         for relative_path in (
             "App/Resources/MetasequoiaImeIOS.entitlements",
@@ -163,8 +163,8 @@ class ProjectConfigurationTests(unittest.TestCase):
     def test_project_defines_distinct_host_and_keyboard_identifiers(self):
         project = (IOS_ROOT / "project.yml").read_text()
 
-        self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios\n", project)
-        self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.houko.metasequoiaime.ios.keyboard\n", project)
+        self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios\n", project)
+        self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard\n", project)
         self.assertIn("deploymentTarget:\n    iOS: \"15.0\"", project)
 
     def test_keyboard_is_local_and_declares_the_system_extension_contract(self):
