@@ -1,7 +1,7 @@
 import UIKit
 
 @MainActor
-final class KeyboardViewController: UIInputViewController {
+final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
   private enum LetterCaseState {
     case lowercase, shifted, capsLock
   }
@@ -35,6 +35,8 @@ final class KeyboardViewController: UIInputViewController {
   private var layoutToggleButton: UIButton?
   private weak var shiftButton: UIButton?
   private weak var enterButton: UIButton?
+  private weak var spaceButton: UIButton?
+  private var cursorMovement = SpaceCursorMovement()
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
@@ -177,6 +179,7 @@ final class KeyboardViewController: UIInputViewController {
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     closeSkinPicker()
+    spaceButton?.configuration?.title = "空格"
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
@@ -692,6 +695,19 @@ final class KeyboardViewController: UIInputViewController {
     let space = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
       self?.handleSpace()
     }
+    space.accessibilityIdentifier = "spaceKey"
+    space.accessibilityHint = "轻点输入空格或选词，左右滑动移动光标"
+    space.accessibilityCustomActions = [
+      UIAccessibilityCustomAction(name: "光标左移") { [weak self] _ in self?.moveCursor(by: -1); return self != nil },
+      UIAccessibilityCustomAction(name: "光标右移") { [weak self] _ in self?.moveCursor(by: 1); return self != nil },
+    ]
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSpacePan(_:)))
+    pan.name = "spaceCursorPan"
+    pan.maximumNumberOfTouches = 1
+    pan.cancelsTouchesInView = true
+    pan.delegate = self
+    space.addGestureRecognizer(pan)
+    spaceButton = space
     row.addArrangedSubview(space)
 
     let enter = makeKey(title: "换行", accessibilityLabel: "换行", emphasized: true) { [weak self] in
@@ -1250,6 +1266,35 @@ final class KeyboardViewController: UIInputViewController {
     return session.commitCandidate()
   }
 
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+    let velocity = pan.velocity(in: view)
+    return abs(velocity.x) > abs(velocity.y)
+  }
+
+  private func moveCursor(by offset: Int) {
+    guard offset != 0 else { return }
+    if hasComposition { render(session.finishComposition()) }
+    textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+  }
+
+  @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
+    switch pan.state {
+    case .began:
+      cursorMovement.begin(at: pan.translation(in: view).x)
+      if hasComposition { render(session.finishComposition()) }
+      spaceButton?.configuration?.title = "移动光标"
+      if KeyboardFeedbackPreference.hapticsEnabled {
+        keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
+      }
+    case .changed:
+      moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x))
+    case .ended, .cancelled, .failed:
+      spaceButton?.configuration?.title = "空格"
+    default: break
+    }
+  }
+
   private func handleSpace() {
     playInputClick()
     let snapshot = commitVisibleCandidate()
@@ -1396,7 +1441,7 @@ final class KeyboardViewController: UIInputViewController {
       })
     button.accessibilityLabel = "候选词 \(number)：\(display)"
     button.accessibilityIdentifier = "candidate-\(number)"
-    if isChineseMode && inputScheme != .nineKey && inputScheme != .japanese && !session.isInLocalMode {
+    if isChineseMode && inputScheme != .japanese && !session.isInLocalMode {
       let revision = candidateRevision
       func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
                   destructive: Bool = false) -> UIAction {

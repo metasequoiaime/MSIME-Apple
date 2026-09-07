@@ -104,9 +104,9 @@ struct DictionarySettingsView: View {
       }
       Section("候选词管理") {
         Label("长按候选词", systemImage: "hand.tap")
-        Text("全拼 26 键、双拼和五笔支持长按候选词：优先显示、固定到首位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
+        Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到首位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
-        Text("九键、日语和本地工具暂不支持候选词管理。第三方词库导入和个人词条新增仍待接入。")
+        Text("日语和本地工具暂不支持候选词管理。第三方词库导入和个人词条新增仍待接入。")
           .foregroundStyle(.secondary)
       }
     }

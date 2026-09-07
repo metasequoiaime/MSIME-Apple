@@ -332,7 +332,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # only commitCandidate produces it, so the first-page path has to keep using it.
         self.assertIn("return session.commitCandidate()", helper)
 
-        space = controller.split("private func handleSpace", 1)[1].split("\n  }", 1)[0]
+        space = controller.split("private func handleSpace()", 1)[1].split("\n  }", 1)[0]
         self.assertIn("commitVisibleCandidate()", space)
         self.assertNotIn("session.commitCandidate()", space)
 

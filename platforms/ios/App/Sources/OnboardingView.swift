@@ -115,7 +115,7 @@ struct InputSettingsView: View {
         } header: {
           Text("输入方案")
         } footer: {
-          Text("选择常用键盘，也可以在输入时切换。")
+          Text("选择常用键盘，也可以在输入时切换。左右滑动空格可移动光标；滑动前会先完成当前输入。")
         }
 
         Section {

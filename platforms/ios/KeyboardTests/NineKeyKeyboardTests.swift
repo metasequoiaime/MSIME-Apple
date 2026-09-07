@@ -4,6 +4,25 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testSpaceCursorMovementAccumulatesDistanceAndReverses() throws {
+    var movement = SpaceCursorMovement()
+    movement.begin(at: 10)
+    XCTAssertEqual(movement.advance(to: 15), 0)
+    XCTAssertEqual(movement.advance(to: 34), 2)
+    XCTAssertEqual(movement.advance(to: 30), 0)
+    XCTAssertEqual(movement.advance(to: 22), -1)
+    movement.begin(at: -20)
+    XCTAssertEqual(movement.advance(to: -31), 0)
+    XCTAssertEqual(movement.advance(to: -44), -2)
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let space = try button("spaceKey", in: controller)
+    XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移"])
+    let pan = try XCTUnwrap(space.gestureRecognizers?.first { $0.name == "spaceCursorPan" } as? UIPanGestureRecognizer)
+    XCTAssertTrue(pan.cancelsTouchesInView)
+    XCTAssertEqual(pan.maximumNumberOfTouches, 1)
+  }
+
   func testChangingHapticStrengthReplacesTheViewGenerator() throws {
     guard #available(iOS 17.5, *) else { throw XCTSkip("View-bound haptics require iOS 17.5") }
     let defaults = KeyboardFeedbackPreference.defaults
@@ -47,11 +66,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         }
       }
       let candidate = try button("candidate-1", in: controller)
-      if scheme == .nineKey { XCTAssertNil(candidate.menu) }
-      else {
-        XCTAssertEqual(candidate.menu?.children.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
-        XCTAssertEqual((candidate.menu?.children.last as? UIMenu)?.children.first?.title, "确认删除此词条")
-      }
+      XCTAssertEqual(candidate.menu?.children.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
+      XCTAssertEqual((candidate.menu?.children.last as? UIMenu)?.children.first?.title, "确认删除此词条")
     }
   }
 
