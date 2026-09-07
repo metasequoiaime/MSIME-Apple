@@ -77,9 +77,9 @@ final class KeyboardViewController: UIInputViewController {
 
   private lazy var keyFeedback: UIImpactFeedbackGenerator = {
     if #available(iOS 17.5, *) {
-      return UIImpactFeedbackGenerator(style: .light, view: view)
+      return UIImpactFeedbackGenerator(style: .medium, view: view)
     }
-    return UIImpactFeedbackGenerator(style: .light)
+    return UIImpactFeedbackGenerator(style: .medium)
   }()
 
   private let letterRows = [
@@ -478,7 +478,7 @@ final class KeyboardViewController: UIInputViewController {
           state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: 0.7)
+            self?.keyFeedback.impactOccurred(intensity: 1.0)
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
@@ -1494,7 +1494,7 @@ final class KeyboardViewController: UIInputViewController {
       UIDevice.current.playInputClick()
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
-      keyFeedback.impactOccurred(intensity: 0.7)
+      keyFeedback.impactOccurred(intensity: 1.0)
       keyFeedback.prepare()
     }
   }
