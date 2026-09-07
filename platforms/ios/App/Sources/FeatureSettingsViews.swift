@@ -93,6 +93,7 @@ struct ServiceSettingsView: View {
   @State private var providerDrafts: [AIProviderPreset: CustomServiceConfiguration] = [:]
   @State private var voiceProviderDrafts: [VoiceProviderPreset: CustomServiceConfiguration] = [:]
   @State private var showsProviders = false
+  @State private var editsCustomModel = false
   @State private var token = ""
   @State private var input = ""
   @State private var output = ""
@@ -228,6 +229,47 @@ struct ServiceSettingsView: View {
     kind == .ai ? configuration.provider.models : configuration.voiceProvider.models
   }
 
+  private var usesCustomModel: Bool {
+    editsCustomModel || !presetModels.contains(configuration.model)
+  }
+
+  private var modelSelection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("模型").font(.caption).foregroundStyle(.secondary)
+      if !presetModels.isEmpty {
+        Menu {
+          ForEach(presetModels, id: \.self) { model in
+            Button {
+              configuration.model = model
+              editsCustomModel = false
+            } label: {
+              if configuration.model == model && !usesCustomModel {
+                Label(model, systemImage: "checkmark")
+              } else { Text(model) }
+            }
+          }
+          Divider()
+          Button("自定义模型…") { editsCustomModel = true }
+        } label: {
+          HStack {
+            Text(usesCustomModel ? "自定义模型" : configuration.model)
+              .multilineTextAlignment(.leading)
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+          }.contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("serviceModelPicker")
+        .accessibilityLabel("模型")
+        .accessibilityValue(configuration.model)
+      }
+      if presetModels.isEmpty || usesCustomModel {
+        TextField("输入模型名称", text: $configuration.model)
+          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .accessibilityIdentifier("serviceModel")
+      }
+    }.padding(.vertical, 4)
+  }
+
   private var configurationSection: some View {
       Section {
         VStack(alignment: .leading, spacing: 8) {
@@ -237,19 +279,7 @@ struct ServiceSettingsView: View {
           .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
           .disabled(kind == .ai ? configuration.provider != .custom : configuration.voiceProvider != .custom)
         }.padding(.vertical, 4)
-        VStack(alignment: .leading, spacing: 8) {
-          Text("模型").font(.caption).foregroundStyle(.secondary)
-          TextField("模型名称", text: $configuration.model)
-          .textInputAutocapitalization(.never).autocorrectionDisabled()
-          .accessibilityIdentifier("serviceModel")
-        }.padding(.vertical, 4)
-        if !presetModels.isEmpty {
-          Menu("选择常用模型") {
-            ForEach(presetModels, id: \.self) { model in
-              Button(model) { configuration.model = model }
-            }
-          }
-        }
+        modelSelection
         VStack(alignment: .leading, spacing: 8) {
           Label("API Key", systemImage: "key.horizontal").font(.caption).foregroundStyle(.secondary)
           SecureField("留空保留已保存密钥", text: $token)
@@ -285,6 +315,7 @@ struct ServiceSettingsView: View {
 
   private func selectProvider(_ provider: AIProviderPreset) {
     guard provider != configuration.provider else { return }
+    editsCustomModel = false
     providerDrafts[configuration.provider] = configuration
     configuration = providerDrafts[provider] ?? CustomServiceConfiguration.loadPreset(provider)
     // Unsaved key text must never follow an endpoint change. Saved keys are origin-scoped.
@@ -295,6 +326,7 @@ struct ServiceSettingsView: View {
 
   private func selectVoiceProvider(_ provider: VoiceProviderPreset) {
     guard provider != configuration.voiceProvider else { return }
+    editsCustomModel = false
     voiceProviderDrafts[configuration.voiceProvider] = configuration
     configuration = voiceProviderDrafts[provider] ?? CustomServiceConfiguration.loadVoicePreset(provider)
     token = ""
