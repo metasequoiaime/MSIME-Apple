@@ -84,8 +84,11 @@ struct DictionarySettingsView: View {
         }
         Text("词库保存在设备上，日常输入不需要联网。已启用日语整句转换，支持罗马字输入、假名及汉字混合候选。")
       }
-      Section {
-        Text("当前 iOS 版暂不支持导入第三方词库或编辑个人词库。")
+      Section("候选词管理") {
+        Label("长按候选词", systemImage: "hand.tap")
+        Text("全拼 26 键、双拼和五笔支持长按候选词：优先显示、固定到首位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
+          .foregroundStyle(.secondary)
+        Text("九键、日语和本地工具暂不支持候选词管理。第三方词库导入和个人词条新增仍待接入。")
           .foregroundStyle(.secondary)
       }
     }

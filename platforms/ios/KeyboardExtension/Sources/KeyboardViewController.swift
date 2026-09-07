@@ -57,6 +57,7 @@ final class KeyboardViewController: UIInputViewController {
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
   private var visiblePreedit = ""
+  private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
@@ -1277,6 +1278,7 @@ final class KeyboardViewController: UIInputViewController {
   }
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
+    candidateRevision &+= 1
     let source = originalSource ?? typingSource
     if localModeTrigger != nil && !session.isInLocalMode {
       localModeTrigger = nil
@@ -1371,6 +1373,32 @@ final class KeyboardViewController: UIInputViewController {
       })
     button.accessibilityLabel = "候选词 \(number)：\(display)"
     button.accessibilityIdentifier = "candidate-\(number)"
+    if isChineseMode && inputScheme != .nineKey && inputScheme != .japanese && !session.isInLocalMode {
+      let revision = candidateRevision
+      func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
+                  destructive: Bool = false) -> UIAction {
+        UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
+          guard let self, candidateRevision == revision,
+                visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return }
+          let result = session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
+          render(result)
+          if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
+          else if result.diagnosticText == nil {
+            playInputClick()
+            UIAccessibility.post(notification: .announcement, argument: "已\(title)")
+          }
+        }
+      }
+      button.menu = UIMenu(title: display, children: [
+        action("优先显示", "arrow.up", .promote),
+        action("固定到首位", "pin", .fixFirst),
+        action("取消固定", "pin.slash", .clearPosition),
+        UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
+          action("确认删除此词条", "trash", .remove, destructive: true),
+        ]),
+      ])
+      button.accessibilityHint = "轻点输入，长按管理词条"
+    }
     decorateKey(button)
     return button
   }

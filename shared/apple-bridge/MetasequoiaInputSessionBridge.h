@@ -4,6 +4,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_ENUM(NSInteger, MetasequoiaCandidateAction) {
+    MetasequoiaCandidateActionPromote,
+    MetasequoiaCandidateActionRemove,
+    MetasequoiaCandidateActionFixFirst,
+    MetasequoiaCandidateActionClearPosition,
+};
+
 @interface MetasequoiaInputSnapshot : NSObject
 
 @property(nonatomic, readonly, getter=isHandled) BOOL handled;
@@ -29,6 +36,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (MetasequoiaInputSnapshot *)commitRaw;
 - (MetasequoiaInputSnapshot *)cancel;
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index;
+- (MetasequoiaInputSnapshot *)editCandidateAtIndex:(NSUInteger)index
+                                      expectedWord:(NSString *)word
+                                            action:(MetasequoiaCandidateAction)action;
 - (MetasequoiaInputSnapshot *)switchToShuangpin:(BOOL)usesShuangpin;
 - (MetasequoiaInputSnapshot *)switchToNineKey;
 - (MetasequoiaInputSnapshot *)switchToWubi;

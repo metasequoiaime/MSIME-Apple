@@ -207,6 +207,32 @@ void ConfigureDataDirectory()
     return [self snapshotFrom:_adapter->select_candidate(static_cast<std::size_t>(index))];
 }
 
+- (MetasequoiaInputSnapshot *)editCandidateAtIndex:(NSUInteger)index
+                                      expectedWord:(NSString *)word
+                                            action:(MetasequoiaCandidateAction)action
+{
+    using metasequoia::apple::CandidateAction;
+    CandidateAction operation;
+    switch (action)
+    {
+    case MetasequoiaCandidateActionPromote:
+        operation = CandidateAction::Promote;
+        break;
+    case MetasequoiaCandidateActionRemove:
+        operation = CandidateAction::Remove;
+        break;
+    case MetasequoiaCandidateActionFixFirst:
+        operation = CandidateAction::FixFirst;
+        break;
+    case MetasequoiaCandidateActionClearPosition:
+        operation = CandidateAction::ClearPosition;
+        break;
+    default:
+        return [self snapshotFrom:_adapter->handle_character('\0')];
+    }
+    return [self snapshotFrom:_adapter->edit_candidate(index, word.UTF8String ?: "", operation)];
+}
+
 - (MetasequoiaInputSnapshot *)switchToShuangpin:(BOOL)usesShuangpin
 {
     return [self snapshotFrom:_adapter->switch_to_shuangpin(usesShuangpin)];

@@ -4,6 +4,32 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testCandidateManagementMenuUsesEngineSupportedLayouts() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      for character in (scheme == .nineKey ? "64426" : "nihao") {
+        if scheme == .nineKey {
+          try button("nineKey\(character)", in: controller).sendActions(for: .primaryActionTriggered)
+        } else {
+          let key = try XCTUnwrap(descendants(controller.view).first {
+            $0.accessibilityLabel == "字母 \(String(character).uppercased())"
+          } as? UIButton)
+          key.sendActions(for: .primaryActionTriggered)
+        }
+      }
+      let candidate = try button("candidate-1", in: controller)
+      if scheme == .nineKey { XCTAssertNil(candidate.menu) }
+      else {
+        XCTAssertEqual(candidate.menu?.children.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
+        XCTAssertEqual((candidate.menu?.children.last as? UIMenu)?.children.first?.title, "确认删除此词条")
+      }
+    }
+  }
+
   func testSkinCardsPreviewAndApplyWithoutChangingKeyboardHeight() throws {
     let previous = KeyboardSkinPreference.selected
     defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }

@@ -143,6 +143,31 @@ InputSnapshot InputSessionAdapter::select_candidate(std::size_t index)
     return MakeSnapshot(impl_->session, impl_->session.select(index));
 }
 
+InputSnapshot InputSessionAdapter::edit_candidate(std::size_t index, const std::string &expected_word,
+                                                  CandidateAction action)
+{
+    const auto current = impl_->session.snapshot();
+    if (index >= current.candidates.size() || current.candidates[index].word != expected_word)
+        return MakeSnapshot(impl_->session, KeyResult{});
+    KeyResult result;
+    switch (action)
+    {
+    case CandidateAction::Promote:
+        result = impl_->session.pin(index);
+        break;
+    case CandidateAction::Remove:
+        result = impl_->session.remove(index);
+        break;
+    case CandidateAction::FixFirst:
+        result = impl_->session.fix_position(index, 1);
+        break;
+    case CandidateAction::ClearPosition:
+        result = impl_->session.clear_position(index);
+        break;
+    }
+    return MakeSnapshot(impl_->session, std::move(result));
+}
+
 InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
 {
     if (impl_->session.snapshot().scheme == (uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin) &&

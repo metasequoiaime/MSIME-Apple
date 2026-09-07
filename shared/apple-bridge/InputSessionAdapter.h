@@ -8,6 +8,13 @@
 
 namespace metasequoia::apple
 {
+enum class CandidateAction
+{
+    Promote,
+    Remove,
+    FixFirst,
+    ClearPosition
+};
 struct InputSnapshot
 {
     bool handled = false;
@@ -47,6 +54,7 @@ class InputSessionAdapter
     InputSnapshot commit_raw();
     InputSnapshot cancel();
     InputSnapshot select_candidate(std::size_t index);
+    InputSnapshot edit_candidate(std::size_t index, const std::string &expected_word, CandidateAction action);
     InputSnapshot switch_to_shuangpin(bool uses_shuangpin);
     bool uses_shuangpin() const;
     InputSnapshot switch_to_shuangpin_profile(const std::string &name);

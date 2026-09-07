@@ -244,6 +244,41 @@ int RunTest()
         Require(showsUmlaut, "No hint showed a ü final.");
     }
 
+    {
+        sqlite3 *database = nullptr;
+        Require(sqlite3_open((dataDirectory / "msime.db").c_str(), &database) == SQLITE_OK,
+                "Cannot open candidate management fixture.");
+        Require(sqlite3_exec(database, "INSERT INTO tbl_2_s VALUES('shui''lin','sl','水林',1000)", nullptr, nullptr,
+                             nullptr) == SQLITE_OK,
+                "Cannot add management fixture.");
+        sqlite3_close(database);
+        metasequoia::apple::InputSessionAdapter adapter;
+        metasequoia::apple::InputSnapshot snapshot;
+        for (char c : std::string("shuilin"))
+            snapshot = adapter.handle_character(c);
+        Require(!snapshot.candidates.empty() && snapshot.candidates[0] == "水林", "Missing management candidate.");
+        using Action = metasequoia::apple::CandidateAction;
+        const auto stale = adapter.edit_candidate(0, "other", Action::Remove);
+        Require(!stale.handled && stale.candidates == snapshot.candidates && !stale.commit,
+                "A stale candidate action mutated the session.");
+        for (auto action : {Action::Promote, Action::FixFirst, Action::ClearPosition})
+        {
+            const auto edited = adapter.edit_candidate(0, "水林", action);
+            Require(edited.handled && !edited.diagnostic && !edited.commit && !edited.preedit.empty(),
+                    "Candidate management failed or committed text.");
+        }
+        const auto removed = adapter.edit_candidate(0, "水林", Action::Remove);
+        Require(removed.handled && !removed.diagnostic && !removed.commit, "Candidate removal failed.");
+        for (const auto &word : removed.candidates)
+            Require(word != "水林", "Removed candidate remained visible.");
+        adapter.cancel();
+        metasequoia::apple::InputSessionAdapter reopened;
+        for (char c : std::string("shuilin"))
+            snapshot = reopened.handle_character(c);
+        for (const auto &word : snapshot.candidates)
+            Require(word != "水林", "Removal did not persist.");
+    }
+
     user_dictionary::close_default_user_database();
     std::filesystem::remove_all(dataDirectory);
     return 0;
