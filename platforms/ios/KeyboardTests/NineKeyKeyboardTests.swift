@@ -57,4 +57,58 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
     XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "小鹤双拼")
   }
+
+  func testKeyPositionsStayFixedWhileComposingAndClearing() throws {
+    let previous = InputSchemePreference.scheme
+    InputSchemePreference.scheme = .nineKey
+    defer { InputSchemePreference.scheme = previous }
+    for width in [320.0, 414.0] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      controller.view.layoutIfNeeded()
+      let keys = try (1...9).map { try button("nineKey\($0)", in: controller) }
+      let frames = keys.map { $0.convert($0.bounds, to: controller.view) }
+      let delete = try button("nineKeyDelete", in: controller)
+      let deleteFrame = delete.convert(delete.bounds, to: controller.view)
+      XCTAssertGreaterThan(deleteFrame.minX, frames[2].maxX)
+      XCTAssertEqual(deleteFrame.minY, frames[2].minY, accuracy: 0.5)
+      XCTAssertGreaterThanOrEqual(frames[0].height, 44)
+      let sidebar = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityIdentifier == "nineKeySidebar"
+      })
+      XCTAssertLessThan(sidebar.convert(sidebar.bounds, to: controller.view).maxX, frames[0].minX)
+
+      for phase in ["idle", "composing", "cleared"] {
+        if phase == "composing" {
+          for digit in "64426" {
+            try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
+          }
+          XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+          // The hostless XCTest runner does not route target/action through UIApplication.
+          // Invoke the registered release action to exercise the same callback as a key tap.
+          let releaseAction = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchUpInside)?.first)
+          controller.perform(NSSelectorFromString(releaseAction))
+          try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+          XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+        } else if phase == "cleared" {
+          try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+          XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "candidate-1" })
+        }
+        controller.view.layoutIfNeeded()
+        for (key, expected) in zip(keys, frames) {
+          XCTAssertEqual(key.convert(key.bounds, to: controller.view), expected,
+                         "Key moved during \(phase) at width \(width)")
+        }
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+          controller.view.layer.render(in: context.cgContext)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "Nine-key \(Int(width))pt \(phase)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+      }
+    }
+  }
+
 }

@@ -13,6 +13,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private let previousPageButton = UIButton()
   private let nextPageButton = UIButton()
   private let candidateStack = UIStackView()
+  private let candidateEmptySpacer = UIView()
   private let languageModeButton = UIButton()
   private let schemeButton = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -28,6 +29,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme == .shuangpin }
   private var nineKeyRows: [UIView] = []
+  private var actionRow: UIStackView!
+  private var actionDeleteButton: UIButton!
+  private var actionGlobeButton: UIButton!
+  private var nineKeyHeight: NSLayoutConstraint!
+  private var nineKeySymbolsButton: UIButton!
+  private let punctuationStack = UIStackView()
+  private var standardActionWidths: [NSLayoutConstraint] = []
+  private var nineKeyActionWidths: [NSLayoutConstraint] = []
   private let nineKeyContainer = UIStackView()
   private let spellingScrollView = UIScrollView()
   private let spellingStack = UIStackView()
@@ -141,9 +150,49 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       letterRowViews.append(rowView)
       root.addArrangedSubview(rowView)
     }
+    root.addArrangedSubview(makeNineKeyLayout())
+    for row in symbolRows {
+      let rowView = makeSymbolRow(row)
+      rowView.isHidden = true
+      symbolRowViews.append(rowView)
+      root.addArrangedSubview(rowView)
+    }
+    actionRow = makeActionRow()
+    root.addArrangedSubview(actionRow)
+    // Keep the three keypad rows the same height as the bottom controls.
+    nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
+      equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    updateKeyboardLayout()
+  }
+
+  private func makeNineKeyLayout() -> UIView {
     nineKeyContainer.axis = .horizontal
     nineKeyContainer.spacing = 6
-    nineKeyContainer.addArrangedSubview(makeSpellingStrip())
+    let sidebar = UIView()
+    sidebar.accessibilityIdentifier = "nineKeySidebar"
+    sidebar.backgroundColor = MetasequoiaTheme.keyBackground.withAlphaComponent(0.5)
+    sidebar.layer.cornerRadius = 8
+    punctuationStack.axis = .vertical
+    punctuationStack.distribution = .fillEqually
+    for symbol in ["，", "。", "？", "！"] {
+      let button = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
+        self?.handleSymbol(symbol)
+      }
+      button.configuration?.background.backgroundColor = .clear
+      punctuationStack.addArrangedSubview(button)
+    }
+    for content in [punctuationStack, makeSpellingStrip()] {
+      content.translatesAutoresizingMaskIntoConstraints = false
+      sidebar.addSubview(content)
+      NSLayoutConstraint.activate([
+        content.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+        content.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+        content.topAnchor.constraint(equalTo: sidebar.topAnchor),
+        content.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor),
+      ])
+    }
+    nineKeyContainer.addArrangedSubview(sidebar)
+    sidebar.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: 0.14).isActive = true
     let nineKeyGrid = UIStackView()
     nineKeyGrid.axis = .vertical
     nineKeyGrid.spacing = 7
@@ -155,24 +204,25 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       for (column, letters) in lettersInRow.enumerated() {
         let digit = rowIndex * 3 + column + 1
         let button = makeKey(
-          title: digit == 1 ? "，。？！" : letters,
-          accessibilityLabel: digit == 1 ? "逗号，长按选择标点" : "\(digit) \(letters)"
+          title: digit == 1 ? "分词" : letters,
+          accessibilityLabel: digit == 1 ? "拼音分词" : "\(digit) \(letters)"
         ) { [weak self] in
-          if digit == 1 { self?.handleSymbol(",") }
+          if digit == 1 { self?.handleCharacter("'") }
           else { self?.handleCharacter(String(digit)) }
         }
         button.accessibilityIdentifier = "nineKey\(digit)"
         if var configuration = button.configuration {
-          configuration.contentInsets = .zero
+          configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
+          configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = .systemFont(ofSize: 21, weight: .medium)
+            return attributes
+          }
           button.configuration = configuration
         }
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 0.7
-        if digit == 1 {
-          button.menu = UIMenu(children: [",", ".", "?", "!", "、"].map { symbol in
-            UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
-          })
-        } else {
+        if digit != 1 {
           let number = UILabel()
           number.text = String(digit)
           number.font = .systemFont(ofSize: 10)
@@ -182,7 +232,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
           button.addSubview(number)
           NSLayoutConstraint.activate([
             number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
-            number.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -5),
+            number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
           ])
         }
         row.addArrangedSubview(button)
@@ -190,15 +240,28 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       nineKeyGrid.addArrangedSubview(row)
       nineKeyRows.append(row)
     }
-    root.addArrangedSubview(nineKeyContainer)
-    for row in symbolRows {
-      let rowView = makeSymbolRow(row)
-      rowView.isHidden = true
-      symbolRowViews.append(rowView)
-      root.addArrangedSubview(rowView)
+    let controls = UIStackView()
+    controls.axis = .vertical
+    controls.spacing = 7
+    controls.distribution = .fillEqually
+    let delete = makeDeleteKey()
+    delete.accessibilityIdentifier = "nineKeyDelete"
+    controls.addArrangedSubview(delete)
+    let clear = makeKey(title: "重输", accessibilityLabel: "清空当前拼音重新输入") { [weak self] in
+      guard let self else { return }
+      self.playInputClick()
+      self.render(self.session.cancel())
     }
-    root.addArrangedSubview(makeActionRow())
-    updateKeyboardLayout()
+    clear.configuration?.contentInsets = .zero
+    clear.accessibilityIdentifier = "nineKeyClear"
+    controls.addArrangedSubview(clear)
+    let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
+      self?.handleSymbol("0")
+    }
+    controls.addArrangedSubview(zero)
+    nineKeyContainer.addArrangedSubview(controls)
+    controls.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
+    return nineKeyContainer
   }
 
   private func makeCandidateStrip() -> UIView {
@@ -255,7 +318,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
     let content = UIStackView(arrangedSubviews: [
       languageModeButton, schemeButton, preeditButton, candidateScrollView, diagnosticLabel,
-      previousPageButton, nextPageButton,
+      candidateEmptySpacer, previousPageButton, nextPageButton,
     ])
     content.axis = .horizontal
     content.alignment = .center
@@ -289,9 +352,6 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     spellingStack.spacing = 6
     spellingStack.translatesAutoresizingMaskIntoConstraints = false
     spellingScrollView.addSubview(spellingStack)
-    let width = spellingScrollView.widthAnchor.constraint(equalToConstant: 58)
-    width.priority = .defaultHigh
-    width.isActive = true
     NSLayoutConstraint.activate([
 
       spellingStack.leadingAnchor.constraint(equalTo: spellingScrollView.contentLayoutGuide.leadingAnchor),
@@ -413,6 +473,15 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "常用符号") {}
+    nineKeySymbolsButton.menu = UIMenu(children: [
+      "，", "。", "？", "！", "、", "；", "：", "……", "——", "（", "）", "“", "”", "《", "》", "@",
+    ].map { symbol in
+      UIAction(title: symbol) { [weak self] _ in self?.handleSymbol(symbol) }
+    })
+    nineKeySymbolsButton.showsMenuAsPrimaryAction = true
+    nineKeySymbolsButton.configuration?.contentInsets = .zero
+    row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
 
     let globe = makeSymbolKey(symbol: "globe", accessibilityLabel: "选择下一个键盘")
@@ -420,13 +489,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
     row.addArrangedSubview(globe)
 
-    let delete = makeSymbolKey(symbol: "delete.left", accessibilityLabel: "删除")
-    delete.addTarget(self, action: #selector(beginBackspacePress), for: .touchDown)
-    delete.addTarget(self, action: #selector(finishBackspacePress), for: .touchUpInside)
-    delete.addTarget(
-      self,
-      action: #selector(cancelBackspacePress),
-      for: [.touchUpOutside, .touchCancel, .touchDragExit])
+    let delete = makeDeleteKey()
+    actionDeleteButton = delete
     row.addArrangedSubview(delete)
 
     let space = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
@@ -443,14 +507,32 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     enterButton = enter
     row.addArrangedSubview(enter)
 
-    NSLayoutConstraint.activate([
+    standardActionWidths = [
       layoutToggle.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.1),
       delete.widthAnchor.constraint(equalTo: globe.widthAnchor),
       space.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.8),
       enter.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.35),
       globe.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
-    ])
+    ]
+    nineKeyActionWidths = [
+      nineKeySymbolsButton.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: 0.14),
+      layoutToggle.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor),
+      globe.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor),
+      enter.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor, multiplier: 1.3),
+    ]
+    actionGlobeButton = globe
     return row
+  }
+
+  private func makeDeleteKey() -> UIButton {
+    let delete = makeSymbolKey(symbol: "delete.left", accessibilityLabel: "删除")
+    delete.addTarget(self, action: #selector(beginBackspacePress), for: .touchDown)
+    delete.addTarget(self, action: #selector(finishBackspacePress), for: .touchUpInside)
+    delete.addTarget(
+      self,
+      action: #selector(cancelBackspacePress),
+      for: [.touchUpOutside, .touchCancel, .touchDragExit])
+    return delete
   }
 
   private func makeRow() -> UIStackView {
@@ -468,7 +550,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       synchronizeInputSchemePreference()
       // A host setting can change while this view is open. Do not start an alphabetic composition
       // from a stale 26-key tap after switching to nine keys; local utilities still need letters.
-      if inputScheme == .nineKey && !session.isInLocalMode && !("2"..."9").contains(character) {
+      if inputScheme == .nineKey && !session.isInLocalMode
+        && !("2"..."9").contains(character) && character != "'" {
         return
       }
       render(session.handleCharacter(character))
@@ -850,7 +933,23 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
     nineKeyRows.forEach { $0.isHidden = showsSymbols || !nineKey }
-    spellingScrollView.isHidden = session.nineKeySpellings().isEmpty
+    let hasSpellings = !session.nineKeySpellings().isEmpty
+    spellingScrollView.isHidden = !hasSpellings
+    punctuationStack.isHidden = hasSpellings
+    if actionRow != nil {
+      let usesNineKeyLayout = nineKey && !showsSymbols
+      nineKeyHeight.isActive = usesNineKeyLayout
+      let globeIndex = usesNineKeyLayout ? 4 : 2
+      if actionRow.arrangedSubviews.firstIndex(of: actionGlobeButton) != globeIndex {
+        actionRow.removeArrangedSubview(actionGlobeButton)
+        actionGlobeButton.removeFromSuperview()
+        actionRow.insertArrangedSubview(actionGlobeButton, at: globeIndex)
+      }
+      NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths)
+      nineKeySymbolsButton.isHidden = !usesNineKeyLayout
+      actionDeleteButton.isHidden = usesNineKeyLayout
+      NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
+    }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (nineKey ? "九键" : "ABC") : "123"
@@ -1016,6 +1115,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     diagnosticLabel.accessibilityLabel = visibleDiagnostic.map { "提示：\($0)" }
     diagnosticLabel.isHidden = visibleDiagnostic == nil
     candidateScrollView.isHidden = visibleCandidates.isEmpty || visibleDiagnostic != nil
+    candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
   // The number is the key the chip answers to on the visible page; the index is the engine position
