@@ -599,20 +599,22 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn(
-            "space.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.8)",
+            "space.widthAnchor.constraint(greaterThanOrEqualTo: delete.widthAnchor, multiplier: 1.8)",
             controller,
         )
         self.assertIn(
-            "globe.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)",
+            "delete.widthAnchor.constraint(equalToConstant: 44)",
             controller,
         )
         self.assertIn(
-            "enter.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.35)",
+            "enter.widthAnchor.constraint(equalTo: delete.widthAnchor, multiplier: 1.35)",
             controller,
         )
         self.assertNotIn("layoutToggle.widthAnchor.constraint(equalToConstant: 56)", controller)
         self.assertNotIn("space.widthAnchor.constraint(greaterThanOrEqualToConstant: 110)", controller)
         self.assertNotIn("enter.widthAnchor.constraint(equalToConstant: 72)", controller)
+        self.assertIn("actionGlobeButton.isHidden = !needsInputModeSwitchKey", controller)
+        self.assertIn("globeWidthConstraint?.isActive = false", controller)
 
     def test_keyboard_requests_consistent_height_below_system_priority(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
@@ -671,14 +673,11 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_chinese_mode_never_sends_uppercase_to_the_session(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
-        # The engine consumes A-Z during a composition as helpcode input. The bridge rejects uppercase,
-        # but this keyboard is the other half of that contract: in Chinese mode the shift key is hidden,
-        # shift handling returns early, and key titles stay lowercase, so an uppercase letter never
-        # reaches handleCharacter in the first place. Losing any one of the three would send capitals
-        # into the session and swallow them instead of inserting them.
-        self.assertIn("button.isHidden = isChineseMode", controller)
+        # Shift leaves the Engine scheme before enabling English capitalization; uppercase letters
+        # are inserted directly rather than being consumed as Engine helpcode input.
         shift_handler = controller.split("private func toggleLetterCase", 1)[1].split("\n  }", 1)[0]
-        self.assertIn("guard !isChineseMode else { return }", shift_handler)
+        self.assertIn("if isChineseMode {", shift_handler)
+        self.assertIn("toggleInputMode()", shift_handler)
         self.assertIn("let usesUppercase = !isChineseMode && letterCaseState != .lowercase", controller)
         character_handler = controller.split("private func handleCharacter", 1)[1].split("\n  }", 1)[0]
         self.assertIn("render(session.handleCharacter(character))", character_handler)

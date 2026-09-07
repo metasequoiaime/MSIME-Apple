@@ -45,6 +45,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
   private var actionGlobeButton: UIButton!
+  private var globeWidthConstraint: NSLayoutConstraint?
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
@@ -526,7 +527,6 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         self?.toggleLetterCase()
       }
       button.accessibilityIdentifier = "shiftButton"
-      button.isHidden = isChineseMode
       shiftButton = button
       row.addArrangedSubview(button)
     }
@@ -621,6 +621,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     row.addArrangedSubview(layoutToggle)
 
     let globe = makeSymbolKey(symbol: "globe", accessibilityLabel: "选择下一个键盘")
+    globe.accessibilityIdentifier = "inputModeSwitchButton"
     globe.addTarget(
       self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
     row.addArrangedSubview(globe)
@@ -644,16 +645,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     row.addArrangedSubview(enter)
 
     standardActionWidths = [
-      layoutToggle.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.1),
-      delete.widthAnchor.constraint(equalTo: globe.widthAnchor),
-      space.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.8),
-      enter.widthAnchor.constraint(equalTo: globe.widthAnchor, multiplier: 1.35),
-      globe.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+      layoutToggle.widthAnchor.constraint(equalTo: delete.widthAnchor, multiplier: 1.1),
+      space.widthAnchor.constraint(greaterThanOrEqualTo: delete.widthAnchor, multiplier: 1.8),
+      enter.widthAnchor.constraint(equalTo: delete.widthAnchor, multiplier: 1.35),
+      delete.widthAnchor.constraint(equalToConstant: 44),
     ]
     nineKeyActionWidths = [
       nineKeySymbolsButton.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: 0.14),
       layoutToggle.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor),
-      globe.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor),
       enter.widthAnchor.constraint(equalTo: nineKeySymbolsButton.widthAnchor, multiplier: 1.3),
     ]
     actionGlobeButton = globe
@@ -772,7 +771,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func toggleLetterCase() {
-    guard !isChineseMode else { return }
+    if isChineseMode {
+      toggleInputMode()
+      letterCaseState = .lowercase
+    }
 
     playInputClick()
     isAutomaticShift = false
@@ -844,13 +846,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       button.accessibilityValue = hint
     }
 
-    shiftButton?.isHidden = isChineseMode
     guard let button = shiftButton, var configuration = button.configuration else { return }
     switch letterCaseState {
     case .lowercase:
       configuration.image = UIImage(systemName: "shift")
       configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
-      button.accessibilityLabel = "大写"
+      button.accessibilityLabel = isChineseMode ? "切换到英文大写" : "大写"
       button.accessibilityValue = "关闭"
     case .shifted:
       configuration.image = UIImage(systemName: "shift.fill")
@@ -1114,6 +1115,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         actionRow.insertArrangedSubview(actionGlobeButton, at: globeIndex)
       }
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths)
+      globeWidthConstraint?.isActive = false
+      actionGlobeButton.isHidden = !needsInputModeSwitchKey
+      if needsInputModeSwitchKey {
+        globeWidthConstraint = actionGlobeButton.widthAnchor.constraint(equalToConstant: 44)
+        globeWidthConstraint?.isActive = true
+      }
       nineKeySymbolsButton.isHidden = !usesNineKeyLayout
       actionDeleteButton.isHidden = usesNineKeyLayout
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
@@ -1393,6 +1400,9 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
+      updateKeyboardLayout()
+    }
     // Use the same viewport for every input layout; content's intrinsic height must not shrink it.
     let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
       ?? (traitCollection.verticalSizeClass == .compact)

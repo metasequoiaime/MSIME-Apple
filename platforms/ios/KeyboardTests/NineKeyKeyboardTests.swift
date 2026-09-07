@@ -4,6 +4,28 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testShiftIsDiscoverableAndSwitchesToEnglishCapitalization() throws {
+    let previous = InputSchemePreference.scheme
+    InputSchemePreference.scheme = .quanpin
+    defer { InputSchemePreference.scheme = previous }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    controller.view.layoutIfNeeded()
+    let shift = try button("shiftButton", in: controller)
+    XCTAssertFalse(shift.isHidden)
+    XCTAssertEqual(shift.accessibilityLabel, "切换到英文大写")
+    XCTAssertEqual(try button("inputModeSwitchButton", in: controller).isHidden,
+                   !controller.needsInputModeSwitchKey)
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(shift.accessibilityValue, "下一字母")
+    XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "英文输入")
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(shift.accessibilityValue, "开启")
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(shift.accessibilityValue, "关闭")
+  }
+
   func testPressFeedbackPreservesLayoutAndResetsAfterInterruption() {
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 260))
     let controller = UIViewController()
