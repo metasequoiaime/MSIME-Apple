@@ -49,6 +49,10 @@ class InputSessionAdapter
     InputSnapshot select_candidate(std::size_t index);
     InputSnapshot switch_to_shuangpin(bool uses_shuangpin);
     bool uses_shuangpin() const;
+    InputSnapshot switch_to_shuangpin_profile(const std::string &name);
+    std::string shuangpin_profile_name() const;
+    InputSnapshot switch_to_wubi();
+    InputSnapshot switch_to_japanese();
     InputSnapshot switch_to_nine_key();
     InputSnapshot choose_nine_key_spelling(std::size_t index);
     std::vector<std::string> nine_key_spellings() const;

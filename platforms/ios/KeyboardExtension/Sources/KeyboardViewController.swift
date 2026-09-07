@@ -28,6 +28,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private let moreShortcut = UIButton()
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
+  private var microsoftFinalKey: UIButton?
   private var letterRowViews: [UIView] = []
   private var symbolRowViews: [UIView] = []
   private var layoutToggleButton: UIButton?
@@ -38,7 +39,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private var hasComposition = false
   private var isChineseMode = true
   private var inputScheme: ChineseInputScheme = .quanpin
-  private var usesShuangpin: Bool { inputScheme == .shuangpin }
+  private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
+  private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && inputScheme != .japanese }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
@@ -440,7 +442,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     }
     configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
       label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
+    scriptShortcut.isEnabled = !(isChineseMode && inputScheme == .japanese)
+    scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     skinShortcut.menu = UIMenu(title: "键盘皮肤", children: KeyboardSkin.allCases.map { skin in
@@ -464,7 +467,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         },
       ]),
       UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
-        UIAction(title: mode.title, attributes: isChineseMode ? [] : .disabled) { [weak self] _ in
+        UIAction(title: mode.title, attributes: supportsLocalTools ? [] : .disabled) { [weak self] _ in
           self?.openLocalInputMode(mode.trigger)
         }
       }),
@@ -534,6 +537,13 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       }
       letterButtons.append((button: button, lowercase: text, hint: attachHintLabel(to: button)))
       row.addArrangedSubview(button)
+    }
+    if letters == letterRows[1] {
+      let key = makeKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] in self?.handleCharacter(";") }
+      key.accessibilityIdentifier = "microsoftFinalKey"
+      microsoftFinalKey = key
+      letterButtons.append((button: key, lowercase: ";", hint: attachHintLabel(to: key)))
+      row.addArrangedSubview(key)
     }
     return row
   }
@@ -860,7 +870,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   private func updateLanguageModeButton() {
     var configuration = UIButton.Configuration.filled()
-    configuration.title = isChineseMode ? "中" : "英"
+    configuration.title = isChineseMode ? (inputScheme == .japanese ? "日" : "中") : "英"
     configuration.baseForegroundColor = .white
     configuration.baseBackgroundColor = KeyboardSkinPreference.selected.actionBackground
     configuration.contentInsets = NSDirectionalEdgeInsets(
@@ -869,8 +879,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     languageModeButton.configuration = configuration
     languageModeButton.accessibilityIdentifier = "languageModeButton"
     languageModeButton.accessibilityLabel =
-      isChineseMode ? "切换到英文输入" : "切换到中文输入"
-    languageModeButton.accessibilityValue = isChineseMode ? "中文输入" : "英文输入"
+      isChineseMode ? "切换到英文输入" : "切换到所选输入方案"
+    languageModeButton.accessibilityValue = isChineseMode ? (inputScheme == .japanese ? "日语输入" : "中文输入") : "英文输入"
     updateShortcutButtons()
     updateKeyboardLayout()
   }
@@ -910,8 +920,13 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
-    inputScheme == .nineKey ? session.switchToNineKey()
-      : session.switch(toShuangpin: usesShuangpin)
+    switch inputScheme {
+    case .nineKey: session.switchToNineKey()
+    case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
+    case .wubi: session.switchToWubi()
+    case .japanese: session.switchToJapanese()
+    case .quanpin, .shuangpin: session.switch(toShuangpin: usesShuangpin)
+    }
   }
 
   private func selectInputScheme(_ scheme: ChineseInputScheme) {
@@ -923,6 +938,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     InputSchemePreference.scheme = scheme
     showsSymbols = false
     updateSchemeButton()
+    updateLanguageModeButton()
     render(snapshot, source: source)
   }
 
@@ -934,6 +950,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     inputScheme = sharedValue
     let snapshot = applyInputScheme()
     updateSchemeButton()
+    updateLanguageModeButton()
     render(snapshot, source: source)
   }
 
@@ -988,6 +1005,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     (trigger: "U", title: "Unicode 码点"),
     (trigger: "T", title: "日期时间"),
     (trigger: "J", title: "超级简拼"),
+    (trigger: "K", title: "快捷短语"),
+    (trigger: "Y", title: "英文补全"),
+    (trigger: "E", title: "表情"),
+    (trigger: "M", title: "颜文字"),
+    (trigger: "R", title: "临时日语"),
   ]
 
   private func updatePreeditButton() {
@@ -1001,7 +1023,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       preeditButton.configuration = configuration
     }
 
-    let offersModes = idle && isChineseMode
+    let offersModes = idle && supportsLocalTools
     preeditButton.menu =
       offersModes
       ? UIMenu(
@@ -1027,7 +1049,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func chineseOutput(_ text: String) -> String {
-    ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
+    if inputScheme == .japanese || localModeTrigger == "R" { return text }
+    return ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
   }
 
   private func updateSchemeButton() {
@@ -1037,7 +1060,16 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     updateLetterCaseControls()
 
     var configuration = UIButton.Configuration.plain()
-    configuration.title = inputScheme == .nineKey ? "九键" : (usesShuangpin ? "小鹤" : "全拼")
+    switch inputScheme {
+    case .nineKey: configuration.title = "九键"
+    case .shuangpin: configuration.title = "小鹤"
+    case .quanpin: configuration.title = "全拼"
+    case .ziranma: configuration.title = "自然"
+    case .microsoft: configuration.title = "微软"
+    case .shoudao: configuration.title = "SD"
+    case .wubi: configuration.title = "五笔"
+    case .japanese: configuration.title = "日语"
+    }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
@@ -1064,6 +1096,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   private func updateKeyboardLayout() {
     standardRowHeights.forEach { $0.1.isActive = false }
+    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
@@ -1183,6 +1216,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   // Every document mutation the keyboard makes goes through here so textWillChange can tell its own
   // echo apart from a genuine host-initiated change.
   private var typingSource: TypingSource {
+    if localModeTrigger == "R" { return .japanese }
     if localModeTrigger != nil { return .local }
     if !isChineseMode { return .english }
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
@@ -1207,7 +1241,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     }
     updateLetterCaseControls()
     if let commitText = snapshot.commitText {
-      insertOwnText(chineseOutput(commitText), source: source)
+      insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
     showDiagnostic(snapshot.diagnosticText)

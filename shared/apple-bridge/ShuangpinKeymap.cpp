@@ -55,14 +55,14 @@ std::string join(std::vector<std::string> units)
 }
 } // namespace
 
-std::map<std::string, std::string> shuangpin_key_hints(bool uses_shuangpin)
+std::map<std::string, std::string> shuangpin_key_hints(bool uses_shuangpin, const std::string &profile_name)
 {
     if (!uses_shuangpin)
     {
         return {};
     }
 
-    const ShuangpinProfile &profile = GetXiaoheShuangpinProfile();
+    const ShuangpinProfile &profile = GetShuangpinProfile(profile_name);
     std::map<std::string, std::vector<std::string>> initials_by_key;
     std::map<std::string, std::vector<std::string>> finals_by_key;
     collect(profile.initials, initials_by_key);
@@ -70,7 +70,7 @@ std::map<std::string, std::string> shuangpin_key_hints(bool uses_shuangpin)
 
     std::map<std::string, std::string> hints;
     for (const auto &key : {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "A", "S", "D",
-                            "F", "G", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M"})
+                            "F", "G", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M", ";"})
     {
         const std::string initials = join(initials_by_key[key]);
         const std::string finals = join(finals_by_key[key]);

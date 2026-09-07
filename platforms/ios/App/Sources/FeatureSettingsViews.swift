@@ -62,8 +62,8 @@ struct DictionarySettingsView: View {
   var body: some View {
     Form {
       Section("已安装词库") {
-        Label("内置离线拼音词库", systemImage: "checkmark.circle.fill")
-        Text("支持全拼 26 键、全拼 9 键和小鹤双拼。")
+        Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
+        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／Shoudao 双拼、86 五笔和日语罗马字；提供英文补全、快捷短语、表情及颜文字。")
           .foregroundStyle(.secondary)
         HStack {
           Text("更新方式")
@@ -82,7 +82,7 @@ struct DictionarySettingsView: View {
               .foregroundStyle(.secondary)
           }
         }
-        Text("词库保存在设备上，日常拼音输入不需要联网。")
+        Text("词库保存在设备上，日常输入不需要联网。日语提供假名与单字候选，当前未启用整句转换模型。")
       }
       Section {
         Text("当前 iOS 版暂不支持导入第三方词库或编辑个人词库。")

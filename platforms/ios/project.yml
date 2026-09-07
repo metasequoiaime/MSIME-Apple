@@ -146,6 +146,14 @@ targets:
         buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/msime.db.sha256
         buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/english.db
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/english.db.sha256
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/others.db
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/others.db.sha256
+        buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
         buildPhase: resources
     settings:
@@ -179,6 +187,14 @@ targets:
       - path: platforms/ios/KeyboardExtension/Resources/msime.db
         buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/msime.db.sha256
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/english.db
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/english.db.sha256
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/others.db
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/others.db.sha256
         buildPhase: resources
     settings:
       base:

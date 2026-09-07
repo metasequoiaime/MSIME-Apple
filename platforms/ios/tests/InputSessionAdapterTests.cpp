@@ -181,8 +181,8 @@ int RunTest()
                     "A capital typed as a key was taken as a local input mode trigger.");
         }
 
-        // Named explicitly, the three modes this frontend can answer open.
-        for (const char trigger : {'U', 'T', 'J'})
+        // Named explicitly, the modes backed by the packaged resources open.
+        for (const char trigger : {'U', 'T', 'J', 'K', 'E', 'M', 'Y', 'R'})
         {
             const auto opened = adapter.open_local_mode(trigger);
             Require(opened.handled && opened.preedit == std::string(1, trigger),
@@ -196,12 +196,12 @@ int RunTest()
         Require(hexDigit.handled && hexDigit.preedit == "U4", "The Unicode mode rejected a hexadecimal digit.");
         Require(adapter.cancel().handled && !adapter.in_unicode_mode(), "Cancel left the Unicode mode open.");
 
-        // The modes whose data the mobile dictionary product does not carry stay shut even when named.
-        for (const char trigger : {'K', 'E', 'M', 'Y', 'R'})
+        // Unknown mode names remain inert.
+        for (const char trigger : {'B', 'Z'})
         {
             const auto refused = adapter.open_local_mode(trigger);
             Require(!refused.handled && refused.preedit.empty(),
-                    "A local input mode without packaged data opened when it was named.");
+                    "An unknown local input mode opened when it was named.");
         }
 
         // A mode cannot open on top of a composition; the engine guards every trigger on that.

@@ -31,6 +31,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index;
 - (MetasequoiaInputSnapshot *)switchToShuangpin:(BOOL)usesShuangpin;
 - (MetasequoiaInputSnapshot *)switchToNineKey;
+- (MetasequoiaInputSnapshot *)switchToWubi;
+- (MetasequoiaInputSnapshot *)switchToShuangpinProfile:(NSString *)name;
+- (MetasequoiaInputSnapshot *)switchToJapanese;
 - (MetasequoiaInputSnapshot *)chooseNineKeySpellingAtIndex:(NSUInteger)index;
 - (NSArray<NSString *> *)nineKeySpellings;
 

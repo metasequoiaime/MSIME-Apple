@@ -1,13 +1,25 @@
 import Foundation
 
 enum ChineseInputScheme: String, CaseIterable {
-  case quanpin, nineKey, shuangpin
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese
 
+  var shuangpinProfile: String? {
+    switch self {
+    case .shuangpin: "xiaohe"
+    case .ziranma, .microsoft, .shoudao: rawValue
+    default: nil
+    }
+  }
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
     case .nineKey: "全拼 9 键"
     case .shuangpin: "小鹤双拼"
+    case .ziranma: "自然码双拼"
+    case .microsoft: "微软双拼"
+    case .shoudao: "Shoudao 双拼"
+    case .wubi: "86 五笔"
+    case .japanese: "日语罗马字"
     }
   }
 }
@@ -24,7 +36,7 @@ enum InputSchemePreference {
     }
     set {
       let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
-      defaults.set(newValue == .shuangpin, forKey: key)
+      defaults.set(newValue.shuangpinProfile != nil, forKey: key)
       defaults.set(newValue.rawValue, forKey: schemeKey)
     }
   }

@@ -183,7 +183,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # The engine and the packaged dictionary stay simplified, so conversion belongs at the
         # render and commit boundary only. Converting the preedit would rewrite pinyin, and
         # converting before selection would break the engine index the candidate chips carry.
-        self.assertIn("insertOwnText(chineseOutput(commitText), source: source)", controller)
+        self.assertIn("insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)", controller)
         self.assertIn("let display = chineseOutput(candidate)", controller)
         self.assertIn('configuration.title = "\\(number)  \\(display)"', controller)
         self.assertIn("self.render(self.session.selectCandidate(at: UInt(index)))", controller)
@@ -349,7 +349,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
         cmake = (IOS_ROOT.parents[1] / "CMakeLists.txt").read_text()
 
-        self.assertIn("GetXiaoheShuangpinProfile()", keymap)
+        self.assertIn("GetShuangpinProfile(profile_name)", keymap)
         self.assertIn("shuangpinKeyHints", bridge_header)
         self.assertIn("shared/apple-bridge/ShuangpinKeymap.cpp", cmake)
 
@@ -379,26 +379,16 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # InputSessionAdapterTests exercises idle and in-composition mode triggers through the
         # real adapter. Do not couple this packaging check to the engine facade's method names.
 
-        # Only the four this frontend can answer. The rest read others.db, english.db or
-        # dict_japanese.dat, none of which are packaged.
         options = adapter.split("LocalModeOptions options;", 1)[1].split("return session_options", 1)[0]
-        for enabled in ("unicode", "date_time", "super_jianpin"):
+        for enabled in ("unicode", "date_time", "super_jianpin", "quick_phrase", "emoji", "kaomoji", "temporary_english", "temporary_japanese"):
             self.assertIn(f"options.{enabled} = true;", options)
-        # quick_phrase reads quick_parases and temporary_japanese reads dict_japanese.dat, neither of
-        # which is in Engine's mobile product: its manifest declares features ['pinyin']. Emoji
-        # and kaomoji read others.db and temporary English reads english.db, none of which Apple
-        # fetches at all.
-        for disabled in ("quick_phrase", "emoji", "kaomoji", "temporary_english", "temporary_japanese"):
-            self.assertIn(f"options.{disabled} = false;", options)
-        self.assertIn("['pinyin']", profile)
-
         self.assertIn('(trigger: "U", title: "Unicode 码点")', controller)
-        self.assertNotIn('title: "快捷短语"', controller)
+        self.assertIn('title: "快捷短语"', controller)
         self.assertIn("session.openLocalMode(trigger)", controller)
         self.assertIn('preeditButton.accessibilityIdentifier = "preeditButton"', controller)
         # The entry point is the strip's own name, which is only dead space while nothing is being
         # composed and the keyboard is in Chinese mode.
-        self.assertIn("let offersModes = idle && isChineseMode", controller)
+        self.assertIn("let offersModes = idle && supportsLocalTools", controller)
         # Disabling the button would dim the title, and the title is the preedit.
         self.assertNotIn("preeditButton.isEnabled", controller)
         self.assertIn("preeditButton.menu =", controller)
@@ -487,8 +477,8 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_bridge_installs_the_bundled_dictionary_before_engine_startup(self):
         bridge = (IOS_ROOT.parents[1] / "shared/apple-bridge/MetasequoiaInputSessionBridge.mm").read_text()
 
-        self.assertIn('URLForResource:@"msime" withExtension:@"db"', bridge)
-        self.assertIn('URLForResource:@"msime.db" withExtension:@"sha256"', bridge)
+        self.assertIn('URLForResource:name withExtension:@"db"', bridge)
+        self.assertIn('@[@"msime", @"english", @"others"]', bridge)
         self.assertIn('setenv("METASEQUOIA_IME_DATA_DIR"', bridge)
 
     def test_keyboard_exposes_engine_owned_number_and_punctuation_routing(self):
@@ -548,7 +538,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("insertOwnText(output)", controller)
         self.assertIn("if !isChineseMode {\n      insertOwnText(symbol)", controller)
         self.assertIn("isChineseMode ? session.finishComposition() : session.cancel()", controller)
-        self.assertIn("isChineseMode ? \"中\" : \"英\"", controller)
+        self.assertIn('inputScheme == .japanese ? "日" : "中"', controller)
         self.assertIn('languageModeButton.accessibilityIdentifier = "languageModeButton"', controller)
 
     def test_english_keyboard_supports_one_shot_shift_and_caps_lock(self):
@@ -641,7 +631,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("inputScheme = InputSchemePreference.scheme", controller)
         self.assertIn("InputSchemePreference.scheme = scheme", controller)
         self.assertIn("session.switch(toShuangpin: usesShuangpin)", controller)
-        self.assertIn('usesShuangpin ? "小鹤" : "全拼"', controller)
+        self.assertIn('case .shuangpin: configuration.title = "小鹤"', controller)
         self.assertIn('schemeButton.accessibilityIdentifier = "schemeButton"', controller)
         self.assertIn("switchToShuangpin", bridge_header)
         self.assertIn("switch_to_shuangpin", adapter_header)

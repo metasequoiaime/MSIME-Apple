@@ -128,6 +128,68 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testAdditionalShuangpinProfilesAndKeyHints() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {
+      _ = bridge.switch(toShuangpinProfile: profile)
+      var snapshot = bridge.cancel()
+      for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
+      XCTAssertTrue(snapshot.candidates.contains("你好"), profile)
+      _ = bridge.cancel()
+    }
+    _ = bridge.switch(toShuangpinProfile: "microsoft")
+    XCTAssertTrue(bridge.shuangpinKeyHints()[";"]?.contains("ing") == true)
+    _ = bridge.handleCharacter("n")
+    XCTAssertFalse(bridge.handleCharacter(";").candidates.isEmpty)
+    _ = bridge.cancel()
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.wubi, .japanese, .microsoft] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(try button("microsoftFinalKey", in: controller).isHidden, scheme != .microsoft)
+      let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+        controller.view.layer.render(in: context.cgContext)
+      })
+      attachment.name = "Keyboard scheme \(scheme)"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+  }
+
+  func testAdditionalEngineSchemesAndLocalProviders() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToWubi()
+    var snapshot = bridge.handleCharacter("a")
+    XCTAssertTrue(snapshot.candidates.contains("工"))
+    XCTAssertEqual(bridge.selectCandidate(at: UInt(snapshot.candidates.firstIndex(of: "工")!)).commitText, "工")
+    _ = bridge.switchToJapanese()
+    for letter in "nihon" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains("にほん"))
+    XCTAssertTrue(snapshot.candidates.contains("ニホン"))
+    _ = bridge.cancel()
+    snapshot = bridge.handleCharacter("a")
+    XCTAssertTrue(snapshot.candidates.contains("亜"))
+    _ = bridge.cancel()
+    _ = bridge.switch(toShuangpin: false)
+    for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"))
+    _ = bridge.cancel()
+    for (trigger, input) in [("K", "yyds"), ("Y", "hello"), ("E", "smile"), ("M", "kaixin"), ("R", "nihon")] {
+      _ = bridge.openLocalMode(trigger)
+      XCTAssertTrue(bridge.isInLocalMode)
+      for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
+      XCTAssertNil(snapshot.diagnosticText, "Provider \(trigger)")
+      XCTAssertFalse(snapshot.candidates.isEmpty, "Provider \(trigger)")
+      if trigger == "Y" { XCTAssertGreaterThan(snapshot.candidates.count, 1) }
+      if trigger == "K" { XCTAssertTrue(snapshot.candidates.contains("永远滴神")) }
+      _ = bridge.cancel()
+    }
+  }
+
   func testNineKeyInputAndLayoutSwitches() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey
@@ -139,7 +201,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     let nine = try button("nineKey6", in: controller)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
-    XCTAssertEqual(try button("schemeButton", in: controller).menu?.children.count, 3)
+    XCTAssertEqual(try button("schemeButton", in: controller).menu?.children.count, ChineseInputScheme.allCases.count)
     for digit in "64426" {
       try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
     }

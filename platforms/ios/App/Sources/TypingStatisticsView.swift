@@ -30,18 +30,19 @@ struct TypingStatisticsView: View {
   }
   private var characterSlices: [StatisticsSlice] {
     TypingCharacterKind.allCases.enumerated().map { index, kind in
-      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0, color: colors[index])
+      StatisticsSlice(id: kind.rawValue, title: kind.title, count: breakdown.characters[kind.rawValue] ?? 0, color: colors[index % colors.count])
     }
   }
   private var sourceSlices: [StatisticsSlice] {
     TypingSource.allCases.enumerated().map { index, source in
-      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0, color: colors[index])
+      StatisticsSlice(id: source.rawValue, title: source.title, count: breakdown.sources[source.rawValue] ?? 0, color: colors[index % colors.count])
     }
   }
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal),
+      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink),
       StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue),
       StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple),
       StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray),

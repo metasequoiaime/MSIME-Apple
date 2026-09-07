@@ -6,3 +6,6 @@
 /platforms/ios/KeyboardExtension/Resources/msime.db.sha256
 /platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
 /platforms/ios/KeyboardExtension/Resources/SHA256SUMS.txt
+
+/platforms/ios/KeyboardExtension/Resources/english.db.sha256
+/platforms/ios/KeyboardExtension/Resources/others.db.sha256

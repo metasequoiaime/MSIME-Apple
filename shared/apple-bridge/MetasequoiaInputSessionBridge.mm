@@ -16,11 +16,11 @@ NSString *StringFromUTF8(const std::string &value)
     return string == nil ? @"" : string;
 }
 
-BOOL InstallBundledDictionary(NSFileManager *fileManager, NSURL *dataDirectory)
+BOOL InstallBundledDatabase(NSFileManager *fileManager, NSURL *dataDirectory, NSString *name)
 {
     NSBundle *bundle = [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class];
-    NSURL *bundledDictionary = [bundle URLForResource:@"msime" withExtension:@"db"];
-    NSURL *bundledDigest = [bundle URLForResource:@"msime.db" withExtension:@"sha256"];
+    NSURL *bundledDictionary = [bundle URLForResource:name withExtension:@"db"];
+    NSURL *bundledDigest = [bundle URLForResource:[name stringByAppendingString:@".db"] withExtension:@"sha256"];
     if (bundledDictionary == nil || bundledDigest == nil)
     {
         return NO;
@@ -30,8 +30,8 @@ BOOL InstallBundledDictionary(NSFileManager *fileManager, NSURL *dataDirectory)
                                                         encoding:NSASCIIStringEncoding
                                                            error:nil];
     expectedDigest = [expectedDigest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSURL *installedDictionary = [dataDirectory URLByAppendingPathComponent:@"msime.db"];
-    NSURL *installedDigest = [dataDirectory URLByAppendingPathComponent:@"msime.db.sha256"];
+    NSURL *installedDictionary = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db"]];
+    NSURL *installedDigest = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db.sha256"]];
     NSString *currentDigest = [NSString stringWithContentsOfURL:installedDigest
                                                        encoding:NSASCIIStringEncoding
                                                           error:nil];
@@ -42,7 +42,7 @@ BOOL InstallBundledDictionary(NSFileManager *fileManager, NSURL *dataDirectory)
         return YES;
     }
 
-    NSURL *stagingDictionary = [dataDirectory URLByAppendingPathComponent:@"msime.db.installing"];
+    NSURL *stagingDictionary = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db.installing"]];
     [fileManager removeItemAtURL:stagingDictionary error:nil];
     if (![fileManager copyItemAtURL:bundledDictionary toURL:stagingDictionary error:nil])
     {
@@ -88,7 +88,9 @@ void ConfigureDataDirectory()
                                                          attributes:nil
                                                               error:nil])
       {
-          InstallBundledDictionary(fileManager, dataDirectory);
+          for (NSString *name in @[@"msime", @"english", @"others"]) {
+              InstallBundledDatabase(fileManager, dataDirectory, name);
+          }
           setenv("METASEQUOIA_IME_DATA_DIR", dataDirectory.fileSystemRepresentation, 1);
       }
     });
@@ -208,6 +210,20 @@ void ConfigureDataDirectory()
     return [self snapshotFrom:_adapter->switch_to_shuangpin(usesShuangpin)];
 }
 
+- (MetasequoiaInputSnapshot *)switchToShuangpinProfile:(NSString *)name
+{
+    return [self snapshotFrom:_adapter->switch_to_shuangpin_profile(name.UTF8String ?: "")];
+}
+
+- (MetasequoiaInputSnapshot *)switchToWubi
+{
+    return [self snapshotFrom:_adapter->switch_to_wubi()];
+}
+- (MetasequoiaInputSnapshot *)switchToJapanese
+{
+    return [self snapshotFrom:_adapter->switch_to_japanese()];
+}
+
 - (MetasequoiaInputSnapshot *)switchToNineKey
 {
     return [self snapshotFrom:_adapter->switch_to_nine_key()];
@@ -246,7 +262,7 @@ void ConfigureDataDirectory()
 
 - (NSDictionary<NSString *, NSString *> *)shuangpinKeyHints
 {
-    const auto hints = metasequoia::apple::shuangpin_key_hints(_adapter->uses_shuangpin());
+    const auto hints = metasequoia::apple::shuangpin_key_hints(_adapter->uses_shuangpin(), _adapter->shuangpin_profile_name());
     NSMutableDictionary<NSString *, NSString *> *result = [NSMutableDictionary dictionaryWithCapacity:hints.size()];
     for (const auto &[key, hint] : hints)
     {
