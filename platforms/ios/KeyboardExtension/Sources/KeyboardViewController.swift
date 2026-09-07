@@ -413,12 +413,35 @@ final class KeyboardViewController: UIInputViewController {
 
   private func installShortcutBar(in container: UIView) {
     shortcutBar.axis = .horizontal
-    shortcutBar.distribution = .fillEqually
-    shortcutBar.spacing = 6
+    shortcutBar.distribution = .fill
+    shortcutBar.spacing = 1
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
-    [languageModeButton, schemeButton, scriptShortcut, skinShortcut, moreShortcut, dismissShortcut]
-      .forEach { shortcutBar.addArrangedSubview($0) }
+    let brand = UIView()
+    let icon = UIImageView()
+    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
+      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 66, height: 66))
+    }
+    icon.accessibilityIdentifier = "keyboardBrandIcon"
+    icon.contentMode = .scaleAspectFit
+    icon.layer.cornerRadius = 5
+    icon.clipsToBounds = true
+    icon.translatesAutoresizingMaskIntoConstraints = false
+    brand.addSubview(icon)
+    shortcutBar.addArrangedSubview(brand)
+    NSLayoutConstraint.activate([
+      brand.widthAnchor.constraint(equalToConstant: 22),
+      icon.widthAnchor.constraint(equalToConstant: 22),
+      icon.heightAnchor.constraint(equalToConstant: 22),
+      icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
+      icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
+    ])
+    for button in [languageModeButton, schemeButton, scriptShortcut, skinShortcut, moreShortcut, dismissShortcut] {
+      shortcutBar.addArrangedSubview(button)
+      if button !== languageModeButton {
+        button.widthAnchor.constraint(equalTo: languageModeButton.widthAnchor).isActive = true
+      }
+    }
     container.addSubview(shortcutBar)
     NSLayoutConstraint.activate([
       shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),

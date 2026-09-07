@@ -141,6 +141,8 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/KeyboardExtension/Sources
+      - path: platforms/ios/SharedResources/KeyboardBrand.png
+        buildPhase: resources
       - path: platforms/ios/SharedUI
       - path: platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -189,6 +191,8 @@ targets:
     sources:
       - path: platforms/ios/KeyboardTests
       - path: platforms/ios/KeyboardExtension/Sources
+      - path: platforms/ios/SharedResources/KeyboardBrand.png
+        buildPhase: resources
       - path: platforms/ios/SharedUI
       - path: platforms/ios/KeyboardExtension/Resources/msime.db
         buildPhase: resources
