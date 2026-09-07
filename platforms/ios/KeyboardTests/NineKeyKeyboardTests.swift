@@ -4,6 +4,40 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testSkinCardsPreviewAndApplyWithoutChangingKeyboardHeight() throws {
+    let previous = KeyboardSkinPreference.selected
+    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
+    for width in [320.0, 414.0] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      controller.view.layoutIfNeeded()
+      try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSkinPicker" })
+      XCTAssertEqual(picker.bounds.height, 260)
+      for skin in KeyboardSkin.allCases {
+        let card = try button("skinCard-\(skin.rawValue)", in: controller)
+        XCTAssertGreaterThan(card.bounds.width, 140)
+        XCTAssertEqual(card.bounds.height, 100)
+      }
+      let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+        controller.view.layer.render(in: context.cgContext)
+      })
+      attachment.name = "Skin cards \(Int(width))pt"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      try button("skinCard-ocean", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(KeyboardSkinPreference.selected, .ocean)
+      XCTAssertNil(picker.superview)
+      XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260)
+      try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(try button("skinCard-ocean", in: controller).accessibilityValue, "已选中")
+      try button("closeSkinPicker", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSkinPicker" })
+    }
+  }
+
   func testVisibleInputViewReflectsSoundPreference() throws {
     let defaults = KeyboardFeedbackPreference.defaults
     let previous = defaults.object(forKey: KeyboardFeedbackPreference.soundKey)
@@ -103,7 +137,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
       }
-      XCTAssertEqual(try button("skinShortcut", in: controller).menu?.children.count, 8)
+      XCTAssertNil(try button("skinShortcut", in: controller).menu)
       let script = try button("scriptShortcut", in: controller)
       script.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)

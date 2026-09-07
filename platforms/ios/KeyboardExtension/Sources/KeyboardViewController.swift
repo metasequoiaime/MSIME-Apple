@@ -25,6 +25,7 @@ final class KeyboardViewController: UIInputViewController {
   private var candidateContent: UIStackView?
   private let scriptShortcut = UIButton()
   private let skinShortcut = UIButton()
+  private var skinPicker: KeyboardSkinPickerView?
   private let moreShortcut = UIButton()
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -162,6 +163,7 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    closeSkinPicker()
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
@@ -431,7 +433,7 @@ final class KeyboardViewController: UIInputViewController {
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
-    skinShortcut.showsMenuAsPrimaryAction = true
+    skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
     moreShortcut.showsMenuAsPrimaryAction = true
     dismissShortcut.addAction(UIAction { [weak self] _ in self?.dismissKeyboard() }, for: .primaryActionTriggered)
     updateShortcutButtons()
@@ -459,12 +461,6 @@ final class KeyboardViewController: UIInputViewController {
     scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
-    skinShortcut.menu = UIMenu(title: "键盘皮肤", children: KeyboardSkin.allCases.map { skin in
-      UIAction(title: skin.title, state: skin == KeyboardSkinPreference.selected ? .on : .off) { [weak self] _ in
-        KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
-        self?.applyKeyboardSkin()
-      }
-    })
     configure(moreShortcut, title: nil, symbol: "ellipsis.circle", label: "更多快捷设置", id: "moreShortcut")
     moreShortcut.menu = UIMenu(children: [
       UIMenu(title: "按键反馈", options: .displayInline, children: [
@@ -1434,6 +1430,35 @@ final class KeyboardViewController: UIInputViewController {
       node.subviews.forEach { updateShadows($0) }
     }
     updateShadows(view)
+  }
+
+  private func showSkinPicker() {
+    guard skinPicker == nil else { return }
+    let picker = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected, onSelect: { [weak self] skin in
+      guard let self else { return }
+      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      closeSkinPicker()
+      applyKeyboardSkin()
+      playInputClick()
+    }, onClose: { [weak self] in self?.closeSkinPicker() })
+    picker.accessibilityViewIsModal = true
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    skinPicker = picker
+    UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  private func closeSkinPicker() {
+    guard let picker = skinPicker else { return }
+    picker.removeFromSuperview()
+    skinPicker = nil
+    UIAccessibility.post(notification: .screenChanged, argument: skinShortcut)
   }
 
   private func applyKeyboardSkin() {
