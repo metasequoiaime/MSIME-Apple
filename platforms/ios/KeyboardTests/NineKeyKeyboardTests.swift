@@ -4,6 +4,23 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testVisibleInputViewReflectsSoundPreference() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let previous = defaults.object(forKey: KeyboardFeedbackPreference.soundKey)
+    defer {
+      if let previous { defaults.set(previous, forKey: KeyboardFeedbackPreference.soundKey) }
+      else { defaults.removeObject(forKey: KeyboardFeedbackPreference.soundKey) }
+    }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let inputView = try XCTUnwrap(controller.inputView as? KeyboardInputView)
+    XCTAssertTrue(controller.view === inputView)
+    defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
+    XCTAssertTrue(inputView.enableInputClicksWhenVisible)
+    defaults.set(false, forKey: KeyboardFeedbackPreference.soundKey)
+    XCTAssertFalse(inputView.enableInputClicksWhenVisible)
+  }
+
   func testShiftIsDiscoverableAndSwitchesToEnglishCapitalization() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .quanpin

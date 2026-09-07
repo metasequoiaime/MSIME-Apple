@@ -208,8 +208,10 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_keyboard_uses_system_input_click_feedback(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
-        self.assertIn("UIInputViewAudioFeedback", controller)
-        self.assertIn("var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }", controller)
+        input_view = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardInputView.swift").read_text()
+        self.assertIn("UIInputViewAudioFeedback", input_view)
+        self.assertIn("var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }", input_view)
+        self.assertIn("inputView = KeyboardInputView", controller)
         self.assertIn("UIDevice.current.playInputClick()", controller)
         self.assertIn("private func playInputClick()", controller)
         self.assertGreaterEqual(controller.count("playInputClick()"), 9)

@@ -1,7 +1,7 @@
 import UIKit
 
 @MainActor
-final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedback {
+final class KeyboardViewController: UIInputViewController {
   private enum LetterCaseState {
     case lowercase, shifted, capsLock
   }
@@ -75,9 +75,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
   private static let candidatePageSize = 9
 
-  var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }
-
-  private let keyFeedback = UIImpactFeedbackGenerator(style: .light)
+  private lazy var keyFeedback: UIImpactFeedbackGenerator = {
+    if #available(iOS 17.5, *) {
+      return UIImpactFeedbackGenerator(style: .light, view: view)
+    }
+    return UIImpactFeedbackGenerator(style: .light)
+  }()
 
   private let letterRows = [
     Array("qwertyuiop"),
@@ -89,6 +92,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     [",", ".", "?", "!", ";", ":", "'", "\""],
     ["(", ")", "[", "]", "<", ">", "\\", "-"],
   ]
+
+  override func loadView() {
+    inputView = KeyboardInputView(frame: .zero, inputViewStyle: .keyboard)
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -116,6 +123,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     updateLetterCaseControls()
     updateCandidateStrip(preedit: "", candidates: [])
     applyKeyboardSkin()
+  }
+
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    prepareKeyFeedback()
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -459,11 +471,16 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
           state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
+          if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
           self?.updateShortcutButtons()
         },
         UIAction(title: "按键振动", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
           state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
+          if KeyboardFeedbackPreference.hapticsEnabled {
+            self?.keyFeedback.impactOccurred(intensity: 0.7)
+            self?.prepareKeyFeedback()
+          }
           self?.updateShortcutButtons()
         },
       ]),
@@ -1386,6 +1403,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func decorateKey(_ button: UIButton) {
+    button.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
     let skin = KeyboardSkinPreference.selected
     guard var configuration = button.configuration else { return }
     configuration.background.cornerRadius = skin.cornerRadius
@@ -1467,12 +1485,17 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     }
   }
 
+  @objc private func prepareKeyFeedback() {
+    if KeyboardFeedbackPreference.hapticsEnabled { keyFeedback.prepare() }
+  }
+
   private func playInputClick() {
     if KeyboardFeedbackPreference.soundEnabled {
       UIDevice.current.playInputClick()
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
-      keyFeedback.impactOccurred(intensity: 0.45)
+      keyFeedback.impactOccurred(intensity: 0.7)
+      keyFeedback.prepare()
     }
   }
 }
