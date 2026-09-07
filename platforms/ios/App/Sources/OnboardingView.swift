@@ -84,6 +84,9 @@ struct InputSettingsView: View {
   private var soundEnabled = true
   @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticsEnabled = false
+  @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
+  private var hapticStrength = KeyboardHapticStrength.medium.rawValue
+  @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
 
@@ -136,6 +139,19 @@ struct InputSettingsView: View {
             .accessibilityIdentifier("keyboardSoundToggle")
           Toggle("按键振动", isOn: $hapticsEnabled)
             .accessibilityIdentifier("keyboardHapticsToggle")
+            .onChange(of: hapticsEnabled) { enabled in if enabled { previewHaptics() } }
+          if hapticsEnabled {
+            Picker("振动强度", selection: $hapticStrength) {
+              ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { strength in
+                Text(strength.title).tag(strength.rawValue)
+              }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("keyboardHapticStrengthPicker")
+            .onChange(of: hapticStrength) { _ in previewHaptics() }
+            Button("试一下振动", action: previewHaptics)
+              .accessibilityIdentifier("previewKeyboardHaptics")
+          }
         } header: {
           Text("按键反馈")
         } footer: {
@@ -149,6 +165,15 @@ struct InputSettingsView: View {
       .onChange(of: scenePhase) { phase in
         if phase == .active { reloadPreferences() }
       }
+  }
+
+  private func previewHaptics() {
+    guard hapticsEnabled else { return }
+    let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
+    let generator = UIImpactFeedbackGenerator(style: strength.style)
+    previewFeedback = generator
+    generator.impactOccurred(intensity: strength.intensity)
+    generator.prepare()
   }
 
   private func reloadPreferences() {

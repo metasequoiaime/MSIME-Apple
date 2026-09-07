@@ -1,6 +1,47 @@
 import XCTest
 
 final class OnboardingUITests: XCTestCase {
+  @MainActor
+  func testHapticStrengthPreviewAndPersistence() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    func openFeedback() {
+      app.buttons["inputSettingsLink"].tap()
+      for _ in 0..<5 {
+        if app.switches["keyboardHapticsToggle"].isHittable { break }
+        app.swipeUp()
+      }
+    }
+    app.launch()
+    openFeedback()
+    let toggle = app.switches["keyboardHapticsToggle"]
+    let initiallyEnabled = toggle.value as? String == "1"
+    if !initiallyEnabled { toggle.switches.firstMatch.tap() }
+    app.swipeUp()
+    let picker = app.segmentedControls["keyboardHapticStrengthPicker"]
+    let appeared = picker.waitForExistence(timeout: 5)
+    if !appeared {
+      let failure = XCTAttachment(screenshot: app.screenshot())
+      failure.lifetime = .keepAlways
+      add(failure)
+    }
+    XCTAssertTrue(appeared)
+    let previous = picker.buttons.allElementsBoundByIndex.first { $0.isSelected }?.label ?? "中"
+    picker.buttons["强"].tap()
+    app.buttons["previewKeyboardHaptics"].tap()
+    app.terminate()
+    app.launch()
+    openFeedback()
+    app.swipeUp()
+    XCTAssertTrue(picker.buttons["强"].isSelected)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "Haptic strength settings"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    picker.buttons[previous].tap()
+    if !initiallyEnabled { toggle.switches.firstMatch.tap() }
+  }
+
   override func setUpWithError() throws {
     continueAfterFailure = false
   }

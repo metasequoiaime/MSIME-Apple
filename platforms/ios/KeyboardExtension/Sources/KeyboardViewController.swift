@@ -77,12 +77,22 @@ final class KeyboardViewController: UIInputViewController {
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
   private static let candidatePageSize = 9
 
-  private lazy var keyFeedback: UIImpactFeedbackGenerator = {
+  private var feedbackStrength: KeyboardHapticStrength?
+  private var feedbackGenerator: UIImpactFeedbackGenerator?
+  private var keyFeedback: UIImpactFeedbackGenerator {
+    let strength = KeyboardFeedbackPreference.hapticStrength
+    if let feedbackGenerator, feedbackStrength == strength { return feedbackGenerator }
+    let generator: UIImpactFeedbackGenerator
     if #available(iOS 17.5, *) {
-      return UIImpactFeedbackGenerator(style: .medium, view: view)
+      if let feedbackGenerator { view.removeInteraction(feedbackGenerator) }
+      generator = UIImpactFeedbackGenerator(style: strength.style, view: view)
+    } else {
+      generator = UIImpactFeedbackGenerator(style: strength.style)
     }
-    return UIImpactFeedbackGenerator(style: .medium)
-  }()
+    feedbackStrength = strength
+    feedbackGenerator = generator
+    return generator
+  }
 
   private let letterRows = [
     Array("qwertyuiop"),
@@ -500,12 +510,22 @@ final class KeyboardViewController: UIInputViewController {
           state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: 1.0)
+            self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
         },
       ]),
+      UIMenu(title: "振动强度", image: UIImage(systemName: "waveform"), children: KeyboardHapticStrength.allCases.map { strength in
+        UIAction(title: strength.title, state: strength == KeyboardFeedbackPreference.hapticStrength ? .on : .off) { [weak self] _ in
+          KeyboardFeedbackPreference.defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
+          if KeyboardFeedbackPreference.hapticsEnabled {
+            self?.keyFeedback.impactOccurred(intensity: strength.intensity)
+            self?.prepareKeyFeedback()
+          }
+          self?.updateShortcutButtons()
+        }
+      }),
       UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
         UIAction(title: mode.title, attributes: supportsLocalTools ? [] : .disabled) { [weak self] _ in
           self?.openLocalInputMode(mode.trigger)
@@ -1573,7 +1593,7 @@ final class KeyboardViewController: UIInputViewController {
       UIDevice.current.playInputClick()
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
-      keyFeedback.impactOccurred(intensity: 1.0)
+      keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
       keyFeedback.prepare()
     }
   }

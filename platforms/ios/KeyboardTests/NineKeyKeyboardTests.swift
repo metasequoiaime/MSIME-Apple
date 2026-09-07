@@ -4,6 +4,31 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testChangingHapticStrengthReplacesTheViewGenerator() throws {
+    guard #available(iOS 17.5, *) else { throw XCTSkip("View-bound haptics require iOS 17.5") }
+    let defaults = KeyboardFeedbackPreference.defaults
+    let keys = [KeyboardFeedbackPreference.hapticsKey, KeyboardFeedbackPreference.strengthKey]
+    let previous = keys.map { defaults.object(forKey: $0) }
+    defer {
+      for (key, value) in zip(keys, previous) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+      }
+    }
+    defaults.set(true, forKey: KeyboardFeedbackPreference.hapticsKey)
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    var last: UIImpactFeedbackGenerator?
+    for strength in KeyboardHapticStrength.allCases {
+      defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
+      try button("languageModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+      let generators = controller.view.interactions.compactMap { $0 as? UIImpactFeedbackGenerator }
+      XCTAssertEqual(generators.count, 1)
+      let current = try XCTUnwrap(generators.first)
+      if let last { XCTAssertFalse(last === current) }
+      last = current
+    }
+  }
+
   func testCandidateManagementMenuUsesEngineSupportedLayouts() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
