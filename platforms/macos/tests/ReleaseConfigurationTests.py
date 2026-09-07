@@ -307,12 +307,15 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("x-release-please-version", project_spec)
         version = (PROJECT_ROOT / "version.txt").read_text().strip()
         self.assertIn(f"MARKETING_VERSION: {version} # x-release-please-version", project_spec)
-        # Every release publishes the unsigned iOS archive alongside the macOS assets.
+        # Every release builds an unsigned fallback archive; a configured TestFlight build replaces
+        # those assets with its distribution-signed counterparts before publication.
         self.assertIn("platforms/ios/scripts/package_ios_archive.sh", workflow)
         self.assertIn("platforms/ios/scripts/prepare_dictionary.py", workflow)
+        self.assertIn("platforms/ios/scripts/package_ios_testflight.sh", workflow)
         self.assertIn("xcodegen", workflow)
         publish_script = (MACOS_ROOT / "scripts/publish-release.sh").read_text()
         self.assertIn("ios-unsigned.xcarchive.zip", publish_script)
+        self.assertIn("ios-testflight.xcarchive.zip", publish_script)
         # The .ipa is the asset a tester can actually re-sign and install, so it has to be uploaded
         # rather than only checked for existence — an earlier revision added it to one list and not
         # the other.
@@ -700,16 +703,19 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertFalse((PROJECT_ROOT / "SECURITY.md").exists())
         self.assertIn("PRIVACY.md", readme)
 
-    def test_testflight_signing_configuration_is_optional_for_unsigned_release_assets(self):
+    def test_testflight_signing_configuration_is_required_when_enabled(self):
         workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
 
+        # Completely absent iOS credentials still select the documented unsigned fallback; once
+        # any signing credential is present, incomplete configuration must fail the job.
         self.assertIn("skip_testflight()", workflow)
         self.assertIn("printf 'enabled=false\\n' >> \"$GITHUB_OUTPUT\"", workflow)
+        self.assertIn("TestFlight signing is configured but its required secrets are incomplete.", workflow)
         self.assertIn("if ! security import", workflow)
-        self.assertIn("the configured iOS distribution certificate could not be imported", workflow)
-        self.assertIn("the iOS host provisioning profile must include group.app.msime.ios", workflow)
-        self.assertIn("the keyboard provisioning profile must include group.app.msime.ios", workflow)
-        self.assertIn("The unsigned iOS artifacts remain available in this release.", workflow)
+        self.assertIn("The configured iOS distribution certificate could not be imported", workflow)
+        self.assertIn("The iOS host provisioning profile must include group.app.msime.ios", workflow)
+        self.assertIn("The keyboard provisioning profile must include group.app.msime.ios", workflow)
+        self.assertIn("IOS_TESTFLIGHT_ENABLED", workflow)
 
     def test_dependabot_tracks_actions_and_expected_submodule_branches(self):
         dependabot = (PROJECT_ROOT / ".github/dependabot.yml").read_text()

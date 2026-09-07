@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # Build a distribution-signed iOS archive with checked-in project settings and downloaded profiles,
-# then upload its IPA to App Store Connect. The existing package_ios_archive.sh intentionally remains
-# the reproducible, unsigned release artifact; this script is the TestFlight-only path.
+# preserve the signed artifacts for the GitHub Release, then upload the IPA to App Store Connect.
 
 project_root=${METASEQUOIA_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}
 project_root=$(cd "$project_root" && pwd)
@@ -60,18 +59,6 @@ mkdir -p "$build_root" "$export_path"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
 
-skip_testflight() {
-    local reason=$1
-    printf 'TestFlight upload skipped: %s\n' "$reason" >&2
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        {
-            echo '### TestFlight upload skipped'
-            echo "$reason"
-            echo 'The unsigned iOS artifacts remain available in this release.'
-        } >> "$GITHUB_STEP_SUMMARY"
-    fi
-}
-
 # Install the exact distribution profiles selected by the Release configuration. Xcode's cloud
 # signing fallback can select a development profile for an automatic archive, which then cannot be
 # exported to TestFlight. The profiles are injected by the workflow and never committed.
@@ -107,10 +94,6 @@ xcodebuild archive \
 archive_status=${PIPESTATUS[0]}
 set -e
 if [[ "$archive_status" -ne 0 ]]; then
-    if grep -Eiq 'No signing certificate .* found|No profiles for |Cloud signing permission error|Provisioning profile .* doesn.t match|Provisioning profile .* doesn.t include .* entitlement|Provisioning profile .* does not include .* entitlement|requires a provisioning profile|requires a signing certificate' "$archive_log"; then
-        skip_testflight 'The configured iOS distribution certificate or provisioning profiles are unavailable or do not match the project entitlements.'
-        exit 0
-    fi
     exit "$archive_status"
 fi
 
@@ -152,10 +135,6 @@ xcodebuild -exportArchive \
 export_status=${PIPESTATUS[0]}
 set -e
 if [[ "$export_status" -ne 0 ]]; then
-    if grep -Eq 'Cloud signing permission error|No profiles for ' "$export_log"; then
-        skip_testflight 'App Store Connect could not provide distribution profiles for the iOS targets.'
-        exit 0
-    fi
     exit "$export_status"
 fi
 
@@ -163,6 +142,19 @@ ipa=$(find "$export_path" -maxdepth 1 -type f -name '*.ipa' -print -quit)
 if [[ -z "$ipa" ]]; then
     printf '%s\n' 'Xcode export did not produce an IPA.' >&2
     exit 1
+fi
+
+if [[ -n "${METASEQUOIA_IOS_RELEASE_DIR:-}" ]]; then
+    release_dir=$(cd "$METASEQUOIA_IOS_RELEASE_DIR" && pwd)
+    signed_archive="$release_dir/MetasequoiaIME-$tag_name-ios-testflight.xcarchive.zip"
+    signed_ipa="$release_dir/MetasequoiaIME-$tag_name-ios-testflight.ipa"
+    ditto -c -k --keepParent "$archive_path" "$signed_archive"
+    cp "$ipa" "$signed_ipa"
+    (
+        cd "$release_dir"
+        shasum -a 256 "$(basename "$signed_archive")" > "$(basename "$signed_archive").sha256"
+        shasum -a 256 "$(basename "$signed_ipa")" > "$(basename "$signed_ipa").sha256"
+    )
 fi
 
 xcrun altool \

@@ -177,24 +177,27 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn('<string>app-store-connect</string>', script)
         self.assertIn('<string>manual</string>', script)
 
-    def test_testflight_export_reports_missing_cloud_profiles_without_blocking_the_release(self):
+    def test_testflight_export_fails_when_xcode_cannot_sign_or_export(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
 
-        self.assertIn("Cloud signing permission error|No profiles for ", script)
-        self.assertIn("TestFlight upload skipped", script)
-        self.assertIn("The unsigned iOS artifacts remain available in this release.", script)
+        self.assertNotIn("skip_testflight", script)
+        self.assertIn("export_status=${PIPESTATUS[0]}", script)
+        self.assertIn('exit "$export_status"', script)
 
-    def test_testflight_archive_reports_signing_configuration_failures_without_blocking_the_release(self):
+    def test_testflight_archive_fails_on_signing_configuration_errors(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
 
         self.assertIn('archive_log="$build_root/archive.log"', script)
         self.assertIn("archive_status=${PIPESTATUS[0]}", script)
-        self.assertIn("No signing certificate .* found", script)
-        self.assertIn("Provisioning profile .* doesn.t match", script)
-        self.assertIn("Provisioning profile .* doesn.t include .* entitlement", script)
-        self.assertIn("Provisioning profile .* does not include .* entitlement", script)
-        self.assertIn("skip_testflight", script)
         self.assertIn("exit \"$archive_status\"", script)
+
+    def test_testflight_archive_preserves_signed_release_artifacts(self):
+        script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
+
+        self.assertIn("METASEQUOIA_IOS_RELEASE_DIR", script)
+        self.assertIn("ios-testflight.xcarchive.zip", script)
+        self.assertIn("ios-testflight.ipa", script)
+        self.assertIn("Uploaded %s to TestFlight", script)
 
     def test_keyboard_is_local_and_declares_the_system_extension_contract(self):
         with (IOS_ROOT / "KeyboardExtension/Resources/Info.plist").open("rb") as info_file:

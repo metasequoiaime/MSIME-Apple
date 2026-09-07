@@ -418,6 +418,8 @@ class ReleasePublicationTests(unittest.TestCase):
         corrupt_checksum=False,
         misdirected_checksum=False,
         release_trigger="workflow_dispatch",
+        ios_testflight=False,
+        existing_assets="",
     ):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
@@ -431,7 +433,11 @@ class ReleasePublicationTests(unittest.TestCase):
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_GH_LOG"
 if [[ "$1 $2" == "release view" ]]; then
-    printf '%s' "$FAKE_EXISTING_NOTES"
+    if [[ "$*" == *"--json assets"* ]]; then
+        printf '%s' "$FAKE_EXISTING_ASSETS"
+    else
+        printf '%s' "$FAKE_EXISTING_NOTES"
+    fi
 elif [[ "$1 $2" == "release edit" && "$*" == *"--notes-file"* ]]; then
     while (($#)); do
         if [[ "$1" == "--notes-file" ]]; then
@@ -463,10 +469,10 @@ fi
             (dist / "appcast.xml").write_text(
                 "<?xml version=\"1.0\"?><rss><channel><item>test</item></channel></rss>\n"
             )
-            # The iOS archive name never carries the signing suffix: it is unsigned in every mode.
+            ios_suffix = "testflight" if ios_testflight else "unsigned"
             for ios_name in (
-                "MetasequoiaIME-v1.2.3-ios-unsigned.xcarchive.zip",
-                "MetasequoiaIME-v1.2.3-ios-unsigned.ipa",
+                f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.xcarchive.zip",
+                f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.ipa",
             ):
                 ios_artifact = dist / ios_name
                 ios_artifact.write_bytes(f"test {ios_name} artifact\n".encode())
@@ -489,7 +495,9 @@ fi
                     "RUNNER_TEMP": str(temporary),
                     "FAKE_GH_LOG": str(log),
                     "FAKE_EXISTING_NOTES": existing_notes,
+                    "FAKE_EXISTING_ASSETS": existing_assets,
                     "FAKE_CAPTURED_NOTES": str(captured_notes),
+                    "IOS_TESTFLIGHT_ENABLED": "true" if ios_testflight else "false",
                 }
             )
             result = subprocess.run(
@@ -533,7 +541,7 @@ fi
         marker = (
             "Existing notes\n\n"
             "<!-- metasequoia-release-mode:unsigned -->\n"
-            "<!-- metasequoia-install-guidance:v3 -->\n"
+            "<!-- metasequoia-install-guidance:v4 -->\n"
         )
         result, calls, notes = self.run_publication("false", "-unsigned", marker)
 
@@ -549,7 +557,7 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Existing notes", notes)
         self.assertEqual(notes.count("metasequoia-release-mode:unsigned"), 1)
-        self.assertIn("metasequoia-install-guidance:v3", notes)
+        self.assertIn("metasequoia-install-guidance:v4", notes)
         self.assertIn("Recommended: ZIP", notes)
         self.assertLess(calls.index("--notes-file"), calls.index("release upload"))
 
@@ -564,7 +572,17 @@ fi
         self.assertEqual(notes, "")
 
     def test_signed_publication_records_signed_mode_without_unsigned_warning(self):
-        result, calls, notes = self.run_publication("true", "")
+        result, calls, notes = self.run_publication(
+            "true",
+            "",
+            ios_testflight=True,
+            existing_assets=(
+                "MetasequoiaIME-v1.2.3-ios-unsigned.xcarchive.zip\n"
+                "MetasequoiaIME-v1.2.3-ios-unsigned.xcarchive.zip.sha256\n"
+                "MetasequoiaIME-v1.2.3-ios-unsigned.ipa\n"
+                "MetasequoiaIME-v1.2.3-ios-unsigned.ipa.sha256\n"
+            ),
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("metasequoia-release-mode:signed", notes)
@@ -573,9 +591,10 @@ fi
         self.assertIn("PKG option", notes)
         self.assertIn("attempts to register and enable 水杉", notes)
         self.assertIn("macos-universal.pkg", calls)
-        # Unsigned in a signed release too, because no iOS signing identity exists.
-        self.assertIn("ios-unsigned.xcarchive.zip", calls)
-        self.assertIn("ios-unsigned.ipa", calls)
+        self.assertIn("ios-testflight.xcarchive.zip", calls)
+        self.assertIn("ios-testflight.ipa", calls)
+        self.assertIn("release delete-asset", calls)
+        self.assertIn("distribution-signed", notes)
 
     def test_corrupt_artifact_is_rejected_before_release_metadata_or_assets_change(self):
         result, calls, notes = self.run_publication("false", "-unsigned", corrupt_checksum=True)
