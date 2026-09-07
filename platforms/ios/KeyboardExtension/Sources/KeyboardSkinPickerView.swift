@@ -54,6 +54,7 @@ final class KeyboardSkinPickerView: UIView {
         card.addAction(UIAction { _ in onSelect(skin) }, for: .primaryActionTriggered)
         row.addArrangedSubview(card)
       }
+      if row.arrangedSubviews.count == 1 { row.addArrangedSubview(UIView()) }
       rows.addArrangedSubview(row)
     }
     for child in [header, close, scroll] {

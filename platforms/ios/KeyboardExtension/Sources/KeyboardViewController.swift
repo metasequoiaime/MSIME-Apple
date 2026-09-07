@@ -931,7 +931,7 @@ final class KeyboardViewController: UIInputViewController {
   private func updateLanguageModeButton() {
     var configuration = UIButton.Configuration.filled()
     configuration.title = isChineseMode ? (inputScheme == .japanese ? "日" : "中") : "英"
-    configuration.baseForegroundColor = .white
+    configuration.baseForegroundColor = KeyboardSkinPreference.selected.actionForeground
     configuration.baseBackgroundColor = KeyboardSkinPreference.selected.actionBackground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 5, bottom: 3, trailing: 5)
@@ -1452,7 +1452,7 @@ final class KeyboardViewController: UIInputViewController {
     var configuration = UIButton.Configuration.plain()
     configuration.title = title
     configuration.titleLineBreakMode = .byClipping
-    configuration.baseForegroundColor = emphasized ? .white : KeyboardSkinPreference.selected.keyForeground
+    configuration.baseForegroundColor = emphasized ? KeyboardSkinPreference.selected.actionForeground : KeyboardSkinPreference.selected.keyForeground
     configuration.background.backgroundColor =
       emphasized
       ? KeyboardSkinPreference.selected.actionBackground

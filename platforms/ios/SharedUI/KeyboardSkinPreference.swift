@@ -1,7 +1,7 @@
 import UIKit
 
 enum KeyboardSkin: String, CaseIterable {
-  case forest, ocean, rose, porcelain, typewriter, candy, midnight, blueprint
+  case forest, ocean, rose, porcelain, typewriter, candy, midnight, blueprint, custom
   var title: String {
     switch self {
     case .forest: "水杉绿"
@@ -12,6 +12,7 @@ enum KeyboardSkin: String, CaseIterable {
     case .candy: "奶油桃桃"
     case .midnight: "霓虹夜航"
     case .blueprint: "工程蓝图"
+    case .custom: "我的皮肤"
     }
   }
   private func adaptive(_ light: (CGFloat, CGFloat, CGFloat), _ dark: (CGFloat, CGFloat, CGFloat)) -> UIColor {
@@ -22,6 +23,7 @@ enum KeyboardSkin: String, CaseIterable {
   }
   var accent: UIColor {
     switch self {
+    case .custom: CustomKeyboardSkin.color(CustomKeyboardSkinStore.current.accent)
     case .forest: adaptive((0.094, 0.36, 0.28), (0.45, 0.80, 0.65))
     case .ocean: adaptive((0.12, 0.36, 0.64), (0.50, 0.74, 0.98))
     case .rose: adaptive((0.63, 0.25, 0.39), (0.96, 0.62, 0.74))
@@ -34,6 +36,7 @@ enum KeyboardSkin: String, CaseIterable {
   }
   var actionBackground: UIColor {
     switch self {
+    case .custom: CustomKeyboardSkin.color(CustomKeyboardSkinStore.current.actionBackground)
     case .forest: adaptive((0.094, 0.36, 0.28), (0.12, 0.38, 0.29))
     case .ocean: adaptive((0.12, 0.36, 0.64), (0.16, 0.36, 0.62))
     case .rose: adaptive((0.63, 0.25, 0.39), (0.56, 0.23, 0.36))
@@ -46,6 +49,7 @@ enum KeyboardSkin: String, CaseIterable {
   }
   var background: UIColor {
     switch self {
+    case .custom: CustomKeyboardSkin.color(CustomKeyboardSkinStore.current.background)
     case .forest: adaptive((0.91, 0.94, 0.92), (0.09, 0.13, 0.11))
     case .ocean: adaptive((0.90, 0.94, 0.98), (0.09, 0.12, 0.17))
     case .rose: adaptive((0.98, 0.91, 0.94), (0.16, 0.10, 0.13))
@@ -58,6 +62,7 @@ enum KeyboardSkin: String, CaseIterable {
   }
   var keyBackground: UIColor {
     switch self {
+    case .custom: CustomKeyboardSkin.color(CustomKeyboardSkinStore.current.keyBackground)
     case .forest: adaptive((1, 1, 1), (0.19, 0.24, 0.21))
     case .ocean: adaptive((1, 1, 1), (0.18, 0.22, 0.29))
     case .rose: adaptive((1, 1, 1), (0.27, 0.19, 0.23))
@@ -68,7 +73,10 @@ enum KeyboardSkin: String, CaseIterable {
     case .blueprint: UIColor(red: 0.09, green: 0.20, blue: 0.32, alpha: 1)
     }
   }
-  var keyForeground: UIColor { self == .midnight || self == .blueprint ? .white : .label }
+  var keyForeground: UIColor {
+    if self == .custom { return CustomKeyboardSkin.color(CustomKeyboardSkinStore.current.keyForeground) }
+    return self == .midnight || self == .blueprint ? .white : .label
+  }
   var designDescription: String {
     switch self {
     case .forest: "清新留白 · 经典圆角"
@@ -79,10 +87,12 @@ enum KeyboardSkin: String, CaseIterable {
     case .candy: "奶油波纹 · 饱满圆角"
     case .midnight: "紫色星点 · 霓虹描边"
     case .blueprint: "蓝图网格 · 等宽字形"
+    case .custom: "自由配色 · 自定义键帽"
     }
   }
   var cornerRadius: CGFloat {
     switch self {
+    case .custom: CGFloat(CustomKeyboardSkinStore.current.cornerRadius)
     case .porcelain, .blueprint: 3
     case .typewriter: 5
     case .candy: 18
@@ -92,25 +102,36 @@ enum KeyboardSkin: String, CaseIterable {
   }
   var borderWidth: CGFloat {
     switch self {
+    case .custom: CGFloat(CustomKeyboardSkinStore.current.borderWidth)
     case .porcelain: 0.5
     case .typewriter, .midnight, .blueprint: 1
     default: 0
     }
   }
   var borderColor: UIColor { accent.withAlphaComponent(self == .midnight ? 0.65 : 0.28) }
-  var shadowOpacity: Float { self == .typewriter ? 0.30 : (self == .candy ? 0.16 : 0) }
+  var shadowOpacity: Float {
+    if self == .custom { return Float(CustomKeyboardSkinStore.current.shadow) }
+    return self == .typewriter ? 0.30 : (self == .candy ? 0.16 : 0)
+  }
   var shadowRadius: CGFloat { self == .typewriter ? 0 : 3 }
   var shadowOffset: CGFloat { self == .typewriter ? 3 : 2 }
-  var usesMonospacedFont: Bool { self == .typewriter || self == .blueprint }
+  var usesMonospacedFont: Bool {
+    if self == .custom { return CustomKeyboardSkinStore.current.monospaced }
+    return self == .typewriter || self == .blueprint
+  }
   var pattern: Int {
     switch self {
+    case .custom: CustomKeyboardSkinStore.current.pattern
     case .typewriter, .midnight: 1
     case .blueprint: 2
     case .candy: 3
     default: 0
     }
   }
-  var actionForeground: UIColor { .white }
+  var actionForeground: UIColor {
+    guard self == .custom else { return .white }
+    return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: CustomKeyboardSkinStore.current.actionBackground))
+  }
 
 }
 

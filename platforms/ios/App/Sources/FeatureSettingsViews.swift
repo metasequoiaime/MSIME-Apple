@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct SkinSettingsView: View {
+  @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
+  private var customSkinData = Data()
   @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var skin = KeyboardSkin.forest.rawValue
   @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
@@ -9,12 +11,18 @@ struct SkinSettingsView: View {
 
   var body: some View {
     Form {
+      Section {
+        NavigationLink(destination: CustomSkinEditorView()) {
+          Label("设计我的皮肤", systemImage: "slider.horizontal.3")
+        }.accessibilityIdentifier("customSkinEditorLink")
+      }
       Section("完整键盘预览") {
         Picker("键盘布局", selection: $previewsNineKey) {
           Text("26 键").tag(false)
           Text("9 键").tag(true)
         }.pickerStyle(.segmented).accessibilityIdentifier("skinPreviewLayout")
         KeyboardSkinPreview(skin: KeyboardSkin(rawValue: skin) ?? .forest, nineKey: previewsNineKey)
+          .id(customSkinData)
           .environment(\.colorScheme, previewsDark ? .dark : .light)
           .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
         Toggle("预览深色外观", isOn: $previewsDark)
@@ -41,7 +49,7 @@ struct SkinSettingsView: View {
           .accessibilityValue(skin == option.rawValue ? "已选择" : "未选择")
         }
       } header: {
-        Text("精选皮肤 · \(KeyboardSkin.allCases.count) 款")
+        Text("皮肤 · \(KeyboardSkin.allCases.count) 款")
       } footer: {
         Text("选择后预览立即更新，下次打开水杉键盘时应用。霓虹夜航与工程蓝图保留深色设计，其余随系统外观切换。")
       }

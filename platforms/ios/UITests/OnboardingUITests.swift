@@ -2,6 +2,57 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testCustomSkinDesignPersistsAndApplies() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    func openEditor() {
+      app.buttons["skinSettingsLink"].tap()
+      app.buttons["customSkinEditorLink"].tap()
+    }
+    app.launch()
+    openEditor()
+    let radius = app.sliders["customSkinCornerRadius"]
+    for _ in 0..<5 {
+      if radius.isHittable { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(radius.isHittable)
+    radius.adjust(toNormalizedSliderPosition: 0.9)
+    app.terminate()
+    app.launch()
+    openEditor()
+    for _ in 0..<5 {
+      if radius.isHittable { break }
+      app.swipeUp()
+    }
+    let value = (radius.value as? String ?? "").replacingOccurrences(of: "%", with: "")
+    XCTAssertGreaterThan(Double(value) ?? 0, 16)
+    XCTAssertLessThanOrEqual(Double(value) ?? 100, 20)
+    for _ in 0..<5 {
+      if app.buttons["applyCustomSkin"].isHittable { break }
+      app.swipeDown()
+    }
+    app.buttons["applyCustomSkin"].tap()
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "Custom skin editor"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    XCTAssertTrue(app.buttons["applyCustomSkin"].label.contains("正在使用"))
+    // Exercise explicit reset after checking persistence, using simulator-only settings.
+    for _ in 0..<5 {
+      if app.buttons["重置我的皮肤"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["重置我的皮肤"].tap()
+    app.buttons["重置"].tap()
+    for _ in 0..<5 {
+      if radius.isHittable { break }
+      app.swipeDown()
+    }
+    XCTAssertEqual(radius.value as? String, "8")
+  }
+
+  @MainActor
   func testHapticStrengthPreviewAndPersistence() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
