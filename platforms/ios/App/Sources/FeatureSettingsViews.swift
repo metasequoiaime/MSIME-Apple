@@ -82,7 +82,7 @@ struct DictionarySettingsView: View {
               .foregroundStyle(.secondary)
           }
         }
-        Text("词库保存在设备上，日常输入不需要联网。日语提供假名与单字候选，当前未启用整句转换模型。")
+        Text("词库保存在设备上，日常输入不需要联网。已启用日语整句转换，支持罗马字输入、假名及汉字混合候选。")
       }
       Section {
         Text("当前 iOS 版暂不支持导入第三方词库或编辑个人词库。")

@@ -107,6 +107,8 @@ targets:
         buildPhase: resources
       - path: THIRD_PARTY_NOTICES.txt
         buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: NO
@@ -154,6 +156,10 @@ targets:
         buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/others.db.sha256
         buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/dict_japanese.dat
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/dict_japanese.dat.sha256
+        buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
         buildPhase: resources
     settings:
@@ -195,6 +201,10 @@ targets:
       - path: platforms/ios/KeyboardExtension/Resources/others.db
         buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/others.db.sha256
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/dict_japanese.dat
+        buildPhase: resources
+      - path: platforms/ios/KeyboardExtension/Resources/dict_japanese.dat.sha256
         buildPhase: resources
     settings:
       base:

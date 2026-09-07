@@ -9,3 +9,8 @@
 
 /platforms/ios/KeyboardExtension/Resources/english.db.sha256
 /platforms/ios/KeyboardExtension/Resources/others.db.sha256
+
+/platforms/ios/KeyboardExtension/Resources/dict_japanese.dat
+/platforms/ios/KeyboardExtension/Resources/dict_japanese.dat.sha256
+/platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt
+/platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt.sha256

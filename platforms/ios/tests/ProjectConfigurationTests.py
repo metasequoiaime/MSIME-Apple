@@ -477,8 +477,8 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_bridge_installs_the_bundled_dictionary_before_engine_startup(self):
         bridge = (IOS_ROOT.parents[1] / "shared/apple-bridge/MetasequoiaInputSessionBridge.mm").read_text()
 
-        self.assertIn('URLForResource:name withExtension:@"db"', bridge)
-        self.assertIn('@[@"msime", @"english", @"others"]', bridge)
+        self.assertIn('URLForResource:name withExtension:nil', bridge)
+        self.assertIn('@[@"msime.db",@"english.db",@"others.db",@"dict_japanese.dat"]', "".join(bridge.split()))
         self.assertIn('setenv("METASEQUOIA_IME_DATA_DIR"', bridge)
 
     def test_keyboard_exposes_engine_owned_number_and_punctuation_routing(self):

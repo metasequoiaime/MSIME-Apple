@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Package the locked, published databases without platform-side data transformations.
 
-The locked upstream manifest authenticates supplemental English/expressive database
-hashes. The large Japanese sentence model is omitted; Engine's SQLite lexicon and
-romaji/kana provider remain available in the keyboard extension.
+The locked upstream manifest authenticates supplemental databases, the Japanese
+sentence model, and its required upstream attribution.
 """
 import hashlib
 import json
@@ -21,6 +20,7 @@ import product_lock_shared
 FULL_DICTIONARY = REPOSITORY_ROOT / "vendor/MetasequoiaImeDict/out/msime.db"
 IOS_DICTIONARY = REPOSITORY_ROOT / "platforms/ios/KeyboardExtension/Resources/msime.db"
 DATABASES = ("msime.db", "english.db", "others.db")
+ASSETS = (*DATABASES, "dict_japanese.dat", "mozc_dictionary_oss_README.txt")
 
 def main():
     lock = product_lock.load()
@@ -32,7 +32,7 @@ def main():
     manifest = json.loads((FULL_DICTIONARY.parent / "dictionary-manifest.json").read_text())
     with tempfile.TemporaryDirectory() as temporary:
         staging = Path(temporary)
-        for name in DATABASES:
+        for name in ASSETS:
             target = staging / name
             if name == "msime.db":
                 shutil.copyfile(FULL_DICTIONARY, target)
@@ -46,9 +46,9 @@ def main():
             (staging / (name + ".sha256")).write_text(digest + "\n")
         packaged = dict(manifest)
         packaged["profile"] = "ios-multischeme"
-        packaged["files"] = {name: manifest["files"][name] for name in DATABASES}
-        packaged["engine_compatibility"] = dict(manifest["engine_compatibility"], japanese_model_magic=None)
-        packaged["japanese_sentence_model"] = False
+        packaged["files"] = {name: manifest["files"][name] for name in ASSETS}
+        packaged["engine_compatibility"] = dict(manifest["engine_compatibility"], japanese_model_magic="MSJPDT1")
+        packaged["japanese_sentence_model"] = True
         packaged["upstream_manifest_sha256"] = lock["dictionary"]["assets"]["dictionary-manifest.json"]
         (staging / "dictionary-manifest.json").write_text(json.dumps(packaged, indent=2) + "\n")
         IOS_DICTIONARY.parent.mkdir(parents=True, exist_ok=True)

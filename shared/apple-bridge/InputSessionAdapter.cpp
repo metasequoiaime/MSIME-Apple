@@ -145,7 +145,8 @@ InputSnapshot InputSessionAdapter::select_candidate(std::size_t index)
 
 InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
 {
-    if (impl_->session.snapshot().scheme == (uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin) && !impl_->nine_key && (!uses_shuangpin || impl_->profile_name == "xiaohe"))
+    if (impl_->session.snapshot().scheme == (uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin) &&
+        !impl_->nine_key && (!uses_shuangpin || impl_->profile_name == "xiaohe"))
     {
         return MakeSnapshot(impl_->session, {});
     }
@@ -166,7 +167,10 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin_profile(const std::string
     impl_ = std::make_unique<Impl>(SchemeType::Shuangpin, name);
     return snapshot;
 }
-std::string InputSessionAdapter::shuangpin_profile_name() const { return impl_->profile_name; }
+std::string InputSessionAdapter::shuangpin_profile_name() const
+{
+    return impl_->profile_name;
+}
 
 InputSnapshot InputSessionAdapter::switch_to_wubi()
 {

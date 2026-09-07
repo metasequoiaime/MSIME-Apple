@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
@@ -126,6 +127,81 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden, scheme != .nineKey)
       }
     }
+  }
+
+  func testJapaneseSentenceConversionAndMemory() throws {
+    func residentBytes() -> UInt64 {
+      var info = mach_task_basic_info_data_t()
+      var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<integer_t>.size)
+      let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+          task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
+      }
+      return result == KERN_SUCCESS ? info.resident_size : 0
+    }
+    func footprint() -> UInt64 {
+      var info = task_vm_info_data_t()
+      var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<integer_t>.size)
+      let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+          task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+      }
+      return result == KERN_SUCCESS ? info.phys_footprint : 0
+    }
+    let footprintBefore = footprint()
+    let before = residentBytes()
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToJapanese()
+    var snapshot = bridge.cancel()
+    for letter in "watashihanihonjindesu" { snapshot = bridge.handleCharacter(String(letter)) }
+    print("Japanese sentence candidates: \(snapshot.candidates.prefix(5))")
+    XCTAssertTrue(snapshot.candidates.contains { $0.contains("日本人") && $0.contains("です") })
+    XCTAssertNil(snapshot.diagnosticText)
+    let after = residentBytes()
+    let footprintAfter = footprint()
+    print("Japanese physical footprint: before=\(footprintBefore), after=\(footprintAfter) bytes")
+    XCTAssertGreaterThan(footprintBefore, 0)
+    XCTAssertLessThan(footprintAfter > footprintBefore ? footprintAfter - footprintBefore : 0, 16 * 1024 * 1024,
+      "The keyboard must not copy the full sentence model into private memory")
+    var usage = rusage()
+    getrusage(RUSAGE_SELF, &usage)
+    print("Japanese model memory: before=\(before), after=\(after), peak=\(usage.ru_maxrss) bytes")
+    let index = try XCTUnwrap(snapshot.candidates.firstIndex { $0.contains("日本人") && $0.contains("です") })
+    XCTAssertEqual(bridge.selectCandidate(at: UInt(index)).commitText, snapshot.candidates[index])
+    _ = bridge.switch(toShuangpin: false)
+    _ = bridge.openLocalMode("R")
+    for letter in "nihon" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains("日本"))
+    _ = bridge.cancel()
+    XCTAssertFalse(bridge.isInLocalMode)
+  }
+
+  func testJapaneseSentenceCandidateStrip() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousScript = ChineseOutputPreference.usesTraditional
+    InputSchemePreference.scheme = .japanese
+    ChineseOutputPreference.usesTraditional = true
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      ChineseOutputPreference.usesTraditional = previousScript
+    }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    for letter in "watashihanihonjindesu" {
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(String(letter).uppercased())" } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("私は日本人です"))
+    let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+      controller.view.layer.render(in: context.cgContext)
+    })
+    attachment.name = "Japanese full sentence keyboard"
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   func testAdditionalShuangpinProfilesAndKeyHints() throws {

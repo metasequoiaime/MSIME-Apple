@@ -19,8 +19,8 @@ NSString *StringFromUTF8(const std::string &value)
 BOOL InstallBundledDatabase(NSFileManager *fileManager, NSURL *dataDirectory, NSString *name)
 {
     NSBundle *bundle = [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class];
-    NSURL *bundledDictionary = [bundle URLForResource:name withExtension:@"db"];
-    NSURL *bundledDigest = [bundle URLForResource:[name stringByAppendingString:@".db"] withExtension:@"sha256"];
+    NSURL *bundledDictionary = [bundle URLForResource:name withExtension:nil];
+    NSURL *bundledDigest = [bundle URLForResource:name withExtension:@"sha256"];
     if (bundledDictionary == nil || bundledDigest == nil)
     {
         return NO;
@@ -30,8 +30,8 @@ BOOL InstallBundledDatabase(NSFileManager *fileManager, NSURL *dataDirectory, NS
                                                         encoding:NSASCIIStringEncoding
                                                            error:nil];
     expectedDigest = [expectedDigest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSURL *installedDictionary = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db"]];
-    NSURL *installedDigest = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db.sha256"]];
+    NSURL *installedDictionary = [dataDirectory URLByAppendingPathComponent:name];
+    NSURL *installedDigest = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".sha256"]];
     NSString *currentDigest = [NSString stringWithContentsOfURL:installedDigest
                                                        encoding:NSASCIIStringEncoding
                                                           error:nil];
@@ -42,7 +42,8 @@ BOOL InstallBundledDatabase(NSFileManager *fileManager, NSURL *dataDirectory, NS
         return YES;
     }
 
-    NSURL *stagingDictionary = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".db.installing"]];
+    NSURL *stagingDictionary =
+        [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".installing"]];
     [fileManager removeItemAtURL:stagingDictionary error:nil];
     if (![fileManager copyItemAtURL:bundledDictionary toURL:stagingDictionary error:nil])
     {
@@ -88,7 +89,8 @@ void ConfigureDataDirectory()
                                                          attributes:nil
                                                               error:nil])
       {
-          for (NSString *name in @[@"msime", @"english", @"others"]) {
+          for (NSString *name in @[ @"msime.db", @"english.db", @"others.db", @"dict_japanese.dat" ])
+          {
               InstallBundledDatabase(fileManager, dataDirectory, name);
           }
           setenv("METASEQUOIA_IME_DATA_DIR", dataDirectory.fileSystemRepresentation, 1);
@@ -262,7 +264,8 @@ void ConfigureDataDirectory()
 
 - (NSDictionary<NSString *, NSString *> *)shuangpinKeyHints
 {
-    const auto hints = metasequoia::apple::shuangpin_key_hints(_adapter->uses_shuangpin(), _adapter->shuangpin_profile_name());
+    const auto hints =
+        metasequoia::apple::shuangpin_key_hints(_adapter->uses_shuangpin(), _adapter->shuangpin_profile_name());
     NSMutableDictionary<NSString *, NSString *> *result = [NSMutableDictionary dictionaryWithCapacity:hints.size()];
     for (const auto &[key, hint] : hints)
     {
