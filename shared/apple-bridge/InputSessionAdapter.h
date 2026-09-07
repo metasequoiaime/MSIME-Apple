@@ -6,6 +6,11 @@
 #include <string>
 #include <vector>
 
+namespace metasequoia
+{
+struct RuntimePaths;
+}
+
 namespace metasequoia::apple
 {
 enum class CandidateAction
@@ -31,6 +36,8 @@ class InputSessionAdapter
 {
   public:
     InputSessionAdapter();
+    // Prepared paths are captured for this adapter and retained across scheme/preferences changes.
+    explicit InputSessionAdapter(const RuntimePaths &paths);
     ~InputSessionAdapter();
 
     InputSessionAdapter(const InputSessionAdapter &) = delete;
