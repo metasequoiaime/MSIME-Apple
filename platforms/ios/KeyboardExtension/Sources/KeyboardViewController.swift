@@ -7,8 +7,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private let skinBackdrop = KeyboardSkinBackgroundView()
+  private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
   private let preeditButton = UIButton()
+  private let exitLocalModeButton = UIButton()
+  private var localModeTrigger: String?
+  private var standardRowHeights: [(UIView, NSLayoutConstraint)] = []
   private let candidateScrollView = UIScrollView()
   private let diagnosticLabel = UILabel()
   private let previousPageButton = UIButton()
@@ -98,6 +102,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       skinBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     installKeyboard()
+    let height = view.heightAnchor.constraint(equalToConstant: 260)
+    height.priority = .init(999)
+    height.identifier = "keyboardHeight"
+    height.isActive = true
+    keyboardHeightConstraint = height
     updateReturnKey()
     // installKeyboard builds the candidate strip before the letter rows exist, so the hints the
     // scheme button gathered there have not reached any key yet.
@@ -178,6 +187,9 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     }
     actionRow = makeActionRow()
     root.addArrangedSubview(actionRow)
+    standardRowHeights = (letterRowViews + symbolRowViews).map {
+      ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
+    }
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
@@ -340,7 +352,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
     let content = UIStackView(arrangedSubviews: [
       preeditButton, candidateScrollView, diagnosticLabel,
-      candidateEmptySpacer, previousPageButton, nextPageButton,
+      candidateEmptySpacer, previousPageButton, nextPageButton, exitLocalModeButton,
     ])
     content.axis = .horizontal
     content.alignment = .center
@@ -348,6 +360,18 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     content.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(content)
     candidateContent = content
+    var exitConfiguration = UIButton.Configuration.plain()
+    exitConfiguration.image = UIImage(systemName: "xmark.circle.fill")
+    exitConfiguration.contentInsets = .zero
+    exitLocalModeButton.configuration = exitConfiguration
+    exitLocalModeButton.accessibilityIdentifier = "exitLocalModeButton"
+    exitLocalModeButton.accessibilityLabel = "退出本地模式"
+    exitLocalModeButton.widthAnchor.constraint(equalToConstant: 38).isActive = true
+    exitLocalModeButton.isHidden = true
+    exitLocalModeButton.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      render(session.cancel())
+    }, for: .primaryActionTriggered)
     installShortcutBar(in: container)
 
     NSLayoutConstraint.activate([
@@ -793,7 +817,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.
-      let hint = isChineseMode ? shuangpinKeyHints[lowercase.uppercased()] : nil
+      let hint = isChineseMode && !session.isInLocalMode ? shuangpinKeyHints[lowercase.uppercased()] : nil
       if var configuration = button.configuration {
         configuration.title = usesUppercase ? lowercase.uppercased() : lowercase
         // The hint sits along the bottom edge, so the letter is lifted clear of it instead of
@@ -966,7 +990,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   private func updatePreeditButton() {
     let idle = visiblePreedit.isEmpty
-    let title = idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit
+    let modeName = Self.localInputModes.first { $0.trigger == localModeTrigger }?.title
+    let title = session.isInLocalMode && visiblePreedit == localModeTrigger
+      ? (modeName ?? visiblePreedit)
+      : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
     if var configuration = preeditButton.configuration {
       configuration.title = title
       preeditButton.configuration = configuration
@@ -990,8 +1017,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     preeditButton.accessibilityTraits = offersModes ? .button : .staticText
   }
 
-  private func openLocalInputMode(_ trigger: String) {
+  func openLocalInputMode(_ trigger: String) {
     playInputClick()
+    localModeTrigger = trigger
+    showsSymbols = false
     render(session.openLocalMode(trigger))
   }
 
@@ -1032,6 +1061,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func updateKeyboardLayout() {
+    standardRowHeights.forEach { $0.1.isActive = false }
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
@@ -1054,6 +1084,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols }
+    for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (nineKey ? "九键" : "ABC") : "123"
       layoutToggleButton?.configuration = configuration
@@ -1161,6 +1192,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func render(_ snapshot: MetasequoiaInputSnapshot) {
+    if localModeTrigger != nil && !session.isInLocalMode {
+      localModeTrigger = nil
+      showsSymbols = false
+    }
+    updateLetterCaseControls()
     if let commitText = snapshot.commitText {
       insertOwnText(chineseOutput(commitText))
     }
@@ -1201,7 +1237,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func renderCandidateStrip() {
-    let showsCandidates = !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    exitLocalModeButton.isHidden = !session.isInLocalMode
+    let showsCandidates = session.isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
@@ -1313,6 +1350,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    // Use the same viewport for every input layout; content's intrinsic height must not shrink it.
+    let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
+      ?? (traitCollection.verticalSizeClass == .compact)
+    let height: CGFloat = landscape ? 216 : 260
+    if keyboardHeightConstraint?.constant != height { keyboardHeightConstraint?.constant = height }
     func updateShadows(_ node: UIView) {
       if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
         button.layer.shadowPath = UIBezierPath(roundedRect: button.bounds,
@@ -1356,6 +1398,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     updateShortcutButtons()
     renderCandidateStrip()
     updateSpellingStrip()
+    exitLocalModeButton.configuration?.baseForegroundColor = skin.accent
     preeditButton.configuration?.baseForegroundColor = skin.accent
     previousPageButton.configuration?.baseForegroundColor = skin.accent
     nextPageButton.configuration?.baseForegroundColor = skin.accent

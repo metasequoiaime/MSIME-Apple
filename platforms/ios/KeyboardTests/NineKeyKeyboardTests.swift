@@ -61,6 +61,73 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testAllLayoutsKeepNineKeyHeight() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for width in [320.0, 414.0] {
+      InputSchemePreference.scheme = .nineKey
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      controller.view.layoutIfNeeded()
+      let reference = try button("nineKey6", in: controller).bounds.height
+      for scheme in ChineseInputScheme.allCases {
+        InputSchemePreference.scheme = scheme
+        controller.viewWillAppear(false)
+        for symbols in [false, true] {
+          if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
+          controller.view.layoutIfNeeded()
+          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260)
+          if !symbols && scheme != .nineKey {
+            for label in ["Q", "A", "Z"] {
+              let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(label)" } as? UIButton)
+              XCTAssertEqual(key.bounds.height, reference, accuracy: 0.5)
+            }
+          }
+          if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
+        }
+      }
+    }
+  }
+
+  func testLocalModeLayouts() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.nineKey, .shuangpin] {
+      InputSchemePreference.scheme = scheme
+      for trigger in ["U", "T", "J"] {
+        let controller = KeyboardViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+        controller.openLocalInputMode(trigger)
+        controller.view.layoutIfNeeded()
+        let returnKey = try button("returnKey", in: controller)
+        for label in ["Q", "A", "Z"] {
+          let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(label)" } as? UIButton)
+          XCTAssertEqual(key.bounds.height, returnKey.bounds.height, accuracy: 0.5)
+          XCTAssertGreaterThanOrEqual(key.bounds.height, 44)
+          XCTAssertTrue(key.subviews.compactMap { $0 as? UILabel }.filter { $0.font.pointSize == 9 }.allSatisfy { $0.isHidden })
+        }
+        XCTAssertFalse(try button("exitLocalModeButton", in: controller).isHidden)
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+          controller.view.layer.render(in: context.cgContext)
+        })
+        attachment.name = "Local mode \(scheme) \(trigger)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+        controller.view.layoutIfNeeded()
+        try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(try button("exitLocalModeButton", in: controller).isHidden)
+        XCTAssertFalse(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }).isHidden)
+        XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, scheme.title)
+        XCTAssertEqual(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden, scheme != .nineKey)
+      }
+    }
+  }
+
   func testNineKeyInputAndLayoutSwitches() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey
