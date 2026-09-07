@@ -13,6 +13,54 @@ final class NineKeyKeyboardTests: XCTestCase {
     } as? UIButton)
   }
 
+  func testShortcutsYieldToCandidatesWithoutMovingKeys() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousScript = ChineseOutputPreference.usesTraditional
+    InputSchemePreference.scheme = .nineKey
+    ChineseOutputPreference.usesTraditional = false
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      ChineseOutputPreference.usesTraditional = previousScript
+    }
+    for width in [320.0, 414.0] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      controller.view.layoutIfNeeded()
+      let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
+      XCTAssertFalse(toolbar.isHidden)
+      for id in ["languageModeButton", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+        let control = try button(id, in: controller)
+        XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
+      }
+      XCTAssertEqual(try button("skinShortcut", in: controller).menu?.children.count, 8)
+      let script = try button("scriptShortcut", in: controller)
+      script.sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(ChineseOutputPreference.usesTraditional)
+      XCTAssertEqual(script.accessibilityValue, "繁体")
+      script.sendActions(for: .primaryActionTriggered)
+      XCTAssertFalse(ChineseOutputPreference.usesTraditional)
+      let key = try button("nineKey6", in: controller)
+      let frame = key.convert(key.bounds, to: controller.view)
+      let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+        controller.view.layer.render(in: context.cgContext)
+      })
+      attachment.name = "Keyboard shortcuts \(Int(width))pt"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      for digit in "64426" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(toolbar.isHidden)
+      XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+      XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
+      try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertFalse(toolbar.isHidden)
+      XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
+    }
+  }
+
   func testNineKeyInputAndLayoutSwitches() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey

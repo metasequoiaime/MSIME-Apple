@@ -17,6 +17,12 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private let candidateEmptySpacer = UIView()
   private let languageModeButton = UIButton()
   private let schemeButton = UIButton()
+  private let shortcutBar = UIStackView()
+  private var candidateContent: UIStackView?
+  private let scriptShortcut = UIButton()
+  private let skinShortcut = UIButton()
+  private let moreShortcut = UIButton()
+  private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
   private var letterRowViews: [UIView] = []
   private var symbolRowViews: [UIView] = []
@@ -303,11 +309,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     updateLanguageModeButton()
     languageModeButton.addAction(
       UIAction { [weak self] _ in self?.toggleInputMode() }, for: .primaryActionTriggered)
-    languageModeButton.widthAnchor.constraint(equalToConstant: 36).isActive = true
+
 
     updateSchemeButton()
     schemeButton.showsMenuAsPrimaryAction = true
-    schemeButton.widthAnchor.constraint(equalToConstant: 48).isActive = true
+
 
     candidateStack.axis = .horizontal
     candidateStack.spacing = 6
@@ -333,7 +339,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       for: .primaryActionTriggered)
 
     let content = UIStackView(arrangedSubviews: [
-      languageModeButton, schemeButton, preeditButton, candidateScrollView, diagnosticLabel,
+      preeditButton, candidateScrollView, diagnosticLabel,
       candidateEmptySpacer, previousPageButton, nextPageButton,
     ])
     content.axis = .horizontal
@@ -341,6 +347,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     content.spacing = 12
     content.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(content)
+    candidateContent = content
+    installShortcutBar(in: container)
 
     NSLayoutConstraint.activate([
       container.heightAnchor.constraint(equalToConstant: 38),
@@ -360,6 +368,84 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
     ])
     return container
+  }
+
+  private func installShortcutBar(in container: UIView) {
+    shortcutBar.axis = .horizontal
+    shortcutBar.distribution = .fillEqually
+    shortcutBar.spacing = 6
+    shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
+    shortcutBar.translatesAutoresizingMaskIntoConstraints = false
+    [languageModeButton, schemeButton, scriptShortcut, skinShortcut, moreShortcut, dismissShortcut]
+      .forEach { shortcutBar.addArrangedSubview($0) }
+    container.addSubview(shortcutBar)
+    NSLayoutConstraint.activate([
+      shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+      shortcutBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+      shortcutBar.topAnchor.constraint(equalTo: container.topAnchor),
+      shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    scriptShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      usesTraditionalOutput.toggle()
+      ChineseOutputPreference.usesTraditional = usesTraditionalOutput
+      renderCandidateStrip()
+      updateShortcutButtons()
+    }, for: .primaryActionTriggered)
+    skinShortcut.showsMenuAsPrimaryAction = true
+    moreShortcut.showsMenuAsPrimaryAction = true
+    dismissShortcut.addAction(UIAction { [weak self] _ in self?.dismissKeyboard() }, for: .primaryActionTriggered)
+    updateShortcutButtons()
+  }
+
+  private func updateShortcutButtons() {
+    func configure(_ button: UIButton, title: String?, symbol: String?, label: String, id: String) {
+      var configuration = UIButton.Configuration.plain()
+      configuration.title = title
+      configuration.image = symbol.flatMap { UIImage(systemName: $0) }
+      configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+      configuration.contentInsets = .zero
+      configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+        var attributes = attributes
+        attributes.font = .systemFont(ofSize: 16, weight: .medium)
+        return attributes
+      }
+      button.configuration = configuration
+      button.accessibilityLabel = label
+      button.accessibilityIdentifier = id
+    }
+    configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
+      label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
+    scriptShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
+    configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
+    skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
+    skinShortcut.menu = UIMenu(title: "键盘皮肤", children: KeyboardSkin.allCases.map { skin in
+      UIAction(title: skin.title, state: skin == KeyboardSkinPreference.selected ? .on : .off) { [weak self] _ in
+        KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+        self?.applyKeyboardSkin()
+      }
+    })
+    configure(moreShortcut, title: nil, symbol: "ellipsis.circle", label: "更多快捷设置", id: "moreShortcut")
+    moreShortcut.menu = UIMenu(children: [
+      UIMenu(title: "按键反馈", options: .displayInline, children: [
+        UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
+          state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
+          self?.updateShortcutButtons()
+        },
+        UIAction(title: "按键振动", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
+          state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
+          self?.updateShortcutButtons()
+        },
+      ]),
+      UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
+        UIAction(title: mode.title, attributes: isChineseMode ? [] : .disabled) { [weak self] _ in
+          self?.openLocalInputMode(mode.trigger)
+        }
+      }),
+    ])
+    configure(dismissShortcut, title: nil, symbol: "keyboard.chevron.compact.down", label: "收起键盘", id: "dismissShortcut")
   }
 
   private func makeSpellingStrip() -> UIView {
@@ -761,6 +847,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     languageModeButton.accessibilityLabel =
       isChineseMode ? "切换到英文输入" : "切换到中文输入"
     languageModeButton.accessibilityValue = isChineseMode ? "中文输入" : "英文输入"
+    updateShortcutButtons()
     updateKeyboardLayout()
   }
 
@@ -1114,6 +1201,9 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   }
 
   private func renderCandidateStrip() {
+    let showsCandidates = !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    shortcutBar.isHidden = showsCandidates
+    candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
     for view in candidateStack.arrangedSubviews {
       candidateStack.removeArrangedSubview(view)
@@ -1263,6 +1353,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     }
     updateLanguageModeButton()
     updateSchemeButton()
+    updateShortcutButtons()
     renderCandidateStrip()
     updateSpellingStrip()
     preeditButton.configuration?.baseForegroundColor = skin.accent
