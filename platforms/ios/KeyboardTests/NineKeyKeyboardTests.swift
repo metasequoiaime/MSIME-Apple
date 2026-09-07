@@ -4,6 +4,35 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testPressFeedbackPreservesLayoutAndResetsAfterInterruption() {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 260))
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    let key = KeyboardKeyButton(frame: CGRect(x: 20, y: 20, width: 44, height: 48))
+    controller.view.addSubview(key)
+    let bounds = key.bounds
+    let center = key.center
+    for _ in 0..<10 {
+      key.isHighlighted = true
+      XCTAssertEqual(key.bounds, bounds)
+      XCTAssertEqual(key.center, center)
+      XCTAssertEqual(key.transform.isIdentity, UIAccessibility.isReduceMotionEnabled)
+      key.isHighlighted = false
+      XCTAssertTrue(key.transform.isIdentity)
+    }
+    key.isHighlighted = true
+    key.isEnabled = false
+    XCTAssertTrue(key.transform.isIdentity)
+    key.isEnabled = true
+    key.isHighlighted = false
+    key.isHighlighted = true
+    key.removeFromSuperview()
+    XCTAssertTrue(key.transform.isIdentity)
+    XCTAssertTrue(key.layer.animationKeys()?.isEmpty ?? true)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

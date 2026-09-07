@@ -1319,7 +1319,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9
 
-    let button = UIButton(
+    let button = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
@@ -1340,7 +1340,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.cornerRadius = 8
-    let button = UIButton(configuration: configuration)
+    let button = KeyboardKeyButton(configuration: configuration)
     if let action {
       button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
     }
@@ -1372,7 +1372,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         : .preferredFont(forTextStyle: .title3)
       return attributes
     }
-    let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+    let button = KeyboardKeyButton(configuration: configuration, primaryAction: UIAction { _ in action() })
     button.accessibilityLabel = accessibilityLabel
     decorateKey(button)
     return button
