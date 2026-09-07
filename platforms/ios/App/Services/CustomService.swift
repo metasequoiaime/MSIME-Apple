@@ -12,10 +12,11 @@ enum CustomServiceKind: String {
 // Official endpoint/model documentation, checked 2026-09-07. These presets use the
 // providers' Chat Completions compatibility APIs; request codecs remain in Engine.
 enum AIProviderPreset: String, CaseIterable {
-  case openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, openRouter, custom
+  case everyAPI, openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, openRouter, custom
 
   var title: String {
     switch self {
+    case .everyAPI: "EveryAPI"
     case .openAI: "OpenAI"
     case .anthropic: "Anthropic · Claude"
     case .gemini: "Google · Gemini"
@@ -30,6 +31,7 @@ enum AIProviderPreset: String, CaseIterable {
   }
   var endpoint: String {
     switch self {
+    case .everyAPI: "https://api.everyapi.ai/v1/chat/completions"
     case .openAI: "https://api.openai.com/v1/chat/completions"
     case .anthropic: "https://api.anthropic.com/v1/chat/completions"
     case .gemini: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -44,6 +46,7 @@ enum AIProviderPreset: String, CaseIterable {
   }
   var models: [String] {
     switch self {
+    case .everyAPI: ["deepseek-v4-flash", "deepseek-v4-pro", "claude-sonnet-5", "glm-5.3-flash"]
     case .openAI: ["gpt-4.1-mini"]
     case .anthropic: ["claude-sonnet-4-6", "claude-opus-5"]
     case .gemini: ["gemini-3.8-flash", "gemini-2.5-flash"]
@@ -59,6 +62,7 @@ enum AIProviderPreset: String, CaseIterable {
   var documentation: URL? {
     let address: String
     switch self {
+    case .everyAPI: address = "https://everyapi.ai/models"
     case .openAI: address = "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
     case .anthropic: address = "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"
     case .gemini: address = "https://ai.google.dev/gemini-api/docs/openai"
@@ -74,6 +78,55 @@ enum AIProviderPreset: String, CaseIterable {
   }
 }
 
+// File transcription presets use Engine's multipart file/model codec.
+// Official provider documentation checked 2026-09-07.
+enum VoiceProviderPreset: String, CaseIterable {
+  case everyAPI, openAI, siliconFlow, groq, mistral, custom
+
+  var title: String {
+    switch self {
+    case .everyAPI: "EveryAPI"
+    case .openAI: "OpenAI"
+    case .siliconFlow: "硅基流动 · SenseVoice"
+    case .groq: "Groq · Whisper"
+    case .mistral: "Mistral · Voxtral"
+    case .custom: "自定义"
+    }
+  }
+  var endpoint: String {
+    switch self {
+    case .everyAPI: "https://api.everyapi.ai/v1/audio/transcriptions"
+    case .openAI: "https://api.openai.com/v1/audio/transcriptions"
+    case .siliconFlow: "https://api.siliconflow.cn/v1/audio/transcriptions"
+    case .groq: "https://api.groq.com/openai/v1/audio/transcriptions"
+    case .mistral: "https://api.mistral.ai/v1/audio/transcriptions"
+    case .custom: ""
+    }
+  }
+  var models: [String] {
+    switch self {
+    case .everyAPI: ["openai/whisper-large-v3-turbo", "volc.seedasr.sauc.duration"]
+    case .openAI: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"]
+    case .siliconFlow: ["FunAudioLLM/SenseVoiceSmall"]
+    case .groq: ["whisper-large-v3-turbo", "whisper-large-v3"]
+    case .mistral: ["voxtral-mini-latest"]
+    case .custom: []
+    }
+  }
+  var documentation: URL? {
+    let address: String
+    switch self {
+    case .everyAPI: address = "https://everyapi.ai/models"
+    case .openAI: address = "https://developers.openai.com/api/docs/guides/speech-to-text"
+    case .siliconFlow: address = "https://siliconflow.readme.io/reference/createaudiotranscriptions"
+    case .groq: address = "https://console.groq.com/docs/speech-to-text"
+    case .mistral: address = "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription"
+    case .custom: return nil
+    }
+    return URL(string: address)
+  }
+}
+
 struct ServiceFailure: LocalizedError {
   let message: String
   var errorDescription: String? { message }
@@ -81,6 +134,7 @@ struct ServiceFailure: LocalizedError {
 
 struct CustomServiceConfiguration {
   var provider: AIProviderPreset = .custom
+  var voiceProvider: VoiceProviderPreset = .custom
   var endpoint = ""
   var model = ""
   var prompt = "请润色以下文字，保持原意，只返回修改后的文字。"
@@ -89,6 +143,9 @@ struct CustomServiceConfiguration {
     var result = Self()
     if kind == .ai {
       result.provider = AIProviderPreset(rawValue: defaults.string(forKey: "service.ai.provider") ?? "") ?? .custom
+    }
+    if kind == .voice {
+      result.voiceProvider = VoiceProviderPreset(rawValue: defaults.string(forKey: "service.voice.provider") ?? "") ?? .custom
     }
     result.endpoint = defaults.string(forKey: "service.\(kind.rawValue).endpoint") ?? ""
     result.model = defaults.string(forKey: "service.\(kind.rawValue).model") ?? ""
@@ -108,6 +165,25 @@ struct CustomServiceConfiguration {
     result.model = defaults.string(forKey: prefix + ".model") ?? provider.models.first ?? ""
     result.prompt = defaults.string(forKey: prefix + ".prompt") ?? result.prompt
     return result
+  }
+
+  static func loadVoicePreset(_ provider: VoiceProviderPreset, defaults: UserDefaults = .standard) -> Self {
+    let prefix = "service.voice.presets.\(provider.rawValue)"
+    if defaults.string(forKey: prefix + ".endpoint") == nil,
+       provider == .custom, load(.voice, defaults: defaults).voiceProvider == .custom {
+      return load(.voice, defaults: defaults)
+    }
+    var result = Self()
+    result.voiceProvider = provider
+    result.endpoint = defaults.string(forKey: prefix + ".endpoint") ?? provider.endpoint
+    result.model = defaults.string(forKey: prefix + ".model") ?? provider.models.first ?? ""
+    return result
+  }
+
+  private func storeVoicePreset(in defaults: UserDefaults) {
+    let prefix = "service.voice.presets.\(voiceProvider.rawValue)"
+    defaults.set(endpoint, forKey: prefix + ".endpoint")
+    defaults.set(model, forKey: prefix + ".model")
   }
 
   private func storePreset(in defaults: UserDefaults) {
@@ -135,6 +211,12 @@ struct CustomServiceConfiguration {
       if !previous.endpoint.isEmpty { previous.storePreset(in: defaults) }
       storePreset(in: defaults)
       defaults.set(provider.rawValue, forKey: "service.ai.provider")
+    }
+    if kind == .voice {
+      let previous = Self.load(.voice, defaults: defaults)
+      if !previous.endpoint.isEmpty { previous.storeVoicePreset(in: defaults) }
+      storeVoicePreset(in: defaults)
+      defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
     }
     defaults.set(url.absoluteString, forKey: "service.\(kind.rawValue).endpoint")
     defaults.set(model.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "service.\(kind.rawValue).model")

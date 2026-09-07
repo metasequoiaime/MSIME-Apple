@@ -91,6 +91,7 @@ struct ServiceSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var configuration: CustomServiceConfiguration
   @State private var providerDrafts: [AIProviderPreset: CustomServiceConfiguration] = [:]
+  @State private var voiceProviderDrafts: [VoiceProviderPreset: CustomServiceConfiguration] = [:]
   @State private var token = ""
   @State private var input = ""
   @State private var output = ""
@@ -107,7 +108,7 @@ struct ServiceSettingsView: View {
 
   var body: some View {
     Form {
-      if kind == .ai { providerSection }
+      if kind == .ai { providerSection } else { voiceProviderSection }
       configurationSection
 
       if kind == .ai {
@@ -180,11 +181,18 @@ struct ServiceSettingsView: View {
         Section {
           Picker("服务商", selection: Binding(get: { configuration.provider }, set: { provider in selectProvider(provider) })) {
             ForEach(AIProviderPreset.allCases, id: \.self) { provider in
-              Text(provider.title).tag(provider)
+              Label {
+                Text(provider.title)
+              } icon: {
+                if provider == .everyAPI {
+                  Image("EveryAPI").resizable().scaledToFit().frame(width: 24, height: 24)
+                }
+              }.tag(provider)
             }
           }
           .pickerStyle(.menu)
           .accessibilityIdentifier("aiProviderPicker")
+          if configuration.provider == .everyAPI { everyAPIIdentity }
           if let documentation = configuration.provider.documentation {
             Link("服务商接入说明", destination: documentation)
           }
@@ -196,18 +204,60 @@ struct ServiceSettingsView: View {
         .disabled(busy)
   }
 
+  private var voiceProviderSection: some View {
+    Section {
+      Picker("服务商", selection: Binding(get: { configuration.voiceProvider }, set: { provider in selectVoiceProvider(provider) })) {
+        ForEach(VoiceProviderPreset.allCases, id: \.self) { provider in
+          Label {
+                Text(provider.title)
+              } icon: {
+                if provider == .everyAPI {
+                  Image("EveryAPI").resizable().scaledToFit().frame(width: 24, height: 24)
+                }
+              }.tag(provider)
+        }
+      }
+      .pickerStyle(.menu)
+      .accessibilityIdentifier("voiceProviderPicker")
+      if configuration.voiceProvider == .everyAPI { everyAPIIdentity }
+      if let documentation = configuration.voiceProvider.documentation {
+        Link("服务商接入说明", destination: documentation)
+      }
+    } header: {
+      Text("语音服务商")
+    } footer: {
+      Text("选择后自动填入识别接口和模型，填写对应 API Key。自定义支持兼容 OpenAI 的音频转写接口。")
+    }
+    .disabled(busy || recorder.isRecording || recorder.isPreparing)
+  }
+
+  private var everyAPIIdentity: some View {
+    HStack(spacing: 12) {
+      Image("EveryAPI").resizable().scaledToFit().frame(width: 36, height: 36)
+        .accessibilityIdentifier("everyAPIProviderLogo")
+      VStack(alignment: .leading, spacing: 2) {
+        Text("EveryAPI").font(.headline)
+        Text("api.everyapi.ai/v1").font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private var presetModels: [String] {
+    kind == .ai ? configuration.provider.models : configuration.voiceProvider.models
+  }
+
   private var configurationSection: some View {
       Section {
         TextField(kind.example, text: $configuration.endpoint)
           .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
-          .disabled(kind == .ai && configuration.provider != .custom)
+          .disabled(kind == .ai ? configuration.provider != .custom : configuration.voiceProvider != .custom)
         TextField("模型名称", text: $configuration.model)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("serviceModel")
-        if kind == .ai && !configuration.provider.models.isEmpty {
+        if !presetModels.isEmpty {
           Menu("选择常用模型") {
-            ForEach(configuration.provider.models, id: \.self) { model in
+            ForEach(presetModels, id: \.self) { model in
               Button(model) { configuration.model = model }
             }
           }
@@ -230,7 +280,7 @@ struct ServiceSettingsView: View {
           } catch { status = error.localizedDescription }
         }
       } header: {
-        Text(kind == .ai ? configuration.provider.title : "自定义语音服务")
+        Text(kind == .ai ? configuration.provider.title : configuration.voiceProvider.title)
       } footer: {
         Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
       }
@@ -243,6 +293,15 @@ struct ServiceSettingsView: View {
     providerDrafts[configuration.provider] = configuration
     configuration = providerDrafts[provider] ?? CustomServiceConfiguration.loadPreset(provider)
     // Unsaved key text must never follow an endpoint change. Saved keys are origin-scoped.
+    token = ""
+    status = ""
+    output = ""
+  }
+
+  private func selectVoiceProvider(_ provider: VoiceProviderPreset) {
+    guard provider != configuration.voiceProvider else { return }
+    voiceProviderDrafts[configuration.voiceProvider] = configuration
+    configuration = voiceProviderDrafts[provider] ?? CustomServiceConfiguration.loadVoicePreset(provider)
     token = ""
     status = ""
     output = ""

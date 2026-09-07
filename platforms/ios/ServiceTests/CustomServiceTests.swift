@@ -42,6 +42,34 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(CustomServiceConfiguration.loadPreset(.custom, defaults: defaults).model, custom.model)
   }
 
+  func testVoicePresetsPreserveCustomAndDoNotChangeAI() throws {
+    let suite = "msime-voice-tests-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let ai = CustomServiceConfiguration.loadPreset(.deepSeek, defaults: defaults)
+    try ai.save(.ai, token: "", defaults: defaults)
+    // Existing installations have these keys without a provider identifier.
+    defaults.set("https://custom.invalid/audio/transcriptions", forKey: "service.voice.endpoint")
+    defaults.set("legacy-model", forKey: "service.voice.model")
+    for provider in VoiceProviderPreset.allCases where provider != .custom {
+      var config = CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults)
+      XCTAssertEqual(try config.validatedURL().absoluteString, provider.endpoint)
+      XCTAssertNotNil(provider.documentation)
+      config.model = "saved-\(provider.rawValue)"
+      try config.save(.voice, token: "", defaults: defaults)
+      XCTAssertEqual(CustomServiceConfiguration.load(.voice, defaults: defaults).voiceProvider, provider)
+    }
+    for provider in VoiceProviderPreset.allCases where provider != .custom {
+      XCTAssertEqual(CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults).model,
+                     "saved-\(provider.rawValue)")
+    }
+    let custom = CustomServiceConfiguration.loadVoicePreset(.custom, defaults: defaults)
+    XCTAssertEqual(custom.model, "legacy-model")
+    XCTAssertEqual(custom.endpoint, "https://custom.invalid/audio/transcriptions")
+    XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).endpoint, ai.endpoint)
+    XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).provider, .deepSeek)
+  }
+
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {
     for endpoint in ["http://example.invalid/v1", "https://user:password@example.invalid/v1", "https://example.invalid/v1#fragment", ""] {
       var configuration = CustomServiceConfiguration()
