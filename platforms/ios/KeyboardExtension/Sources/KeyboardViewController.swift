@@ -6,6 +6,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     case lowercase, shifted, capsLock
   }
 
+  private let skinBackdrop = KeyboardSkinBackgroundView()
   private let session = MetasequoiaInputSessionBridge()
   private let preeditButton = UIButton()
   private let candidateScrollView = UIScrollView()
@@ -82,6 +83,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     view.backgroundColor = MetasequoiaTheme.keyboardBackground
+    skinBackdrop.translatesAutoresizingMaskIntoConstraints = false
+    view.insertSubview(skinBackdrop, at: 0)
+    NSLayoutConstraint.activate([
+      skinBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      skinBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      skinBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+      skinBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
     installKeyboard()
     updateReturnKey()
     // installKeyboard builds the candidate strip before the letter rows exist, so the hints the
@@ -219,7 +228,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
           configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
           configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var attributes = attributes
-            attributes.font = .systemFont(ofSize: 21, weight: .medium)
+            attributes.font = KeyboardSkinPreference.selected.usesMonospacedFont
+              ? .monospacedSystemFont(ofSize: 21, weight: .medium) : .systemFont(ofSize: 21, weight: .medium)
             return attributes
           }
           button.configuration = configuration
@@ -230,7 +240,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
           let number = UILabel()
           number.text = String(digit)
           number.font = .systemFont(ofSize: 10)
-          number.textColor = .secondaryLabel
+          number.textColor = KeyboardSkinPreference.selected.accent
+          number.accessibilityIdentifier = "keyNumberHint"
           number.translatesAutoresizingMaskIntoConstraints = false
           number.isAccessibilityElement = false
           button.addSubview(number)
@@ -1130,7 +1141,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     let display = chineseOutput(candidate)
     var configuration = UIButton.Configuration.plain()
     configuration.title = "\(number)  \(display)"
-    configuration.baseForegroundColor = .label
+    configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
@@ -1147,6 +1158,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       })
     button.accessibilityLabel = "候选词 \(number)：\(display)"
     button.accessibilityIdentifier = "candidate-\(number)"
+    decorateKey(button)
     return button
   }
 
@@ -1155,7 +1167,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   ) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
-    configuration.baseForegroundColor = .label
+    configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.cornerRadius = 8
     let button = UIButton(configuration: configuration)
@@ -1163,6 +1175,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
       button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
     }
     button.accessibilityLabel = accessibilityLabel
+    decorateKey(button)
     return button
   }
 
@@ -1175,7 +1188,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     var configuration = UIButton.Configuration.plain()
     configuration.title = title
     configuration.titleLineBreakMode = .byClipping
-    configuration.baseForegroundColor = emphasized ? .white : .label
+    configuration.baseForegroundColor = emphasized ? .white : KeyboardSkinPreference.selected.keyForeground
     configuration.background.backgroundColor =
       emphasized
       ? KeyboardSkinPreference.selected.actionBackground
@@ -1184,30 +1197,62 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       attributes in
       var attributes = attributes
-      attributes.font = .preferredFont(forTextStyle: .title3)
+      attributes.font = KeyboardSkinPreference.selected.usesMonospacedFont
+        ? .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .title3).pointSize, weight: .medium)
+        : .preferredFont(forTextStyle: .title3)
       return attributes
     }
     let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
     button.accessibilityLabel = accessibilityLabel
+    decorateKey(button)
     return button
+  }
+
+  private func decorateKey(_ button: UIButton) {
+    let skin = KeyboardSkinPreference.selected
+    guard var configuration = button.configuration else { return }
+    configuration.background.cornerRadius = skin.cornerRadius
+    configuration.background.strokeWidth = skin.borderWidth
+    configuration.background.strokeColor = skin.borderColor
+    button.configuration = configuration
+    button.layer.shadowColor = UIColor.black.cgColor
+    button.layer.shadowOpacity = skin.shadowOpacity
+    button.layer.shadowRadius = skin.shadowRadius
+    button.layer.shadowOffset = CGSize(width: 0, height: skin.shadowOffset)
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    func updateShadows(_ node: UIView) {
+      if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
+        button.layer.shadowPath = UIBezierPath(roundedRect: button.bounds,
+          cornerRadius: KeyboardSkinPreference.selected.cornerRadius).cgPath
+      }
+      node.subviews.forEach { updateShadows($0) }
+    }
+    updateShadows(view)
   }
 
   private func applyKeyboardSkin() {
     let skin = KeyboardSkinPreference.selected
     view.backgroundColor = skin.background
+    skinBackdrop.skin = skin
     func recolor(_ node: UIView) {
       if let button = node as? UIButton, var configuration = button.configuration {
         if let color = configuration.background.backgroundColor, color.cgColor.alpha > 0 {
           configuration.background.backgroundColor = skin.keyBackground
+          configuration.baseForegroundColor = skin.keyForeground
         }
         if configuration.background.strokeWidth > 0 {
           configuration.background.strokeColor = skin.accent.withAlphaComponent(0.3)
         }
         button.configuration = configuration
+        if let color = configuration.background.backgroundColor, color.cgColor.alpha > 0 { decorateKey(button) }
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
         node.backgroundColor = skin.keyBackground.withAlphaComponent(0.6)
       }
+      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
       node.subviews.forEach { recolor($0) }
     }
     recolor(view)

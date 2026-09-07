@@ -27,9 +27,11 @@ struct SkinSettingsView: View {
             skin = option.rawValue
           } label: {
             HStack(spacing: 14) {
-              RoundedRectangle(cornerRadius: 8).fill(Color(uiColor: option.accent))
-                .frame(width: 38, height: 38)
-              Text(option.title).foregroundStyle(.primary)
+              SkinDesignThumbnail(skin: option)
+              VStack(alignment: .leading, spacing: 5) {
+                Text(option.title).font(.headline).foregroundStyle(.primary)
+                Text(option.designDescription).font(.caption).foregroundStyle(.secondary)
+              }
               Spacer()
               if skin == option.rawValue { Image(systemName: "checkmark") }
             }.contentShape(Rectangle())
@@ -38,8 +40,10 @@ struct SkinSettingsView: View {
           .accessibilityIdentifier("skin_\(option.rawValue)")
           .accessibilityValue(skin == option.rawValue ? "已选择" : "未选择")
         }
+      } header: {
+        Text("精选皮肤 · \(KeyboardSkin.allCases.count) 款")
       } footer: {
-        Text("下次打开水杉键盘时应用。深色外观随系统切换。")
+        Text("选择后预览立即更新，下次打开水杉键盘时应用。霓虹夜航与工程蓝图保留深色设计，其余随系统外观切换。")
       }
 
     }

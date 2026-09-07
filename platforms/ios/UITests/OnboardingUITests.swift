@@ -60,6 +60,31 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testDesignedSkinsShowDistinctPreviews() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    for skin in ["typewriter", "candy", "midnight", "blueprint"] {
+      let button = app.buttons["skin_" + skin]
+      for _ in 0..<8 {
+        if button.isHittable { break }
+        app.swipeUp()
+      }
+      button.tap()
+      XCTAssertEqual(button.value as? String, "已选择")
+      for _ in 0..<8 {
+        if app.segmentedControls["skinPreviewLayout"].isHittable { break }
+        app.swipeDown()
+      }
+      let image = XCTAttachment(screenshot: app.screenshot())
+      image.name = "设计皮肤-" + skin
+      image.lifetime = .keepAlways
+      add(image)
+    }
+  }
+
+  @MainActor
   func testProviderCatalogShowsIcons() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

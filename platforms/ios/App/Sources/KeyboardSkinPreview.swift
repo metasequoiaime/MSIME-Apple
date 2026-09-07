@@ -49,14 +49,15 @@ struct KeyboardSkinPreview: View {
         if nineKey { key("符").frame(width: 38) }
         key("123").frame(width: 38)
         Image(systemName: "globe").frame(width: 34, height: 40)
-          .background(color(skin.keyBackground), in: RoundedRectangle(cornerRadius: 7))
+          .background(keySurface())
         if !nineKey { key("⌫").frame(width: 38) }
         key("空格")
         key("换行", emphasized: true).frame(width: 52)
       }.frame(height: 40)
     }
     .foregroundStyle(color(skin.keyForeground))
-    .padding(7).background(color(skin.background), in: RoundedRectangle(cornerRadius: 12))
+    .padding(7).background(KeyboardSkinBackdrop(skin: skin))
+    .clipShape(RoundedRectangle(cornerRadius: 12))
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
     .accessibilityIdentifier("fullKeyboardSkinPreview")
@@ -69,10 +70,40 @@ struct KeyboardSkinPreview: View {
   }
 
   private func key(_ title: String, emphasized: Bool = false) -> some View {
-    Text(title).font(.system(size: nineKey ? 13 : 15, weight: .medium))
+    Text(title).font(.system(size: nineKey ? 13 : 15, weight: .medium, design: skin.usesMonospacedFont ? .monospaced : .default))
       .lineLimit(1).minimumScaleFactor(0.7)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .foregroundStyle(color(emphasized ? skin.actionForeground : skin.keyForeground))
-      .background(color(emphasized ? skin.actionBackground : skin.keyBackground), in: RoundedRectangle(cornerRadius: 7))
+      .background(keySurface(emphasized: emphasized))
+  }
+  private func keySurface(emphasized: Bool = false) -> some View {
+    RoundedRectangle(cornerRadius: skin.cornerRadius)
+      .fill(color(emphasized ? skin.actionBackground : skin.keyBackground))
+      .overlay(RoundedRectangle(cornerRadius: skin.cornerRadius).stroke(color(skin.borderColor), lineWidth: skin.borderWidth))
+      .shadow(color: .black.opacity(Double(skin.shadowOpacity)), radius: skin.shadowRadius, y: skin.shadowOffset)
+  }
+}
+
+struct SkinDesignThumbnail: View {
+  let skin: KeyboardSkin
+  var body: some View {
+    HStack(spacing: 4) {
+      ForEach(["A", "S", "↵"], id: \.self) { title in
+        Text(title).font(.system(size: 15, weight: .medium, design: skin.usesMonospacedFont ? .monospaced : .default))
+          .foregroundStyle(Color(uiColor: title == "↵" ? skin.actionForeground : skin.keyForeground))
+          .frame(width: 23, height: 32)
+          .background {
+            RoundedRectangle(cornerRadius: skin.cornerRadius * 0.6)
+              .fill(Color(uiColor: title == "↵" ? skin.actionBackground : skin.keyBackground))
+              .overlay(RoundedRectangle(cornerRadius: skin.cornerRadius * 0.6)
+                .stroke(Color(uiColor: skin.borderColor), lineWidth: skin.borderWidth))
+              .shadow(color: .black.opacity(Double(skin.shadowOpacity)), radius: skin.shadowRadius, y: skin.shadowOffset)
+          }
+      }
+    }
+    .padding(7).frame(width: 94, height: 56)
+    .background(KeyboardSkinBackdrop(skin: skin))
+    .clipShape(RoundedRectangle(cornerRadius: 9))
+    .accessibilityHidden(true)
   }
 }
