@@ -59,6 +59,44 @@ mkdir -p "$build_root" "$export_path"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
 
+# Older release tags can carry a stale host profile specifier even when the workflow supplies a
+# current profile. Rewrite only the generated project, leaving the historical source tag intact,
+# so a retry of an old release uses the profile that was actually injected by CI.
+profile_name() {
+    security cms -D -i "$1" | plutil -extract Name raw -o - -
+}
+configured_profile_name() {
+    local bundle_identifier=$1
+    awk -v bundle_identifier="$bundle_identifier" '
+        $0 ~ "PRODUCT_BUNDLE_IDENTIFIER: " bundle_identifier "$" { in_target = 1; next }
+        in_target && /PROVISIONING_PROFILE_SPECIFIER:/ {
+            sub(/^[^:]+: /, "")
+            print
+            exit
+        }
+        in_target && /^    dependencies:/ { exit }
+    ' "$spec"
+}
+host_profile_name=$(profile_name "$METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH")
+keyboard_profile_name=$(profile_name "$METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH")
+configured_host_profile_name=$(configured_profile_name app.msime.ios)
+configured_keyboard_profile_name=$(configured_profile_name app.msime.ios.keyboard)
+generated_project="$build_root/MetasequoiaImeIOS.xcodeproj/project.pbxproj"
+replace_profile_name() {
+    local configured_name=$1
+    local actual_name=$2
+    if [[ -z "$configured_name" || -z "$actual_name" ]]; then
+        printf '%s\n' 'Could not determine an iOS provisioning profile name.' >&2
+        exit 1
+    fi
+    if [[ "$configured_name" != "$actual_name" ]]; then
+        OLD_PROFILE_NAME="$configured_name" NEW_PROFILE_NAME="$actual_name" \
+            perl -0pi -e 's/\Q$ENV{OLD_PROFILE_NAME}\E/$ENV{NEW_PROFILE_NAME}/g' "$generated_project"
+    fi
+}
+replace_profile_name "$configured_host_profile_name" "$host_profile_name"
+replace_profile_name "$configured_keyboard_profile_name" "$keyboard_profile_name"
+
 # Install the exact distribution profiles selected by the Release configuration. Xcode's cloud
 # signing fallback can select a development profile for an automatic archive, which then cannot be
 # exported to TestFlight. The profiles are injected by the workflow and never committed.
