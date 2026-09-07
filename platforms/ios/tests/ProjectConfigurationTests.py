@@ -1,3 +1,4 @@
+import os
 import plistlib
 import subprocess
 import tempfile
@@ -9,6 +10,48 @@ IOS_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProjectConfigurationTests(unittest.TestCase):
+    def test_testflight_upload_passes_xcode16_credentials_and_cleans_up_key(self):
+        script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
+        upload = script[script.index('private_keys_dir="$build_root/private_keys"'):]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            key = root / "custom key.p8"
+            key.write_text("test private key")
+            mock = root / "xcrun"
+            mock.write_text('''#!/usr/bin/env python3
+import os
+import pathlib
+import stat
+import sys
+assert sys.argv[1:] == ["altool", "--upload-app", "--file", "signed app.ipa", "--type", "ios", "--apiKey", "TESTKEY", "--apiIssuer", "TESTISSUER"]
+key = pathlib.Path(os.environ["API_PRIVATE_KEYS_DIR"]) / "AuthKey_TESTKEY.p8"
+assert key.read_text() == "test private key"
+assert stat.S_IMODE(key.stat().st_mode) == 0o600
+sys.exit(int(os.environ["UPLOAD_STATUS"]))
+''')
+            mock.chmod(0o755)
+            for status in (0, 17):
+                with self.subTest(status=status):
+                    result = subprocess.run(
+                        ["bash", "-eu", "-c", upload],
+                        env={
+                            **os.environ,
+                            "PATH": f"{root}:{os.environ['PATH']}",
+                            "build_root": str(root / "build"),
+                            "METASEQUOIA_IOS_AUTH_KEY_PATH": str(key),
+                            "METASEQUOIA_IOS_AUTH_KEY_ID": "TESTKEY",
+                            "METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID": "TESTISSUER",
+                            "ipa": "signed app.ipa",
+                            "tag_name": "v0.48.4",
+                            "UPLOAD_STATUS": str(status),
+                        },
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertFalse((root / "build/private_keys").exists())
+                    self.assertTrue(key.exists())
+
     def test_host_and_keyboard_bundle_the_required_reason_privacy_manifest(self):
         project = (IOS_ROOT / "project.yml").read_text()
         manifest_path = IOS_ROOT / "SharedResources/PrivacyInfo.xcprivacy"

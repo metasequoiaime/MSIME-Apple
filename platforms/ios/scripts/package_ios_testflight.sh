@@ -166,12 +166,17 @@ if [[ -n "${METASEQUOIA_IOS_RELEASE_DIR:-}" ]]; then
     )
 fi
 
-xcrun altool \
+# Xcode 16 altool uses camel-case API options and discovers AuthKey_<ID>.p8 by directory.
+private_keys_dir="$build_root/private_keys"
+mkdir -p "$private_keys_dir"
+chmod 700 "$private_keys_dir"
+install -m 600 "$METASEQUOIA_IOS_AUTH_KEY_PATH" "$private_keys_dir/AuthKey_$METASEQUOIA_IOS_AUTH_KEY_ID.p8"
+trap 'rm -rf -- "$private_keys_dir"' EXIT
+API_PRIVATE_KEYS_DIR="$private_keys_dir" xcrun altool \
     --upload-app \
     --file "$ipa" \
     --type ios \
-    --api-key "$METASEQUOIA_IOS_AUTH_KEY_ID" \
-    --api-issuer "$METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID" \
-    --p8-file-path "$METASEQUOIA_IOS_AUTH_KEY_PATH"
+    --apiKey "$METASEQUOIA_IOS_AUTH_KEY_ID" \
+    --apiIssuer "$METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID"
 
 printf 'Uploaded %s to TestFlight.\n' "$tag_name"
