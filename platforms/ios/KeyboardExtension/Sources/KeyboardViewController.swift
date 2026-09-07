@@ -61,7 +61,9 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
   private static let candidatePageSize = 9
 
-  var enableInputClicksWhenVisible: Bool { true }
+  var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }
+
+  private let keyFeedback = UIImpactFeedbackGenerator(style: .light)
 
   private let letterRows = [
     Array("qwertyuiop"),
@@ -86,6 +88,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     // scheme button gathered there have not reached any key yet.
     updateLetterCaseControls()
     updateCandidateStrip(preedit: "", candidates: [])
+    applyKeyboardSkin()
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -96,6 +99,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     pendingOwnEdits = 0
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
+    applyKeyboardSkin()
   }
 
   override func textWillChange(_ textInput: UITextInput?) {
@@ -736,7 +740,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     var configuration = UIButton.Configuration.filled()
     configuration.title = isChineseMode ? "中" : "英"
     configuration.baseForegroundColor = .white
-    configuration.baseBackgroundColor = MetasequoiaTheme.forestUIColor
+    configuration.baseBackgroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 5, bottom: 3, trailing: 5)
     configuration.background.cornerRadius = 8
@@ -1186,7 +1190,27 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     return button
   }
 
+  private func applyKeyboardSkin() {
+    let skin = KeyboardSkinPreference.selected
+    let dark = traitCollection.userInterfaceStyle == .dark
+    view.backgroundColor = dark ? MetasequoiaTheme.keyboardBackground : skin.background
+    if var configuration = enterButton?.configuration {
+      configuration.background.backgroundColor = skin.accent
+      enterButton?.configuration = configuration
+    }
+    if var configuration = languageModeButton.configuration {
+      configuration.baseBackgroundColor = skin.accent
+      languageModeButton.configuration = configuration
+    }
+    view.tintColor = skin.accent
+  }
+
   private func playInputClick() {
-    UIDevice.current.playInputClick()
+    if KeyboardFeedbackPreference.soundEnabled {
+      UIDevice.current.playInputClick()
+    }
+    if KeyboardFeedbackPreference.hapticsEnabled {
+      keyFeedback.impactOccurred(intensity: 0.45)
+    }
   }
 }

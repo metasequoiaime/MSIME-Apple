@@ -172,7 +172,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn('Text("简体").tag(false)', onboarding)
         self.assertIn('Text("繁体").tag(true)', onboarding)
         self.assertIn('.accessibilityIdentifier("chineseOutputPicker")', onboarding)
-        self.assertIn("ChineseOutputPreference.usesTraditional = newValue", onboarding)
+        self.assertIn("ChineseOutputPreference.usesTraditional = value", onboarding)
 
         self.assertIn("usesTraditionalOutput = ChineseOutputPreference.usesTraditional", controller)
         self.assertIn("synchronizeChineseOutputPreference()", controller)
@@ -209,7 +209,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn("UIInputViewAudioFeedback", controller)
-        self.assertIn("var enableInputClicksWhenVisible: Bool { true }", controller)
+        self.assertIn("var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }", controller)
         self.assertIn("UIDevice.current.playInputClick()", controller)
         self.assertIn("private func playInputClick()", controller)
         self.assertGreaterEqual(controller.count("playInputClick()"), 9)
@@ -433,16 +433,6 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         disappear = controller.split("override func viewWillDisappear", 1)[1].split("\n  }", 1)[0]
         self.assertIn("diagnosticDismissTimer?.invalidate()", disappear)
 
-    def test_setting_row_icons_stay_out_of_the_accessibility_tree(self):
-        # Both icons sit next to a title and a subtitle that already carry the row's meaning. Left
-        # visible, VoiceOver reads the symbol's system name where it has one and its raw identifier
-        # where it does not, which is how "character.book.closed" ended up being announced.
-        onboarding = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()
-
-        for symbol in ("character.cursor.ibeam", "character.book.closed"):
-            row = onboarding.split(f'Image(systemName: "{symbol}")', 1)[1].split("\n\n", 1)[0]
-            self.assertIn(".accessibilityHidden(true)", row, f"{symbol} is still announced")
-
     def test_onboarding_exposes_a_regular_text_field_for_keyboard_tryout(self):
         onboarding = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()
 
@@ -462,11 +452,8 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             "@State private var inputScheme = InputSchemePreference.scheme",
             onboarding,
         )
-        self.assertIn('Picker("输入方案", selection: $inputScheme)', onboarding)
         self.assertIn("ChineseInputScheme.allCases", onboarding)
-        self.assertIn("Text(scheme.title).tag(scheme)", onboarding)
-        self.assertIn('.accessibilityIdentifier("inputSchemePicker")', onboarding)
-        self.assertIn("InputSchemePreference.scheme = newValue", onboarding)
+        self.assertIn("InputSchemePreference.scheme = scheme", onboarding)
         self.assertIn("private var hasComposition = false", controller)
         self.assertIn("override func viewWillAppear", controller)
         self.assertIn("synchronizeInputSchemePreference()", controller)
@@ -614,7 +601,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         ui_tests = (IOS_ROOT / "UITests/OnboardingUITests.swift").read_text()
 
         self.assertIn(
-            "@MainActor\n  func testOnboardingExposesEnablementPathAndTryoutField()",
+            "@MainActor\n  func testSettingsPersistAndExposeGuideAndTryout()",
             ui_tests,
         )
 

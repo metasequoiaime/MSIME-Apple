@@ -90,6 +90,10 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/App/Sources
+      - path: platforms/ios/App/Services
+      - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
+      - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
+        buildPhase: resources
       - path: platforms/ios/App/Resources/Assets.xcassets
       - path: platforms/ios/SharedUI
       - path: platforms/ios/SharedResources/PrivacyInfo.xcprivacy
@@ -109,10 +113,20 @@ targets:
         INFOPLIST_FILE: $(PROJECT_DIR)/../../platforms/ios/App/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/App/Resources/MetasequoiaImeIOS.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
+        BREW_PREFIX: /opt/homebrew
+        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/App/Services/AppServicesBridge.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
+          - $(BREW_PREFIX)/include
         PRODUCT_NAME: MetasequoiaIME
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
       configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) DEBUG
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -178,6 +192,27 @@ targets:
       - target: MetasequoiaAppleBridge
       - sdk: libsqlite3.tbd
 
+  MetasequoiaServiceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: platforms/ios/ServiceTests
+      - path: platforms/ios/App/Services/CustomService.swift
+      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.servicetests
+        BREW_PREFIX: /opt/homebrew
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/App/Services/AppServicesBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
+          - $(BREW_PREFIX)/include
+
   MetasequoiaImeIOSUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -202,3 +237,4 @@ schemes:
       targets:
         - MetasequoiaImeIOSUITests
         - MetasequoiaKeyboardTests
+        - MetasequoiaServiceTests

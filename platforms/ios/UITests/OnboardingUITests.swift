@@ -6,26 +6,87 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testOnboardingExposesEnablementPathAndTryoutField() {
+  func testSettingsPersistAndExposeGuideAndTryout() {
     let app = XCUIApplication()
+    app.launchArguments = ["--reset-onboarding-for-ui-tests"]
     app.launch()
+    let finish = app.buttons["finishOnboardingButton"]
+    XCTAssertTrue(finish.waitForExistence(timeout: 10))
+    if !finish.isHittable { app.swipeUp() }
+    finish.tap()
+    app.launchArguments = ["-service.ai.endpoint", "", "-service.ai.model", ""]
 
     XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
 
-    let schemePicker = app.segmentedControls["inputSchemePicker"]
-    XCTAssertTrue(schemePicker.exists)
-    XCTAssertTrue(schemePicker.buttons["全拼 26 键"].exists)
-    XCTAssertTrue(schemePicker.buttons["小鹤双拼"].exists)
-    XCTAssertTrue(schemePicker.buttons["全拼 9 键"].exists)
-    schemePicker.buttons["全拼 9 键"].tap()
-    XCTAssertTrue(schemePicker.buttons["全拼 9 键"].isSelected)
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
+    XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
+    let nineKey = app.buttons["inputScheme_nineKey"]
+    XCTAssertTrue(nineKey.exists)
+    nineKey.tap()
+    XCTAssertEqual(nineKey.value as? String, "已选择")
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 
     let outputPicker = app.segmentedControls["chineseOutputPicker"]
     XCTAssertTrue(outputPicker.exists)
     XCTAssertTrue(outputPicker.buttons["简体"].exists)
     XCTAssertTrue(outputPicker.buttons["繁体"].exists)
 
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    for (identifier, title) in [
+      ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
+      ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
+    ] {
+      let link = app.buttons[identifier]
+      for _ in 0..<5 {
+        if link.isHittable { break }
+        app.swipeUp()
+      }
+      link.tap()
+      XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+      if identifier == "skinSettingsLink" {
+        app.buttons["skin_ocean"].tap()
+        XCTAssertEqual(app.buttons["skin_ocean"].value as? String, "已选择")
+      }
+      if identifier == "aiSettingsLink" || identifier == "voiceSettingsLink" {
+        XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
+        XCTAssertTrue(app.secureTextFields["serviceToken"].exists)
+        if identifier == "aiSettingsLink" {
+          let endpoint = app.textFields["serviceEndpoint"]
+          endpoint.tap()
+          endpoint.typeText("https://msime-ui-tests.invalid/v1/chat/completions")
+          app.textFields["serviceModel"].tap()
+          app.textFields["serviceModel"].typeText("fixture")
+          app.secureTextFields["serviceToken"].tap()
+          app.secureTextFields["serviceToken"].typeText("msime-ui-fixture")
+          app.buttons["serviceDismissKeyboard"].tap()
+          app.buttons["saveServiceConfiguration"].tap()
+          XCTAssertTrue(app.staticTexts["配置已保存"].waitForExistence(timeout: 5))
+          app.buttons["删除此服务的密钥"].tap()
+          XCTAssertTrue(app.staticTexts["已删除此服务的密钥"].waitForExistence(timeout: 5))
+        }
+      }
+      let attachment = XCTAttachment(screenshot: app.screenshot())
+      attachment.name = title
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+    let tryoutLink = app.buttons["keyboardTryoutLink"]
+    for _ in 0..<5 {
+      if tryoutLink.isHittable { break }
+      app.swipeUp()
+    }
+    let overview = XCTAttachment(screenshot: app.screenshot())
+    overview.name = "设置分类"
+    overview.lifetime = .keepAlways
+    add(overview)
+    tryoutLink.tap()
     let tryoutField = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(tryoutField.waitForExistence(timeout: 10))
     // The first tap can be lost while XCTest is establishing the automation session on a fresh
@@ -53,5 +114,9 @@ final class OnboardingUITests: XCTestCase {
       for: NSPredicate(format: "hasKeyboardFocus == false"), evaluatedWith: tryoutField)
     wait(for: [unfocused], timeout: 10)
     XCTAssertEqual(tryoutField.value as? String, "test")
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["keyboardGuideLink"].tap()
+    XCTAssertTrue(app.navigationBars["启用指南"].exists)
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
   }
 }
