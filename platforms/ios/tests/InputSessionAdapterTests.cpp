@@ -279,6 +279,50 @@ int RunTest()
             Require(word != "水林", "Removal did not persist.");
     }
 
+    {
+        sqlite3 *database = nullptr;
+        Require(sqlite3_open((dataDirectory / "msime.db").c_str(), &database) == SQLITE_OK,
+                "Cannot open learning fixture.");
+        Require(sqlite3_exec(database,
+                             "CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                             "INSERT INTO tbl_2_b VALUES('bu''hao','bh','不好',200);"
+                             "INSERT INTO tbl_2_b VALUES('bu''hao','bh','补好',100);",
+                             nullptr, nullptr, nullptr) == SQLITE_OK,
+                "Cannot populate learning fixture.");
+        sqlite3_close(database);
+        auto type = [](metasequoia::apple::InputSessionAdapter &adapter) {
+            metasequoia::apple::InputSnapshot snapshot;
+            for (char c : std::string("buhao"))
+                snapshot = adapter.handle_character(c);
+            return snapshot;
+        };
+        metasequoia::apple::InputSessionAdapter adapter;
+        auto initial = type(adapter);
+        Require(initial.candidates.size() >= 2 && initial.candidates[0] == "不好", "Unexpected learning baseline.");
+        Require(!adapter.set_learning_enabled(true) && !adapter.learning_enabled(),
+                "Learning changed during a composition.");
+        Require(adapter.select_candidate(1).commit == "补好", "Selecting with learning disabled failed.");
+        auto unchanged = type(adapter);
+        Require(unchanged.candidates[0] == "不好", "Disabled learning changed candidate order.");
+        adapter.cancel();
+        Require(adapter.set_learning_enabled(true) && adapter.learning_enabled(), "Idle learning change failed.");
+        type(adapter);
+        Require(!adapter.set_learning_enabled(false) && adapter.learning_enabled(),
+                "Disabling interrupted composition.");
+        Require(adapter.select_candidate(1).commit == "补好", "Learning selection failed.");
+        Require(adapter.set_learning_enabled(false), "Learning could not be disabled when idle.");
+        metasequoia::apple::InputSessionAdapter reopened;
+        Require(type(reopened).candidates[0] == "补好", "Learning did not persist across sessions.");
+        adapter.switch_to_shuangpin_profile("ziranma");
+        Require(adapter.set_learning_enabled(true) && adapter.shuangpin_profile_name() == "ziranma" &&
+                    adapter.uses_shuangpin(),
+                "Changing learning lost the double-pinyin profile.");
+        adapter.switch_to_nine_key();
+        Require(adapter.learning_enabled() && adapter.set_learning_enabled(false),
+                "Nine-key lost the learning setting.");
+        Require(adapter.handle_character('7').handled, "Changing learning lost nine-key routing.");
+    }
+
     user_dictionary::close_default_user_database();
     std::filesystem::remove_all(dataDirectory);
     return 0;

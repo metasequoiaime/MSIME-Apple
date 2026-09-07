@@ -9,12 +9,12 @@ namespace metasequoia::apple
 class InputSessionAdapter::Impl
 {
   public:
-    explicit Impl(SchemeType scheme = SchemeType::Quanpin, std::string profile = "xiaohe")
-        : session{MakeOptions(scheme, profile)}, profile_name{std::move(profile)}
+    explicit Impl(SchemeType scheme = SchemeType::Quanpin, std::string profile = "xiaohe", bool learning = false)
+        : session{MakeOptions(scheme, profile, learning)}, profile_name{std::move(profile)}
     {
     }
 
-    static SessionOptions MakeOptions(SchemeType scheme, const std::string &profile)
+    static SessionOptions MakeOptions(SchemeType scheme, const std::string &profile, bool learning)
     {
         SessionOptions session_options;
         // The iOS installer still supplies the existing writable dictionary layout. Capture it
@@ -23,7 +23,9 @@ class InputSessionAdapter::Impl
         session_options.paths = RuntimePaths::legacy();
         session_options.scheme = scheme;
         session_options.shuangpin_profile = GetShuangpinProfile(profile);
-        session_options.learning = false;
+        session_options.learning = learning;
+        session_options.frequency.mode =
+            learning ? FrequencyAdjustmentMode::Promote : FrequencyAdjustmentMode::Disabled;
         // The iOS product ships the locked main, English and expressive databases.
         LocalModeOptions options;
         options.unicode = true;
@@ -143,6 +145,26 @@ InputSnapshot InputSessionAdapter::select_candidate(std::size_t index)
     return MakeSnapshot(impl_->session, impl_->session.select(index));
 }
 
+bool InputSessionAdapter::set_learning_enabled(bool enabled)
+{
+    if (enabled == learning_enabled_)
+        return true;
+    const auto current = impl_->session.snapshot();
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
+    const bool nine_key = impl_->nine_key;
+    impl_ = std::make_unique<Impl>(current.scheme, impl_->profile_name, enabled);
+    impl_->nine_key = nine_key;
+    impl_->session.set_nine_key_enabled(nine_key);
+    learning_enabled_ = enabled;
+    return true;
+}
+
+bool InputSessionAdapter::learning_enabled() const
+{
+    return learning_enabled_;
+}
+
 InputSnapshot InputSessionAdapter::edit_candidate(std::size_t index, const std::string &expected_word,
                                                   CandidateAction action)
 {
@@ -178,7 +200,7 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
     const auto result = impl_->session.finish();
     auto snapshot = MakeSnapshot(impl_->session, result);
     const auto scheme = uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin;
-    impl_ = std::make_unique<Impl>(scheme);
+    impl_ = std::make_unique<Impl>(scheme, "xiaohe", learning_enabled_);
     return snapshot;
 }
 
@@ -189,7 +211,7 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin_profile(const std::string
     if (uses_shuangpin() && !impl_->nine_key && impl_->profile_name == name)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>(SchemeType::Shuangpin, name);
+    impl_ = std::make_unique<Impl>(SchemeType::Shuangpin, name, learning_enabled_);
     return snapshot;
 }
 std::string InputSessionAdapter::shuangpin_profile_name() const
@@ -202,7 +224,7 @@ InputSnapshot InputSessionAdapter::switch_to_wubi()
     if (impl_->session.snapshot().scheme == SchemeType::Wubi && !impl_->nine_key)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>(SchemeType::Wubi);
+    impl_ = std::make_unique<Impl>(SchemeType::Wubi, "xiaohe", learning_enabled_);
     return snapshot;
 }
 
@@ -211,7 +233,7 @@ InputSnapshot InputSessionAdapter::switch_to_japanese()
     if (impl_->session.snapshot().scheme == SchemeType::JapaneseRomaji && !impl_->nine_key)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>(SchemeType::JapaneseRomaji);
+    impl_ = std::make_unique<Impl>(SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_);
     return snapshot;
 }
 
@@ -220,7 +242,7 @@ InputSnapshot InputSessionAdapter::switch_to_nine_key()
     if (impl_->nine_key)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>();
+    impl_ = std::make_unique<Impl>(SchemeType::Quanpin, "xiaohe", learning_enabled_);
     impl_->session.set_nine_key_enabled(true);
     impl_->nine_key = true;
     return snapshot;

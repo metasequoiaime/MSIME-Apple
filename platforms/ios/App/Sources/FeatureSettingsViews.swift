@@ -53,6 +53,8 @@ struct SkinSettingsView: View {
 }
 
 struct DictionarySettingsView: View {
+  @AppStorage(DictionaryLearningPreference.key, store: KeyboardFeedbackPreference.defaults)
+  private var learningEnabled = false
   private var manifest: [String: Any] {
     guard let url = Bundle.main.url(forResource: "dictionary-manifest", withExtension: "json"),
           let data = try? Data(contentsOf: url),
@@ -61,6 +63,14 @@ struct DictionarySettingsView: View {
   }
   var body: some View {
     Form {
+      Section {
+        Toggle("学习常用词", isOn: $learningEnabled)
+          .accessibilityIdentifier("dictionaryLearningToggle")
+      } header: {
+        Text("输入习惯")
+      } footer: {
+        Text("开启后，引擎根据你选择的词调整候选排序，并学习支持的拼音组词。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
+      }
       Section("已安装词库") {
         Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
         Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／Shoudao 双拼、86 五笔和日语罗马字；提供英文补全、快捷短语、表情及颜文字。")

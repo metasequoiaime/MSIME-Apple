@@ -104,6 +104,7 @@ final class KeyboardViewController: UIInputViewController {
     inputScheme = InputSchemePreference.scheme
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
+    _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     view.backgroundColor = MetasequoiaTheme.keyboardBackground
     skinBackdrop.translatesAutoresizingMaskIntoConstraints = false
     view.insertSubview(skinBackdrop, at: 0)
@@ -140,6 +141,7 @@ final class KeyboardViewController: UIInputViewController {
     pendingOwnEdits = 0
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
+    _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     applyKeyboardSkin()
   }
 
@@ -1289,6 +1291,7 @@ final class KeyboardViewController: UIInputViewController {
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
+    if !hasComposition { _ = session.setLearningEnabled(DictionaryLearningPreference.enabled) }
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates)
     updateSpellingStrip()

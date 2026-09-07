@@ -54,6 +54,9 @@ class InputSessionAdapter
     InputSnapshot commit_raw();
     InputSnapshot cancel();
     InputSnapshot select_candidate(std::size_t index);
+    // Returns false during composition; the platform retries after its current snapshot is idle.
+    bool set_learning_enabled(bool enabled);
+    bool learning_enabled() const;
     InputSnapshot edit_candidate(std::size_t index, const std::string &expected_word, CandidateAction action);
     InputSnapshot switch_to_shuangpin(bool uses_shuangpin);
     bool uses_shuangpin() const;
@@ -68,5 +71,6 @@ class InputSessionAdapter
   private:
     class Impl;
     std::unique_ptr<Impl> impl_;
+    bool learning_enabled_ = false;
 };
 } // namespace metasequoia::apple

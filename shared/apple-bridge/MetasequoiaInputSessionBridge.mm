@@ -207,6 +207,11 @@ void ConfigureDataDirectory()
     return [self snapshotFrom:_adapter->select_candidate(static_cast<std::size_t>(index))];
 }
 
+- (BOOL)setLearningEnabled:(BOOL)enabled
+{
+    return _adapter->set_learning_enabled(enabled);
+}
+
 - (MetasequoiaInputSnapshot *)editCandidateAtIndex:(NSUInteger)index
                                       expectedWord:(NSString *)word
                                             action:(MetasequoiaCandidateAction)action
