@@ -1053,6 +1053,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func insertOwnText(_ text: String) {
     pendingOwnEdits += 1
     textDocumentProxy.insertText(text)
+    if hasFullAccess { try? TypingStatisticsStore().record(text) }
   }
 
   private func deleteOwnBackward() {

@@ -268,7 +268,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("ios-testflight.ipa", script)
         self.assertIn("Uploaded %s to TestFlight", script)
 
-    def test_keyboard_is_local_and_declares_the_system_extension_contract(self):
+    def test_keyboard_declares_shared_statistics_access_and_system_extension_contract(self):
         with (IOS_ROOT / "KeyboardExtension/Resources/Info.plist").open("rb") as info_file:
             info = plistlib.load(info_file)
 
@@ -277,7 +277,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertEqual(extension["NSExtensionPointIdentifier"], "com.apple.keyboard-service")
         self.assertEqual(extension["NSExtensionPrincipalClass"], "$(PRODUCT_MODULE_NAME).KeyboardViewController")
         self.assertEqual(attributes["PrimaryLanguage"], "zh-Hans")
-        self.assertFalse(attributes["RequestsOpenAccess"])
+        self.assertTrue(attributes["RequestsOpenAccess"])
 
     def test_keyboard_exposes_required_document_and_next_keyboard_actions(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()

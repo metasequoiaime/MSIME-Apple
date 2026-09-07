@@ -112,6 +112,7 @@ final class OnboardingUITests: XCTestCase {
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     for (identifier, title) in [
+      ("typingStatisticsLink", "打字统计"),
       ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {

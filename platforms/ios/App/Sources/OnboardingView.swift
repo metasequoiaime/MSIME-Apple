@@ -38,6 +38,9 @@ struct SettingsView: View {
         }
 
         Section("使用键盘") {
+          NavigationLink(destination: TypingStatisticsView()) {
+            Label("打字统计", systemImage: "chart.bar.xaxis")
+          }.accessibilityIdentifier("typingStatisticsLink")
           NavigationLink(destination: KeyboardTryoutView()) {
             Label("试用键盘", systemImage: "keyboard")
           }
@@ -226,7 +229,7 @@ struct OnboardingView: View {
             .accessibilityIdentifier("finishOnboardingButton")
         }
 
-        Text("键盘默认离线，不请求“允许完全访问”。AI 和语音服务可在设置中单独配置。")
+        Text("键盘默认离线。打字统计需开启“允许完全访问”以保存本机字数；AI 和语音服务可在设置中单独配置。")
           .font(.footnote)
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .center)
