@@ -273,14 +273,22 @@ jobs:
           IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
           set -euo pipefail
-          if [[ -z "${IOS_API_KEY_BASE64:-}" && -z "${IOS_API_KEY_ID:-}" && -z "${IOS_API_KEY_ISSUER_ID:-}" && -z "${IOS_APP_PROFILE_BASE64:-}" && -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" && -z "${IOS_CERTIFICATE_BASE64:-}" && -z "${IOS_CERTIFICATE_PASSWORD:-}" ]]; then
+          skip_testflight() {
+            local reason=$1
             printf 'enabled=false\n' >> "$GITHUB_OUTPUT"
-            echo 'TestFlight upload skipped: App Store Connect API Key secrets are not configured.' >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo '### TestFlight upload skipped'
+              echo "$reason"
+              echo 'The unsigned iOS artifacts remain available in this release.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          if [[ -z "${IOS_API_KEY_BASE64:-}" && -z "${IOS_API_KEY_ID:-}" && -z "${IOS_API_KEY_ISSUER_ID:-}" && -z "${IOS_APP_PROFILE_BASE64:-}" && -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" && -z "${IOS_CERTIFICATE_BASE64:-}" && -z "${IOS_CERTIFICATE_PASSWORD:-}" ]]; then
+            skip_testflight 'TestFlight upload skipped: App Store Connect and iOS signing secrets are not configured.'
             exit 0
           fi
-          if [[ -z "${IOS_API_KEY_BASE64:-}" || -z "${IOS_API_KEY_ID:-}" || -z "${IOS_API_KEY_ISSUER_ID:-}" || -z "${IOS_APP_PROFILE_BASE64:-}" || -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" || -z "${IOS_CERTIFICATE_BASE64:-}" || -z "${IOS_CERTIFICATE_PASSWORD:-}" || -z "${IOS_KEYCHAIN_PASSWORD:-}" ]]; then
-            echo 'TestFlight upload requires the three App Store Connect API key secrets, both iOS provisioning profile secrets, the iOS distribution certificate and its password.' >&2
-            exit 1
+          if [[ -z "${IOS_API_KEY_BASE64:-}" || -z "${IOS_API_KEY_ID:-}" || -z "${IOS_API_KEY_ISSUER_ID:-}" || -z "${IOS_APP_PROFILE_BASE64:-}" || -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" || -z "${IOS_CERTIFICATE_BASE64:-}" || -z "${IOS_CERTIFICATE_PASSWORD:-}" || -z "${IOS_KEYCHAIN_PASSWORD:-}" || -z "${IOS_TEAM_ID:-}" ]]; then
+            skip_testflight 'TestFlight upload skipped: the App Store Connect or iOS signing secrets are incomplete.'
+            exit 0
           fi
           key_path="$RUNNER_TEMP/AuthKey_${IOS_API_KEY_ID}.p8"
           printf '%s' "$IOS_API_KEY_BASE64" | base64 -D > "$key_path"
@@ -297,21 +305,32 @@ jobs:
           security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
           security set-keychain-settings -lut 21600 "$ios_keychain"
           security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
-          security import "$ios_certificate" -k "$ios_keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          if ! security import "$ios_certificate" -k "$ios_keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign; then
+            skip_testflight 'TestFlight upload skipped: the configured iOS distribution certificate could not be imported.'
+            exit 0
+          fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
           security list-keychains -d user -s "$ios_keychain" "$RUNNER_TEMP/metasequoia-signing.keychain-db"
           security default-keychain -s "$ios_keychain"
           if ! security find-identity -v -p codesigning "$ios_keychain" | grep -Fq 'Apple Distribution:'; then
-            echo 'The configured iOS certificate does not contain an Apple Distribution identity with a private key.' >&2
-            exit 1
+            skip_testflight 'TestFlight upload skipped: the configured iOS certificate does not contain an Apple Distribution identity with a private key.'
+            exit 0
           fi
           if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios"; then
-            echo 'The iOS host provisioning profile does not match app.msime.ios.' >&2
-            exit 1
+            skip_testflight 'TestFlight upload skipped: the iOS host provisioning profile does not match app.msime.ios.'
+            exit 0
           fi
           if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements.com.apple.security.application-groups.0 raw -o - - | grep -Fxq 'group.app.msime.ios'; then
-            echo 'The iOS host provisioning profile must include group.app.msime.ios.' >&2
-            exit 1
+            skip_testflight 'TestFlight upload skipped: the iOS host provisioning profile must include group.app.msime.ios.'
+            exit 0
+          fi
+          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios.keyboard"; then
+            skip_testflight 'TestFlight upload skipped: the keyboard provisioning profile does not match app.msime.ios.keyboard.'
+            exit 0
+          fi
+          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements.com.apple.security.application-groups.0 raw -o - - | grep -Fxq 'group.app.msime.ios'; then
+            skip_testflight 'TestFlight upload skipped: the keyboard provisioning profile must include group.app.msime.ios.'
+            exit 0
           fi
           printf 'enabled=true\nkey_path=%s\napp_profile_path=%s\nkeyboard_profile_path=%s\n' \
             "$key_path" "$app_profile_path" "$keyboard_profile_path" >> "$GITHUB_OUTPUT"

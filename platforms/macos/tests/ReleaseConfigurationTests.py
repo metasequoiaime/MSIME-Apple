@@ -333,6 +333,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertTrue(package["draft"])
         self.assertTrue(package["force-tag-creation"])
         self.assertFalse(package.get("include-component-in-tag", True))
+
         ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
         allowed_actions = {
             "actions/checkout", "googleapis/release-please-action", "actions/setup-go",
@@ -698,6 +699,17 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn(organization_policy, readme)
         self.assertFalse((PROJECT_ROOT / "SECURITY.md").exists())
         self.assertIn("PRIVACY.md", readme)
+
+    def test_testflight_signing_configuration_is_optional_for_unsigned_release_assets(self):
+        workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+
+        self.assertIn("skip_testflight()", workflow)
+        self.assertIn("printf 'enabled=false\\n' >> \"$GITHUB_OUTPUT\"", workflow)
+        self.assertIn("if ! security import", workflow)
+        self.assertIn("the configured iOS distribution certificate could not be imported", workflow)
+        self.assertIn("the iOS host provisioning profile must include group.app.msime.ios", workflow)
+        self.assertIn("the keyboard provisioning profile must include group.app.msime.ios", workflow)
+        self.assertIn("The unsigned iOS artifacts remain available in this release.", workflow)
 
     def test_dependabot_tracks_actions_and_expected_submodule_branches(self):
         dependabot = (PROJECT_ROOT / ".github/dependabot.yml").read_text()
