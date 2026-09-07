@@ -6,6 +6,35 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  private func selectProvider(_ name: String, picker: String, app: XCUIApplication) {
+    for _ in 0..<4 {
+      if app.buttons[picker].isHittable { break }
+      app.swipeDown()
+    }
+    app.buttons[picker].tap()
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 5))
+    search.tap()
+    search.typeText(name)
+    app.buttons[name].tap()
+  }
+
+  @MainActor
+  func testProviderCatalogShowsIcons() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["aiSettingsLink"].tap()
+    app.buttons["aiProviderPicker"].tap()
+    XCTAssertTrue(app.buttons["EveryAPI"].waitForExistence(timeout: 5))
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "AI 服务商图标列表"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    app.buttons["取消"].tap()
+  }
+
+  @MainActor
   func testVoiceProviderSelectionAutofillsAndClearsUnsavedKey() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.voice.provider", "custom",
@@ -18,8 +47,7 @@ final class OnboardingUITests: XCTestCase {
     token.tap()
     token.typeText("voice-switch-fixture")
     app.buttons["serviceDismissKeyboard"].tap()
-    app.buttons["voiceProviderPicker"].tap()
-    app.buttons["硅基流动 · SenseVoice"].tap()
+    selectProvider("硅基流动 · SenseVoice", picker: "voiceProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String,
                    "https://api.siliconflow.cn/v1/audio/transcriptions")
     XCTAssertEqual(app.textFields["serviceModel"].value as? String, "FunAudioLLM/SenseVoiceSmall")
@@ -29,16 +57,13 @@ final class OnboardingUITests: XCTestCase {
     attachment.name = "语音服务商预设"
     attachment.lifetime = .keepAlways
     add(attachment)
-    app.buttons["voiceProviderPicker"].tap()
-    app.buttons["Groq · Whisper"].tap()
+    selectProvider("Groq · Whisper", picker: "voiceProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceModel"].value as? String, "whisper-large-v3-turbo")
-    app.buttons["voiceProviderPicker"].tap()
-    app.buttons["EveryAPI"].tap()
+    selectProvider("EveryAPI", picker: "voiceProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, "https://api.everyapi.ai/v1/audio/transcriptions")
     XCTAssertEqual(app.textFields["serviceModel"].value as? String, "openai/whisper-large-v3-turbo")
     XCTAssertTrue(app.images["everyAPIProviderLogo"].exists)
-    app.buttons["voiceProviderPicker"].tap()
-    app.buttons["自定义"].tap()
+    selectProvider("自定义", picker: "voiceProviderPicker", app: app)
     XCTAssertTrue(app.textFields["serviceEndpoint"].isEnabled)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, app.textFields["serviceEndpoint"].placeholderValue)
   }
@@ -54,8 +79,7 @@ final class OnboardingUITests: XCTestCase {
     token.tap()
     token.typeText("provider-switch-fixture")
     app.buttons["serviceDismissKeyboard"].tap()
-    app.buttons["aiProviderPicker"].tap()
-    app.buttons["DeepSeek"].tap()
+    selectProvider("DeepSeek", picker: "aiProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, "https://api.deepseek.com/chat/completions")
     XCTAssertEqual(app.textFields["serviceModel"].value as? String, "deepseek-v4-flash")
     XCTAssertEqual(token.value as? String, token.placeholderValue)
@@ -63,17 +87,14 @@ final class OnboardingUITests: XCTestCase {
     attachment.name = "AI 服务商预设"
     attachment.lifetime = .keepAlways
     add(attachment)
-    app.buttons["aiProviderPicker"].tap()
-    app.buttons["Google · Gemini"].tap()
+    selectProvider("Google · Gemini", picker: "aiProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String,
                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
-    app.buttons["aiProviderPicker"].tap()
-    app.buttons["EveryAPI"].tap()
+    selectProvider("EveryAPI", picker: "aiProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, "https://api.everyapi.ai/v1/chat/completions")
     XCTAssertEqual(app.textFields["serviceModel"].value as? String, "deepseek-v4-flash")
     XCTAssertTrue(app.images["everyAPIProviderLogo"].exists)
-    app.buttons["aiProviderPicker"].tap()
-    app.buttons["自定义"].tap()
+    selectProvider("自定义", picker: "aiProviderPicker", app: app)
     XCTAssertTrue(app.textFields["serviceEndpoint"].isEnabled)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, app.textFields["serviceEndpoint"].placeholderValue)
   }
@@ -136,6 +157,7 @@ final class OnboardingUITests: XCTestCase {
           endpoint.typeText("https://msime-ui-tests.invalid/v1/chat/completions")
           app.textFields["serviceModel"].tap()
           app.textFields["serviceModel"].typeText("fixture")
+          app.buttons["serviceDismissKeyboard"].tap()
           app.secureTextFields["serviceToken"].tap()
           app.secureTextFields["serviceToken"].typeText("msime-ui-fixture")
           app.buttons["serviceDismissKeyboard"].tap()

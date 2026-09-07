@@ -92,6 +92,7 @@ struct ServiceSettingsView: View {
   @State private var configuration: CustomServiceConfiguration
   @State private var providerDrafts: [AIProviderPreset: CustomServiceConfiguration] = [:]
   @State private var voiceProviderDrafts: [VoiceProviderPreset: CustomServiceConfiguration] = [:]
+  @State private var showsProviders = false
   @State private var token = ""
   @State private var input = ""
   @State private var output = ""
@@ -108,7 +109,7 @@ struct ServiceSettingsView: View {
 
   var body: some View {
     Form {
-      if kind == .ai { providerSection } else { voiceProviderSection }
+      providerSection
       configurationSection
 
       if kind == .ai {
@@ -171,75 +172,56 @@ struct ServiceSettingsView: View {
         }.accessibilityIdentifier("serviceDismissKeyboard")
       }
     }
+    .tint(Color(uiColor: MetasequoiaTheme.forestUIColor))
+    .sheet(isPresented: $showsProviders) {
+      ProviderPickerView(options: providerOptions, selected: selectedProviderID) { id in
+        if kind == .ai, let provider = AIProviderPreset(rawValue: id) { selectProvider(provider) }
+        if kind == .voice, let provider = VoiceProviderPreset(rawValue: id) { selectVoiceProvider(provider) }
+      }
+    }
     .onDisappear { cancelAndClear() }
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
     }
   }
 
-  private var providerSection: some View {
-        Section {
-          Picker("服务商", selection: Binding(get: { configuration.provider }, set: { provider in selectProvider(provider) })) {
-            ForEach(AIProviderPreset.allCases, id: \.self) { provider in
-              Label {
-                Text(provider.title)
-              } icon: {
-                if provider == .everyAPI {
-                  Image("EveryAPI").resizable().scaledToFit().frame(width: 24, height: 24)
-                }
-              }.tag(provider)
-            }
-          }
-          .pickerStyle(.menu)
-          .accessibilityIdentifier("aiProviderPicker")
-          if configuration.provider == .everyAPI { everyAPIIdentity }
-          if let documentation = configuration.provider.documentation {
-            Link("服务商接入说明", destination: documentation)
-          }
-        } header: {
-          Text("AI 服务商")
-        } footer: {
-          Text("选择后自动填入接口和模型，填写对应服务商的 API Key 后即可使用。其他地区或代理地址请选择自定义。")
-        }
-        .disabled(busy)
+  private var selectedProviderID: String {
+    kind == .ai ? configuration.provider.rawValue : configuration.voiceProvider.rawValue
   }
 
-  private var voiceProviderSection: some View {
+  private var providerOptions: [ProviderOption] {
+    if kind == .ai {
+      return AIProviderPreset.allCases.map { ProviderOption(id: $0.rawValue, title: $0.title, endpoint: $0.endpoint) }
+    }
+    return VoiceProviderPreset.allCases.map { ProviderOption(id: $0.rawValue, title: $0.title, endpoint: $0.endpoint) }
+  }
+
+  private var providerSection: some View {
     Section {
-      Picker("服务商", selection: Binding(get: { configuration.voiceProvider }, set: { provider in selectVoiceProvider(provider) })) {
-        ForEach(VoiceProviderPreset.allCases, id: \.self) { provider in
-          Label {
-                Text(provider.title)
-              } icon: {
-                if provider == .everyAPI {
-                  Image("EveryAPI").resizable().scaledToFit().frame(width: 24, height: 24)
-                }
-              }.tag(provider)
+      Button { showsProviders = true } label: {
+        HStack(spacing: 14) {
+          ProviderIcon(id: selectedProviderID, size: 48)
+          VStack(alignment: .leading, spacing: 4) {
+            Text(kind == .ai ? configuration.provider.title : configuration.voiceProvider.title)
+              .font(.headline).foregroundStyle(.primary)
+            Text("切换服务商").font(.subheadline).foregroundStyle(.secondary)
+          }
+          Spacer()
+          Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }.contentShape(Rectangle()).padding(.vertical, 6)
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier(kind == .ai ? "aiProviderPicker" : "voiceProviderPicker")
+      if let documentation = kind == .ai ? configuration.provider.documentation : configuration.voiceProvider.documentation {
+        Link(destination: documentation) {
+          Label("接入说明与 API Key", systemImage: "arrow.up.right.square")
+            .font(.subheadline)
         }
       }
-      .pickerStyle(.menu)
-      .accessibilityIdentifier("voiceProviderPicker")
-      if configuration.voiceProvider == .everyAPI { everyAPIIdentity }
-      if let documentation = configuration.voiceProvider.documentation {
-        Link("服务商接入说明", destination: documentation)
-      }
-    } header: {
-      Text("语音服务商")
     } footer: {
-      Text("选择后自动填入识别接口和模型，填写对应 API Key。自定义支持兼容 OpenAI 的音频转写接口。")
+      Text("选择服务商后自动填入接口和模型，填写对应 API Key 即可使用。")
     }
     .disabled(busy || recorder.isRecording || recorder.isPreparing)
-  }
-
-  private var everyAPIIdentity: some View {
-    HStack(spacing: 12) {
-      Image("EveryAPI").resizable().scaledToFit().frame(width: 36, height: 36)
-        .accessibilityIdentifier("everyAPIProviderLogo")
-      VStack(alignment: .leading, spacing: 2) {
-        Text("EveryAPI").font(.headline)
-        Text("api.everyapi.ai/v1").font(.caption).foregroundStyle(.secondary)
-      }
-    }
   }
 
   private var presetModels: [String] {
@@ -248,13 +230,19 @@ struct ServiceSettingsView: View {
 
   private var configurationSection: some View {
       Section {
-        TextField(kind.example, text: $configuration.endpoint)
+        VStack(alignment: .leading, spacing: 8) {
+          Text("接口地址").font(.caption).foregroundStyle(.secondary)
+          TextField(kind.example, text: $configuration.endpoint)
           .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
           .disabled(kind == .ai ? configuration.provider != .custom : configuration.voiceProvider != .custom)
-        TextField("模型名称", text: $configuration.model)
+        }.padding(.vertical, 4)
+        VStack(alignment: .leading, spacing: 8) {
+          Text("模型").font(.caption).foregroundStyle(.secondary)
+          TextField("模型名称", text: $configuration.model)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("serviceModel")
+        }.padding(.vertical, 4)
         if !presetModels.isEmpty {
           Menu("选择常用模型") {
             ForEach(presetModels, id: \.self) { model in
@@ -262,14 +250,21 @@ struct ServiceSettingsView: View {
             }
           }
         }
-        SecureField("API Key（留空保留已保存密钥）", text: $token)
+        VStack(alignment: .leading, spacing: 8) {
+          Label("API Key", systemImage: "key.horizontal").font(.caption).foregroundStyle(.secondary)
+          SecureField("留空保留已保存密钥", text: $token)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("serviceToken")
+        }.padding(.vertical, 4)
         if kind == .ai {
           TextField("润色要求", text: $configuration.prompt)
             .accessibilityIdentifier("servicePrompt")
         }
-        Button("保存配置") { save() }
+        Button { save() } label: {
+          Label("保存配置", systemImage: "checkmark.circle.fill").frame(maxWidth: .infinity)
+        }
+          .buttonStyle(.borderedProminent)
+          .tint(Color(uiColor: MetasequoiaTheme.forestUIColor))
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {
           do {
@@ -280,7 +275,7 @@ struct ServiceSettingsView: View {
           } catch { status = error.localizedDescription }
         }
       } header: {
-        Text(kind == .ai ? configuration.provider.title : configuration.voiceProvider.title)
+        Text("连接配置")
       } footer: {
         Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
       }
