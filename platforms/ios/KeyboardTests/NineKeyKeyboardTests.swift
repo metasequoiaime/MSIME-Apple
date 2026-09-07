@@ -4,16 +4,35 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testCursorDragCannotResumeAfterDocumentChangeOrCancellation() {
+    var movement = SpaceCursorMovement()
+    let first = UUID(), second = UUID()
+    movement.begin(at: 0, document: first)
+    XCTAssertEqual(movement.advance(to: 24, document: first), 2)
+    XCTAssertEqual(movement.advance(to: 48, document: second), 0)
+    XCTAssertFalse(movement.isActive)
+    XCTAssertEqual(movement.advance(to: 60, document: first), 0)
+    movement.begin(at: 0, document: second)
+    movement.cancel()
+    XCTAssertEqual(movement.advance(to: 24, document: second), 0)
+    movement.begin(at: 0, document: second)
+    XCTAssertEqual(movement.advance(to: .greatestFiniteMagnitude, document: second), 0)
+    XCTAssertFalse(movement.isActive)
+    movement.begin(at: .nan, document: first)
+    XCTAssertFalse(movement.isActive)
+  }
+
   func testSpaceCursorMovementAccumulatesDistanceAndReverses() throws {
     var movement = SpaceCursorMovement()
-    movement.begin(at: 10)
-    XCTAssertEqual(movement.advance(to: 15), 0)
-    XCTAssertEqual(movement.advance(to: 34), 2)
-    XCTAssertEqual(movement.advance(to: 30), 0)
-    XCTAssertEqual(movement.advance(to: 22), -1)
-    movement.begin(at: -20)
-    XCTAssertEqual(movement.advance(to: -31), 0)
-    XCTAssertEqual(movement.advance(to: -44), -2)
+    let document = UUID()
+    movement.begin(at: 10, document: document)
+    XCTAssertEqual(movement.advance(to: 15, document: document), 0)
+    XCTAssertEqual(movement.advance(to: 34, document: document), 2)
+    XCTAssertEqual(movement.advance(to: 30, document: document), 0)
+    XCTAssertEqual(movement.advance(to: 22, document: document), -1)
+    movement.begin(at: -20, document: document)
+    XCTAssertEqual(movement.advance(to: -31, document: document), 0)
+    XCTAssertEqual(movement.advance(to: -44, document: document), -2)
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     let space = try button("spaceKey", in: controller)

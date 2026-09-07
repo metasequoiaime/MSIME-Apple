@@ -179,6 +179,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     closeSkinPicker()
+    cursorMovement.cancel()
     spaceButton?.configuration?.title = "空格"
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
@@ -1274,22 +1275,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func moveCursor(by offset: Int) {
     guard offset != 0 else { return }
+    let document = textDocumentProxy.documentIdentifier
     if hasComposition { render(session.finishComposition()) }
+    guard textDocumentProxy.documentIdentifier == document else { return }
     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
   }
 
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
     switch pan.state {
     case .began:
-      cursorMovement.begin(at: pan.translation(in: view).x)
+      cursorMovement.begin(at: pan.translation(in: view).x, document: textDocumentProxy.documentIdentifier)
       if hasComposition { render(session.finishComposition()) }
       spaceButton?.configuration?.title = "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
         keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
       }
     case .changed:
-      moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x))
+      moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
+                                           document: textDocumentProxy.documentIdentifier))
+      if !cursorMovement.isActive { spaceButton?.configuration?.title = "空格" }
     case .ended, .cancelled, .failed:
+      cursorMovement.cancel()
       spaceButton?.configuration?.title = "空格"
     default: break
     }
