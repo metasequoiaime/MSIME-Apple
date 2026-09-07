@@ -212,12 +212,14 @@ targets:
         buildPhase: resources
     settings:
       base:
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboardtests
         SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(PROJECT_DIR)/../../shared/apple-bridge
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/include
     dependencies:
       - target: MetasequoiaAppleBridge
       - sdk: libsqlite3.tbd

@@ -479,9 +479,13 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_bridge_installs_the_bundled_dictionary_before_engine_startup(self):
         bridge = (IOS_ROOT.parents[1] / "shared/apple-bridge/MetasequoiaInputSessionBridge.mm").read_text()
 
-        self.assertIn('URLForResource:name withExtension:nil', bridge)
-        self.assertIn('@[@"msime.db",@"english.db",@"others.db",@"dict_japanese.dat"]', "".join(bridge.split()))
-        self.assertIn('setenv("METASEQUOIA_IME_DATA_DIR"', bridge)
+        installer = (IOS_ROOT.parents[1] / "shared/apple-bridge/DictionaryInstallation.mm").read_text()
+        self.assertIn("PrepareDictionaryInstallation", bridge)
+        self.assertIn("InputSessionAdapter>(installation.paths)", bridge)
+        self.assertLess(bridge.index("const auto &installation = ConfigureDataDirectory()"),
+                        bridge.index("InputSessionAdapter>(installation.paths)"))
+        self.assertIn("prepare_runtime_paths", installer)
+        self.assertIn('@[@"msime.db",@"english.db",@"others.db",@"dict_japanese.dat"]', "".join(installer.split()))
 
     def test_keyboard_exposes_engine_owned_number_and_punctuation_routing(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()

@@ -1,6 +1,7 @@
 #import "MetasequoiaInputSessionBridge.h"
 
 #include "InputSessionAdapter.h"
+#include "DictionaryInstallation.h"
 #include "ShuangpinKeymap.h"
 
 #include <cstdlib>
@@ -16,86 +17,31 @@ NSString *StringFromUTF8(const std::string &value)
     return string == nil ? @"" : string;
 }
 
-BOOL InstallBundledDatabase(NSFileManager *fileManager, NSURL *dataDirectory, NSString *name)
+const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
 {
-    NSBundle *bundle = [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class];
-    NSURL *bundledDictionary = [bundle URLForResource:name withExtension:nil];
-    NSURL *bundledDigest = [bundle URLForResource:name withExtension:@"sha256"];
-    if (bundledDictionary == nil || bundledDigest == nil)
-    {
-        return NO;
-    }
-
-    NSString *expectedDigest = [NSString stringWithContentsOfURL:bundledDigest
-                                                        encoding:NSASCIIStringEncoding
-                                                           error:nil];
-    expectedDigest = [expectedDigest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSURL *installedDictionary = [dataDirectory URLByAppendingPathComponent:name];
-    NSURL *installedDigest = [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".sha256"]];
-    NSString *currentDigest = [NSString stringWithContentsOfURL:installedDigest
-                                                       encoding:NSASCIIStringEncoding
-                                                          error:nil];
-    currentDigest = [currentDigest stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (expectedDigest.length > 0 && [expectedDigest isEqualToString:currentDigest] &&
-        [fileManager fileExistsAtPath:installedDictionary.path])
-    {
-        return YES;
-    }
-
-    NSURL *stagingDictionary =
-        [dataDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".installing"]];
-    [fileManager removeItemAtURL:stagingDictionary error:nil];
-    if (![fileManager copyItemAtURL:bundledDictionary toURL:stagingDictionary error:nil])
-    {
-        return NO;
-    }
-
-    BOOL installed = NO;
-    if ([fileManager fileExistsAtPath:installedDictionary.path])
-    {
-        installed = [fileManager replaceItemAtURL:installedDictionary
-                                    withItemAtURL:stagingDictionary
-                                   backupItemName:nil
-                                          options:0
-                                 resultingItemURL:nil
-                                            error:nil];
-    }
-    else
-    {
-        installed = [fileManager moveItemAtURL:stagingDictionary toURL:installedDictionary error:nil];
-    }
-    if (!installed)
-    {
-        [fileManager removeItemAtURL:stagingDictionary error:nil];
-        return NO;
-    }
-
-    return [expectedDigest writeToURL:installedDigest atomically:YES encoding:NSASCIIStringEncoding error:nil];
-}
-
-void ConfigureDataDirectory()
-{
+    static metasequoia::apple::DictionaryInstallation installation;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-      NSFileManager *fileManager = NSFileManager.defaultManager;
-      NSURL *applicationSupport = [fileManager URLForDirectory:NSApplicationSupportDirectory
-                                                      inDomain:NSUserDomainMask
-                                             appropriateForURL:nil
-                                                        create:YES
-                                                         error:nil];
-      NSURL *dataDirectory = [applicationSupport URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
-      if (dataDirectory != nil && [fileManager createDirectoryAtURL:dataDirectory
-                                        withIntermediateDirectories:YES
-                                                         attributes:nil
-                                                              error:nil])
-      {
-          for (NSString *name in @[ @"msime.db", @"english.db", @"others.db", @"dict_japanese.dat" ])
-          {
-              InstallBundledDatabase(fileManager, dataDirectory, name);
-          }
-          setenv("METASEQUOIA_IME_DATA_DIR", dataDirectory.fileSystemRepresentation, 1);
-      }
+      NSFileManager *manager = NSFileManager.defaultManager;
+      NSURL *support = [manager URLForDirectory:NSApplicationSupportDirectory
+                                       inDomain:NSUserDomainMask
+                              appropriateForURL:nil
+                                         create:YES
+                                          error:nil];
+      NSURL *cache = [manager URLForDirectory:NSCachesDirectory
+                                     inDomain:NSUserDomainMask
+                            appropriateForURL:nil
+                                       create:YES
+                                        error:nil];
+      NSURL *home = [NSURL fileURLWithPath:NSHomeDirectory() isDirectory:YES];
+      support = support ?: [home URLByAppendingPathComponent:@"Library/Application Support" isDirectory:YES];
+      cache = cache ?: [home URLByAppendingPathComponent:@"Library/Caches" isDirectory:YES];
+      NSURL *user = [support URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
+      NSURL *resources = [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class].resourceURL;
+      installation = metasequoia::apple::PrepareDictionaryInstallation(
+          resources, user, [cache URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES]);
     });
+    return installation;
 }
 } // namespace
 
@@ -141,8 +87,8 @@ void ConfigureDataDirectory()
     self = [super init];
     if (self != nil)
     {
-        ConfigureDataDirectory();
-        _adapter = std::make_unique<metasequoia::apple::InputSessionAdapter>();
+        const auto &installation = ConfigureDataDirectory();
+        _adapter = std::make_unique<metasequoia::apple::InputSessionAdapter>(installation.paths);
     }
     return self;
 }
@@ -314,7 +260,8 @@ void ConfigureDataDirectory()
     }
 
     NSString *commitText = snapshot.commit.has_value() ? StringFromUTF8(*snapshot.commit) : nil;
-    NSString *diagnosticText = snapshot.diagnostic.has_value() ? StringFromUTF8(*snapshot.diagnostic) : nil;
+    const auto &diagnostic = snapshot.diagnostic ? snapshot.diagnostic : ConfigureDataDirectory().diagnostic;
+    NSString *diagnosticText = diagnostic ? StringFromUTF8(*diagnostic) : nil;
     return [[MetasequoiaInputSnapshot alloc] initWithHandled:snapshot.handled
                                                   commitText:commitText
                                                      preedit:StringFromUTF8(snapshot.preedit)
