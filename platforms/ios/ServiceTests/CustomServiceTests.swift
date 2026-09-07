@@ -17,6 +17,31 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class CustomServiceTests: XCTestCase {
+  func testPresetsAreUsableAndKeepSeparateSavedConfigurations() throws {
+    let suite = "msime-provider-tests-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var custom = CustomServiceConfiguration()
+    custom.endpoint = "https://custom.invalid/v1/chat/completions"
+    custom.model = "custom-model"
+    try custom.save(.ai, token: "", defaults: defaults)
+    for provider in AIProviderPreset.allCases where provider != .custom {
+      var configuration = CustomServiceConfiguration.loadPreset(provider, defaults: defaults)
+      XCTAssertEqual(configuration.provider, provider)
+      XCTAssertEqual(try configuration.validatedURL().absoluteString, provider.endpoint)
+      XCTAssertNotNil(provider.documentation)
+      configuration.model = "my-\(provider.rawValue)-model"
+      try configuration.save(.ai, token: "", defaults: defaults)
+      XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).provider, provider)
+    }
+    for provider in AIProviderPreset.allCases where provider != .custom {
+      XCTAssertEqual(CustomServiceConfiguration.loadPreset(provider, defaults: defaults).model,
+                     "my-\(provider.rawValue)-model")
+    }
+    XCTAssertEqual(CustomServiceConfiguration.loadPreset(.custom, defaults: defaults).endpoint, custom.endpoint)
+    XCTAssertEqual(CustomServiceConfiguration.loadPreset(.custom, defaults: defaults).model, custom.model)
+  }
+
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {
     for endpoint in ["http://example.invalid/v1", "https://user:password@example.invalid/v1", "https://example.invalid/v1#fragment", ""] {
       var configuration = CustomServiceConfiguration()

@@ -6,6 +6,36 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testAIProviderSelectionAutofillsAndClearsUnsavedKey() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
+                           "-service.ai.endpoint", "", "-service.ai.model", ""]
+    app.launch()
+    app.buttons["aiSettingsLink"].tap()
+    let token = app.secureTextFields["serviceToken"]
+    token.tap()
+    token.typeText("provider-switch-fixture")
+    app.buttons["serviceDismissKeyboard"].tap()
+    app.buttons["aiProviderPicker"].tap()
+    app.buttons["DeepSeek"].tap()
+    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, "https://api.deepseek.com/chat/completions")
+    XCTAssertEqual(app.textFields["serviceModel"].value as? String, "deepseek-v4-flash")
+    XCTAssertEqual(token.value as? String, token.placeholderValue)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "AI 服务商预设"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    app.buttons["aiProviderPicker"].tap()
+    app.buttons["Google · Gemini"].tap()
+    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String,
+                   "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+    app.buttons["aiProviderPicker"].tap()
+    app.buttons["自定义"].tap()
+    XCTAssertTrue(app.textFields["serviceEndpoint"].isEnabled)
+    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, app.textFields["serviceEndpoint"].placeholderValue)
+  }
+
+  @MainActor
   func testSettingsPersistAndExposeGuideAndTryout() {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
@@ -66,8 +96,21 @@ final class OnboardingUITests: XCTestCase {
           app.secureTextFields["serviceToken"].typeText("msime-ui-fixture")
           app.buttons["serviceDismissKeyboard"].tap()
           app.buttons["saveServiceConfiguration"].tap()
+          for _ in 0..<3 {
+            if app.staticTexts["配置已保存"].exists { break }
+            app.swipeUp()
+          }
           XCTAssertTrue(app.staticTexts["配置已保存"].waitForExistence(timeout: 5))
-          app.buttons["删除此服务的密钥"].tap()
+          let deleteKey = app.buttons["删除此服务的密钥"]
+          for _ in 0..<3 {
+            if deleteKey.isHittable { break }
+            app.swipeDown()
+          }
+          deleteKey.tap()
+          for _ in 0..<3 {
+            if app.staticTexts["已删除此服务的密钥"].exists { break }
+            app.swipeUp()
+          }
           XCTAssertTrue(app.staticTexts["已删除此服务的密钥"].waitForExistence(timeout: 5))
         }
       }

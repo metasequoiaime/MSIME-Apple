@@ -90,6 +90,7 @@ struct ServiceSettingsView: View {
   let kind: CustomServiceKind
   @Environment(\.scenePhase) private var scenePhase
   @State private var configuration: CustomServiceConfiguration
+  @State private var providerDrafts: [AIProviderPreset: CustomServiceConfiguration] = [:]
   @State private var token = ""
   @State private var input = ""
   @State private var output = ""
@@ -106,36 +107,8 @@ struct ServiceSettingsView: View {
 
   var body: some View {
     Form {
-      Section {
-        TextField(kind.example, text: $configuration.endpoint)
-          .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-          .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
-        TextField("模型名称", text: $configuration.model)
-          .textInputAutocapitalization(.never).autocorrectionDisabled()
-          .accessibilityIdentifier("serviceModel")
-        SecureField("API Key（留空保留已保存密钥）", text: $token)
-          .textInputAutocapitalization(.never).autocorrectionDisabled()
-          .accessibilityIdentifier("serviceToken")
-        if kind == .ai {
-          TextField("润色要求", text: $configuration.prompt)
-            .accessibilityIdentifier("servicePrompt")
-        }
-        Button("保存配置") { save() }
-          .accessibilityIdentifier("saveServiceConfiguration")
-        Button("删除此服务的密钥", role: .destructive) {
-          do {
-            let url = try configuration.validatedURL()
-            try ServiceTokenStore.write("", kind: kind, url: url)
-            token = ""
-            status = "已删除此服务的密钥"
-          } catch { status = error.localizedDescription }
-        }
-      } header: {
-        Text("自定义服务 · OpenAI 兼容接口")
-      } footer: {
-        Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
-      }
-      .disabled(busy || recorder.isRecording)
+      if kind == .ai { providerSection }
+      configurationSection
 
       if kind == .ai {
         Section("AI 润色") {
@@ -201,6 +174,78 @@ struct ServiceSettingsView: View {
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
     }
+  }
+
+  private var providerSection: some View {
+        Section {
+          Picker("服务商", selection: Binding(get: { configuration.provider }, set: { provider in selectProvider(provider) })) {
+            ForEach(AIProviderPreset.allCases, id: \.self) { provider in
+              Text(provider.title).tag(provider)
+            }
+          }
+          .pickerStyle(.menu)
+          .accessibilityIdentifier("aiProviderPicker")
+          if let documentation = configuration.provider.documentation {
+            Link("服务商接入说明", destination: documentation)
+          }
+        } header: {
+          Text("AI 服务商")
+        } footer: {
+          Text("选择后自动填入接口和模型，填写对应服务商的 API Key 后即可使用。其他地区或代理地址请选择自定义。")
+        }
+        .disabled(busy)
+  }
+
+  private var configurationSection: some View {
+      Section {
+        TextField(kind.example, text: $configuration.endpoint)
+          .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+          .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
+          .disabled(kind == .ai && configuration.provider != .custom)
+        TextField("模型名称", text: $configuration.model)
+          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .accessibilityIdentifier("serviceModel")
+        if kind == .ai && !configuration.provider.models.isEmpty {
+          Menu("选择常用模型") {
+            ForEach(configuration.provider.models, id: \.self) { model in
+              Button(model) { configuration.model = model }
+            }
+          }
+        }
+        SecureField("API Key（留空保留已保存密钥）", text: $token)
+          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .accessibilityIdentifier("serviceToken")
+        if kind == .ai {
+          TextField("润色要求", text: $configuration.prompt)
+            .accessibilityIdentifier("servicePrompt")
+        }
+        Button("保存配置") { save() }
+          .accessibilityIdentifier("saveServiceConfiguration")
+        Button("删除此服务的密钥", role: .destructive) {
+          do {
+            let url = try configuration.validatedURL()
+            try ServiceTokenStore.write("", kind: kind, url: url)
+            token = ""
+            status = "已删除此服务的密钥"
+          } catch { status = error.localizedDescription }
+        }
+      } header: {
+        Text(kind == .ai ? configuration.provider.title : "自定义语音服务")
+      } footer: {
+        Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
+      }
+      .disabled(busy || recorder.isRecording)
+
+  }
+
+  private func selectProvider(_ provider: AIProviderPreset) {
+    guard provider != configuration.provider else { return }
+    providerDrafts[configuration.provider] = configuration
+    configuration = providerDrafts[provider] ?? CustomServiceConfiguration.loadPreset(provider)
+    // Unsaved key text must never follow an endpoint change. Saved keys are origin-scoped.
+    token = ""
+    status = ""
+    output = ""
   }
 
   @discardableResult private func save() -> Bool {

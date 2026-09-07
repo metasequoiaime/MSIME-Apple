@@ -9,23 +9,112 @@ enum CustomServiceKind: String {
   }
 }
 
+// Official endpoint/model documentation, checked 2026-09-07. These presets use the
+// providers' Chat Completions compatibility APIs; request codecs remain in Engine.
+enum AIProviderPreset: String, CaseIterable {
+  case openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, openRouter, custom
+
+  var title: String {
+    switch self {
+    case .openAI: "OpenAI"
+    case .anthropic: "Anthropic · Claude"
+    case .gemini: "Google · Gemini"
+    case .deepSeek: "DeepSeek"
+    case .qwen: "通义千问 · 阿里云百炼"
+    case .kimi: "Kimi · 月之暗面"
+    case .zhipu: "智谱 · GLM"
+    case .siliconFlow: "硅基流动"
+    case .openRouter: "OpenRouter"
+    case .custom: "自定义"
+    }
+  }
+  var endpoint: String {
+    switch self {
+    case .openAI: "https://api.openai.com/v1/chat/completions"
+    case .anthropic: "https://api.anthropic.com/v1/chat/completions"
+    case .gemini: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    case .deepSeek: "https://api.deepseek.com/chat/completions"
+    case .qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    case .kimi: "https://api.moonshot.cn/v1/chat/completions"
+    case .zhipu: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    case .siliconFlow: "https://api.siliconflow.cn/v1/chat/completions"
+    case .openRouter: "https://openrouter.ai/api/v1/chat/completions"
+    case .custom: ""
+    }
+  }
+  var models: [String] {
+    switch self {
+    case .openAI: ["gpt-4.1-mini"]
+    case .anthropic: ["claude-sonnet-4-6", "claude-opus-5"]
+    case .gemini: ["gemini-3.8-flash", "gemini-2.5-flash"]
+    case .deepSeek: ["deepseek-v4-flash", "deepseek-v4-pro"]
+    case .qwen: ["qwen-plus"]
+    case .kimi: ["kimi-k2.6", "kimi-k2.5"]
+    case .zhipu: ["glm-4.7", "glm-4.7-flashx"]
+    case .siliconFlow: ["Qwen/Qwen3.6-27B"]
+    case .openRouter: ["openrouter/auto"]
+    case .custom: []
+    }
+  }
+  var documentation: URL? {
+    let address: String
+    switch self {
+    case .openAI: address = "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+    case .anthropic: address = "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"
+    case .gemini: address = "https://ai.google.dev/gemini-api/docs/openai"
+    case .deepSeek: address = "https://api-docs.deepseek.com/"
+    case .qwen: address = "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope"
+    case .kimi: address = "https://platform.kimi.com/docs/api/chat"
+    case .zhipu: address = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"
+    case .siliconFlow: address = "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"
+    case .openRouter: address = "https://openrouter.ai/docs/quickstart"
+    case .custom: return nil
+    }
+    return URL(string: address)
+  }
+}
+
 struct ServiceFailure: LocalizedError {
   let message: String
   var errorDescription: String? { message }
 }
 
 struct CustomServiceConfiguration {
+  var provider: AIProviderPreset = .custom
   var endpoint = ""
   var model = ""
   var prompt = "请润色以下文字，保持原意，只返回修改后的文字。"
 
-  static func load(_ kind: CustomServiceKind) -> Self {
-    let defaults = UserDefaults.standard
+  static func load(_ kind: CustomServiceKind, defaults: UserDefaults = .standard) -> Self {
     var result = Self()
+    if kind == .ai {
+      result.provider = AIProviderPreset(rawValue: defaults.string(forKey: "service.ai.provider") ?? "") ?? .custom
+    }
     result.endpoint = defaults.string(forKey: "service.\(kind.rawValue).endpoint") ?? ""
     result.model = defaults.string(forKey: "service.\(kind.rawValue).model") ?? ""
     result.prompt = defaults.string(forKey: "service.\(kind.rawValue).prompt") ?? result.prompt
     return result
+  }
+
+  static func loadPreset(_ provider: AIProviderPreset, defaults: UserDefaults = .standard) -> Self {
+    let prefix = "service.ai.presets.\(provider.rawValue)"
+    if defaults.string(forKey: prefix + ".endpoint") == nil,
+       provider == .custom, load(.ai, defaults: defaults).provider == .custom {
+      return load(.ai, defaults: defaults)
+    }
+    var result = Self()
+    result.provider = provider
+    result.endpoint = defaults.string(forKey: prefix + ".endpoint") ?? provider.endpoint
+    result.model = defaults.string(forKey: prefix + ".model") ?? provider.models.first ?? ""
+    result.prompt = defaults.string(forKey: prefix + ".prompt") ?? result.prompt
+    return result
+  }
+
+  private func storePreset(in defaults: UserDefaults) {
+    let prefix = "service.ai.presets.\(provider.rawValue)"
+    defaults.set(endpoint, forKey: prefix + ".endpoint")
+    defaults.set(model, forKey: prefix + ".model")
+    defaults.set(prompt, forKey: prefix + ".prompt")
   }
 
   func validatedURL() throws -> URL {
@@ -37,10 +126,16 @@ struct CustomServiceConfiguration {
     return url
   }
 
-  func save(_ kind: CustomServiceKind, token: String) throws {
+  func save(_ kind: CustomServiceKind, token: String, defaults: UserDefaults = .standard) throws {
     let url = try validatedURL()
     if !token.isEmpty { try ServiceTokenStore.write(token, kind: kind, url: url) }
-    let defaults = UserDefaults.standard
+    if kind == .ai {
+      // Retain a previously saved custom endpoint when a user chooses their first preset.
+      let previous = Self.load(.ai, defaults: defaults)
+      if !previous.endpoint.isEmpty { previous.storePreset(in: defaults) }
+      storePreset(in: defaults)
+      defaults.set(provider.rawValue, forKey: "service.ai.provider")
+    }
     defaults.set(url.absoluteString, forKey: "service.\(kind.rawValue).endpoint")
     defaults.set(model.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "service.\(kind.rawValue).model")
     defaults.set(prompt, forKey: "service.\(kind.rawValue).prompt")
