@@ -20,6 +20,34 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testStatisticsChartsAndPeriodSelection() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["typingStatisticsLink"].tap()
+    let period = app.segmentedControls["statisticsPeriod"]
+    XCTAssertTrue(period.waitForExistence(timeout: 5))
+    period.buttons["30 天"].tap()
+    period.buttons["累计"].tap()
+    period.buttons["7 天"].tap()
+    let day = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "statisticsDay_")).firstMatch
+    XCTAssertTrue(day.waitForExistence(timeout: 3), app.debugDescription)
+    day.tap()
+    XCTAssertTrue(app.buttons["返回整个时间范围"].exists)
+    app.buttons["返回整个时间范围"].tap()
+    let top = XCTAttachment(screenshot: app.screenshot())
+    top.name = "统计趋势与字符分布"
+    top.lifetime = .keepAlways
+    add(top)
+    app.swipeUp()
+    app.swipeUp()
+    let detail = XCTAttachment(screenshot: app.screenshot())
+    detail.name = "统计语言与输入方案"
+    detail.lifetime = .keepAlways
+    add(detail)
+  }
+
+  @MainActor
   func testFetchingModelsRequiresKeyButNotModel() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",

@@ -183,7 +183,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # The engine and the packaged dictionary stay simplified, so conversion belongs at the
         # render and commit boundary only. Converting the preedit would rewrite pinyin, and
         # converting before selection would break the engine index the candidate chips carry.
-        self.assertIn("insertOwnText(chineseOutput(commitText))", controller)
+        self.assertIn("insertOwnText(chineseOutput(commitText), source: source)", controller)
         self.assertIn("let display = chineseOutput(candidate)", controller)
         self.assertIn('configuration.title = "\\(number)  \\(display)"', controller)
         self.assertIn("self.render(self.session.selectCandidate(at: UInt(index)))", controller)
@@ -361,7 +361,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("button.accessibilityValue = hint", controller)
         # English mode feeds the client directly rather than a composition, so a double-pinyin hint
         # there would describe something the key does not do.
-        self.assertIn("let hint = isChineseMode ? shuangpinKeyHints[lowercase.uppercased()] : nil", controller)
+        self.assertIn("let hint = isChineseMode && !session.isInLocalMode ? shuangpinKeyHints[lowercase.uppercased()] : nil", controller)
 
     def test_local_input_modes_are_reachable_and_only_the_serviceable_ones(self):
         # The engine opens a local mode on a capital carried with its shift_only flag, which no iOS
@@ -624,11 +624,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertNotIn("space.widthAnchor.constraint(greaterThanOrEqualToConstant: 110)", controller)
         self.assertNotIn("enter.widthAnchor.constraint(equalToConstant: 72)", controller)
 
-    def test_keyboard_respects_the_height_assigned_by_the_system(self):
+    def test_keyboard_requests_consistent_height_below_system_priority(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn("root.bottomAnchor.constraint(equalTo: view.bottomAnchor", controller)
-        self.assertNotIn("view.heightAnchor.constraint", controller)
+        self.assertIn("height.priority = .init(999)", controller)
+        self.assertIn("landscape ? 216 : 260", controller)
 
     def test_keyboard_exposes_a_persisted_full_and_double_pinyin_switch(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()

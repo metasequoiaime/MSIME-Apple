@@ -31,6 +31,47 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(persisted.contains("重新开始"))
   }
 
+  func testUnicodeCategoriesAndLegacyMigration() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    let date = Date()
+    let key = TypingStatistics.dayKey(date)
+    let old: [String: Any] = ["enabled": true, "total": 12, "days": [key: 12]]
+    try JSONSerialization.data(withJSONObject: old).write(to: directory.appendingPathComponent("typing-statistics.json"))
+    XCTAssertEqual(try store.load().breakdown(on: nil).characters["unknown"], 12)
+    try store.record("汉𠮷Aée\u{301}９1，!👨‍👩‍👧‍👦1️⃣あЖ+ \n", source: .nineKey, at: date)
+    var snapshot = try store.load()
+    let detail = snapshot.breakdown(on: [date])
+    XCTAssertEqual(detail.characters["han"], 2)
+    XCTAssertEqual(detail.characters["latin"], 3)
+    XCTAssertEqual(detail.characters["number"], 2)
+    XCTAssertEqual(detail.characters["punctuation"], 2)
+    XCTAssertEqual(detail.characters["emoji"], 2)
+    XCTAssertEqual(detail.characters["otherLetter"], 2)
+    XCTAssertEqual(detail.characters["symbol"], 1)
+    XCTAssertEqual(detail.characters["unknown"], 12)
+    XCTAssertEqual(detail.sources["nineKey"], 14)
+    XCTAssertEqual(detail.sources["unknown"], 12)
+    XCTAssertEqual(snapshot.total, 26)
+    try store.record("abc", source: .english, at: date)
+    try store.record("日期", source: .local, at: date)
+    snapshot = try store.load()
+    XCTAssertEqual(snapshot.detail.sources["english"], 3)
+    XCTAssertEqual(snapshot.detail.sources["local"], 2)
+    XCTAssertEqual(snapshot.breakdown(on: nil).characters.values.reduce(0, +), snapshot.total)
+    XCTAssertEqual(snapshot.breakdown(on: nil).sources.values.reduce(0, +), snapshot.total)
+    try store.setEnabled(false)
+    try store.record("暂停", source: .shuangpin)
+    XCTAssertEqual(try store.load().total, 31)
+    try store.reset()
+    snapshot = try store.load()
+    XCTAssertTrue(snapshot.detail.characters.isEmpty)
+    XCTAssertTrue(snapshot.dailyDetails.isEmpty)
+    XCTAssertFalse(snapshot.enabled)
+  }
+
   func testConcurrentWritersAndBoundedDailyHistory() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -44,6 +85,10 @@ final class TypingStatisticsTests: XCTestCase {
       try store.record("字", at: Calendar.current.date(byAdding: .day, value: offset, to: Date())!)
     }
     XCTAssertEqual(try store.load().days.count, 366)
-    XCTAssertEqual(try store.load().total, 470)
+    let snapshot = try store.load()
+    XCTAssertEqual(snapshot.total, 470)
+    XCTAssertEqual(snapshot.dailyDetails.count, 366)
+    XCTAssertEqual(snapshot.detail.characters["han"], 470)
+    XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
   }
 }

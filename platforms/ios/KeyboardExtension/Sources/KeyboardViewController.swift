@@ -752,13 +752,13 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func toggleInputMode() {
     playInputClick()
     let snapshot = isChineseMode ? session.finishComposition() : session.cancel()
+    render(snapshot)
     isChineseMode.toggle()
     letterCaseState = .lowercase
     isAutomaticShift = false
     lastShiftTapTime = nil
     updateLanguageModeButton()
     updateAutomaticCapitalization()
-    render(snapshot)
   }
 
   private func toggleLetterCase() {
@@ -917,22 +917,24 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func selectInputScheme(_ scheme: ChineseInputScheme) {
     guard scheme != inputScheme else { return }
     playInputClick()
+    let source = typingSource
     inputScheme = scheme
     let snapshot = applyInputScheme()
     InputSchemePreference.scheme = scheme
     showsSymbols = false
     updateSchemeButton()
-    render(snapshot)
+    render(snapshot, source: source)
   }
 
   private func synchronizeInputSchemePreference() {
     guard !hasComposition else { return }
     let sharedValue = InputSchemePreference.scheme
     guard sharedValue != inputScheme else { return }
+    let source = typingSource
     inputScheme = sharedValue
     let snapshot = applyInputScheme()
     updateSchemeButton()
-    render(snapshot)
+    render(snapshot, source: source)
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
@@ -1180,10 +1182,16 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   // Every document mutation the keyboard makes goes through here so textWillChange can tell its own
   // echo apart from a genuine host-initiated change.
-  private func insertOwnText(_ text: String) {
+  private var typingSource: TypingSource {
+    if localModeTrigger != nil { return .local }
+    if !isChineseMode { return .english }
+    return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
+  }
+
+  private func insertOwnText(_ text: String, source: TypingSource? = nil) {
     pendingOwnEdits += 1
     textDocumentProxy.insertText(text)
-    if hasFullAccess { try? TypingStatisticsStore().record(text) }
+    if hasFullAccess { try? TypingStatisticsStore().record(text, source: source ?? typingSource) }
   }
 
   private func deleteOwnBackward() {
@@ -1191,14 +1199,15 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     textDocumentProxy.deleteBackward()
   }
 
-  private func render(_ snapshot: MetasequoiaInputSnapshot) {
+  private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
+    let source = originalSource ?? typingSource
     if localModeTrigger != nil && !session.isInLocalMode {
       localModeTrigger = nil
       showsSymbols = false
     }
     updateLetterCaseControls()
     if let commitText = snapshot.commitText {
-      insertOwnText(chineseOutput(commitText))
+      insertOwnText(chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
     showDiagnostic(snapshot.diagnosticText)
