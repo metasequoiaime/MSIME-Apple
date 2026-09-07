@@ -11,7 +11,7 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     # Bumped by release-please alongside CMakeLists.txt. It used to be pinned at 0.1.0 while the
     # project shipped 0.45.x, so any iOS artifact would have carried a version that matched nothing.
-    MARKETING_VERSION: 0.48.3 # x-release-please-version
+    MARKETING_VERSION: 0.48.4 # x-release-please-version
     SWIFT_VERSION: 6.0
     IPHONEOS_DEPLOYMENT_TARGET: 15.0
     # Xcode 26 no longer falls back to the target name when a target leaves PRODUCT_NAME unset, so a
