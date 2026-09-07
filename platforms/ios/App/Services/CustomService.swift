@@ -193,11 +193,11 @@ struct CustomServiceConfiguration {
     defaults.set(prompt, forKey: prefix + ".prompt")
   }
 
-  func validatedURL() throws -> URL {
+  func validatedURL(requiresModel: Bool = true) throws -> URL {
     guard let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
       url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
       url.user == nil, url.password == nil, url.fragment == nil,
-      !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      (!requiresModel || !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     else { throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。") }
     return url
   }
@@ -301,5 +301,97 @@ enum CustomServiceClient {
     }
     try Task.checkCancellation()
     return try AppServicesBridge.parseResponse(data, voice: kind == .voice)
+  }
+}
+
+// Service-configuration metadata only; generation/transcription codecs stay in Engine.
+enum ModelCatalogClient {
+  struct Page: Decodable {
+    struct Model: Decodable {
+      let id: String
+      let supported_endpoint_types: [String]?
+      let chat_completions_bridge: Bool?
+      let active: Bool?
+    }
+    let data: [Model]
+    let has_more: Bool?
+    let last_id: String?
+  }
+
+  static func modelsURL(configuration: CustomServiceConfiguration) throws -> URL {
+    let endpoint = try configuration.validatedURL(requiresModel: false)
+    var parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+    var path = parts.path
+    while path.hasSuffix("/") { path.removeLast() }
+    for suffix in ["/chat/completions", "/audio/transcriptions"] where path.hasSuffix(suffix) {
+      path.removeLast(suffix.count)
+      break
+    }
+    parts.path = path + "/models"
+    guard let url = parts.url else { throw ServiceFailure(message: "无法确定模型列表地址。") }
+    return url
+  }
+
+  static func fetch(configuration: CustomServiceConfiguration, kind: CustomServiceKind,
+                    token: String, sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws -> [String] {
+    let key = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { throw ServiceFailure(message: "请先填写 API Key，或使用已保存的密钥。") }
+    let baseURL = try modelsURL(configuration: configuration)
+    let anthropic = baseURL.host == "api.anthropic.com"
+    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    defer { session.invalidateAndCancel() }
+    var models = Set<String>()
+    var cursor: String?
+    var cursors = Set<String>()
+    for _ in 0..<10 {
+      var parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+      if anthropic {
+        var query = (parts.queryItems ?? []).filter { !["limit", "after_id"].contains($0.name) }
+        query.append(URLQueryItem(name: "limit", value: "1000"))
+        if let cursor { query.append(URLQueryItem(name: "after_id", value: cursor)) }
+        parts.queryItems = query
+      }
+      var request = URLRequest(url: parts.url!)
+      request.timeoutInterval = 30
+      request.setValue("application/json", forHTTPHeaderField: "Accept")
+      if anthropic {
+        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+      } else { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+      let (bytes, response) = try await session.bytes(for: request)
+      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+      guard (200..<300).contains(status) else {
+        let detail = status == 401 || status == 403 ? "请检查 API Key 和账号权限。" : "服务商可能不支持模型列表接口，可继续使用预设或自定义模型。"
+        throw ServiceFailure(message: "获取模型失败（HTTP \(status)）。\(detail)")
+      }
+      var data = Data()
+      for try await byte in bytes {
+        guard data.count < 1024 * 1024 else { throw ServiceFailure(message: "模型列表响应过大。") }
+        data.append(byte)
+      }
+      try Task.checkCancellation()
+      guard let page = try? JSONDecoder().decode(Page.self, from: data) else {
+        throw ServiceFailure(message: "模型列表格式不兼容，可继续使用预设或自定义模型。")
+      }
+      for model in page.data {
+        guard model.active != false, !model.id.isEmpty, model.id.count <= 256 else { continue }
+        if let endpoints = model.supported_endpoint_types, !endpoints.isEmpty {
+          let supported = kind == .voice ? endpoints.contains("audio-transcription")
+            : endpoints.contains("openai") || model.chat_completions_bridge == true
+          if !supported { continue }
+        }
+        models.insert(model.id)
+        guard models.count <= 5000 else { throw ServiceFailure(message: "模型数量过多，请缩小服务商的模型授权范围。") }
+      }
+      if page.has_more != true {
+        guard !models.isEmpty else { throw ServiceFailure(message: "未返回可用模型，请检查密钥权限，或使用自定义模型。") }
+        return models.sorted()
+      }
+      guard anthropic, let next = page.last_id, !next.isEmpty, cursors.insert(next).inserted else {
+        throw ServiceFailure(message: "模型列表分页格式不兼容，请使用预设或自定义模型。")
+      }
+      cursor = next
+    }
+    throw ServiceFailure(message: "模型列表分页过多，请使用预设或自定义模型。")
   }
 }

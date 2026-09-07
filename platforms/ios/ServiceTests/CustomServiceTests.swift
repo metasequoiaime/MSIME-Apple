@@ -119,3 +119,67 @@ final class CustomServiceTests: XCTestCase {
     }
   }
 }
+
+final class CatalogFixtureProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let anthropic = request.url?.host == "api.anthropic.com"
+    let authorized = anthropic
+      ? request.value(forHTTPHeaderField: "x-api-key") == "fixture" && request.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01"
+      : request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture"
+    let valid = authorized && request.httpMethod == "GET" && request.url!.path.hasSuffix("/models")
+    var payload = "private failure detail"
+    if valid {
+      if anthropic {
+        payload = request.url!.query!.contains("after_id=")
+          ? #"{"data":[{"id":"claude-second"}],"has_more":false}"#
+          : #"{"data":[{"id":"claude-first"}],"has_more":true,"last_id":"claude-first"}"#
+      } else {
+        payload = #"{"data":[{"id":"chat-model","supported_endpoint_types":["openai"]},{"id":"speech-model","supported_endpoint_types":["audio-transcription"]},{"id":"chat-model","supported_endpoint_types":["openai"]},{"id":"disabled","active":false},{"id":"response-model","supported_endpoint_types":["openai-response"],"chat_completions_bridge":true}]}"#
+      }
+    }
+    let response = HTTPURLResponse(url: request.url!, statusCode: valid ? 200 : 401,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(payload.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+extension CustomServiceTests {
+  func testModelCatalogUsesKeyWithoutRequiringAModelAndFiltersCapabilities() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [CatalogFixtureProtocol.self]
+    var config = CustomServiceConfiguration.loadPreset(.everyAPI)
+    config.model = ""
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: config).absoluteString, "https://api.everyapi.ai/v1/models")
+    let models = try await ModelCatalogClient.fetch(configuration: config, kind: .ai, token: "fixture", sessionConfiguration: session)
+    XCTAssertEqual(models, ["chat-model", "response-model"])
+    let voice = CustomServiceConfiguration.loadVoicePreset(.everyAPI)
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: voice).absoluteString, "https://api.everyapi.ai/v1/models")
+    let voiceModels = try await ModelCatalogClient.fetch(configuration: voice, kind: .voice, token: "fixture", sessionConfiguration: session)
+    XCTAssertEqual(voiceModels, ["speech-model"])
+    let gemini = CustomServiceConfiguration.loadPreset(.gemini)
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: gemini).absoluteString,
+      "https://generativelanguage.googleapis.com/v1beta/openai/models")
+  }
+
+  func testModelCatalogAnthropicPaginationAndAuthenticationFailures() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [CatalogFixtureProtocol.self]
+    let config = CustomServiceConfiguration.loadPreset(.anthropic)
+    let models = try await ModelCatalogClient.fetch(configuration: config, kind: .ai, token: "fixture", sessionConfiguration: session)
+    XCTAssertEqual(models, ["claude-first", "claude-second"])
+    for key in ["", "invalid"] {
+      do {
+        _ = try await ModelCatalogClient.fetch(configuration: config, kind: .ai, token: key, sessionConfiguration: session)
+        XCTFail("Invalid key accepted")
+      } catch {
+        XCTAssertFalse(error.localizedDescription.contains("private failure detail"))
+        XCTAssertTrue(error.localizedDescription.contains(key.isEmpty ? "API Key" : "401"))
+      }
+    }
+  }
+}

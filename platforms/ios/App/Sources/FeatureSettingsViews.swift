@@ -4,9 +4,23 @@ import UIKit
 struct SkinSettingsView: View {
   @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var skin = KeyboardSkin.forest.rawValue
+  @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
+  @State private var previewsDark = false
 
   var body: some View {
     Form {
+      Section("完整键盘预览") {
+        Picker("键盘布局", selection: $previewsNineKey) {
+          Text("26 键").tag(false)
+          Text("9 键").tag(true)
+        }.pickerStyle(.segmented).accessibilityIdentifier("skinPreviewLayout")
+        KeyboardSkinPreview(skin: KeyboardSkin(rawValue: skin) ?? .forest, nineKey: previewsNineKey)
+          .environment(\.colorScheme, previewsDark ? .dark : .light)
+          .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+        Toggle("预览深色外观", isOn: $previewsDark)
+          .accessibilityIdentifier("skinPreviewDark")
+      }
+
       Section {
         ForEach(KeyboardSkin.allCases, id: \.rawValue) { option in
           Button {
@@ -18,26 +32,16 @@ struct SkinSettingsView: View {
               Text(option.title).foregroundStyle(.primary)
               Spacer()
               if skin == option.rawValue { Image(systemName: "checkmark") }
-            }
+            }.contentShape(Rectangle())
           }
+          .buttonStyle(.plain)
           .accessibilityIdentifier("skin_\(option.rawValue)")
           .accessibilityValue(skin == option.rawValue ? "已选择" : "未选择")
         }
       } footer: {
         Text("下次打开水杉键盘时应用。深色外观随系统切换。")
       }
-      Section("配色预览") {
-        let selected = KeyboardSkin(rawValue: skin) ?? .forest
-        HStack {
-          ForEach(["ABC", "DEF", "空格"], id: \.self) { title in
-            Text(title).frame(maxWidth: .infinity).padding(.vertical, 16)
-              .background(.background, in: RoundedRectangle(cornerRadius: 8))
-          }
-          Image(systemName: "return").foregroundStyle(.white).padding(16)
-            .background(Color(uiColor: selected.accent), in: RoundedRectangle(cornerRadius: 8))
-        }
-        .padding(8).background(Color(uiColor: selected.background))
-      }
+
     }
     .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
@@ -94,6 +98,9 @@ struct ServiceSettingsView: View {
   @State private var voiceProviderDrafts: [VoiceProviderPreset: CustomServiceConfiguration] = [:]
   @State private var showsProviders = false
   @State private var editsCustomModel = false
+  @State private var fetchedModels: [String]?
+  @State private var modelStatus = ""
+  @State private var fetchingModels = false
   @State private var token = ""
   @State private var input = ""
   @State private var output = ""
@@ -180,6 +187,7 @@ struct ServiceSettingsView: View {
         if kind == .voice, let provider = VoiceProviderPreset(rawValue: id) { selectVoiceProvider(provider) }
       }
     }
+    .onChange(of: configuration.endpoint) { _ in fetchedModels = nil; modelStatus = "" }
     .onDisappear { cancelAndClear() }
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
@@ -226,7 +234,7 @@ struct ServiceSettingsView: View {
   }
 
   private var presetModels: [String] {
-    kind == .ai ? configuration.provider.models : configuration.voiceProvider.models
+    fetchedModels ?? (kind == .ai ? configuration.provider.models : configuration.voiceProvider.models)
   }
 
   private var usesCustomModel: Bool {
@@ -279,13 +287,26 @@ struct ServiceSettingsView: View {
           .accessibilityLabel("API 接口地址").accessibilityIdentifier("serviceEndpoint")
           .disabled(kind == .ai ? configuration.provider != .custom : configuration.voiceProvider != .custom)
         }.padding(.vertical, 4)
-        modelSelection
         VStack(alignment: .leading, spacing: 8) {
           Label("API Key", systemImage: "key.horizontal").font(.caption).foregroundStyle(.secondary)
-          SecureField("留空保留已保存密钥", text: $token)
+          SecureField("留空保留已保存密钥", text: Binding(get: { token }, set: { value in
+            token = value; fetchedModels = nil; modelStatus = ""
+          }))
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("serviceToken")
         }.padding(.vertical, 4)
+        Button { fetchModels() } label: {
+          HStack {
+            Label(fetchingModels ? "正在获取模型…" : "获取模型列表", systemImage: "arrow.clockwise")
+            Spacer()
+            if fetchingModels { ProgressView() }
+          }
+        }.accessibilityIdentifier("fetchServiceModels")
+        if !modelStatus.isEmpty {
+          Text(modelStatus).font(.footnote).foregroundStyle(.secondary)
+            .accessibilityIdentifier("serviceModelsStatus")
+        }
+        modelSelection
         if kind == .ai {
           TextField("润色要求", text: $configuration.prompt)
             .accessibilityIdentifier("servicePrompt")
@@ -301,6 +322,8 @@ struct ServiceSettingsView: View {
             let url = try configuration.validatedURL()
             try ServiceTokenStore.write("", kind: kind, url: url)
             token = ""
+            fetchedModels = nil
+            modelStatus = ""
             status = "已删除此服务的密钥"
           } catch { status = error.localizedDescription }
         }
@@ -315,6 +338,8 @@ struct ServiceSettingsView: View {
 
   private func selectProvider(_ provider: AIProviderPreset) {
     guard provider != configuration.provider else { return }
+    fetchedModels = nil
+    modelStatus = ""
     editsCustomModel = false
     providerDrafts[configuration.provider] = configuration
     configuration = providerDrafts[provider] ?? CustomServiceConfiguration.loadPreset(provider)
@@ -326,12 +351,44 @@ struct ServiceSettingsView: View {
 
   private func selectVoiceProvider(_ provider: VoiceProviderPreset) {
     guard provider != configuration.voiceProvider else { return }
+    fetchedModels = nil
+    modelStatus = ""
     editsCustomModel = false
     voiceProviderDrafts[configuration.voiceProvider] = configuration
     configuration = voiceProviderDrafts[provider] ?? CustomServiceConfiguration.loadVoicePreset(provider)
     token = ""
     status = ""
     output = ""
+  }
+
+  private func fetchModels() {
+    let config = configuration
+    do {
+      let url = try config.validatedURL(requiresModel: false)
+      let enteredKey = token.trimmingCharacters(in: .whitespacesAndNewlines)
+      let key = try enteredKey.isEmpty ? ServiceTokenStore.read(kind, url: url) : enteredKey
+      guard !key.isEmpty else { modelStatus = "请先填写 API Key，或使用已保存的密钥。"; return }
+      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      busy = true
+      fetchingModels = true
+      modelStatus = ""
+      requestID = UUID()
+      let id = requestID
+      operation = Task {
+        do {
+          let models = try await ModelCatalogClient.fetch(configuration: config, kind: kind, token: key)
+          try Task.checkCancellation()
+          guard requestID == id else { return }
+          fetchedModels = models
+          if !models.contains(configuration.model) { configuration.model = models[0] }
+          editsCustomModel = false
+          modelStatus = "已获取 \(models.count) 个模型。请选择支持当前功能的模型。"
+        } catch {
+          if requestID == id && !Task.isCancelled { modelStatus = error.localizedDescription }
+        }
+        if requestID == id { busy = false; fetchingModels = false }
+      }
+    } catch { modelStatus = error.localizedDescription }
   }
 
   @discardableResult private func save() -> Bool {
@@ -372,6 +429,7 @@ struct ServiceSettingsView: View {
   private func cancelRequest() {
     requestID = UUID()
     operation?.cancel()
+    fetchingModels = false
     busy = false
   }
   private func cancelAndClear() {

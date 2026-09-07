@@ -20,6 +20,46 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testFetchingModelsRequiresKeyButNotModel() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
+      "-service.ai.endpoint", "https://catalog-no-key.invalid/v1/chat/completions", "-service.ai.model", ""]
+    app.launch()
+    app.buttons["aiSettingsLink"].tap()
+    let fetch = app.buttons["fetchServiceModels"]
+    XCTAssertTrue(fetch.waitForExistence(timeout: 5))
+    fetch.tap()
+    XCTAssertTrue(app.staticTexts["请先填写 API Key，或使用已保存的密钥。"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["serviceModel"].exists)
+  }
+
+  @MainActor
+  func testSkinShowsFullKeyboardInBothLayoutsAndAppearances() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    let layout = app.segmentedControls["skinPreviewLayout"]
+    XCTAssertTrue(layout.waitForExistence(timeout: 5))
+    layout.buttons["26 键"].tap()
+    let preview = app.otherElements["fullKeyboardSkinPreview"]
+    XCTAssertTrue(preview.exists)
+    XCTAssertTrue(preview.label.contains("26 键"))
+    let light = XCTAttachment(screenshot: app.screenshot())
+    light.name = "完整 26 键皮肤预览"
+    light.lifetime = .keepAlways
+    add(light)
+    layout.buttons["9 键"].tap()
+    app.switches["skinPreviewDark"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    XCTAssertEqual(app.switches["skinPreviewDark"].value as? String, "1")
+    XCTAssertTrue(preview.label.contains("9 键"))
+    let dark = XCTAttachment(screenshot: app.screenshot())
+    dark.name = "完整 9 键深色皮肤预览"
+    dark.lifetime = .keepAlways
+    add(dark)
+  }
+
+  @MainActor
   func testProviderCatalogShowsIcons() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

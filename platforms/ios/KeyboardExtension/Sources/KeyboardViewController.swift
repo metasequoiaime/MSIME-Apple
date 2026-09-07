@@ -174,7 +174,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     nineKeyContainer.spacing = 6
     let sidebar = UIView()
     sidebar.accessibilityIdentifier = "nineKeySidebar"
-    sidebar.backgroundColor = MetasequoiaTheme.keyBackground.withAlphaComponent(0.5)
+    sidebar.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.5)
     sidebar.layer.cornerRadius = 8
     punctuationStack.axis = .vertical
     punctuationStack.distribution = .fillEqually
@@ -270,13 +270,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   private func makeCandidateStrip() -> UIView {
     let container = UIView()
-    container.backgroundColor = MetasequoiaTheme.keyBackground.withAlphaComponent(0.82)
+    container.accessibilityIdentifier = "candidateStrip"
+    container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
 
     var preeditConfiguration = UIButton.Configuration.plain()
     preeditConfiguration.contentInsets = .zero
     preeditConfiguration.titleLineBreakMode = .byTruncatingHead
-    preeditConfiguration.baseForegroundColor = MetasequoiaTheme.forestUIColor
+    preeditConfiguration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     preeditConfiguration.titleTextAttributesTransformer =
       UIConfigurationTextAttributesTransformer { attributes in
         var attributes = attributes
@@ -379,7 +380,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         attributes.font = .systemFont(ofSize: 14)
         return attributes
       }
-      configuration.baseForegroundColor = MetasequoiaTheme.forestUIColor
+      configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
       button.configuration = configuration
       button.accessibilityLabel = "选择拼音 \(spelling)"
       button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
@@ -422,7 +423,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func attachHintLabel(to button: UIButton) -> UILabel {
     let label = UILabel()
     label.font = .systemFont(ofSize: 9, weight: .regular)
-    label.textColor = MetasequoiaTheme.forestUIColor.withAlphaComponent(0.8)
+    label.textColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.8)
     label.textAlignment = .center
     label.numberOfLines = 1
     label.adjustsFontSizeToFitWidth = true
@@ -717,19 +718,19 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     switch letterCaseState {
     case .lowercase:
       configuration.image = UIImage(systemName: "shift")
-      configuration.background.backgroundColor = MetasequoiaTheme.keyBackground
+      configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
       button.accessibilityLabel = "大写"
       button.accessibilityValue = "关闭"
     case .shifted:
       configuration.image = UIImage(systemName: "shift.fill")
       configuration.background.backgroundColor =
-        MetasequoiaTheme.forestUIColor.withAlphaComponent(0.22)
+        KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
       button.accessibilityLabel = "大写"
       button.accessibilityValue = isAutomaticShift ? "自动开启" : "下一字母"
     case .capsLock:
       configuration.image = UIImage(systemName: "capslock.fill")
       configuration.background.backgroundColor =
-        MetasequoiaTheme.forestUIColor.withAlphaComponent(0.32)
+        KeyboardSkinPreference.selected.accent.withAlphaComponent(0.32)
       button.accessibilityLabel = "大写锁定"
       button.accessibilityValue = "开启"
     }
@@ -740,7 +741,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     var configuration = UIButton.Configuration.filled()
     configuration.title = isChineseMode ? "中" : "英"
     configuration.baseForegroundColor = .white
-    configuration.baseBackgroundColor = KeyboardSkinPreference.selected.accent
+    configuration.baseBackgroundColor = KeyboardSkinPreference.selected.actionBackground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 5, bottom: 3, trailing: 5)
     configuration.background.cornerRadius = 8
@@ -826,7 +827,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
   private func configurePageButton(_ button: UIButton, symbol: String, label: String) {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
-    configuration.baseForegroundColor = MetasequoiaTheme.forestUIColor
+    configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 2, leading: 2, bottom: 2, trailing: 2)
     button.configuration = configuration
@@ -908,10 +909,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
     var configuration = UIButton.Configuration.plain()
     configuration.title = inputScheme == .nineKey ? "九键" : (usesShuangpin ? "小鹤" : "全拼")
-    configuration.baseForegroundColor = MetasequoiaTheme.forestUIColor
+    configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
-    configuration.background.strokeColor = MetasequoiaTheme.forestUIColor.withAlphaComponent(0.35)
+    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.35)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 8
     schemeButton.configuration = configuration
@@ -1132,8 +1133,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     configuration.baseForegroundColor = .label
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
-    configuration.background.backgroundColor = MetasequoiaTheme.keyBackground
-    configuration.background.strokeColor = MetasequoiaTheme.forestUIColor.withAlphaComponent(0.22)
+    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9
 
@@ -1155,7 +1156,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
     configuration.baseForegroundColor = .label
-    configuration.background.backgroundColor = MetasequoiaTheme.keyBackground
+    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.cornerRadius = 8
     let button = UIButton(configuration: configuration)
     if let action {
@@ -1177,8 +1178,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     configuration.baseForegroundColor = emphasized ? .white : .label
     configuration.background.backgroundColor =
       emphasized
-      ? UIColor(red: 167 / 255, green: 103 / 255, blue: 59 / 255, alpha: 1)
-      : MetasequoiaTheme.keyBackground
+      ? KeyboardSkinPreference.selected.actionBackground
+      : KeyboardSkinPreference.selected.keyBackground
     configuration.background.cornerRadius = 8
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       attributes in
@@ -1193,17 +1194,45 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
   private func applyKeyboardSkin() {
     let skin = KeyboardSkinPreference.selected
-    let dark = traitCollection.userInterfaceStyle == .dark
-    view.backgroundColor = dark ? MetasequoiaTheme.keyboardBackground : skin.background
+    view.backgroundColor = skin.background
+    func recolor(_ node: UIView) {
+      if let button = node as? UIButton, var configuration = button.configuration {
+        if let color = configuration.background.backgroundColor, color.cgColor.alpha > 0 {
+          configuration.background.backgroundColor = skin.keyBackground
+        }
+        if configuration.background.strokeWidth > 0 {
+          configuration.background.strokeColor = skin.accent.withAlphaComponent(0.3)
+        }
+        button.configuration = configuration
+      }
+      if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
+        node.backgroundColor = skin.keyBackground.withAlphaComponent(0.6)
+      }
+      node.subviews.forEach { recolor($0) }
+    }
+    recolor(view)
     if var configuration = enterButton?.configuration {
-      configuration.background.backgroundColor = skin.accent
+      configuration.background.backgroundColor = skin.actionBackground
+      configuration.baseForegroundColor = skin.actionForeground
       enterButton?.configuration = configuration
     }
-    if var configuration = languageModeButton.configuration {
-      configuration.baseBackgroundColor = skin.accent
-      languageModeButton.configuration = configuration
-    }
+    updateLanguageModeButton()
+    updateSchemeButton()
+    renderCandidateStrip()
+    updateSpellingStrip()
+    preeditButton.configuration?.baseForegroundColor = skin.accent
+    previousPageButton.configuration?.baseForegroundColor = skin.accent
+    nextPageButton.configuration?.baseForegroundColor = skin.accent
+    for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
+  }
+
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if isViewLoaded, actionRow != nil,
+       previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+      applyKeyboardSkin()
+    }
   }
 
   private func playInputClick() {
