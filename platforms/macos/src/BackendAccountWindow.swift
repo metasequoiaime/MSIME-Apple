@@ -17,11 +17,16 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   @Published var expiresAt = Date.distantPast
   @Published var resendAt = Date.distantPast
   weak var window: NSWindow?
-  private let client = BackendAccountClient()
-  private let account = BackendAccountSession.shared
+  private let client: BackendAccountClient
+  private let account: BackendAccountSession
   private var pending: Task<Void, Never>?
   private var appleController: ASAuthorizationController?
   private var appleChallenge: String?
+
+  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
+    self.client = client; self.account = account
+    super.init()
+  }
 
   func perform(_ action: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }
@@ -30,36 +35,43 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       defer { busy = false }
       do { try await action(); try Task.checkCancellation() }
       catch is CancellationError { }
-      catch { message = error.localizedDescription }
+      catch { if !Task.isCancelled { message = error.localizedDescription } }
     }
   }
   func load() {
     perform {
       self.user = try await self.account.user()
       self.name = self.user?.preferredDisplayName ?? ""
-      self.providers = try await self.client.providers()
+      let providers = try await self.client.providers()
+      try Task.checkCancellation()
+      self.providers = providers
     }
   }
   func requestCode() {
+    guard resendAt <= Date() else { return }
     perform {
       guard self.providers[self.channel] == true else { throw BackendAccountClient.Failure(status: 503) }
-      self.challenge = try await self.client.challenge(provider: self.channel, target: self.target.trimmingCharacters(in: .whitespacesAndNewlines))
-      self.expiresAt = Date().addingTimeInterval(TimeInterval(self.challenge!.expires_in))
+      let response = try await self.client.challenge(provider: self.channel, target: self.target.trimmingCharacters(in: .whitespacesAndNewlines))
+      try Task.checkCancellation()
+      self.challenge = response
+      self.expiresAt = Date().addingTimeInterval(TimeInterval(response.expires_in))
       self.resendAt = Date().addingTimeInterval(60)
       self.code = ""
     }
   }
   func codeLogin() {
-    guard let challenge, expiresAt > Date() else { return }
+    guard let challenge, expiresAt > Date(), code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { return }
     perform {
       try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code)
-      self.user = try await self.account.user(); self.name = self.user?.preferredDisplayName ?? ""
+      let user = try await self.account.user()
+      try Task.checkCancellation()
+      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
       self.challenge = nil; self.code = ""; self.target = ""
     }
   }
   func appleLogin() {
     perform {
-      guard self.providers["apple"] == true else { throw BackendAccountClient.Failure(status: 503) }
+      guard self.window != nil, self.providers["apple"] == true else { throw BackendAccountClient.Failure(status: 503) }
       let challenge = try await self.client.challenge(provider: "apple")
       try Task.checkCancellation()
       guard let nonce = challenge.nonce else { throw BackendAccountClient.Failure(status: 503) }
@@ -79,7 +91,9 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
           let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
     perform {
       try await self.account.signIn(challenge: challenge, credential: token)
-      self.user = try await self.account.user(); self.name = self.user?.preferredDisplayName ?? ""
+      let user = try await self.account.user()
+      try Task.checkCancellation()
+      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
     }
   }
   func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
@@ -98,6 +112,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       try await self.client.rename(value, token: identity.token)
       let profile = try await self.client.profile(token: identity.token)
       try await self.account.updateUser(profile.user, matching: identity.token)
+      try Task.checkCancellation()
       self.user = profile.user; self.name = profile.user.preferredDisplayName
     }
   }

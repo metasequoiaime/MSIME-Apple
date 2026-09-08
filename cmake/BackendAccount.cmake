@@ -29,3 +29,18 @@ add_library(MSIMEBackendAccount STATIC IMPORTED GLOBAL)
 set_target_properties(MSIMEBackendAccount PROPERTIES IMPORTED_LOCATION "${MSIME_ACCOUNT_LIBRARY}")
 add_dependencies(MSIMEBackendAccount MSIMEBackendAccountBuild)
 target_link_directories(MSIMEBackendAccount INTERFACE /usr/lib/swift "${MSIME_SWIFT_BIN}/../lib/swift/macosx")
+
+if(BUILD_TESTING)
+    set(MSIME_ACCOUNT_TEST "${CMAKE_CURRENT_BINARY_DIR}/backend-account/BackendAccountTests")
+    add_custom_command(OUTPUT "${MSIME_ACCOUNT_TEST}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/backend-account"
+        COMMAND "${MSIME_SWIFTC}" -sdk "${MSIME_SWIFT_SDK}" -parse-as-library
+            -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET}"
+            ${MSIME_ACCOUNT_SOURCES} "${METASEQUOIA_MACOS_ROOT}/tests/BackendAccountTests.swift"
+            -o "${MSIME_ACCOUNT_TEST}"
+        DEPENDS ${MSIME_ACCOUNT_SOURCES} "${METASEQUOIA_MACOS_ROOT}/tests/BackendAccountTests.swift"
+        VERBATIM)
+    add_custom_target(MSIMEBackendAccountTestsBuild ALL DEPENDS "${MSIME_ACCOUNT_TEST}")
+    add_test(NAME backend_account COMMAND "${MSIME_ACCOUNT_TEST}")
+    set_tests_properties(backend_account PROPERTIES TIMEOUT 30)
+endif()
