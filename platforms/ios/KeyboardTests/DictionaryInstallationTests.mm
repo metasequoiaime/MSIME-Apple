@@ -150,8 +150,9 @@
     // Restored state owns a separate journal as well as separate derived files.
     NSString *snapshotID = NSUUID.UUID.UUIDString;
     const auto directory = metasequoia::apple::DictionarySnapshotDirectory(user, snapshotID);
-    const auto restored = metasequoia::stage_dictionary_state(resources.fileSystemRepresentation, directory,
-        nextGeneration.UTF8String, [](metasequoia::DictionaryStateRecord &) { return false; });
+    const auto restored =
+        metasequoia::stage_dictionary_state(resources.fileSystemRepresentation, directory, nextGeneration.UTF8String,
+                                            [](metasequoia::DictionaryStateRecord &) { return false; });
     XCTAssertTrue([metasequoia::apple::ActiveDictionarySnapshotIdentifier(user) isEqualToString:@""]);
     metasequoia::apple::PublishDictionaryInstallation(user, snapshotID, restored, @"");
     auto restoredStartup = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
@@ -177,13 +178,25 @@
         XCTAssertTrue(adapter.select_candidate(1).commit == "补好");
     }
     bool rejectedPublication = false;
-    try { metasequoia::apple::PublishDictionaryInstallation(user, snapshotID, restored, @""); }
-    catch (const std::exception &) { rejectedPublication = true; }
+    try
+    {
+        metasequoia::apple::PublishDictionaryInstallation(user, snapshotID, restored, @"");
+    }
+    catch (const std::exception &)
+    {
+        rejectedPublication = true;
+    }
     XCTAssertTrue(rejectedPublication);
     XCTAssertTrue([metasequoia::apple::ActiveDictionarySnapshotIdentifier(user) isEqualToString:snapshotID]);
     rejectedPublication = false;
-    try { metasequoia::apple::PublishDictionaryInstallation(user, NSUUID.UUID.UUIDString, restored, snapshotID); }
-    catch (const std::exception &) { rejectedPublication = true; }
+    try
+    {
+        metasequoia::apple::PublishDictionaryInstallation(user, NSUUID.UUID.UUIDString, restored, snapshotID);
+    }
+    catch (const std::exception &)
+    {
+        rejectedPublication = true;
+    }
     XCTAssertTrue(rejectedPublication);
     // A new resource release replays the restored journal, never the old root journal.
     seed(@"msime.db", "CREATE TABLE snapshot_release(value INTEGER);");
@@ -206,8 +219,14 @@
     XCTAssertTrue([manager removeItemAtURL:activeMarker error:nil]);
     XCTAssertTrue([manager createDirectoryAtURL:activeMarker withIntermediateDirectories:NO attributes:nil error:nil]);
     bool invalidMarker = false;
-    try { metasequoia::apple::ActiveDictionarySnapshotIdentifier(user); }
-    catch (const std::exception &) { invalidMarker = true; }
+    try
+    {
+        metasequoia::apple::ActiveDictionarySnapshotIdentifier(user);
+    }
+    catch (const std::exception &)
+    {
+        invalidMarker = true;
+    }
     XCTAssertTrue(invalidMarker);
     XCTAssertTrue([manager removeItemAtURL:activeMarker error:nil]);
     XCTAssertTrue([snapshotID writeToURL:activeMarker atomically:YES encoding:NSUTF8StringEncoding error:nil]);

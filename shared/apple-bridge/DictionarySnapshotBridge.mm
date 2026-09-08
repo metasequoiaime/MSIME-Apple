@@ -51,11 +51,16 @@ metasequoia::DictionaryStateRecord Decode(NSDictionary *record)
     {
         DictionaryStateEntry entry;
         const auto kind = Text(data, @"kind");
-        if (kind == "pinyin") entry.kind = PersonalDictionaryKind::Pinyin;
-        else if (kind == "wubi") entry.kind = PersonalDictionaryKind::Wubi;
-        else if (kind == "quick") entry.kind = PersonalDictionaryKind::QuickPhrase;
-        else if (kind == "english") entry.kind = PersonalDictionaryKind::English;
-        else throw std::runtime_error("Invalid snapshot kind");
+        if (kind == "pinyin")
+            entry.kind = PersonalDictionaryKind::Pinyin;
+        else if (kind == "wubi")
+            entry.kind = PersonalDictionaryKind::Wubi;
+        else if (kind == "quick")
+            entry.kind = PersonalDictionaryKind::QuickPhrase;
+        else if (kind == "english")
+            entry.kind = PersonalDictionaryKind::English;
+        else
+            throw std::runtime_error("Invalid snapshot kind");
         entry.key = code;
         entry.value = word;
         entry.weight = Integer(data, @"weight");
@@ -70,18 +75,20 @@ metasequoia::DictionaryStateRecord Decode(NSDictionary *record)
     if (type == "position")
     {
         const auto position = Integer(data, @"position");
-        if (position < 1 || position > 5) throw std::runtime_error("Invalid snapshot position");
+        if (position < 1 || position > 5)
+            throw std::runtime_error("Invalid snapshot position");
         return DictionaryStatePosition{context, code, word, static_cast<int>(position)};
     }
     if (type == "selection")
     {
         const auto count = Integer(data, @"count");
-        if (count < 0 || count > 10) throw std::runtime_error("Invalid snapshot count");
+        if (count < 0 || count > 10)
+            throw std::runtime_error("Invalid snapshot count");
         return DictionaryStateSelection{context, code, word, static_cast<int>(count)};
     }
     throw std::runtime_error("Invalid snapshot type");
 }
-}
+} // namespace
 
 namespace metasequoia::apple
 {
@@ -91,7 +98,11 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
     CC_SHA256_Init(&hash);
     const auto integer = [&](std::uint64_t value) {
         std::array<unsigned char, 8> bytes;
-        for (int index = 7; index >= 0; --index) { bytes[index] = value & 255; value >>= 8; }
+        for (int index = 7; index >= 0; --index)
+        {
+            bytes[index] = value & 255;
+            value >>= 8;
+        }
         CC_SHA256_Update(&hash, bytes.data(), static_cast<CC_LONG>(bytes.size()));
     };
     const auto text = [&](const std::string &value) {
@@ -100,30 +111,50 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
     };
     text("msime-local-dictionary-state-v1");
     stream_dictionary_state(paths, [&](const DictionaryStateRecord &record) {
-        std::visit([&](const auto &value) {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, DictionaryStateEntry>)
-            {
-                text("entry");
-                switch (value.kind)
+        std::visit(
+            [&](const auto &value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, DictionaryStateEntry>)
                 {
-                case PersonalDictionaryKind::Pinyin: text("pinyin"); break;
-                case PersonalDictionaryKind::Wubi: text("wubi"); break;
-                case PersonalDictionaryKind::QuickPhrase: text("quick"); break;
-                case PersonalDictionaryKind::English: text("english"); break;
+                    text("entry");
+                    switch (value.kind)
+                    {
+                    case PersonalDictionaryKind::Pinyin:
+                        text("pinyin");
+                        break;
+                    case PersonalDictionaryKind::Wubi:
+                        text("wubi");
+                        break;
+                    case PersonalDictionaryKind::QuickPhrase:
+                        text("quick");
+                        break;
+                    case PersonalDictionaryKind::English:
+                        text("english");
+                        break;
+                    }
+                    text(value.key);
+                    text(value.value);
+                    integer(value.weight);
+                    text(value.display);
+                    integer(value.deleted);
+                    integer(value.user_inserted);
                 }
-                text(value.key); text(value.value); integer(value.weight); text(value.display);
-                integer(value.deleted); integer(value.user_inserted);
-            }
-            else
-            {
-                if constexpr (std::is_same_v<T, DictionaryStatePosition>) text("position");
-                else text("selection");
-                text(value.context); text(value.key); text(value.value);
-                if constexpr (std::is_same_v<T, DictionaryStatePosition>) integer(value.position);
-                else integer(value.count);
-            }
-        }, record);
+                else
+                {
+                    if constexpr (std::is_same_v<T, DictionaryStatePosition>)
+                        text("position");
+                    else
+                        text("selection");
+                    text(value.context);
+                    text(value.key);
+                    text(value.value);
+                    if constexpr (std::is_same_v<T, DictionaryStatePosition>)
+                        integer(value.position);
+                    else
+                        integer(value.count);
+                }
+            },
+            record);
         return true;
     });
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
@@ -131,10 +162,14 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
     const char digits[] = "0123456789abcdef";
     std::string result;
     result.reserve(64);
-    for (const auto byte : digest) { result += digits[byte >> 4]; result += digits[byte & 15]; }
+    for (const auto byte : digest)
+    {
+        result += digits[byte >> 4];
+        result += digits[byte & 15];
+    }
     return result;
 }
-}
+} // namespace metasequoia::apple
 
 @interface MSIMEPreparedDictionarySnapshot ()
 - (instancetype)initWithIdentifier:(NSString *)identifier paths:(const metasequoia::RuntimePaths &)paths;
@@ -146,17 +181,29 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
 }
 - (instancetype)initWithIdentifier:(NSString *)identifier paths:(const metasequoia::RuntimePaths &)paths
 {
-    if ((self = [super init])) { _identifier = [identifier copy]; _paths = paths; }
+    if ((self = [super init]))
+    {
+        _identifier = [identifier copy];
+        _paths = paths;
+    }
     return self;
 }
-- (const metasequoia::RuntimePaths &)runtimePaths { return _paths; }
+- (const metasequoia::RuntimePaths &)runtimePaths
+{
+    return _paths;
+}
 - (NSString *)stateRevisionWithError:(NSError **)error
 {
-    try { return [NSString stringWithUTF8String:metasequoia::apple::DictionaryStateRevision(_paths).c_str()]; }
+    try
+    {
+        return [NSString stringWithUTF8String:metasequoia::apple::DictionaryStateRevision(_paths).c_str()];
+    }
     catch (const std::exception &)
     {
-        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:2
-            userInfo:@{NSLocalizedDescriptionKey: @"无法读取本地词库版本，请稍后重试。"}];
+        if (error)
+            *error = [NSError errorWithDomain:@"app.msime.snapshot"
+                                         code:2
+                                     userInfo:@{NSLocalizedDescriptionKey : @"无法读取本地词库版本，请稍后重试。"}];
         return nil;
     }
 }
@@ -165,44 +212,68 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
 @implementation DictionarySnapshotBridge
 + (BOOL)discardInactiveIdentifier:(NSString *)identifier userDirectory:(NSURL *)user error:(NSError **)error
 {
-    try { metasequoia::apple::DiscardInactiveDictionarySnapshot(user, identifier); return YES; }
+    try
+    {
+        metasequoia::apple::DiscardInactiveDictionarySnapshot(user, identifier);
+        return YES;
+    }
     catch (const std::exception &)
     {
-        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:1
-            userInfo:@{NSLocalizedDescriptionKey: @"无法清理未应用的词库快照。"}];
+        if (error)
+            *error = [NSError errorWithDomain:@"app.msime.snapshot"
+                                         code:1
+                                     userInfo:@{NSLocalizedDescriptionKey : @"无法清理未应用的词库快照。"}];
         return NO;
     }
 }
 
-+ (MSIMEPreparedDictionarySnapshot *)prepareResources:(NSURL *)resources userDirectory:(NSURL *)user
-                                           identifier:(NSString *)identifier contentIdentifier:(NSString *)contentIdentifier
-                                       maximumRecords:(NSUInteger)maximumRecords nextRecord:(MSIMESnapshotNextRecord)nextRecord
++ (MSIMEPreparedDictionarySnapshot *)prepareResources:(NSURL *)resources
+                                        userDirectory:(NSURL *)user
+                                           identifier:(NSString *)identifier
+                                    contentIdentifier:(NSString *)contentIdentifier
+                                       maximumRecords:(NSUInteger)maximumRecords
+                                           nextRecord:(MSIMESnapshotNextRecord)nextRecord
                                                 error:(NSError **)error
 {
     NSError *streamError = nil;
     try
     {
         if (!resources.isFileURL || !user.isFileURL || maximumRecords == 0 || contentIdentifier.length != 128 ||
-            [contentIdentifier rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet]].location != NSNotFound)
+            [contentIdentifier
+                rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"]
+                                            invertedSet]]
+                    .location != NSNotFound)
             throw std::runtime_error("Invalid snapshot preparation");
-        auto paths = metasequoia::stage_dictionary_state(resources.fileSystemRepresentation,
-            metasequoia::apple::DictionarySnapshotDirectory(user, identifier), contentIdentifier.UTF8String,
+        auto paths = metasequoia::stage_dictionary_state(
+            resources.fileSystemRepresentation, metasequoia::apple::DictionarySnapshotDirectory(user, identifier),
+            contentIdentifier.UTF8String,
             [&](metasequoia::DictionaryStateRecord &record) {
-                @autoreleasepool {
+                @autoreleasepool
+                {
                     NSError *failure = nil;
                     NSDictionary *next = nextRecord(&failure);
-                    if (failure) { streamError = failure; throw std::runtime_error("Snapshot stream failed"); }
-                    if (!next) return false;
+                    if (failure)
+                    {
+                        streamError = failure;
+                        throw std::runtime_error("Snapshot stream failed");
+                    }
+                    if (!next)
+                        return false;
                     record = Decode(next);
                     return true;
                 }
-            }, maximumRecords);
+            },
+            maximumRecords);
         return [[MSIMEPreparedDictionarySnapshot alloc] initWithIdentifier:identifier paths:paths];
     }
     catch (const std::exception &)
     {
-        if (error) *error = streamError ?: [NSError errorWithDomain:@"app.msime.snapshot" code:1
-            userInfo:@{NSLocalizedDescriptionKey: @"词库快照准备失败，原有词库未更改。"}];
+        if (error)
+            *error =
+                streamError
+                    ?: [NSError errorWithDomain:@"app.msime.snapshot"
+                                           code:1
+                                       userInfo:@{NSLocalizedDescriptionKey : @"词库快照准备失败，原有词库未更改。"}];
         return nil;
     }
 }

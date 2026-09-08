@@ -8,7 +8,8 @@
 @implementation DictionarySessionLeaseTests
 - (void)testExclusivePublicationWaitsForOtherSessionsAndRestoresAfterFailure
 {
-    NSURL *root = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    NSURL *root =
+        [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
     using metasequoia::apple::DictionarySessionLease;
     {
         DictionarySessionLease first(root);
@@ -19,8 +20,14 @@
         XCTAssertFalse(other->exclusively([&] { ran = true; }));
         other.reset();
         bool failed = false;
-        try { first.exclusively([] { throw std::runtime_error("synthetic publication failure"); }); }
-        catch (const std::exception &) { failed = true; }
+        try
+        {
+            first.exclusively([] { throw std::runtime_error("synthetic publication failure"); });
+        }
+        catch (const std::exception &)
+        {
+            failed = true;
+        }
         XCTAssertTrue(failed);
         other = std::make_unique<DictionarySessionLease>(root);
         XCTAssertFalse(other->exclusively([&] { ran = true; }));

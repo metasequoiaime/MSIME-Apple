@@ -21,24 +21,40 @@
             NSDictionary *context = [session dictionarySnapshotContextWithError:&error];
             XCTAssertNotNil(context);
             XCTAssertNil(error);
-            if (!context) return;
+            if (!context)
+                return;
             user = context[@"user"];
             originalVersion = context[@"localVersion"];
-            originalMarker = [NSData dataWithContentsOfURL:[user URLByAppendingPathComponent:@"active-user-generation"]];
+            originalMarker =
+                [NSData dataWithContentsOfURL:[user URLByAppendingPathComponent:@"active-user-generation"]];
             __block BOOL emitted = NO;
-            MSIMEPreparedDictionarySnapshot *prepared = [DictionarySnapshotBridge
-                prepareResources:context[@"resources"] userDirectory:user identifier:identifier
-                contentIdentifier:context[@"contentIdentifier"] maximumRecords:1
-                nextRecord:^NSDictionary *(NSError **failure) {
-                    if (emitted) return nil;
-                    emitted = YES;
-                    return @{@"type": @"overlay", @"deleted": @NO,
-                        @"data": @{@"kind": @"quick", @"code": @"activationfixture", @"word": @"合成应用验收",
-                                   @"weight": @100000, @"user_inserted": @YES}};
-                } error:&error];
+            MSIMEPreparedDictionarySnapshot *prepared =
+                [DictionarySnapshotBridge prepareResources:context[@"resources"]
+                                             userDirectory:user
+                                                identifier:identifier
+                                         contentIdentifier:context[@"contentIdentifier"]
+                                            maximumRecords:1
+                                                nextRecord:^NSDictionary *(NSError **failure) {
+                                                  if (emitted)
+                                                      return nil;
+                                                  emitted = YES;
+                                                  return @{
+                                                      @"type" : @"overlay",
+                                                      @"deleted" : @NO,
+                                                      @"data" : @{
+                                                          @"kind" : @"quick",
+                                                          @"code" : @"activationfixture",
+                                                          @"word" : @"合成应用验收",
+                                                          @"weight" : @100000,
+                                                          @"user_inserted" : @YES
+                                                      }
+                                                  };
+                                                }
+                                                     error:&error];
             XCTAssertNotNil(prepared);
             XCTAssertNil(error);
-            if (!prepared) return;
+            if (!prepared)
+                return;
             MetasequoiaInputSessionBridge *other = [[MetasequoiaInputSessionBridge alloc] init];
             XCTAssertFalse([session activateDictionarySnapshot:prepared expectedVersion:originalVersion error:&error]);
             XCTAssertEqual(error.code, 423);
@@ -62,15 +78,24 @@
             NSArray *entries = page[@"entries"];
             XCTAssertEqual(entries.count, 1u);
             XCTAssertEqualObjects(entries.firstObject[@"value"], @"合成应用验收");
-            NSDictionary *newWord = @{@"kind": @"quickPhrase", @"key": @"afteractivation", @"value": @"应用后合成词条", @"weight": @100000};
-            XCTAssertTrue([session applyPersonalPrevious:nil replacement:newWord requestID:NSUUID.UUID.UUIDString error:&error]);
+            NSDictionary *newWord = @{
+                @"kind" : @"quickPhrase",
+                @"key" : @"afteractivation",
+                @"value" : @"应用后合成词条",
+                @"weight" : @100000
+            };
+            XCTAssertTrue([session applyPersonalPrevious:nil
+                                             replacement:newWord
+                                               requestID:NSUUID.UUID.UUIDString
+                                                   error:&error]);
             XCTAssertTrue([session activateDictionarySnapshot:prepared expectedVersion:originalVersion error:&error]);
             XCTAssertTrue([other resumeDictionarySessionWithError:&error]);
             XCTAssertNil(error);
             NSString *beforeLearning = [other localDictionaryStateVersionWithError:&error];
             XCTAssertTrue([beforeLearning hasPrefix:prefix]);
             MetasequoiaInputSnapshot *nineKey = nil;
-            for (NSString *key in @[@"2", @"8", @"4", @"2", @"6"]) nineKey = [other handleCharacter:key];
+            for (NSString *key in @[ @"2", @"8", @"4", @"2", @"6" ])
+                nineKey = [other handleCharacter:key];
             XCTAssertTrue(nineKey.isHandled);
             XCTAssertGreaterThan(nineKey.candidates.count, 1u);
             [other selectCandidateAtIndex:1];
@@ -89,9 +114,12 @@
             // Restore the simulator's original pointer only after every test
             // session has released its lease; original journal files were untouched.
             NSURL *marker = [user URLByAppendingPathComponent:@"active-user-generation"];
-            if (originalMarker) XCTAssertTrue([originalMarker writeToURL:marker atomically:YES]);
-            else [manager removeItemAtURL:marker error:nil];
-            NSURL *created = [[user URLByAppendingPathComponent:@"snapshot-generations"] URLByAppendingPathComponent:identifier];
+            if (originalMarker)
+                XCTAssertTrue([originalMarker writeToURL:marker atomically:YES]);
+            else
+                [manager removeItemAtURL:marker error:nil];
+            NSURL *created =
+                [[user URLByAppendingPathComponent:@"snapshot-generations"] URLByAppendingPathComponent:identifier];
             [manager removeItemAtURL:created error:nil];
             @autoreleasepool
             {

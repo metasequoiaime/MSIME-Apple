@@ -199,7 +199,7 @@ PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
 }
 
 bool InputSessionAdapter::activate_dictionary_generation(const RuntimePaths &paths,
-                                                        const std::function<void()> &publish)
+                                                         const std::function<void()> &publish)
 {
     const auto current = impl_->session.snapshot();
     if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)

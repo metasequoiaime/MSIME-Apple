@@ -104,8 +104,12 @@ std::filesystem::path DictionarySnapshotDirectory(NSURL *user, NSString *identif
     if (!IsSnapshotIdentifier(identifier))
         throw std::runtime_error("Invalid snapshot identifier");
     NSURL *parent = [user URLByAppendingPathComponent:@"snapshot-generations" isDirectory:YES];
-    if (![NSFileManager.defaultManager createDirectoryAtURL:parent withIntermediateDirectories:YES
-                                                attributes:@{NSFilePosixPermissions: @0700} error:nil])
+    if (![NSFileManager.defaultManager createDirectoryAtURL:parent
+                                withIntermediateDirectories:YES
+                                                 attributes:@{
+                                                     NSFilePosixPermissions : @0700
+                                                 }
+                                                      error:nil])
         throw std::runtime_error("Cannot create snapshot parent");
     return [parent URLByAppendingPathComponent:identifier].fileSystemRepresentation;
 }
@@ -113,7 +117,8 @@ std::filesystem::path DictionarySnapshotDirectory(NSURL *user, NSString *identif
 bool DiscardInactiveDictionarySnapshot(NSURL *user, NSString *identifier)
 {
     PreparationLock lock(user);
-    if ([ActiveDictionarySnapshotIdentifier(user) isEqualToString:identifier]) return false;
+    if ([ActiveDictionarySnapshotIdentifier(user) isEqualToString:identifier])
+        return false;
     std::filesystem::remove_all(DictionarySnapshotDirectory(user, identifier));
     return true;
 }
@@ -137,12 +142,18 @@ void PublishDictionaryInstallation(NSURL *user, NSString *identifier, const Runt
         !HasDictionaries(paths.dictionaries) || !std::filesystem::is_regular_file(paths.dictionaries / ".ready") ||
         !std::filesystem::is_regular_file(paths.user_data / "msime_user.db"))
         throw std::runtime_error("Snapshot generation is not ready");
-    NSURL *preparedUser = [NSURL fileURLWithFileSystemRepresentation:paths.user_data.c_str() isDirectory:YES relativeToURL:nil];
+    NSURL *preparedUser = [NSURL fileURLWithFileSystemRepresentation:paths.user_data.c_str()
+                                                         isDirectory:YES
+                                                       relativeToURL:nil];
     if (![contentID writeToURL:[preparedUser URLByAppendingPathComponent:@"active-dictionary-generation"]
-                    atomically:YES encoding:NSUTF8StringEncoding error:nil])
+                    atomically:YES
+                      encoding:NSUTF8StringEncoding
+                         error:nil])
         throw std::runtime_error("Cannot save snapshot content generation");
     if (![identifier writeToURL:[user URLByAppendingPathComponent:@"active-user-generation"]
-                     atomically:YES encoding:NSUTF8StringEncoding error:nil])
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:nil])
         throw std::runtime_error("Cannot publish snapshot generation");
 }
 
@@ -161,12 +172,12 @@ DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *ro
         NSString *snapshot = ActiveDictionarySnapshotIdentifier(rootUser);
         if (snapshot.length > 0)
         {
-            NSURL *generation = [[rootUser URLByAppendingPathComponent:@"snapshot-generations"]
-                URLByAppendingPathComponent:snapshot];
+            NSURL *generation =
+                [[rootUser URLByAppendingPathComponent:@"snapshot-generations"] URLByAppendingPathComponent:snapshot];
             user = [generation URLByAppendingPathComponent:@"user"];
             cache = [generation URLByAppendingPathComponent:@"cache"];
-            fallback = {resources.fileSystemRepresentation, user.fileSystemRepresentation, cache.fileSystemRepresentation,
-                        user.fileSystemRepresentation};
+            fallback = {resources.fileSystemRepresentation, user.fileSystemRepresentation,
+                        cache.fileSystemRepresentation, user.fileSystemRepresentation};
             if (!std::filesystem::is_regular_file(fallback.user_data / "msime_user.db"))
                 throw std::runtime_error("Active snapshot journal is missing");
         }
@@ -233,12 +244,16 @@ DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *ro
                     fallback.dictionaries = fallback.user_data;
                 }
             }
-            catch (const std::exception &) { }
+            catch (const std::exception &)
+            {
+            }
         }
         // The preparation lock or bundle verification can fail before the normal
         // fallback lookup. Keep the last ready dictionary in the selected journal.
         NSString *previous = ReadText([[NSURL fileURLWithFileSystemRepresentation:fallback.user_data.c_str()
-            isDirectory:YES relativeToURL:nil] URLByAppendingPathComponent:@"active-dictionary-generation"]);
+                                                                      isDirectory:YES
+                                                                    relativeToURL:nil]
+            URLByAppendingPathComponent:@"active-dictionary-generation"]);
         if (IsGeneration(previous))
         {
             const auto directory = fallback.user_data / "dictionaries" / previous.UTF8String;
