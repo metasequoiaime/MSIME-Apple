@@ -410,6 +410,14 @@ class ReleasePackageTests(unittest.TestCase):
             temporary = Path(temporary_directory)
             legacy_bundle = temporary / "MetasequoiaIME.app"
             shutil.copytree(bundle, legacy_bundle, symlinks=True)
+            # Exercise independent release builds even when the development bundle uses semver.
+            build_number = "1002.55.1" if version != "1002.55.1" else "1002.55.2"
+            legacy_info_path = legacy_bundle / "Contents/Info.plist"
+            with legacy_info_path.open("rb") as info_file:
+                legacy_info = plistlib.load(info_file)
+            legacy_info["CFBundleVersion"] = build_number
+            with legacy_info_path.open("wb") as info_file:
+                plistlib.dump(legacy_info, info_file)
             legacy_uninstaller = legacy_bundle / "Contents/Resources/Uninstall.command"
             legacy_uninstaller.unlink()
             subprocess.run(
@@ -497,6 +505,7 @@ class ReleasePackageTests(unittest.TestCase):
                 {
                     "PATH": f"{fake_bin}:{environment['PATH']}",
                     "FAKE_SIGNING_LOG": str(signing_log),
+                    "METASEQUOIA_BUILD_NUMBER": build_number,
                     "METASEQUOIA_REQUIRE_RELEASE_SIGNING": "true",
                     "METASEQUOIA_DEVELOPER_ID_APPLICATION": "Developer ID Application: Test",
                     "METASEQUOIA_DEVELOPER_ID_INSTALLER": "Developer ID Installer: Test",
@@ -589,6 +598,13 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertIn("Developer ID signed and notarized", installer_readme)
             self.assertNotIn("UNSIGNED TEST BUILD", installer_readme)
             component_info_path = next(expanded_package.glob("*.pkg/PackageInfo"))
+            component_info = ElementTree.parse(component_info_path).getroot()
+            self.assertEqual(component_info.attrib["version"], build_number)
+            distribution = ElementTree.parse(expanded_package / "Distribution").getroot()
+            package_reference = next(
+                reference for reference in distribution.findall("pkg-ref") if reference.text
+            )
+            self.assertEqual(package_reference.attrib["version"], build_number)
             installer_uninstaller = (
                 component_info_path.parent / "Payload/MetasequoiaIME.app/Contents/Resources/Uninstall.command"
             )
@@ -642,6 +658,7 @@ class ReleasePackageTests(unittest.TestCase):
         with (bundle / "Contents/Info.plist").open("rb") as info_file:
             bundle_info = plistlib.load(info_file)
             dictionary_fingerprint = bundle_info["MetasequoiaDictionarySHA256"]
+            build_number = bundle_info["CFBundleVersion"]
         self.assertTrue(dictionary.is_file())
         self.assertEqual(dictionary_fingerprint, sha256_file(dictionary))
 
@@ -739,6 +756,7 @@ class ReleasePackageTests(unittest.TestCase):
             for variable in SIGNING_ENVIRONMENT:
                 environment.pop(variable, None)
             environment["METASEQUOIA_RELEASE_ASSET_SUFFIX"] = "-unsigned"
+            environment["METASEQUOIA_BUILD_NUMBER"] = build_number
             trusted_packager = Path(temporary_directory) / "package-release.sh"
             shutil.copy2(MACOS_ROOT / "scripts/package_release.sh", trusted_packager)
             environment["METASEQUOIA_PROJECT_ROOT"] = str(PROJECT_ROOT)
@@ -1085,6 +1103,7 @@ class ReleasePackageTests(unittest.TestCase):
                 and reference.text
             )
             self.assertNotIn("onConclusion", package_reference.attrib)
+            self.assertEqual(package_reference.attrib["version"], build_number)
             installer_readme = (expanded_package / "Resources/InstallerReadMe.txt").read_text()
             self.assertIn("UNSIGNED TEST BUILD", installer_readme)
             self.assertIn("not Developer ID signed or notarized", installer_readme)
@@ -1099,7 +1118,7 @@ class ReleasePackageTests(unittest.TestCase):
             component_info_path = next(expanded_package.glob("*.pkg/PackageInfo"))
             component_info = ElementTree.parse(component_info_path).getroot()
             self.assertEqual(component_info.attrib["identifier"], "com.houko.inputmethod.MetasequoiaIME.pkg")
-            self.assertEqual(component_info.attrib["version"], version)
+            self.assertEqual(component_info.attrib["version"], build_number)
             self.assertEqual(component_info.attrib["install-location"], "Library/Input Methods")
             self.assertEqual(component_info.attrib["relocatable"], "false")
             self.assertEqual(component_info.attrib["auth"], "root")
