@@ -157,11 +157,56 @@ final class KeyboardSkinTests: XCTestCase {
       controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" } as? UIButton)
+      if skin == .custom {
+        let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
+        XCTAssertEqual(surface.design, CustomKeyboardSkinStore.current)
+        XCTAssertEqual(surface.fillColor, skin.actionBackground)
+        continue
+      }
       XCTAssertEqual(key.configuration?.background.cornerRadius, skin.cornerRadius)
       XCTAssertEqual(key.configuration?.background.strokeWidth, skin.borderWidth)
       XCTAssertEqual(key.layer.shadowOpacity, skin.shadowOpacity)
       XCTAssertEqual(key.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
         skin.actionBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+    }
+  }
+
+  @MainActor
+  func testThemedKeySurfacesReachRealKeyboardWithoutChangingLayout() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
+    let selection = KeyboardSkinPreference.selected
+    defer {
+      if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+      defaults.set(selection.rawValue, forKey: KeyboardSkinPreference.key)
+    }
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
+    var referenceFrames: [CGRect]?
+    for (name, template) in CustomKeyboardSkin.templates.prefix(4) {
+      var design = template
+      design.monospaced = false // Typography is independent of key geometry.
+      CustomKeyboardSkinStore.save(design)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+      controller.view.layoutIfNeeded()
+      func visible(_ view: UIView) -> Bool {
+        if view.isHidden { return false }
+        return view.superview.map(visible) ?? true
+      }
+      let keys = descendants(controller.view).compactMap { $0 as? KeyboardKeyButton }.filter(visible)
+      XCTAssertGreaterThan(keys.count, 20)
+      let frames = keys.map { $0.convert($0.bounds, to: controller.view) }
+      if let referenceFrames { XCTAssertEqual(frames, referenceFrames) } else { referenceFrames = frames }
+      for key in keys {
+        let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
+        XCTAssertEqual(surface.design.keyShape, design.keyShape)
+        XCTAssertEqual(surface.design.keyMaterial, design.keyMaterial)
+      }
+      let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }
+      let attachment = XCTAttachment(image: image)
+      attachment.name = "实际键盘-" + name; attachment.lifetime = .keepAlways; add(attachment)
     }
   }
 

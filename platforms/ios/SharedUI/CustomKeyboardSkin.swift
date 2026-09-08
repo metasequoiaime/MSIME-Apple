@@ -1,6 +1,15 @@
 import UIKit
 import ImageIO
 
+enum SkinKeyShape: String, Codable, CaseIterable, Sendable {
+  case rounded, capsule, ticket, pebble
+  var title: String { switch self { case .rounded: return "圆角"; case .capsule: return "胶囊"; case .ticket: return "票券"; case .pebble: return "卵石" } }
+}
+enum SkinKeyMaterial: String, Codable, CaseIterable, Sendable {
+  case flat, raised, glass, paper
+  var title: String { switch self { case .flat: return "哑光"; case .raised: return "立体"; case .glass: return "玻璃"; case .paper: return "纸张" } }
+}
+
 struct CustomKeyboardSkin: Codable, Equatable, Hashable, Sendable {
   var background: UInt32 = 0xE8F0EB
   var keyBackground: UInt32 = 0xFFFFFF
@@ -13,6 +22,8 @@ struct CustomKeyboardSkin: Codable, Equatable, Hashable, Sendable {
   var pattern: Int = 0
   var monospaced = false
   // Optional fields preserve decoding of existing v1 designs.
+  var keyShape: SkinKeyShape?
+  var keyMaterial: SkinKeyMaterial?
   var keyOpacity: Double?
   var gradientEnd: UInt32?
   var gradientHorizontal: Bool?
@@ -156,14 +167,17 @@ extension CustomKeyboardSkin {
     paper.background = 0xE3D6BD; paper.keyBackground = 0xFFF5DF; paper.keyForeground = 0x382A1C
     paper.accent = 0x53391F; paper.actionBackground = 0x53391F
     paper.cornerRadius = 4; paper.borderWidth = 1; paper.shadow = 0.3; paper.monospaced = true; paper.pattern = 1
+    paper.keyShape = .ticket; paper.keyMaterial = .paper
     var night = Self()
     night.background = 0x151022; night.gradientEnd = 0x30224A; night.keyBackground = 0x291E40
     night.keyForeground = 0xFFFFFF; night.accent = 0xD4BBFF; night.actionBackground = 0x69469B
     night.borderWidth = 1; night.customBorderColor = 0xA987E8; night.pattern = 1
+    night.keyShape = .rounded; night.keyMaterial = .glass
     var peach = Self()
     peach.background = 0xFFE0D0; peach.gradientEnd = 0xF9D6E5; peach.keyBackground = 0xFFF8EE
     peach.keyForeground = 0x51283A; peach.accent = 0x84334F; peach.actionBackground = 0x84334F
     peach.cornerRadius = 18; peach.shadow = 0.15; peach.pattern = 3
+    peach.keyShape = .pebble; peach.keyMaterial = .raised
     var blue = Self()
     blue.background = 0xDCEAF8; blue.gradientEnd = 0xDDEFE9; blue.gradientHorizontal = true
     blue.accent = 0x224E75; blue.actionBackground = 0x224E75; blue.borderWidth = 0.5

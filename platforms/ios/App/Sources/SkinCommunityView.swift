@@ -233,8 +233,6 @@ struct CommunityDesignPreview: View {
   private func key(_ text: String) -> some View {
     Text(text).font(.system(size: compact ? 8 : 14, weight: .medium, design: design.monospaced ? .monospaced : .default))
       .foregroundStyle(color(text == "↵" ? CustomKeyboardSkin.readableText(on: design.actionBackground) : design.keyForeground)).frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(color(text == "↵" ? design.actionBackground : design.keyBackground).opacity(text == "↵" ? 1 : design.keyOpacity ?? 1), in: RoundedRectangle(cornerRadius: design.cornerRadius * (compact ? 0.45 : 1)))
-      .overlay(RoundedRectangle(cornerRadius: design.cornerRadius * (compact ? 0.45 : 1)).stroke(color(design.customBorderColor ?? design.accent), lineWidth: design.borderWidth * (compact ? 0.6 : 1)))
-      .shadow(color: .black.opacity(design.shadow), radius: compact ? 1 : 3, y: compact ? 1 : 2)
+      .background { SkinKeySurface(design: design, action: text == "↵", scale: compact ? 0.45 : 1) }
   }
 }

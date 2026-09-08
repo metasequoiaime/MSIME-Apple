@@ -237,6 +237,12 @@ Section("按键配色") {
   ColorPicker("功能键颜色", selection: color(\.actionBackground), supportsOpacity: false)
 }
 Section("键帽设计") {
+  Picker("键帽造型", selection: Binding(get: { design.keyShape ?? .rounded }, set: { update(\.keyShape, $0) })) {
+    ForEach(SkinKeyShape.allCases, id: \.self) { Text($0.title).tag($0) }
+  }.accessibilityIdentifier("customSkinKeyShape")
+  Picker("键帽材质", selection: Binding(get: { design.keyMaterial ?? .flat }, set: { update(\.keyMaterial, $0) })) {
+    ForEach(SkinKeyMaterial.allCases, id: \.self) { Text($0.title).tag($0) }
+  }.accessibilityIdentifier("customSkinKeyMaterial")
   VStack(alignment: .leading) {
     Text("键帽不透明度 · \(Int((design.keyOpacity ?? 1) * 100))%")
     Slider(value: Binding(get: { design.keyOpacity ?? 1 }, set: { update(\.keyOpacity, $0) }), in: 0.25...1, onEditingChanged: trackSlider)

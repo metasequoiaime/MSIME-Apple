@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import UIKit
 
 final class AISkinServiceTests: XCTestCase {
   private func response(_ transform: (inout [[String:Any]]) -> Void = { _ in }) throws -> String {
@@ -37,9 +38,34 @@ final class AISkinServiceTests: XCTestCase {
     for text in ["```json\n{}\n```", "{}", try response { $0.removeLast() },
                  try response { $0[0]["background"] = "https://example.com/image.png" },
                  try response { $0[0]["cornerRadius"] = 100 },
+                 try response { $0[0]["keyShape"] = "external.svg" },
+                 try response { $0[0]["keyMaterial"] = "unknown" },
                  try response { $0[1] = $0[0] },
                  try response { $0[0]["background"] = "#000000"; $0[0]["keyBackground"] = "#FFFFFF" }] {
       XCTAssertThrowsError(try AISkinService.parse(text))
     }
   }
+  @MainActor
+  func testKeyStylesSurviveSavingAndRenderDistinctSurfaces() throws {
+    var images = Set<Data>()
+    for shape in SkinKeyShape.allCases {
+      for material in SkinKeyMaterial.allCases {
+        var skin = CustomKeyboardSkin()
+        skin.keyShape = shape; skin.keyMaterial = material
+        let saved = SavedKeyboardSkin(name: "主题", design: skin)
+        let restored = try JSONDecoder().decode(SavedKeyboardSkin.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(restored.design, skin)
+        let view = SkinKeySurfaceView(frame: CGRect(x: 0, y: 0, width: 44, height: 48))
+        view.design = restored.design; view.fillColor = .systemTeal
+        let image = UIGraphicsImageRenderer(size: view.bounds.size).image { view.layer.render(in: $0.cgContext) }
+        images.insert(try XCTUnwrap(image.pngData()))
+      }
+    }
+    XCTAssertEqual(images.count, 16, "Every geometry/material pair should visibly differ")
+    let rect = CGRect(x: 0, y: 0, width: 44, height: 48)
+    let ticket = SkinKeySurfaceView.path(in: rect, shape: .ticket, radius: 8)
+    XCTAssertFalse(ticket.contains(CGPoint(x: 1, y: 24)))
+    XCTAssertTrue(ticket.contains(CGPoint(x: 22, y: 24)))
+  }
+
 }
