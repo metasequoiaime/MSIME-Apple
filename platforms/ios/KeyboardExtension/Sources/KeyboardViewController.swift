@@ -51,6 +51,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var schemePicker: KeyboardSchemePickerView?
   private let moreShortcut = UIButton()
   private var morePicker: KeyboardMorePickerView?
+  private var layoutPicker: KeyboardMorePickerView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -585,6 +586,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
     moreMenu = UIMenu(children: [
+      UIAction(title: "切换布局", image: UIImage(systemName: "rectangle.split.3x3")) { [weak self] _ in
+        self?.showLayoutPicker()
+      },
       UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
         self?.showClipboardHistory()
       },
@@ -1978,6 +1982,36 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: panel)
   }
 
+  private func showLayoutPicker() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    let menu = UIMenu(title: "键盘布局", children: KeyboardLayoutPreset.allCases.map { layout in
+      UIAction(title: layout.title, image: UIImage(systemName: "rectangle.split.3x3"),
+        state: layout == KeyboardLayoutPreference.selected ? .on : .off) { [weak self] _ in
+        guard let self else { return }
+        KeyboardLayoutPreference.selected = layout
+        closeKeyboardPicker()
+        applyLayoutPreferences()
+        updateKeyboardLayout()
+        updateShortcutButtons()
+        playInputClick()
+      }
+    })
+    let picker = KeyboardMorePickerView(menu: menu, title: "切换布局", onClose: { [weak self] in self?.closeKeyboardPicker() })
+    picker.accessibilityIdentifier = "keyboardLayoutPicker"
+    picker.accessibilityViewIsModal = true
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    layoutPicker = picker
+    UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
   private func showMorePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2043,6 +2077,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func closeKeyboardPicker() {
+    if let picker = layoutPicker {
+      picker.removeFromSuperview()
+      layoutPicker = nil
+      UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+    }
     if let picker = morePicker {
       picker.removeFromSuperview()
       morePicker = nil

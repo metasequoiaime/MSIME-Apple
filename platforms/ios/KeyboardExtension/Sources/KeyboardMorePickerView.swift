@@ -3,12 +3,12 @@ import UIKit
 final class KeyboardMorePickerView: UIView {
   private let rows = UIStackView()
 
-  init(menu: UIMenu, onClose: @escaping () -> Void) {
+  init(menu: UIMenu, title: String = "更多", onClose: @escaping () -> Void) {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardMorePicker"
     backgroundColor = .secondarySystemBackground
     let header = UILabel()
-    header.text = "更多"
+    header.text = title
     header.font = .systemFont(ofSize: 17, weight: .semibold)
     let close = UIButton(type: .system)
     close.setTitle("完成", for: .normal)
@@ -66,12 +66,12 @@ final class KeyboardMorePickerView: UIView {
       for action in actions[index..<min(index + 2, actions.count)] {
         let active = action.state == .on
         let state = menu.title == "按键反馈" ? (active ? "已开启" : "已关闭")
-          : (menu.title == "振动强度" ? (active ? "已选中" : "点击选择") : "点击打开")
+          : (["振动强度", "键盘布局"].contains(menu.title) ? (active ? "已选中" : "点击选择") : "点击打开")
         let card = KeyboardKeyButton()
         var configuration = UIButton.Configuration.filled()
         configuration.title = action.title
         let descriptions = ["剪贴板历史": "最近保存的内容", "AI 润色": "润色选中的文字", "语音结果": "插入识别结果"]
-        configuration.subtitle = descriptions[action.title] ?? (menu.title == "本地输入" ? "离线输入工具" : state)
+        configuration.subtitle = KeyboardLayoutPreset.allCases.first { $0.title == action.title }?.detail ?? descriptions[action.title] ?? (menu.title == "本地输入" ? "离线输入工具" : state)
         configuration.image = action.image ?? UIImage(systemName: "keyboard")
         configuration.imagePlacement = .top
         configuration.imagePadding = 8

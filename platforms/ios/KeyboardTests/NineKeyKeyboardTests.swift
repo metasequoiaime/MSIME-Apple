@@ -314,6 +314,27 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testKeyboardLayoutCardsPersistAndKeepHeight() throws {
+    let previous = KeyboardLayoutPreference.selected
+    defer { KeyboardLayoutPreference.selected = previous }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    for layout in KeyboardLayoutPreset.allCases {
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("moreCard-切换布局", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+      XCTAssertEqual(panel.bounds.height, 260)
+      XCTAssertEqual(try button("moreCard-" + KeyboardLayoutPreference.selected.title, in: controller).accessibilityValue, "已选中")
+      try button("moreCard-" + layout.title, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(KeyboardLayoutPreference.selected, layout)
+      XCTAssertEqual(controller.view.bounds.height, 260)
+      XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+    }
+  }
+
   func testBrandOpensMoreCardsAndUpdatesFeedbackState() throws {
     let previous = KeyboardFeedbackPreference.soundEnabled
     defer { KeyboardFeedbackPreference.defaults.set(previous, forKey: KeyboardFeedbackPreference.soundKey) }
