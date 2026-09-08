@@ -187,6 +187,17 @@ bool InputSessionAdapter::learning_enabled() const
     return learning_enabled_;
 }
 
+bool InputSessionAdapter::idle() const
+{
+    const auto snapshot = impl_->session.snapshot();
+    return snapshot.preedit.empty() && snapshot.local_mode == LocalInputMode::None;
+}
+
+RuntimePaths InputSessionAdapter::runtime_paths() const
+{
+    return impl_->paths;
+}
+
 PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
     const std::optional<PersonalDictionaryEntry> &previous, const std::optional<PersonalDictionaryEntry> &replacement,
     const std::string &request_id)
@@ -203,6 +214,24 @@ PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     return result;
+}
+
+bool InputSessionAdapter::activate_dictionary_generation(const RuntimePaths &paths,
+                                                         const std::function<void()> &publish)
+{
+    const auto current = impl_->session.snapshot();
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
+    paths.validate();
+    auto replacement =
+        std::make_unique<Impl>(paths, current.scheme, impl_->profile_name, learning_enabled_, fuzzy_pinyin_rules_);
+    replacement->nine_key = impl_->nine_key;
+    replacement->session.set_nine_key_enabled(replacement->nine_key);
+    // No throwing operation follows publication: swap only transfers ownership.
+    // Constructing beforehand also keeps the original session intact on failure.
+    publish();
+    impl_.swap(replacement);
+    return true;
 }
 
 PersonalDictionaryPage InputSessionAdapter::personal_words(std::size_t offset, std::size_t limit) const

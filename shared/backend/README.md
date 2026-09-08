@@ -7,3 +7,5 @@
 验证：`swift test --package-path shared/backend`。iOS App 和 ServiceTests 的 XcodeGen 输入包含同一份实现。
 
 `BackendClipboardClient.swift` 提供云剪贴板操作，iOS 账号页连接这些操作；Swift 客户端已用临时账号完成生产 API 往返。大快照、设置和词库同步会使用各自的类型与大小限制，不复用普通 JSON 的 1 MiB 限额。
+
+词库导出通过 `download` 流式写入独占临时目录，普通 JSON 请求仍限制为 1 MiB。下载拒绝重定向、非文本响应、超限及已知长度不完整的文件，失败或取消清理半成品。成功后调用方拥有返回文件及父目录，应在系统分享结束或取消时删除；不要将这些私人文件写入日志或公共缓存。

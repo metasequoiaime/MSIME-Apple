@@ -5,3 +5,5 @@
 #import "KeyboardHostContext.h"
 
 #import "AppServicesBridge.h"
+
+#import "DictionarySnapshotBridge.h"
