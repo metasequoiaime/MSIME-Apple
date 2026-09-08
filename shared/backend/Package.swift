@@ -4,6 +4,6 @@ let package = Package(
   name: "MSIMEBackend", platforms: [.macOS(.v12), .iOS(.v15)],
   products: [.library(name: "MSIMEBackend", targets: ["MSIMEBackend"])],
   targets: [
-    .target(name: "MSIMEBackend", path: ".", exclude: ["Tests", "README.md"], sources: ["BackendAccountClient.swift", "BackendAccountSession.swift", "BackendClipboardClient.swift", "BackendPreferencesClient.swift", "IOSPreferencePlan.swift"]),
+    .target(name: "MSIMEBackend", path: ".", exclude: ["Tests", "README.md"], sources: ["BackendAccountClient.swift", "BackendAccountSession.swift", "BackendClipboardClient.swift", "BackendPreferencesClient.swift", "IOSPreferencePlan.swift", "BackendDictionaryClient.swift"]),
     .testTarget(name: "MSIMEBackendTests", dependencies: ["MSIMEBackend"], path: "Tests")
   ])
