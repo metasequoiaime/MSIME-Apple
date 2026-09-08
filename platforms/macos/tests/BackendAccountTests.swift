@@ -82,7 +82,36 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
     try require(!model.busy)
   }
+  @MainActor static func fileTransfer() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let source = directory.appendingPathComponent("backup.ndjson")
+    let destination = directory.appendingPathComponent("saved.ndjson")
+    let original = Data("existing backup".utf8), replacement = Data("new backup".utf8)
+    try replacement.write(to: source); try original.write(to: destination)
+    var authorizations = 0
+    var rejected = false
+    do {
+      try await MacCloudFileTransfer.save(source, to: destination) {
+        authorizations += 1
+        if authorizations == 2 { throw CancellationError() }
+      }
+    } catch is CancellationError { rejected = true }
+    try require(rejected && authorizations == 2)
+    try require(try Data(contentsOf: destination) == original)
+    try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
+    // A missing download must not destroy an existing user backup either.
+    rejected = false
+    do { try await MacCloudFileTransfer.save(directory.appendingPathComponent("missing"), to: destination) {} }
+    catch { rejected = true }
+    try require(rejected && (try Data(contentsOf: destination)) == original)
+    try await MacCloudFileTransfer.save(source, to: destination) {}
+    try require(try Data(contentsOf: destination) == replacement)
+    try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
+  }
   @MainActor static func main() async throws {
+    try await fileTransfer()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
     let client = BackendAccountClient(configuration: configuration)
