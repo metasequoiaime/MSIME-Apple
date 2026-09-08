@@ -148,7 +148,12 @@ jobs:
         with:
           submodules: recursive
       - name: Install project generator
-        run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
+        run: |
+          brew install boost fmt spdlog nlohmann-json xcodegen
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
       - name: Test shared account transport and session lifecycle
         run: swift test --package-path shared/backend
       - name: Validate keyboard configuration
