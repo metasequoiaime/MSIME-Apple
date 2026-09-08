@@ -344,7 +344,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         ci_workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
         allowed_actions = {
             "actions/checkout", "googleapis/release-please-action", "actions/setup-go",
-            "actions/dependency-review-action", "github/codeql-action/init",
+            "actions/dependency-review-action", "actions/upload-artifact", "github/codeql-action/init",
             "github/codeql-action/analyze",
         }
         used_actions = set()
