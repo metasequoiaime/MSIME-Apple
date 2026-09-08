@@ -8,14 +8,18 @@ on:
     inputs:
       tag:
         description: Existing draft release tag to build and publish
-        required: true
+        required: false
         type: string
+      bump_version:
+        description: Prepare and publish the next semantic version with release-please (leave tag empty)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ github.ref }}
+  group: release-main
   cancel-in-progress: false
 
 jobs:
@@ -29,17 +33,63 @@ jobs:
       issues: write
       pull-requests: write
     outputs:
-      should_publish: ${{ github.event_name == 'workflow_dispatch' || steps.release.outputs.release_created == 'true' || steps.finalized_release.outputs.release_created == 'true' || steps.finalized_promoted_release.outputs.release_created == 'true' }}
-      tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || steps.finalized_promoted_release.outputs.tag_name || steps.finalized_release.outputs.tag_name || steps.release.outputs.tag_name }}
-      target_sha: ${{ github.event_name == 'workflow_dispatch' && steps.requested_release.outputs.target_sha || steps.promote_release_commit.outputs.target_sha || steps.finalized_release.outputs.sha || steps.release.outputs.sha }}
+      should_publish: ${{ (github.event_name == 'workflow_dispatch' && !inputs.bump_version) || steps.build_release.outputs.release_created == 'true' || steps.release.outputs.release_created == 'true' || steps.finalized_release.outputs.release_created == 'true' || steps.finalized_promoted_release.outputs.release_created == 'true' }}
+      tag_name: ${{ steps.build_release.outputs.tag_name || (!inputs.bump_version && inputs.tag) || steps.finalized_promoted_release.outputs.tag_name || steps.finalized_release.outputs.tag_name || steps.release.outputs.tag_name }}
+      target_sha: ${{ steps.build_release.outputs.target_sha || steps.requested_release.outputs.target_sha || steps.promote_release_commit.outputs.target_sha || steps.finalized_release.outputs.sha || steps.release.outputs.sha }}
+      build_number: ${{ steps.build_number.outputs.value }}
     steps:
+      - name: Validate invocation
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          BUMP_VERSION: ${{ inputs.bump_version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$BUMP_VERSION" == true ]]; then
+              test -z "$REQUESTED_TAG"
+            else
+              test -n "$REQUESTED_TAG"
+            fi
+          fi
+      - name: Allocate build number
+        id: build_number
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          # Start above the legacy iOS commit-count builds (491 at migration).
+          # Three numeric components; retries receive a distinct build, up to 99 attempts.
+          test "$GITHUB_RUN_ATTEMPT" -lt 100
+          build="$((1000 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          if [[ "$REQUESTED_TAG" == *-build.* ]]; then
+            build="${REQUESTED_TAG##*-build.}"
+          fi
+          if [[ ! "$build" =~ ^[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "Invalid build number: $build" >&2
+            exit 1
+          fi
+          printf 'value=%s\n' "$build" >> "$GITHUB_OUTPUT"
       - name: Check out release automation
-        if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Capture existing release branch
+      - name: Create automatic build draft
         if: ${{ github.event_name == 'push' }}
+        id: build_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+        run: |
+          version=$(cat version.txt)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version.txt" >&2
+            exit 1
+          fi
+          tag="v$version-build.$BUILD_NUMBER"
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --draft --prerelease
+          printf 'release_created=true\ntag_name=%s\ntarget_sha=%s\n' "$tag" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Capture existing release branch
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) }}
         id: release_branch_before
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,7 +103,7 @@ jobs:
           fi
           printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
       - name: Prepare release
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) }}
         id: release
         continue-on-error: true
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
@@ -62,7 +112,7 @@ jobs:
           # A pull request opened with GITHUB_TOKEN is authored by github-actions[bot], and its pull_request CI run is parked in action_required until a maintainer approves it, so it expires and shows a red check. RELEASE_PLEASE_TOKEN, when set, makes the pull request come from a real account and CI runs on its own.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
       - name: Test and merge release pull request
-        if: ${{ github.event_name == 'push' && steps.release.outputs.prs_created == 'true' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.release.outputs.prs_created == 'true' }}
         id: merge_release_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +120,7 @@ jobs:
           RELEASE_PR: ${{ steps.release.outputs.pr }}
         run: bash platforms/macos/scripts/merge-release-pr.sh
       - name: Promote validated release commit when pull requests are blocked
-        if: ${{ github.event_name == 'push' && steps.release.outcome == 'failure' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.release.outcome == 'failure' }}
         id: promote_release_commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,7 +129,7 @@ jobs:
           EXPECTED_PREVIOUS_RELEASE_SHA: ${{ steps.release_branch_before.outputs.sha }}
         run: bash platforms/macos/scripts/promote-release-branch.sh
       - name: Finalize automated release
-        if: ${{ github.event_name == 'push' && steps.merge_release_pr.outputs.merged == 'true' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.merge_release_pr.outputs.merged == 'true' }}
         id: finalized_release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
@@ -87,7 +137,7 @@ jobs:
           # A pull request opened with GITHUB_TOKEN is authored by github-actions[bot], and its pull_request CI run is parked in action_required until a maintainer approves it, so it expires and shows a red check. RELEASE_PLEASE_TOKEN, when set, makes the pull request come from a real account and CI runs on its own.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
       - name: Create draft release for promoted commit
-        if: ${{ github.event_name == 'push' && steps.promote_release_commit.outputs.promoted == 'true' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.promote_release_commit.outputs.promoted == 'true' }}
         id: finalized_promoted_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,15 +146,15 @@ jobs:
           TAG_NAME: ${{ steps.promote_release_commit.outputs.tag_name }}
         run: bash platforms/macos/scripts/create-promoted-release.sh
       - name: Validate requested draft release
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version }}
         id: requested_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must use the vMAJOR.MINOR.PATCH format." >&2
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
             exit 1
           fi
           release_json=$(gh release view "$TAG_NAME" --json isDraft,targetCommitish)
@@ -120,7 +170,7 @@ jobs:
           fi
           target_sha=$target
           version=$(gh api "repos/$GH_REPO/contents/version.txt?ref=$target_sha" --jq .content | base64 --decode)
-          if [[ "$TAG_NAME" != "v$version" ]]; then
+          if [[ "${TAG_NAME%%-build.*}" != "v$version" ]]; then
             echo "Release $TAG_NAME does not match version.txt ($version)." >&2
             exit 1
           fi
@@ -133,6 +183,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     env:
+      METASEQUOIA_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     permissions:
       contents: write
@@ -220,7 +271,7 @@ jobs:
       - name: Fetch the locked dictionary
         run: python3 scripts/fetch_dictionary.py
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+        run: cmake -S . -B build -DMETASEQUOIA_BUILD_NUMBER="$METASEQUOIA_BUILD_NUMBER" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)"
       - name: Build
         run: cmake --build build --parallel
       - name: Test
@@ -236,7 +287,9 @@ jobs:
             echo 'Unsigned release: skipping Developer ID signature verification before packaging.'
           fi
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${TAG_NAME#v}"
+          version=${TAG_NAME#v}
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${version%%-build.*}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/MetasequoiaIME.app/Contents/Info.plist)" = "$METASEQUOIA_BUILD_NUMBER"
       - name: Package release
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}

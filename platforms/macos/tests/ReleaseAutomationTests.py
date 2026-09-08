@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import textwrap
 import subprocess
 import tempfile
 import unittest
@@ -21,6 +22,88 @@ SIGNING_SECRETS = (
     "MACOS_DEVELOPER_ID_APPLICATION",
     "MACOS_DEVELOPER_ID_INSTALLER",
 )
+
+
+class BuildNumberTests(unittest.TestCase):
+    def run_step(self, step, prefix="", **values):
+        workflow = (MACOS_ROOT.parents[1] / ".github/workflows/release.yml").read_text()
+        body = workflow.split("      - name: " + step + "\n", 1)[1]
+        body = body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = dict(os.environ, GITHUB_OUTPUT=str(output),
+                               GITHUB_RUN_NUMBER="123", GITHUB_RUN_ATTEMPT="1",
+                               REQUESTED_TAG="")
+            environment.update(values)
+            result = subprocess.run(["bash", "-e", "-c", prefix + "\n" + textwrap.dedent(body)],
+                                    env=environment, text=True, capture_output=True)
+            return result, output.read_text() if output.exists() else ""
+
+    def test_build_increases_across_runs_rollover_and_retries(self):
+        builds = []
+        for run, attempt in [(99, 1), (99, 2), (100, 1), (101, 1)]:
+            result, output = self.run_step("Allocate build number",
+                                         GITHUB_RUN_NUMBER=str(run),
+                                         GITHUB_RUN_ATTEMPT=str(attempt))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
+        self.assertEqual(builds, sorted(set(builds)))
+        self.assertGreater(builds[0], (491, 0, 0))
+
+    def test_manual_build_draft_preserves_its_build(self):
+        result, output = self.run_step("Allocate build number",
+                                     REQUESTED_TAG="v0.48.6-build.2.23.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "value=2.23.1\n")
+
+    def test_push_creates_unique_draft_at_exact_source_commit(self):
+        result, output = self.run_step(
+            "Create automatic build draft",
+            prefix='cat() { printf "0.48.6\\n"; }; gh() { printf "%s\\n" "$*"; }',
+            BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("release create v0.48.6-build.2.23.1 --target " + HEAD_SHA, result.stdout)
+        self.assertIn("--draft --prerelease", result.stdout)
+        self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.2.23.1\ntarget_sha=" + HEAD_SHA + "\n")
+
+    def test_manual_version_bump_and_draft_selection_are_exclusive(self):
+        for bump, tag, valid in [("true", "", True), ("false", "v0.48.6", True),
+                                 ("true", "v0.48.6", False), ("false", "", False)]:
+            result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
+                                     GITHUB_EVENT_NAME="workflow_dispatch",
+                                     BUMP_VERSION=bump, REQUESTED_TAG=tag)
+            self.assertEqual(result.returncode == 0, valid)
+        result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/develop",
+                                 GITHUB_EVENT_NAME="push")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_ios_uses_ci_build_and_rejects_tag_mismatch(self):
+        root = MACOS_ROOT.parents[1]
+        for name in ("package_ios_archive.sh", "package_ios_testflight.sh"):
+            script = (root / "platforms/ios/scripts" / name).read_text()
+            fragment = script.split("# CI supplies the shared build.", 1)[1]
+            fragment = "# CI supplies the shared build." + fragment.split("marketing_version=", 1)[0]
+            for tag, supplied, expected in [
+                ("v0.48.6-build.1001.23.1", "1001.23.1", "1001.23.1"),
+                ("v0.48.6", "1001.24.1", "1001.24.1"),
+                ("v0.48.6-build.1001.23.1", "1001.24.1", None),
+            ]:
+                result = subprocess.run(
+                    ["bash", "-eu", "-c", fragment + '\nprintf "%s" "$build_number"'],
+                    env=dict(os.environ, tag_name=tag, METASEQUOIA_BUILD_NUMBER=supplied),
+                    text=True, capture_output=True)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0, name)
+                    self.assertIn("does not match", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, expected, name)
+
+    def test_invalid_build_is_rejected(self):
+        for tag in ["v0.48.6-build.1.100.1", "v0.48.6-build.x", "v0.48.6-build.0.1.1"]:
+            result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output, "")
 
 
 class ReleaseAutomationTests(unittest.TestCase):
@@ -656,13 +739,13 @@ fi
 
 
 class SparkleAppcastTests(unittest.TestCase):
-    def run_generator(self, private_key="test-private-key", archive_name=None):
+    def run_generator(self, private_key="test-private-key", archive_name=None, tag="v1.2.3", build=None):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
             tools = temporary / "tools"
             tools.mkdir()
             log = temporary / "tools.log"
-            archive_name = archive_name or "MetasequoiaIME-v1.2.3-macos-universal-unsigned-update.zip"
+            archive_name = archive_name or f"MetasequoiaIME-{tag}-macos-universal-unsigned-update.zip"
             archive = temporary / archive_name
             archive.write_bytes(b"update archive")
             output = temporary / "appcast.xml"
@@ -687,6 +770,7 @@ cat > "$output" <<'XML'
 XML
 """
             )
+            generate_appcast.write_text(generate_appcast.read_text().replace("v1.2.3", tag))
             generate_appcast.chmod(0o755)
             sign_update = tools / "sign_update"
             sign_update.write_text(
@@ -710,10 +794,12 @@ fi
                     "GH_REPO": "metasequoiaime/MSIME-Apple",
                 }
             )
+            if build:
+                environment["METASEQUOIA_BUILD_NUMBER"] = build
             result = subprocess.run(
                 [
                     MACOS_ROOT / "scripts/generate-sparkle-appcast.sh",
-                    "v1.2.3",
+                    tag,
                     archive,
                     output,
                 ],
@@ -735,6 +821,17 @@ fi
         self.assertIn("test-signature", appcast)
         self.assertIn("generate:test-private-key:", calls)
         self.assertIn("sign:test-private-key:", calls)
+
+    def test_build_tag_selects_internal_build_for_appcast(self):
+        result, appcast, calls = self.run_generator(tag="v1.2.3-build.2.23.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--versions 2.23.1", calls)
+        self.assertIn("releases/download/v1.2.3-build.2.23.1/", appcast)
+
+    def test_formal_release_uses_independent_build(self):
+        result, appcast, calls = self.run_generator(build="2.24.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--versions 2.24.1", calls)
 
     def test_rejects_archive_that_does_not_match_release_tag(self):
         result, appcast, calls = self.run_generator(

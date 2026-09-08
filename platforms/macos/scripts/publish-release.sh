@@ -35,8 +35,8 @@ case "$SIGNING_ENABLED:$ASSET_SUFFIX" in
         ;;
 esac
 
-if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s\n' "Tag must use the vMAJOR.MINOR.PATCH format." >&2
+if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+    printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
 

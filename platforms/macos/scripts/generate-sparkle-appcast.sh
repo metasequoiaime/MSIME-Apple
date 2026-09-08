@@ -9,8 +9,8 @@ tag_name=${1:-}
 archive_path=${2:-}
 output_path=${3:-}
 
-if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s\n' "Tag must use the vMAJOR.MINOR.PATCH format." >&2
+if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+    printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
 if [[ -z "$archive_path" || ! -f "$archive_path" ]]; then
@@ -20,6 +20,12 @@ fi
 if [[ -z "$output_path" ]]; then
     printf '%s\n' "Appcast output path is required." >&2
     exit 1
+fi
+
+version=${tag_name#v}
+build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
+if [[ "$tag_name" == *-build.* ]]; then
+    build_number=${tag_name##*-build.}
 fi
 
 archive_name=$(basename "$archive_path")
@@ -60,7 +66,7 @@ product_link="https://github.com/$GH_REPO/releases/tag/$tag_name"
         --ed-key-file - \
         --download-url-prefix "$download_prefix" \
         --link "$product_link" \
-        --versions "${tag_name#v}" \
+        --versions "$build_number" \
         --maximum-deltas 0 \
         -o appcast.xml \
         .

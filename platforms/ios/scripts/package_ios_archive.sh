@@ -23,11 +23,12 @@ if [[ "$output_dir" != /* ]]; then
     output_dir="$(pwd)/$output_dir"
 fi
 
-if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s\n' "Tag must use the vMAJOR.MINOR.PATCH format." >&2
+if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+    printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
 version=${tag_name#v}
+version=${version%%-build.*}
 
 for tool in git xcodegen xcodebuild ditto shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -39,15 +40,27 @@ done
 # This archive is what a maintainer opens in Xcode Organizer to push to TestFlight, so it needs the
 # same build number rule as the signed path: unique and increasing within one marketing version,
 # rather than a copy of the marketing version that allows only one build per release.
-if ! git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
-    printf 'Not a git checkout, so the build number cannot be derived: %s\n' "$project_root" >&2
-    exit 1
+# CI supplies the shared build. Keep commit-count builds for local legacy packaging.
+if [[ -n "${METASEQUOIA_BUILD_NUMBER:-}" || "$tag_name" == *-build.* ]]; then
+    build_number=${METASEQUOIA_BUILD_NUMBER:-}
+    if [[ "$tag_name" == *-build.* ]]; then
+        build_number=${tag_name##*-build.}
+        if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
+            printf '%s\n' "Build number does not match release tag." >&2
+            exit 1
+        fi
+    fi
+else
+    if ! git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
+        printf 'Not a git checkout, so the build number cannot be derived: %s\n' "$project_root" >&2
+        exit 1
+    fi
+    if [[ "$(git -C "$project_root" rev-parse --is-shallow-repository)" == "true" ]]; then
+        printf 'Refusing to build from a shallow checkout: the commit count would restart low and App Store Connect would reject the build as a downgrade. Check out with fetch-depth: 0.\n' >&2
+        exit 1
+    fi
+    build_number=$(git -C "$project_root" rev-list --count HEAD)
 fi
-if [[ "$(git -C "$project_root" rev-parse --is-shallow-repository)" == "true" ]]; then
-    printf 'Refusing to build from a shallow checkout: the commit count would restart low and App Store Connect would reject the build as a downgrade. Check out with fetch-depth: 0.\n' >&2
-    exit 1
-fi
-build_number=$(git -C "$project_root" rev-list --count HEAD)
 
 # TestFlight groups builds by CFBundleShortVersionString and reviews each group on its own, so
 # carrying the patch digit here bought a fresh Beta App Review for every release. iOS ships x.y and
@@ -113,13 +126,20 @@ if [[ ! -s "$extension/msime.db" ]]; then
     exit 1
 fi
 
+# Verify both targets before distributing the archive.
+for bundle in "$archive_path/Products/Applications/MetasequoiaIME.app" \
+    "$archive_path/Products/Applications/MetasequoiaIME.app/PlugIns/MetasequoiaKeyboard.appex"; do
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$bundle/Info.plist")" = "$build_number"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Info.plist")" = "$marketing_version"
+done
+
 archive_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$application/Info.plist")
-if [[ "$archive_version" != "$version" ]]; then
+if [[ "$archive_version" != "$marketing_version" ]]; then
     printf 'Archive version %s does not match tag %s.\n' "$archive_version" "$tag_name" >&2
     exit 1
 fi
 extension_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$extension/Info.plist")
-if [[ "$extension_version" != "$version" ]]; then
+if [[ "$extension_version" != "$marketing_version" ]]; then
     printf 'Keyboard extension version %s does not match tag %s.\n' "$extension_version" "$tag_name" >&2
     exit 1
 fi

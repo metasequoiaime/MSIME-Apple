@@ -23,7 +23,7 @@
     <key>CFBundleShortVersionString</key>
     <string>@PROJECT_VERSION@</string>
     <key>CFBundleVersion</key>
-    <string>@PROJECT_VERSION@</string>
+    <string>@METASEQUOIA_BUILD_NUMBER@</string>
     <key>ComponentInputModeDict</key>
     <dict>
         <key>tsInputModeListKey</key>

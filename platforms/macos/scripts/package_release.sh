@@ -27,14 +27,23 @@ tag_name=${1:-}
 source_bundle=${2:-$project_root/build/MetasequoiaIME.app}
 output_dir=${3:-$project_root/dist}
 
-if [[ ! "$tag_name" =~ '^v[0-9]+\.[0-9]+\.[0-9]+$' ]]; then
-    print -u2 "Tag must use the vMAJOR.MINOR.PATCH format."
+if [[ ! "$tag_name" =~ '^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$' ]]; then
+    print -u2 "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix."
     exit 1
 fi
 
 source_bundle=${source_bundle:A}
 output_dir=${output_dir:A}
 version=${tag_name#v}
+version=${version%%-build.*}
+build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
+if [[ "$tag_name" == *-build.* ]]; then
+    build_number=${tag_name##*-build.}
+    if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
+        printf '%s\n' "Build number does not match release tag." >&2
+        exit 1
+    fi
+fi
 require_release_signing=${METASEQUOIA_REQUIRE_RELEASE_SIGNING:-false}
 application_identity=${METASEQUOIA_DEVELOPER_ID_APPLICATION:-}
 installer_identity=${METASEQUOIA_DEVELOPER_ID_INSTALLER:-}
@@ -100,6 +109,12 @@ fi
 bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_bundle/Contents/Info.plist")
 if [[ "$bundle_version" != "$version" ]]; then
     print -u2 "Bundle version $bundle_version does not match tag $tag_name."
+    exit 1
+fi
+
+bundle_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_bundle/Contents/Info.plist")
+if [[ "$bundle_build" != "$build_number" ]]; then
+    print -u2 "Bundle build $bundle_build does not match expected build $build_number."
     exit 1
 fi
 
@@ -218,8 +233,8 @@ ditto -c -k --keepParent "$packaged_bundle" "$update_archive_path"
 (cd "$staging_root" && shasum -a 256 "$update_archive_name") > "$update_checksum_path"
 ditto -c -k --keepParent "$package_root" "$archive_path"
 (cd "$staging_root" && shasum -a 256 "$archive_name") > "$checksum_path"
-pkgbuild --component "$packaged_bundle" --identifier com.houko.inputmethod.MetasequoiaIME.pkg --version "$version" --scripts "$pkg_scripts" --install-location "Library/Input Methods" "$component_package"
-sed "s/@VERSION@/$version/g" "$installer_distribution" > "$distribution_file"
+pkgbuild --component "$packaged_bundle" --identifier com.houko.inputmethod.MetasequoiaIME.pkg --version "$build_number" --scripts "$pkg_scripts" --install-location "Library/Input Methods" "$component_package"
+sed "s/@VERSION@/$build_number/g" "$installer_distribution" > "$distribution_file"
 mkdir -p "$installer_resources"
 ditto "$project_root/LICENSE" "$installer_resources/LICENSE"
 ditto "$project_root/THIRD_PARTY_NOTICES.txt" "$installer_resources/THIRD_PARTY_NOTICES.txt"
