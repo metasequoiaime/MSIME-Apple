@@ -1,4 +1,5 @@
 #import "FloatingToolbarPanel.h"
+#import "CandidateSkinAppearance.h"
 
 #include <algorithm>
 
@@ -14,7 +15,6 @@ NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL ac
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.bordered = NO;
     button.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightMedium];
-    button.contentTintColor = [NSColor labelColor];
     button.accessibilityIdentifier = identifier;
     [button.widthAnchor constraintEqualToConstant:42.0].active = YES;
     [button.heightAnchor constraintEqualToConstant:32.0].active = YES;
@@ -110,12 +110,47 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     return menu;
 }
 
+@interface MetasequoiaFloatingToolbarChromeView : NSView
+@property(nonatomic, weak) id appearanceTarget;
+@property(nonatomic) SEL appearanceAction;
+@property(nonatomic, copy) NSColor *fillColor;
+@property(nonatomic, copy) NSColor *strokeColor;
+@end
+@implementation MetasequoiaFloatingToolbarChromeView
+- (void)viewDidChangeEffectiveAppearance
+{
+    [super viewDidChangeEffectiveAppearance];
+    if (self.appearanceTarget != nil && self.appearanceAction != nullptr)
+    {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [self.appearanceTarget performSelector:self.appearanceAction];
+#pragma clang diagnostic pop
+    }
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:10.0 yRadius:10.0];
+    [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
+    [path fill];
+    if (self.strokeColor.alphaComponent > 0.01)
+    {
+        path.lineWidth = 1.0;
+        [self.strokeColor setStroke];
+        [path stroke];
+    }
+}
+@end
+
 @implementation MetasequoiaFloatingToolbarPanel
 {
+    MetasequoiaFloatingToolbarChromeView *_chrome;
     NSButton *_inputModeButton;
     NSButton *_punctuationButton;
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
+    NSButton *_settingsButton;
 }
 
 + (instancetype)sharedPanel
@@ -153,15 +188,13 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     // force: is required because this panel is borderless and therefore not resizable.
     [self setFrameUsingName:kToolbarFrameAutosaveName force:YES];
 
-    NSVisualEffectView *background = [[NSVisualEffectView alloc] initWithFrame:self.contentView.bounds];
-    background.translatesAutoresizingMaskIntoConstraints = NO;
-    background.material = NSVisualEffectMaterialPopover;
-    background.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    background.state = NSVisualEffectStateActive;
-    background.wantsLayer = YES;
-    background.layer.cornerRadius = 10.0;
-    background.layer.masksToBounds = YES;
-    self.contentView = background;
+    _chrome = [[MetasequoiaFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
+    _chrome.appearanceTarget = self;
+    _chrome.appearanceAction = @selector(applySkin);
+    _chrome.wantsLayer = YES;
+    _chrome.layer.cornerRadius = 10.0;
+    _chrome.layer.masksToBounds = YES;
+    self.contentView = _chrome;
 
     _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
     _punctuationButton =
@@ -169,32 +202,68 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _fullWidthButton = ToolbarButton(@"半", @"MetasequoiaFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
     _traditionalOutputButton =
         ToolbarButton(@"简", @"MetasequoiaFloatingToolbarTraditionalOutput", self, @selector(toggleTraditionalOutput:));
-    NSButton *settingsButton =
-        ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
-    settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
-    settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
-    settingsButton.toolTip = settingsButton.accessibilityLabel;
+    _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
+    _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
+    _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
+    _settingsButton.toolTip = _settingsButton.accessibilityLabel;
 
     NSStackView *actions = [NSStackView stackViewWithViews:@[
-        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, settingsButton
+        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton
     ]];
     actions.translatesAutoresizingMaskIntoConstraints = NO;
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.alignment = NSLayoutAttributeCenterY;
     actions.distribution = NSStackViewDistributionEqualSpacing;
     actions.spacing = 8.0;
-    [background addSubview:actions];
+    [_chrome addSubview:actions];
 
     [NSLayoutConstraint activateConstraints:@[
-        [actions.leadingAnchor constraintEqualToAnchor:background.leadingAnchor constant:10.0],
-        [actions.trailingAnchor constraintEqualToAnchor:background.trailingAnchor constant:-10.0],
-        [actions.centerYAnchor constraintEqualToAnchor:background.centerYAnchor],
+        [actions.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor constant:10.0],
+        [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0],
+        [actions.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
     ]];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applySkin)
+                                                 name:MetasequoiaCandidateSkinDidChangeNotification
+                                               object:nil];
+    [self applySkin];
     [self updateEnglishInputMode:NO
               chinesePunctuationEnabled:YES
                        fullWidthEnabled:NO
         traditionalChineseOutputEnabled:NO];
     return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)applySkin
+{
+    if (_inputModeButton == nil || _settingsButton == nil)
+    {
+        return;
+    }
+    const metasequoia::mac::ResolvedSkin skin =
+        MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
+    _chrome.fillColor = MetasequoiaColorFromRgba(skin.tokens.surface);
+    _chrome.strokeColor = MetasequoiaColorFromRgba(skin.tokens.border);
+    NSColor *text = MetasequoiaColorFromRgba(skin.tokens.text);
+    for (NSButton *button in
+         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton ])
+    {
+        button.contentTintColor = text;
+        if (button.title.length > 0)
+        {
+            button.attributedTitle = [[NSAttributedString alloc] initWithString:button.title
+                                                                     attributes:@{
+                                                                         NSFontAttributeName : button.font,
+                                                                         NSForegroundColorAttributeName : text,
+                                                                     }];
+        }
+    }
+    _chrome.needsDisplay = YES;
 }
 
 - (BOOL)canBecomeKeyWindow
@@ -220,6 +289,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _punctuationButton.toolTip = _punctuationButton.accessibilityLabel;
     _fullWidthButton.toolTip = _fullWidthButton.accessibilityLabel;
     _traditionalOutputButton.toolTip = _traditionalOutputButton.accessibilityLabel;
+    [self applySkin];
 }
 
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible

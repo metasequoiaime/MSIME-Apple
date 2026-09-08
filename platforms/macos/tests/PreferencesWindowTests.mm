@@ -233,41 +233,50 @@ int main()
         NSToolbar *toolbar = controller.window.toolbar;
         NSToolbarItem *generalNavigationItem = FindToolbarItemWithLabel(toolbar, @"键盘输入");
         NSToolbarItem *appearanceNavigationItem = FindToolbarItemWithLabel(toolbar, @"外观");
+        NSToolbarItem *skinNavigationItem = FindToolbarItemWithLabel(toolbar, @"皮肤");
         NSToolbarItem *dataNavigationItem = FindToolbarItemWithLabel(toolbar, @"词库与数据");
         NSToolbarItem *updatesNavigationItem = FindToolbarItemWithLabel(toolbar, @"更新与反馈");
         require(toolbar != nil && generalNavigationItem != nil && appearanceNavigationItem != nil &&
-                    dataNavigationItem != nil && updatesNavigationItem != nil,
+                    skinNavigationItem != nil && dataNavigationItem != nil && updatesNavigationItem != nil,
                 "The settings window did not expose all native toolbar destinations.");
         require([toolbar.selectedItemIdentifier isEqualToString:generalNavigationItem.itemIdentifier],
                 "The settings toolbar did not mark the initial page as selected.");
         NSView *generalPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"键盘输入设置页");
         NSView *appearancePage = FindViewWithAccessibilityLabel(controller.window.contentView, @"外观设置页");
+        NSView *skinPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"皮肤设置页");
         NSView *dataPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"词库与数据设置页");
         NSView *updatesPage = FindViewWithAccessibilityLabel(controller.window.contentView, @"更新与反馈设置页");
-        require(generalPage != nil && appearancePage != nil && dataPage != nil && updatesPage != nil,
+        require(generalPage != nil && appearancePage != nil && skinPage != nil && dataPage != nil && updatesPage != nil,
                 "The settings window did not create all functional pages.");
-        require(!generalPage.hidden && appearancePage.hidden && dataPage.hidden && updatesPage.hidden,
+        require(!generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
+                    updatesPage.hidden,
                 "The settings window did not open on the keyboard-input page.");
         require([NSApp sendAction:appearanceNavigationItem.action
                                to:appearanceNavigationItem.target
                              from:appearanceNavigationItem] &&
-                    generalPage.hidden && !appearancePage.hidden && dataPage.hidden &&
+                    generalPage.hidden && !appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
                     [toolbar.selectedItemIdentifier isEqualToString:appearanceNavigationItem.itemIdentifier],
                 "The appearance toolbar item did not reveal and select the appearance page.");
+        require([NSApp sendAction:skinNavigationItem.action to:skinNavigationItem.target from:skinNavigationItem] &&
+                    generalPage.hidden && appearancePage.hidden && !skinPage.hidden && dataPage.hidden &&
+                    [toolbar.selectedItemIdentifier isEqualToString:skinNavigationItem.itemIdentifier],
+                "The skin toolbar item did not reveal and select the skin page.");
         require([NSApp sendAction:dataNavigationItem.action to:dataNavigationItem.target from:dataNavigationItem] &&
-                    generalPage.hidden && appearancePage.hidden && !dataPage.hidden &&
+                    generalPage.hidden && appearancePage.hidden && skinPage.hidden && !dataPage.hidden &&
                     [toolbar.selectedItemIdentifier isEqualToString:dataNavigationItem.itemIdentifier],
                 "The data toolbar item did not reveal and select the data page.");
         require([NSApp sendAction:updatesNavigationItem.action
                                to:updatesNavigationItem.target
                              from:updatesNavigationItem] &&
-                    generalPage.hidden && appearancePage.hidden && dataPage.hidden && !updatesPage.hidden &&
+                    generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
+                    !updatesPage.hidden &&
                     [toolbar.selectedItemIdentifier isEqualToString:updatesNavigationItem.itemIdentifier],
                 "The updates toolbar item did not reveal and select the updates page.");
         require([NSApp sendAction:generalNavigationItem.action
                                to:generalNavigationItem.target
                              from:generalNavigationItem] &&
-                    !generalPage.hidden && appearancePage.hidden && dataPage.hidden && updatesPage.hidden &&
+                    !generalPage.hidden && appearancePage.hidden && skinPage.hidden && dataPage.hidden &&
+                    updatesPage.hidden &&
                     [toolbar.selectedItemIdentifier isEqualToString:generalNavigationItem.itemIdentifier],
                 "The keyboard-input toolbar item did not reveal and select the keyboard page.");
 
@@ -468,6 +477,29 @@ int main()
         require(pageSizeButton.indexOfSelectedItem == 0,
                 "The candidate page-size control did not reflect the stored value.");
 
+        require(FindViewWithAccessibilityLabel(controller.window.contentView, @"Fluent皮肤卡片") != nil &&
+                    FindViewWithAccessibilityLabel(controller.window.contentView, @"微信绿皮肤卡片") != nil &&
+                    FindViewWithAccessibilityLabel(controller.window.contentView, @"石墨 Graphite皮肤卡片") != nil &&
+                    FindViewWithAccessibilityLabel(controller.window.contentView, @"杨柳青皮肤卡片") != nil,
+                "The skin page did not expose a card for each built-in Windows skin.");
+        NSView *openSkinsView = FindViewWithAccessibilityLabel(controller.window.contentView, @"打开皮肤目录");
+        NSView *refreshSkinsView = FindViewWithAccessibilityLabel(controller.window.contentView, @"刷新皮肤");
+        NSView *skinDirectoryView = FindViewWithAccessibilityLabel(controller.window.contentView, @"外部皮肤目录");
+        NSView *emptySkinsView = FindViewWithAccessibilityLabel(controller.window.contentView, @"外部皮肤空状态");
+        require([openSkinsView isKindOfClass:[NSButton class]] && [refreshSkinsView isKindOfClass:[NSButton class]],
+                "The skin page did not expose open-directory and refresh actions.");
+        require(skinDirectoryView != nil && emptySkinsView != nil,
+                "The skin page did not expose the external-skin directory and empty state.");
+        NSView *fluentSwitchView = FindViewWithAccessibilityLabel(controller.window.contentView, @"启用Fluent");
+        require([fluentSwitchView isKindOfClass:[NSSwitch class]], "The Fluent card did not expose an enable switch.");
+        NSSwitch *fluentSwitch = (NSSwitch *)fluentSwitchView;
+        [MetasequoiaPreferencesWindowController setStoredCandidateSkin:@"fluent"];
+        require(fluentSwitch.state == NSControlStateValueOn, "Fluent was not selected after activation.");
+        [fluentSwitch performClick:nil];
+        require(fluentSwitch.state == NSControlStateValueOn &&
+                    [[MetasequoiaPreferencesWindowController storedCandidateSkin] isEqualToString:@"fluent"],
+                "Clicking the active skin switch turned the skin off.");
+
         NSView *fontSizeView = FindViewWithAccessibilityLabel(controller.window.contentView, @"候选字号");
         require([fontSizeView isKindOfClass:[NSPopUpButton class]],
                 "The settings window did not expose the candidate font-size control.");
@@ -485,11 +517,25 @@ int main()
         require(candidatePreview != nil, "The appearance page did not expose a candidate-window preview.");
         require(candidatePreview.frame.size.width == appearanceCard.frame.size.width,
                 "The candidate preview did not fill the appearance-page content width.");
+        require(candidatePreview.frame.size.height + 0.5 >=
+                    [[candidatePreview valueForKey:@"previewContentHeight"] doubleValue],
+                "The preview container was shorter than the configured candidate layout.");
         NSRect appearanceCardRect = [appearancePage convertRect:appearanceCard.bounds fromView:appearanceCard];
         require(NSMaxY(appearanceCardRect) <= NSMaxY(appearancePage.bounds),
                 "The appearance controls overflowed the settings page below the preview.");
         require([candidatePreview.accessibilityValue isEqualToString:@"纵向列表，5 个候选，16 pt"],
                 "The candidate preview did not reflect the stored appearance settings.");
+        const CGFloat verticalPreviewHeight = candidatePreview.frame.size.height;
+        [styleButton selectItemAtIndex:0];
+        require([NSApp sendAction:styleButton.action to:styleButton.target from:styleButton],
+                "The candidate layout control did not apply the horizontal style.");
+        [controller.window.contentView layoutSubtreeIfNeeded];
+        require(candidatePreview.frame.size.height < verticalPreviewHeight,
+                "The appearance preview did not shrink when switching from vertical to horizontal layout.");
+        [styleButton selectItemAtIndex:1];
+        require([NSApp sendAction:styleButton.action to:styleButton.target from:styleButton],
+                "The candidate layout control did not restore the vertical style.");
+        [controller.window.contentView layoutSubtreeIfNeeded];
         NSView *floatingToolbarView = FindViewWithAccessibilityLabel(controller.window.contentView, @"显示悬浮状态栏");
         NSView *floatingToolbarCard = FindViewWithAccessibilityLabel(controller.window.contentView, @"悬浮状态栏卡片");
         require([floatingToolbarView isKindOfClass:[NSButton class]],
@@ -505,18 +551,19 @@ int main()
         NSAppearance *darkAppearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         __block NSColor *darkCanvasColor = nil;
         __block NSColor *darkPanelColor = nil;
-        __block NSColor *darkAccentColor = nil;
+        __block NSColor *darkTextColor = nil;
         [darkAppearance performAsCurrentDrawingAppearance:^{
-          darkCanvasColor = [[NSColor controlBackgroundColor] colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+          darkCanvasColor = [[candidatePreview valueForKey:@"previewCanvasFillColor"]
+              colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
           darkPanelColor = [[candidatePreview valueForKey:@"previewPanelFillColor"]
               colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-          darkAccentColor =
-              [[candidatePreview valueForKey:@"previewAccentColor"] colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+          darkTextColor =
+              [[candidatePreview valueForKey:@"previewTextColor"] colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
         }];
         require(std::abs(RelativeLuminance(darkPanelColor) - RelativeLuminance(darkCanvasColor)) >= 0.01,
                 "The candidate panel collapsed into the preview canvas in Dark Aqua.");
-        require(ContrastRatio(darkAccentColor, darkPanelColor) >= 4.5,
-                "The preview preedit color did not remain readable in Dark Aqua.");
+        require(ContrastRatio(darkTextColor, darkPanelColor) >= 4.5,
+                "The preview candidate text did not remain readable in Dark Aqua.");
 
         NSView *learningView = FindViewWithAccessibilityLabel(controller.window.contentView, @"记住候选词频");
         require([learningView isKindOfClass:[NSButton class]],
@@ -724,6 +771,7 @@ int main()
         [MetasequoiaPreferencesWindowController setHelpcodeEnabled:NO];
         [MetasequoiaPreferencesWindowController setChinesePunctuationEnabled:NO];
         [MetasequoiaPreferencesWindowController setCandidatePanelStyle:1];
+        [MetasequoiaPreferencesWindowController setStoredCandidateSkin:@"wechat"];
         [MetasequoiaPreferencesWindowController setCandidatePageSize:5];
         [MetasequoiaPreferencesWindowController setCandidateFontSize:20];
         [MetasequoiaPreferencesWindowController setCandidatePageShortcut:2];
@@ -743,6 +791,7 @@ int main()
                     [MetasequoiaPreferencesWindowController storedHelpcodeEnabled] &&
                     [MetasequoiaPreferencesWindowController storedChinesePunctuationEnabled] &&
                     [MetasequoiaPreferencesWindowController storedCandidatePanelStyle] == 0 &&
+                    [[MetasequoiaPreferencesWindowController storedCandidateSkin] isEqualToString:@"fluent"] &&
                     [MetasequoiaPreferencesWindowController storedCandidatePageSize] == 9 &&
                     [MetasequoiaPreferencesWindowController storedCandidateFontSize] == 18 &&
                     [MetasequoiaPreferencesWindowController storedCandidatePageShortcut] == 0 &&
@@ -762,6 +811,7 @@ int main()
             @"MetasequoiaImeShuangpinHelpcodeSchema",
             @"MetasequoiaImeChinesePunctuation",
             @"MetasequoiaImeCandidatePanelStyle",
+            @"MetasequoiaImeCandidateSkin",
             @"MetasequoiaImeCandidatePageSize",
             @"MetasequoiaImeCandidateFontSize",
             @"MetasequoiaImeCandidatePageShortcut",

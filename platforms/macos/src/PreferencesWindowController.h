@@ -24,6 +24,8 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 + (void)setShuangpinHelpcodeSchema:(NSInteger)schema;
 + (BOOL)storedChinesePunctuationEnabled;
 + (void)setChinesePunctuationEnabled:(BOOL)enabled;
++ (NSString *)storedCandidateSkin;
++ (void)setStoredCandidateSkin:(NSString *)skinId;
 + (NSInteger)storedCandidatePanelStyle;
 + (void)setCandidatePanelStyle:(NSInteger)style;
 + (NSInteger)storedCandidatePageSize;

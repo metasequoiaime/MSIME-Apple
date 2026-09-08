@@ -1,4 +1,5 @@
 #import "../src/CandidatePanel.h"
+#import "../src/CandidateSkinAppearance.h"
 #include <stdexcept>
 
 static void Require(bool condition, const char *message)
@@ -30,6 +31,7 @@ int main()
     @autoreleasepool
     {
         [NSApplication sharedApplication];
+        MetasequoiaSetStoredCandidateSkin(@"fluent");
         MetasequoiaCandidatePanel *panel = [MetasequoiaCandidatePanel new];
         CandidatePanelTestDelegate *delegate = [CandidatePanelTestDelegate new];
         panel.delegate = delegate;
@@ -82,6 +84,18 @@ int main()
         [panel setCandidateData:@[ longCandidate, longCandidate, longCandidate, longCandidate, longCandidate ]];
         Require(panel.candidateFrame.size.width <= NSScreen.mainScreen.visibleFrame.size.width,
                 "Long candidates pushed the window beyond the screen width.");
+        panel.panelType = kIMKSingleRowSteppingCandidatePanel;
+        NSAttributedString *annotated = [[NSAttributedString alloc] initWithString:@"水杉(Ss)"];
+        [panel setCandidateData:@[ annotated, annotated, annotated ]];
+        NSButton *annotatedButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+                annotatedButton = (NSButton *)view;
+        Require(annotatedButton != nil, "The annotated candidate was not rendered.");
+        NSDictionary *measure = @{NSFontAttributeName : annotatedButton.font};
+        const CGFloat needed = 8.0 + 6.0 + [@"1" sizeWithAttributes:measure].width + 6.0 +
+                               [@"水杉(Ss)" sizeWithAttributes:measure].width + 8.0;
+        Require(annotatedButton.frame.size.width + 0.5 >= needed, "Fluent layout truncated helpcode annotations.");
         [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 5)]];
         for (NSScreen *screen in NSScreen.screens)
         {

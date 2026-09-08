@@ -3,10 +3,14 @@
 #include "CandidateFontSize.h"
 #include "CandidatePageSize.h"
 #include "CandidatePanelStyle.h"
+#include "CandidateSkin.h"
 #include "HelpcodeSchemaPreference.h"
 #include "InputControllerKeyRouting.h"
 #include "InputSchemePreference.h"
+#import "CandidateSkinAppearance.h"
+#import "CandidateSkinPreviewView.h"
 #import "DictionaryInstaller.h"
+#import "SkinSettingsView.h"
 #import "UpdateController.h"
 
 #include <cstring>
@@ -27,10 +31,11 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[])
 namespace
 {
 constexpr CGFloat kWindowWidth = 680.0;
-constexpr CGFloat kWindowHeight = 660.0;
+constexpr CGFloat kWindowHeight = 800.0;
 NSToolbarIdentifier const kPreferencesToolbarIdentifier = @"MetasequoiaPreferencesToolbar";
 NSToolbarItemIdentifier const kKeyboardToolbarItemIdentifier = @"MetasequoiaPreferencesKeyboard";
 NSToolbarItemIdentifier const kAppearanceToolbarItemIdentifier = @"MetasequoiaPreferencesAppearance";
+NSToolbarItemIdentifier const kSkinToolbarItemIdentifier = @"MetasequoiaPreferencesSkin";
 NSToolbarItemIdentifier const kDataToolbarItemIdentifier = @"MetasequoiaPreferencesData";
 NSToolbarItemIdentifier const kUpdatesToolbarItemIdentifier = @"MetasequoiaPreferencesUpdates";
 NSString *const kSchemePreferenceKey = @"MetasequoiaImeInputScheme";
@@ -52,48 +57,6 @@ NSString *const kTraditionalChineseOutputPreferenceKey = @"MetasequoiaImeTraditi
 NSString *const kWubiAutoCommitUniquePreferenceKey = @"MetasequoiaImeWubiAutoCommitUnique";
 NSString *const kShuangpinKeymapPreferenceKey = @"MetasequoiaImeShuangpinKeymapEnabled";
 NSString *const kLocalInputModesPreferenceKey = @"MetasequoiaImeLocalInputModesEnabled";
-
-NSColor *MetasequoiaBrandColor()
-{
-    return [NSColor colorWithName:@"MetasequoiaBrandColor"
-                  dynamicProvider:^NSColor *(NSAppearance *appearance) {
-                    NSString *match = [appearance
-                        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-                    if ([match isEqualToString:NSAppearanceNameDarkAqua])
-                    {
-                        return [NSColor colorWithSRGBRed:0.08 green:0.38 blue:0.35 alpha:1.0];
-                    }
-                    return [NSColor colorWithSRGBRed:0.07 green:0.49 blue:0.45 alpha:1.0];
-                  }];
-}
-
-NSColor *CandidatePreviewPanelColor()
-{
-    return [NSColor colorWithName:@"MetasequoiaCandidatePreviewPanelColor"
-                  dynamicProvider:^NSColor *(NSAppearance *appearance) {
-                    NSString *match = [appearance
-                        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-                    if ([match isEqualToString:NSAppearanceNameDarkAqua])
-                    {
-                        return [NSColor colorWithSRGBRed:0.16 green:0.18 blue:0.18 alpha:1.0];
-                    }
-                    return [NSColor whiteColor];
-                  }];
-}
-
-NSColor *CandidatePreviewAccentColor()
-{
-    return [NSColor colorWithName:@"MetasequoiaCandidatePreviewAccentColor"
-                  dynamicProvider:^NSColor *(NSAppearance *appearance) {
-                    NSString *match = [appearance
-                        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-                    if ([match isEqualToString:NSAppearanceNameDarkAqua])
-                    {
-                        return [NSColor colorWithSRGBRed:0.35 green:0.85 blue:0.78 alpha:1.0];
-                    }
-                    return MetasequoiaBrandColor();
-                  }];
-}
 
 void ConfigureCard(NSBox *card)
 {
@@ -245,169 +208,6 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 }
 } // namespace
 
-@interface MetasequoiaCandidatePreviewView : NSView
-- (void)updatePanelStyle:(NSInteger)panelStyle pageSize:(NSInteger)pageSize fontSize:(NSInteger)fontSize;
-- (NSColor *)previewPanelFillColor;
-- (NSColor *)previewAccentColor;
-@end
-
-@implementation MetasequoiaCandidatePreviewView
-{
-    NSInteger _panelStyle;
-    NSInteger _pageSize;
-    CGFloat _candidateFontSize;
-}
-
-- (instancetype)initWithFrame:(NSRect)frameRect
-{
-    self = [super initWithFrame:frameRect];
-    if (self != nil)
-    {
-        self.translatesAutoresizingMaskIntoConstraints = NO;
-        self.accessibilityLabel = @"候选窗口预览";
-        self.accessibilityRole = NSAccessibilityGroupRole;
-        [self.heightAnchor constraintEqualToConstant:190.0].active = YES;
-        [self updatePanelStyle:0 pageSize:9 fontSize:18];
-    }
-    return self;
-}
-
-- (BOOL)isFlipped
-{
-    return YES;
-}
-
-- (NSColor *)previewPanelFillColor
-{
-    return CandidatePreviewPanelColor();
-}
-
-- (NSColor *)previewAccentColor
-{
-    return CandidatePreviewAccentColor();
-}
-
-- (void)updatePanelStyle:(NSInteger)panelStyle pageSize:(NSInteger)pageSize fontSize:(NSInteger)fontSize
-{
-    _panelStyle = panelStyle;
-    _pageSize = pageSize;
-    _candidateFontSize = fontSize;
-    NSString *layout = panelStyle == 1 ? @"纵向列表" : @"横向排列";
-    self.accessibilityValue = [NSString
-        stringWithFormat:@"%@，%ld 个候选，%ld pt", layout, static_cast<long>(pageSize), static_cast<long>(fontSize)];
-    self.accessibilityHelp = @"预览会随候选排列、每页候选和候选字号实时变化";
-    self.needsDisplay = YES;
-}
-
-- (void)drawRect:(NSRect)dirtyRect
-{
-    [super drawRect:dirtyRect];
-    NSRect canvas = NSInsetRect(self.bounds, 1.0, 1.0);
-    NSBezierPath *canvasPath = [NSBezierPath bezierPathWithRoundedRect:canvas xRadius:12.0 yRadius:12.0];
-    [[NSColor controlBackgroundColor] setFill];
-    [canvasPath fill];
-    [[NSColor separatorColor] setStroke];
-    canvasPath.lineWidth = 1.0;
-    [canvasPath stroke];
-
-    NSDictionary<NSAttributedStringKey, id> *captionAttributes = @{
-        NSFontAttributeName : [NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold],
-        NSForegroundColorAttributeName : [NSColor secondaryLabelColor],
-    };
-    [@"输入效果" drawAtPoint:NSMakePoint(15.0, 12.0) withAttributes:captionAttributes];
-    NSString *pageSummary = [NSString stringWithFormat:@"每页 %ld 个", static_cast<long>(_pageSize)];
-    NSSize pageSummarySize = [pageSummary sizeWithAttributes:captionAttributes];
-    [pageSummary drawAtPoint:NSMakePoint(NSMaxX(canvas) - pageSummarySize.width - 14.0, 12.0)
-              withAttributes:captionAttributes];
-
-    NSRect panelRect = NSMakeRect(14.0, 35.0, NSWidth(self.bounds) - 28.0, NSHeight(self.bounds) - 49.0);
-    NSShadow *shadow = [[NSShadow alloc] init];
-    shadow.shadowBlurRadius = 8.0;
-    shadow.shadowOffset = NSMakeSize(0.0, 2.0);
-    shadow.shadowColor = [[NSColor blackColor] colorWithAlphaComponent:0.12];
-    [NSGraphicsContext saveGraphicsState];
-    [shadow set];
-    NSBezierPath *panelPath = [NSBezierPath bezierPathWithRoundedRect:panelRect xRadius:9.0 yRadius:9.0];
-    [[self previewPanelFillColor] setFill];
-    [panelPath fill];
-    [NSGraphicsContext restoreGraphicsState];
-    [[NSColor separatorColor] setStroke];
-    panelPath.lineWidth = 1.0;
-    [panelPath stroke];
-
-    NSDictionary<NSAttributedStringKey, id> *preeditAttributes = @{
-        NSFontAttributeName : [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular],
-        NSForegroundColorAttributeName : [self previewAccentColor],
-    };
-    [@"shuǐ shān shū rù fǎ" drawAtPoint:NSMakePoint(NSMinX(panelRect) + 12.0, NSMinY(panelRect) + 9.0)
-                         withAttributes:preeditAttributes];
-
-    NSArray<NSString *> *samples =
-        @[ @"水杉", @"输入法", @"水仙", @"水山", @"水衫", @"水善", @"谁删", @"税闪", @"水扇" ];
-    NSDictionary<NSAttributedStringKey, id> *numberAttributes = @{
-        NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10.0 weight:NSFontWeightRegular],
-        NSForegroundColorAttributeName : [NSColor tertiaryLabelColor],
-    };
-    NSDictionary<NSAttributedStringKey, id> *candidateAttributes = @{
-        NSFontAttributeName : [NSFont systemFontOfSize:_candidateFontSize weight:NSFontWeightRegular],
-        NSForegroundColorAttributeName : [NSColor labelColor],
-    };
-    const NSInteger candidateCount = MIN(_pageSize, static_cast<NSInteger>(samples.count));
-    if (_panelStyle == 1)
-    {
-        const NSInteger visibleCount = MIN(candidateCount, 5);
-        const CGFloat rowSpacing = MIN(_candidateFontSize + 3.0, 22.0);
-        for (NSInteger index = 0; index < visibleCount; ++index)
-        {
-            const CGFloat y = NSMinY(panelRect) + 27.0 + (index * rowSpacing);
-            [[NSString stringWithFormat:@"%ld", static_cast<long>(index + 1)]
-                   drawAtPoint:NSMakePoint(NSMinX(panelRect) + 12.0, y + 4.0)
-                withAttributes:numberAttributes];
-            [samples[index] drawAtPoint:NSMakePoint(NSMinX(panelRect) + 34.0, y) withAttributes:candidateAttributes];
-        }
-        if (candidateCount > visibleCount)
-        {
-            NSString *remaining =
-                [NSString stringWithFormat:@"另有 %ld 个", static_cast<long>(candidateCount - visibleCount)];
-            NSSize remainingSize = [remaining sizeWithAttributes:captionAttributes];
-            [remaining drawAtPoint:NSMakePoint(NSMaxX(panelRect) - remainingSize.width - 12.0,
-                                               NSMaxY(panelRect) - remainingSize.height - 8.0)
-                    withAttributes:captionAttributes];
-        }
-    }
-    else
-    {
-        CGFloat x = NSMinX(panelRect) + 12.0;
-        const CGFloat y = NSMinY(panelRect) + 53.0;
-        NSSize ellipsisSize = [@"…" sizeWithAttributes:candidateAttributes];
-        const CGFloat contentMaxX = NSMaxX(panelRect) - 12.0;
-        for (NSInteger index = 0; index < candidateCount; ++index)
-        {
-            NSString *number = [NSString stringWithFormat:@"%ld", static_cast<long>(index + 1)];
-            NSString *candidate = samples[index];
-            NSSize numberSize = [number sizeWithAttributes:numberAttributes];
-            NSSize candidateSize = [candidate sizeWithAttributes:candidateAttributes];
-            const CGFloat itemWidth = numberSize.width + 4.0 + candidateSize.width;
-            const BOOL hasFollowingCandidate = index + 1 < candidateCount;
-            const CGFloat truncationReserve = hasFollowingCandidate ? 8.0 + ellipsisSize.width : 0.0;
-            if (x + itemWidth + truncationReserve > contentMaxX)
-            {
-                if (x + ellipsisSize.width <= contentMaxX)
-                {
-                    [@"…" drawAtPoint:NSMakePoint(x, y) withAttributes:candidateAttributes];
-                }
-                break;
-            }
-            [number drawAtPoint:NSMakePoint(x, y + 4.0) withAttributes:numberAttributes];
-            x += numberSize.width + 4.0;
-            [candidate drawAtPoint:NSMakePoint(x, y) withAttributes:candidateAttributes];
-            x += candidateSize.width + (hasFollowingCandidate ? 14.0 : 0.0);
-        }
-    }
-}
-
-@end
-
 @interface MetasequoiaPreferencesWindowController () <NSToolbarDelegate>
 @end
 
@@ -431,6 +231,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSPopUpButton *_candidateFontSizeButton;
     NSPopUpButton *_candidatePageShortcutButton;
     MetasequoiaCandidatePreviewView *_candidatePreview;
+    MetasequoiaSkinSettingsView *_skinSettings;
     NSButton *_candidateLearningButton;
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthInputButton;
@@ -543,6 +344,16 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:kChinesePunctuationPreferenceKey];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"MetasequoiaChinesePunctuationDidChangeNotification"
                                                         object:@(enabled)];
+}
+
++ (NSString *)storedCandidateSkin
+{
+    return MetasequoiaStoredCandidateSkin();
+}
+
++ (void)setStoredCandidateSkin:(NSString *)skinId
+{
+    MetasequoiaSetStoredCandidateSkin(skinId);
 }
 
 + (NSInteger)storedCandidatePanelStyle
@@ -778,9 +589,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                              selector:@selector(fullWidthInputPreferenceDidChange:)
                                                  name:@"MetasequoiaFullWidthInputDidChangeNotification"
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(candidateSkinPreferenceDidChange:)
+                                                 name:MetasequoiaCandidateSkinDidChangeNotification
+                                               object:nil];
     _preferenceToolbarItemIdentifiers = @[
         kKeyboardToolbarItemIdentifier,
         kAppearanceToolbarItemIdentifier,
+        kSkinToolbarItemIdentifier,
         kDataToolbarItemIdentifier,
         kUpdatesToolbarItemIdentifier,
     ];
@@ -945,6 +761,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     ]);
     appearancePage.accessibilityLabel = @"外观设置页";
 
+    _skinSettings = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
+
     _helpcodeButton = [NSButton checkboxWithTitle:@"启用辅助码" target:self action:@selector(helpcodeChanged:)];
     _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式（Shift+U/T/K/J）"
                                                   target:self
@@ -1055,7 +873,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                         @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
     updatesPage.accessibilityLabel = @"更新与反馈设置页";
 
-    _preferencePages = @[ generalPage, appearancePage, dataPage, updatesPage, wubiPage ];
+    _preferencePages = @[ generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage ];
 
     NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
     restoreButton.bezelStyle = NSBezelStyleRounded;
@@ -1130,8 +948,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     {
         return nil;
     }
-    NSArray<NSString *> *labels = @[ @"键盘输入", @"外观", @"词库与数据", @"更新与反馈" ];
-    NSArray<NSString *> *symbols = @[ @"keyboard", @"paintpalette", @"books.vertical", @"arrow.triangle.2.circlepath" ];
+    NSArray<NSString *> *labels = @[ @"键盘输入", @"外观", @"皮肤", @"词库与数据", @"更新与反馈" ];
+    NSArray<NSString *> *symbols =
+        @[ @"keyboard", @"paintpalette", @"paintbrush", @"books.vertical", @"arrow.triangle.2.circlepath" ];
     NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
     item.label = labels[index];
     item.paletteLabel = labels[index];
@@ -1185,7 +1004,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     (void)sender;
     [self refreshControls];
-    [self showPreferencesPageAtIndex:4 toolbarIndex:0];
+    [self showPreferencesPageAtIndex:5 toolbarIndex:0];
 }
 
 - (void)backToKeyboardInput:(id)sender
@@ -1284,6 +1103,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                               static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidateFontSize])))];
     [_candidatePageShortcutButton
         selectItemAtIndex:[MetasequoiaPreferencesWindowController storedCandidatePageShortcut]];
+    [self refreshSkinControl];
     [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
                                pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
                                fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
@@ -1445,6 +1265,18 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
 }
 
+- (void)refreshSkinControl
+{
+    [_candidatePreview reloadPreview];
+    [_skinSettings refreshSelection];
+}
+
+- (void)candidateSkinPreferenceDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    [self refreshSkinControl];
+}
+
 - (void)candidateLearningChanged:(id)sender
 {
     NSButton *button = (NSButton *)sender;
@@ -1544,6 +1376,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
              kShuangpinHelpcodeSchemaPreferenceKey,
              kChinesePunctuationPreferenceKey,
              kCandidatePanelStylePreferenceKey,
+             @"MetasequoiaImeCandidateSkin",
              kCandidatePageSizePreferenceKey,
              kCandidateFontSizePreferenceKey,
              kCandidatePageShortcutPreferenceKey,
@@ -1573,6 +1406,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                  object:@([MetasequoiaPreferencesWindowController storedShuangpinHelpcodeSchema])];
     [notifications postNotificationName:@"MetasequoiaChinesePunctuationDidChangeNotification"
                                  object:@([MetasequoiaPreferencesWindowController storedChinesePunctuationEnabled])];
+    [notifications postNotificationName:MetasequoiaCandidateSkinDidChangeNotification
+                                 object:[MetasequoiaPreferencesWindowController storedCandidateSkin]];
     [notifications postNotificationName:@"MetasequoiaCandidatePanelStyleDidChangeNotification"
                                  object:@([MetasequoiaPreferencesWindowController storedCandidatePanelStyle])];
     [notifications postNotificationName:@"MetasequoiaCandidatePageSizeDidChangeNotification"
