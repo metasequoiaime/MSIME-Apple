@@ -28,6 +28,8 @@ struct CloudDictionaryView: View {
       }
       if let userID {
         Section {
+          NavigationLink("云端候选与排序", destination: CloudCandidatesView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) }))
           NavigationLink("查询与管理完整目录", destination: CloudDictionaryCatalogView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) }))
           NavigationLink("导入与导出文件", destination: CloudDictionaryFilesView(kind: kind,
