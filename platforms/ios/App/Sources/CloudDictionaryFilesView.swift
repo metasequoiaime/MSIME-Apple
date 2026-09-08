@@ -8,6 +8,10 @@ struct CloudDictionaryFilesView: View {
   @State private var format = BackendAccountClient.DictionaryFileFormat.standard
   @State private var choosing = false
   @State private var confirming = false
+  @State private var choosingSnapshot = false
+  @State private var confirmingRestore = false
+  @State private var preparedSnapshot: BackendPreparedSnapshot?
+  @State private var restoreRevision: Int64?
   @State private var text: String?
   @State private var fileName = ""
   @State private var busy = false
@@ -26,7 +30,7 @@ struct CloudDictionaryFilesView: View {
             Text($0.title).tag($0)
           }
         }
-        Button("选择 UTF-8 文本文件") { choosing = true }
+        Button("选择 UTF-8 文本文件") { choosingSnapshot = false; choosing = true }
         if format == .hans {
           Text("每行一个汉字词条，由服务器调用输入引擎注音。请导入后检查多音字读音；默认权重为 100000。")
         } else {
@@ -57,14 +61,36 @@ struct CloudDictionaryFilesView: View {
         Text("包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。")
           .font(.footnote).foregroundStyle(.secondary)
         Button("导出完整云词库快照") { run { try await exportSnapshot() } }
+        Button("选择快照恢复到云端") { choosingSnapshot = true; choosing = true }
+        if let snapshot = preparedSnapshot, restoreRevision != nil {
+          Text("已校验：\(snapshot.envelope.entries) 个个人词条、\(snapshot.envelope.overlays) 条覆盖、\(snapshot.envelope.positions) 个固定位置。")
+          Text("恢复会替换全部四类云词库及排序记录，本机词库需另行下载更新。")
+            .font(.footnote).foregroundStyle(.secondary)
+          Button("恢复此快照到云端", role: .destructive) { confirmingRestore = true }
+          Button("取消恢复") { preparedSnapshot = nil; restoreRevision = nil }
+        }
       }
       if busy { ProgressView("正在传输…") }
       if let message { Text(message).foregroundStyle(.secondary) }
     }
     .disabled(busy)
     .navigationTitle("词库文件")
-    .onDisappear { pending?.cancel(); text = nil }
-    .fileImporter(isPresented: $choosing, allowedContentTypes: [.plainText, .tabSeparatedText]) { result in
+    .onDisappear { pending?.cancel(); text = nil; preparedSnapshot = nil; restoreRevision = nil }
+    .fileImporter(isPresented: $choosing, allowedContentTypes: choosingSnapshot ? [.data] : [.plainText, .tabSeparatedText]) { result in
+      if choosingSnapshot {
+        preparedSnapshot = nil; restoreRevision = nil
+        do {
+          let url = try result.get()
+          run {
+            let prepared = try await BackendPreparedSnapshot.prepareDocument(url)
+            let token = try await authorize()
+            let current = try await client.dictionaryCatalog(.quick, code: "", token: token)
+            _ = try await authorize(); try Task.checkCancellation()
+            preparedSnapshot = prepared; restoreRevision = current.revision
+          }
+        } catch { message = "未选择可读取的快照文件。" }
+        return
+      }
       text = nil; message = nil
       do {
         let url = try result.get()
@@ -92,6 +118,22 @@ struct CloudDictionaryFilesView: View {
         }
       }
     } message: { Text("将按“\(format.title)”导入 \(kind.title)词库，重复或无效词条会让整批导入失败。") }
+    .alert("替换全部云词库？", isPresented: $confirmingRestore) {
+      Button("取消", role: .cancel) { }
+      Button("替换云词库", role: .destructive) {
+        guard let snapshot = preparedSnapshot, let revision = restoreRevision else { return }
+        run {
+          let token = try await authorize()
+          let result = try await client.restoreDictionarySnapshot(file: snapshot.url,
+            expectedSHA256: snapshot.envelope.sha256, revision: revision, token: token)
+          preparedSnapshot = nil; restoreRevision = nil
+          message = "云词库已恢复，版本 \(result.revision)。本机词库尚未更新。"
+          try await imported()
+        }
+      }
+    } message: {
+      Text("将删除快照之外的云端词条，并恢复快照中的删除、调频和固定位置记录。建议先导出当前云词库备份；如果其他设备已修改云词库，本次恢复会被拒绝。")
+    }
     .sheet(item: $exported) { item in
       CloudDictionaryShareView(url: item.url)
         .onDisappear { try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent()) }

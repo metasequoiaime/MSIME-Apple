@@ -92,6 +92,23 @@ struct BackendSnapshotEnvelope: Sendable {
 
 extension BackendAccountClient {
   struct DownloadedSnapshot: Sendable { let url: URL; let envelope: BackendSnapshotEnvelope }
+  struct SnapshotRestoreResult: Decodable, Sendable { let revision: Int64; let reset: Bool }
+
+  func restoreDictionarySnapshot(file: URL, expectedSHA256: String, revision: Int64, token: String) async throws -> SnapshotRestoreResult {
+    guard revision >= 0 else { throw Failure(status: 400) }
+    // Freeze the file before validating it. A document provider or another
+    // process may replace the originally selected file after the preview.
+    let prepared = try BackendPreparedSnapshot(copying: file)
+    defer { withExtendedLifetime(prepared) {} }
+    guard prepared.envelope.sha256 == expectedSHA256 else { throw Failure(status: 400) }
+    let data = try await uploadSnapshot(prepared.url, revision: revision, token: token)
+    let result: SnapshotRestoreResult
+    do { result = try JSONDecoder().decode(SnapshotRestoreResult.self, from: data) }
+    catch { throw Failure(status: 0) }
+    guard result.reset, result.revision > revision else { throw Failure(status: 0) }
+    return result
+  }
+
   func dictionarySnapshot(token: String) async throws -> DownloadedSnapshot {
     let url = try await download("/v1/users/me/dictionary/snapshot", token: token,
       filename: "msime-dictionary-snapshot.ndjson", maximumBytes: 512 * 1024 * 1024, mediaType: "application/x-ndjson")
@@ -323,4 +340,47 @@ private final class SnapshotRecordIndex {
     guard sqlite3_step(statement) == SQLITE_ROW, sqlite3_column_int(statement, 0) == 0 else { throw bad }
     try Task.checkCancellation()
   }
+}
+
+
+/// Owns a stable, private snapshot copy from preview until the user finishes.
+/// Selecting a file performs only local work and does not upload any data.
+final class BackendPreparedSnapshot: @unchecked Sendable {
+  let url: URL
+  let envelope: BackendSnapshotEnvelope
+  static func prepareDocument(_ source: URL) async throws -> BackendPreparedSnapshot {
+    let access = source.startAccessingSecurityScopedResource()
+    defer { if access { source.stopAccessingSecurityScopedResource() } }
+    return try BackendPreparedSnapshot(copying: source)
+  }
+  init(copying source: URL) throws {
+    guard source.isFileURL else { throw BackendAccountClient.Failure(status: 400) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-upload-" + UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    url = directory.appendingPathComponent("snapshot.ndjson")
+    do {
+      var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+      #if os(iOS)
+      attributes[.protectionKey] = FileProtectionType.completeUntilFirstUserAuthentication
+      #endif
+      guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: attributes) else { throw BackendAccountClient.Failure(status: 0) }
+      let input = try FileHandle(forReadingFrom: source)
+      defer { try? input.close() }
+      let output = try FileHandle(forWritingTo: url)
+      defer { try? output.close() }
+      var count = 0
+      while let data = try input.read(upToCount: 65536), !data.isEmpty {
+        try Task.checkCancellation()
+        count += data.count
+        guard count <= 512 * 1024 * 1024 else { throw BackendAccountClient.Failure(status: 400) }
+        try output.write(contentsOf: data)
+      }
+      try output.synchronize()
+      envelope = try BackendSnapshotEnvelope.inspect(url)
+    } catch {
+      try? FileManager.default.removeItem(at: directory)
+      throw error
+    }
+  }
+  deinit { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 }

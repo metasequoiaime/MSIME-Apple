@@ -182,6 +182,32 @@ struct BackendAccountClient: Sendable {
     complete = true
     return file
   }
+  // The caller owns a validated private copy for the entire request lifetime.
+  // Stream both the large request and bounded JSON response; do not retry a
+  // replacement automatically after an ambiguous network failure.
+  func uploadSnapshot(_ file: URL, revision: Int64, token: String) async throws -> Data {
+    guard revision >= 0, file.isFileURL,
+          let stream = InputStream(url: file),
+          let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber,
+          size.int64Value > 0, size.int64Value <= 512 * 1024 * 1024 else { throw Failure(status: 400) }
+    var request = try makeRequest("PUT", "/v1/users/me/dictionary/snapshot?revision=\(revision)", token: token, body: nil)
+    request.timeoutInterval = 130
+    request.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
+    request.setValue(size.stringValue, forHTTPHeaderField: "Content-Length")
+    request.httpBodyStream = stream
+    let (bytes, response) = try await session.bytes(for: request)
+    guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
+    guard response.statusCode == 200 else { throw Failure(status: response.statusCode) }
+    guard response.mimeType == "application/json", response.expectedContentLength <= 1024 * 1024 else { throw Failure(status: 0) }
+    var result = Data()
+    for try await byte in bytes {
+      guard result.count < 1024 * 1024 else { throw Failure(status: 0) }
+      result.append(byte)
+    }
+    try Task.checkCancellation()
+    return result
+  }
+
   func json<T: Decodable>(_ method: String, _ path: String, token: String? = nil,
                                   body: Data? = nil) async throws -> T {
     let data = try await request(method, path, token: token, body: body)
