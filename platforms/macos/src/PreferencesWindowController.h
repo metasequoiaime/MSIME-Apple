@@ -13,6 +13,7 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 + (instancetype)sharedController;
 + (void)prepareInputSessionsForLearnedDataReset;
 + (NSDictionary<NSString *, NSNumber *> *)cloudSettingsSnapshot;
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values;
 + (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values;
 + (NSInteger)storedScheme;
 + (void)setStoredScheme:(NSInteger)scheme;

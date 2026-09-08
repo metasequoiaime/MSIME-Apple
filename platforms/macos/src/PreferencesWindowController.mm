@@ -290,7 +290,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     };
 }
 
-+ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
 {
     if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 19)
         return @NO;
@@ -434,6 +434,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
             return @NO;
     }
+    return @YES;
+}
+
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
+{
+    if (![[self validateCloudSettingsSnapshot:values] boolValue])
+        return @NO;
     // Validate the complete snapshot before calling any mutating setter.
     [self setStoredScheme:values[@"platform.macos.input_scheme"].integerValue];
     [self setQuanpinHelpcodeSchema:values[@"platform.macos.quanpin_helpcode_schema"].integerValue];

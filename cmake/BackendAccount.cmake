@@ -9,6 +9,8 @@ set(MSIME_ACCOUNT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAccountClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendAccountSession.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendClipboardClient.swift"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendPreferencesClient.swift"
+    "${METASEQUOIA_MACOS_ROOT}/src/BackendSettingsView.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendClipboardView.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendAccountWindow.swift")
 set(MSIME_ACCOUNT_ARCHIVES)

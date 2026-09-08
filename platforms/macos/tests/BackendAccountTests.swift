@@ -9,6 +9,8 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
   func clear() throws { lock.lock(); defer { lock.unlock() }; saved = nil }
 }
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
+  private static var preferenceRevision = 1
+  private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
   private static var clipboardEnabled = false
   private static var clipboardText: String?
   override class func canInit(with request: URLRequest) -> Bool { true }
@@ -27,6 +29,15 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     func item(_ text: String) -> [String: String] { ["id": itemID, "text": text, "updated_at": "2026-09-08"] }
     func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
+    case ("GET", "/v1/users/me/preferences/schema"):
+      body = json(["fields": ["platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
+    case ("GET", "/v1/users/me/preferences"):
+      body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
+    case ("PUT", "/v1/users/me/preferences"):
+      if values?["revision"] as? Int == Self.preferenceRevision, let settings = values?["settings"] as? [String: Any] {
+        Self.preferenceRevision += 1; Self.preferences = settings
+        body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
+      } else { body = "{}"; status = 409 }
     case ("PUT", "/v1/users/me/clipboard/settings"):
       Self.clipboardEnabled = values?["enabled"] as? Bool ?? false
       if !Self.clipboardEnabled { Self.clipboardText = nil }
@@ -66,6 +77,11 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
     try require(!model.busy)
   }
+  @MainActor static func finished(_ model: MacSettingsModel) async throws {
+    let deadline = Date().addingTimeInterval(5)
+    while model.busy && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    try require(!model.busy)
+  }
   @MainActor static func main() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
@@ -87,6 +103,26 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false)]
+    let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
+      guard values.count == 2 else { throw Failure() }
+    }, apply: { localSettings = $0 }))
+    settings.download(); try await finished(settings)
+    try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
+    localSettings["platform.macos.candidate_font_size"] = .integer(20)
+    settings.apply(); try await finished(settings)
+    try require(settings.message != nil && localSettings["platform.macos.candidate_font_size"] == .integer(20))
+    settings.download(); try await finished(settings)
+    settings.apply(); try await finished(settings)
+    try require(localSettings["platform.macos.candidate_font_size"] == .integer(18))
+    settings.upload(); try await finished(settings)
+    let credentials = try await session.credentials()
+    let savedPreferences = try await client.preferences(token: credentials.token)
+    try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
+    _ = try await client.putPreferences(savedPreferences, token: credentials.token)
+    settings.upload(); try await finished(settings)
+    try require(settings.message != nil)
+    settings.close(); try require(settings.preview == nil && settings.cloud == nil)
     let clipboard = MacClipboardModel(accountID: "synthetic-user", client: client, account: session)
     clipboard.refresh(); try await finished(clipboard)
     try require(clipboard.loaded && !clipboard.enabled && clipboard.items.isEmpty)
