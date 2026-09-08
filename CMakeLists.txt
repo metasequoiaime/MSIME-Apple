@@ -66,6 +66,15 @@ if(BUILD_TESTING)
     target_link_libraries(MetasequoiaAppleInputSessionAdapterTests PRIVATE MetasequoiaIme::Engine)
     target_compile_options(MetasequoiaAppleInputSessionAdapterTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME apple_input_session_adapter COMMAND MetasequoiaAppleInputSessionAdapterTests)
+    add_executable(MetasequoiaDictionarySnapshotRuntimeTests
+        ${METASEQUOIA_MACOS_ROOT}/tests/DictionarySnapshotRuntimeTests.mm
+        shared/apple-bridge/DictionaryInstallation.mm
+        shared/apple-bridge/DictionarySessionLease.mm)
+    target_include_directories(MetasequoiaDictionarySnapshotRuntimeTests PRIVATE shared/apple-bridge)
+    target_compile_options(MetasequoiaDictionarySnapshotRuntimeTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(MetasequoiaDictionarySnapshotRuntimeTests PRIVATE MetasequoiaIme::Engine "-framework Foundation")
+    add_test(NAME dictionary_snapshot_runtime COMMAND MetasequoiaDictionarySnapshotRuntimeTests)
+
     add_executable(MetasequoiaInputControllerKeyRoutingTests ${METASEQUOIA_MACOS_ROOT}/tests/InputControllerKeyRoutingTests.mm)
     target_compile_options(MetasequoiaInputControllerKeyRoutingTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(MetasequoiaInputControllerKeyRoutingTests PRIVATE MetasequoiaIme::Engine ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})

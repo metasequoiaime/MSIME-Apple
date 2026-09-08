@@ -157,7 +157,8 @@ void PublishDictionaryInstallation(NSURL *user, NSString *identifier, const Runt
         throw std::runtime_error("Cannot publish snapshot generation");
 }
 
-DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *rootUser, NSURL *rootCache)
+DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *rootUser, NSURL *rootCache,
+                                                     DictionaryResourceProfile profile)
 {
     NSURL *user = rootUser;
     NSURL *cache = rootCache;
@@ -190,7 +191,9 @@ DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *ro
             if (HasDictionaries(directory) && std::filesystem::is_regular_file(directory / ".ready", error))
                 fallback.dictionaries = directory;
         }
-        NSArray<NSString *> *names = @[ @"msime.db", @"english.db", @"others.db", @"dict_japanese.dat" ];
+        NSArray<NSString *> *names = profile == DictionaryResourceProfile::MainAndEnglish
+                                         ? @[ @"msime.db", @"english.db" ]
+                                         : @[ @"msime.db", @"english.db", @"others.db", @"dict_japanese.dat" ];
         NSMutableArray<NSString *> *digests = [NSMutableArray array];
         for (NSString *name in names)
         {

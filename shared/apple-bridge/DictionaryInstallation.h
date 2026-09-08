@@ -24,5 +24,12 @@ void PublishDictionaryInstallation(NSURL *user, NSString *identifier, const Runt
                                    NSString *expectedIdentifier);
 // Call before creating sessions. Resources are the immutable, signed bundle; user data remains
 // in the extension's private directory, so learning does not require Full Access.
-DictionaryInstallation PrepareDictionaryInstallation(NSURL *resources, NSURL *user, NSURL *cache);
+enum class DictionaryResourceProfile
+{
+    Complete,
+    MainAndEnglish,
+};
+DictionaryInstallation PrepareDictionaryInstallation(
+    NSURL *resources, NSURL *user, NSURL *cache,
+    DictionaryResourceProfile profile = DictionaryResourceProfile::Complete);
 } // namespace metasequoia::apple
