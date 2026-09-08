@@ -1,24 +1,9 @@
 import SwiftUI
 import UIKit
 
-struct SettingsView: View {
+struct KeyboardSettingsView: View {
   var body: some View {
-    NavigationView {
-      Form {
-        Section {
-          HStack(spacing: 14) {
-            Image(systemName: "leaf.fill")
-              .font(.system(size: 28))
-              .foregroundStyle(MetasequoiaTheme.forest)
-              .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("水杉输入法").font(.headline)
-              Text("让输入更自然").font(.subheadline).foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 8)
-          }
-        }
-
+    Form {
         Section("键盘与服务") {
           NavigationLink(destination: InputSettingsView()) {
             Label("输入设置", systemImage: "slider.horizontal.3")
@@ -40,11 +25,7 @@ struct SettingsView: View {
           }.accessibilityIdentifier("voiceSettingsLink")
         }
 
-        Section("使用键盘") {
-          NavigationLink(destination: KeyboardTryoutView()) {
-            Label("试用键盘", systemImage: "keyboard")
-          }
-          .accessibilityIdentifier("keyboardTryoutLink")
+        Section("系统") {
           Button {
             guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
             UIApplication.shared.open(url)
@@ -53,15 +34,8 @@ struct SettingsView: View {
           }
           .accessibilityIdentifier("openKeyboardSettingsButton")
         }
-
-
-      }
-      .navigationTitle("设置")
-    }
-    .navigationViewStyle(.stack)
-    .tint(MetasequoiaTheme.forest)
+    }.navigationTitle("键盘设置").navigationBarTitleDisplayMode(.inline)
   }
-
 }
 
 struct InputSettingsView: View {

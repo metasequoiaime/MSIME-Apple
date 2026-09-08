@@ -105,6 +105,49 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testKeyboardHomePrioritizesTryoutAndQuickAdjustments() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
+    app.launch()
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
+    XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
+    XCTAssertTrue(app.buttons["keyboardLayoutLink"].exists)
+    XCTAssertFalse(app.buttons["aiSettingsLink"].exists)
+    XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .keepAlways; add(shot)
+    openKeyboardSettingsIfNeeded(app)
+    XCTAssertTrue(app.navigationBars["键盘设置"].waitForExistence(timeout: 5))
+    app.buttons["aiSettingsLink"].tap()
+    XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons.firstMatch.tap()
+    app.navigationBars.buttons.firstMatch.tap()
+    for _ in 0..<3 {
+      if app.buttons["homeThoughtfulReply"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["homeThoughtfulReply"].tap()
+    XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
+    app.navigationBars.buttons.firstMatch.tap()
+    for _ in 0..<3 {
+      if app.buttons["inputSettingsLink"].isHittable { break }
+      app.swipeDown()
+    }
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertEqual(app.buttons["inputScheme_thoughtfulReply"].value as? String, "已选择")
+    app.buttons["inputScheme_quanpin"].tap()
+  }
+
+  @MainActor
+  private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
+    let settings = app.buttons["keyboardSettingsLink"]
+    guard settings.exists else { return }
+    for _ in 0..<4 { if settings.isHittable { break }; app.swipeUp() }
+    settings.tap()
+  }
+
+  @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
@@ -228,6 +271,7 @@ final class OnboardingUITests: XCTestCase {
     let isolation = ["-voiceHandoffTestID", UUID().uuidString]
     app.launchArguments = isolation + ["-hasCompletedOnboarding", "YES", "-voiceResultFixture"]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["voiceSettingsLink"].tap()
     XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
     for _ in 0..<8 {
@@ -277,7 +321,8 @@ final class OnboardingUITests: XCTestCase {
       "-service.ai.endpoint", "https://keyboard-ai-fixture.invalid/v1/chat/completions",
       "-service.ai.model", "fixture"]
     func openAI() {
-      app.buttons["aiSettingsLink"].tap()
+      openKeyboardSettingsIfNeeded(app)
+    app.buttons["aiSettingsLink"].tap()
       for _ in 0..<6 {
         if app.switches["keyboardAIEnabled"].isHittable { break }
         app.swipeUp()
@@ -313,6 +358,7 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-personalDictionaryTestID", UUID().uuidString]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["dictionarySettingsLink"].tap()
     app.buttons["personalDictionaryLink"].tap()
     app.buttons["importPersonalDictionary"].tap()
@@ -339,6 +385,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
     app.terminate()
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["dictionarySettingsLink"].tap()
     app.buttons["personalDictionaryLink"].tap()
     XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
@@ -600,6 +647,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
       "-service.ai.endpoint", "https://catalog-no-key.invalid/v1/chat/completions", "-service.ai.model", ""]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["aiSettingsLink"].tap()
     let fetch = app.buttons["fetchServiceModels"]
     XCTAssertTrue(fetch.waitForExistence(timeout: 5))
@@ -664,6 +712,7 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["aiSettingsLink"].tap()
     app.buttons["aiProviderPicker"].tap()
     XCTAssertTrue(app.buttons["EveryAPI"].waitForExistence(timeout: 5))
@@ -680,6 +729,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.voice.provider", "custom",
                            "-service.voice.endpoint", "", "-service.voice.model", ""]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     let link = app.buttons["voiceSettingsLink"]
     if !link.isHittable { app.swipeUp() }
     link.tap()
@@ -719,6 +769,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
                            "-service.ai.endpoint", "", "-service.ai.model", ""]
     app.launch()
+    openKeyboardSettingsIfNeeded(app)
     app.buttons["aiSettingsLink"].tap()
     let token = app.secureTextFields["serviceToken"]
     token.tap()
@@ -871,7 +922,7 @@ final class OnboardingUITests: XCTestCase {
 
     XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 10))
 
-    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
     XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
@@ -881,7 +932,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(nineKey.value as? String, "已选择")
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 
@@ -899,6 +950,7 @@ final class OnboardingUITests: XCTestCase {
       ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {
+      if !app.buttons[identifier].exists { openKeyboardSettingsIfNeeded(app) }
       let link = app.buttons[identifier]
       for _ in 0..<5 {
         if link.isHittable { break }
@@ -948,6 +1000,7 @@ final class OnboardingUITests: XCTestCase {
       add(attachment)
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
+    if !app.buttons["keyboardTryoutLink"].exists { app.navigationBars.buttons.firstMatch.tap() }
     let tryoutLink = app.buttons["keyboardTryoutLink"]
     for _ in 0..<5 {
       if tryoutLink.isHittable { break }
@@ -987,6 +1040,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(tryoutField.value as? String, "test")
     app.navigationBars.buttons.element(boundBy: 0).tap()
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
+    openKeyboardSettingsIfNeeded(app)
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
   }
 }
