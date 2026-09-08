@@ -2,6 +2,60 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testAppIconsAreAvailableFromMyTabAndPersist() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    func openIcons() {
+      app.tabBars.buttons["我的"].tap()
+      let loginAlert = app.alerts["账号与登录"]
+      if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+      app.buttons["accountAppIcon"].tap()
+      XCTAssertTrue(app.buttons["appIcon_classic"].waitForExistence(timeout: 5))
+    }
+    openIcons()
+    for style in ["classic", "forest", "sky", "dusk", "vermilion"] {
+      XCTAssertTrue(app.buttons["appIcon_\(style)"].exists)
+    }
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "App icon gallery"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    func select(_ style: String) {
+      let button = app.buttons["appIcon_\(style)"]
+      if button.value as? String == "使用中" { return }
+      if !button.isHittable { app.swipeUp() }
+      button.tap()
+      // iOS 26 exposes its icon notification in the host app's hierarchy.
+      let confirmation = app.buttons.matching(NSPredicate(format: "label IN %@", ["OK", "好"])).firstMatch
+      if confirmation.waitForExistence(timeout: 5) {
+        confirmation.tap()
+      } else if springboard.alerts.firstMatch.exists {
+        springboard.alerts.buttons.firstMatch.tap()
+      }
+      let selected = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "value == %@", "使用中"), object: button)
+      XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+    }
+    select("sky")
+    select("dusk")
+    select("vermilion")
+    app.swipeDown()
+    select("forest")
+    let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
+    selectedScreenshot.name = "App icon selected"
+    selectedScreenshot.lifetime = .keepAlways
+    add(selectedScreenshot)
+    app.terminate()
+    app.launch()
+    openIcons()
+    XCTAssertEqual(app.buttons["appIcon_forest"].value as? String, "使用中")
+    select("classic")
+  }
+
+  @MainActor
   func testAccountEntryExplainsExplicitDataSharing() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

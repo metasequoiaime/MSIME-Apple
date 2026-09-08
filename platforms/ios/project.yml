@@ -139,6 +139,8 @@ targets:
           - $(BREW_PREFIX)/include
         PRODUCT_NAME: MetasequoiaIME
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIconForest AppIconSky AppIconDusk AppIconVermilion
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         CODE_SIGN_STYLE: Automatic
       configs:
         Debug:
@@ -272,6 +274,8 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/ServiceTests
+      - path: platforms/ios/App/Sources/AppIconSettingsView.swift
+      - path: platforms/ios/SharedUI/MetasequoiaTheme.swift
       - path: shared/backend/BackendAccountClient.swift
       - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendAccountSession.swift

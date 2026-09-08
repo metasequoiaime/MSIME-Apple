@@ -10,6 +10,18 @@ struct AccountSettingsView: View {
     Form {
       AppleAccountSection(signedIn: $signedIn)
 
+      Section("个性化") {
+        NavigationLink(destination: AppIconSettingsView()) {
+          HStack(spacing: 12) {
+            accountIcon("app.badge", color: MetasequoiaTheme.accent)
+            VStack(alignment: .leading, spacing: 4) {
+              Text("App 图标").foregroundStyle(.primary)
+              Text("给主屏幕上的水杉换个颜色").font(.caption).foregroundStyle(.secondary)
+            }
+          }.padding(.vertical, 4)
+        }.accessibilityIdentifier("accountAppIcon")
+      }
+
       Section("我的创作") {
         NavigationLink(destination: CustomSkinEditorView()) {
           HStack(spacing: 12) {
