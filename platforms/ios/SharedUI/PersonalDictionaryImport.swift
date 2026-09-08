@@ -2,7 +2,7 @@ import Foundation
 
 // A versioned envelope for user-entered records. Linguistic validation and normalization
 // remain in the public Engine API; this is only the file transport used by the host UI.
-struct PersonalDictionaryImport: Codable {
+struct PersonalDictionaryImport: Codable, Sendable {
   var format = "msime-personal-dictionary"
   var version = 1
   var entries: [PersonalWord]
@@ -40,9 +40,26 @@ struct PersonalDictionaryImport: Codable {
   static func read(from url: URL) throws -> Self {
     let granted = url.startAccessingSecurityScopedResource()
     defer { if granted { url.stopAccessingSecurityScopedResource() } }
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-    return try decode(handle.read(upToCount: maximumBytes + 1) ?? Data())
+    var coordinationError: NSError?
+    var result: Result<Self, Error>?
+    // File providers may need to materialize a cloud document before it can be read.
+    // Create and use this coordinator on the worker thread, never on the UI thread.
+    NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
+      result = Result {
+        let handle = try FileHandle(forReadingFrom: readableURL)
+        defer { try? handle.close() }
+        var data = Data()
+        while data.count <= maximumBytes {
+          let chunk = try handle.read(upToCount: min(65_536, maximumBytes + 1 - data.count)) ?? Data()
+          if chunk.isEmpty { break }
+          data.append(chunk)
+        }
+        return try decode(data)
+      }
+    }
+    if let coordinationError { throw coordinationError }
+    guard let result else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
+    return try result.get()
   }
 
   static let example = Self(entries: [

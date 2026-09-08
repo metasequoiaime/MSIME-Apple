@@ -136,6 +136,44 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(Set(try store.read().requests.map(\.id)).count, 129)
   }
 
+  func testLargeImportYieldsBetweenSyncBatchesAndPreservesReceipts() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = PersonalDictionaryStore(directory: root)
+    try store.enqueueImport((0..<9).map { .init(kind: .quickPhrase, key: "batch\($0)", value: "fixture") })
+    let ids = try store.read().requests.map(\.id)
+    var applied = [UUID]()
+    try store.synchronize(apply: { applied.append($0.id) }, page: { _ in .init(entries: [], hasMore: false) })
+    XCTAssertEqual(applied, Array(ids.prefix(4)))
+    XCTAssertEqual(try store.read().pendingCount, 5)
+    XCTAssertNotEqual(try store.read().refreshID, try store.read().completedRefreshID)
+    try store.synchronize(apply: { applied.append($0.id) }, page: { _ in .init(entries: [], hasMore: false) })
+    XCTAssertEqual(applied, Array(ids.prefix(8)))
+    try store.synchronize(apply: { applied.append($0.id) }, page: { _ in .init(entries: [], hasMore: false) })
+    XCTAssertEqual(applied, ids)
+    XCTAssertEqual(try store.read().pendingCount, 0)
+    XCTAssertEqual(try store.read().refreshID, try store.read().completedRefreshID)
+  }
+
+  func testCoordinatedFileImportReadsCompleteContentAndRejectsOversizedFiles() throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+    defer { try? FileManager.default.removeItem(at: file) }
+    // Multiple read chunks, including escaped newlines and multibyte text.
+    let words = (0..<40).map {
+      PersonalWord(kind: .quickPhrase, key: "file\($0)", value: String(repeating: "你好\n", count: 300))
+    }
+    let data = try PersonalDictionaryImport(entries: words).encoded()
+    XCTAssertGreaterThan(data.count, 65_536)
+    try data.write(to: file)
+    XCTAssertEqual(try PersonalDictionaryImport.read(from: file).entries, words)
+    try Data(repeating: 32, count: PersonalDictionaryImport.maximumBytes + 1).write(to: file)
+    XCTAssertThrowsError(try PersonalDictionaryImport.read(from: file)) { error in
+      XCTAssertTrue(error.localizedDescription.contains("1 MB"))
+    }
+    try FileManager.default.removeItem(at: file)
+    XCTAssertThrowsError(try PersonalDictionaryImport.read(from: file))
+  }
+
   func testMalformedStateIsPreservedAndReadDoesNotCreateFiles() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

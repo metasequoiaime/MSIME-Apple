@@ -180,18 +180,20 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   func synchronize(apply: (PersonalWordRequest) throws -> Void,
                    page: (Int) throws -> PersonalWordPage) throws {
     try update { state in
-      for index in state.requests.indices where state.requests[index].status == .pending {
+      // Each edit closes and reopens the Engine session. Limit work per keyboard timer turn
+      // so a full import cannot monopolize the main thread or hold the host's queue lock.
+      let batch = state.requests.indices.filter { state.requests[$0].status == .pending }.prefix(4)
+      for index in batch {
         do {
           try apply(state.requests[index])
           state.requests[index].status = .applied
           state.requests[index].error = nil
-      state.refreshID = UUID()
         } catch {
           state.requests[index].status = .failed
           state.requests[index].error = String(error.localizedDescription.prefix(500))
         }
       }
-      state.completedRefreshID = state.refreshID
+      if state.pendingCount == 0 { state.completedRefreshID = state.refreshID }
       do {
         let snapshot = try page(state.requestedPageOffset)
         guard snapshot.entries.count <= 100 else { throw StoreError.invalidState }

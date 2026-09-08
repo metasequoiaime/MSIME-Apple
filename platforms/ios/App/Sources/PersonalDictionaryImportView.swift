@@ -22,12 +22,15 @@ struct PersonalDictionaryImportView: View {
   @State private var preview: PersonalDictionaryImport?
   @State private var fileName = ""
   @State private var error: String?
+  @State private var readTask: Task<Void, Never>?
+  @State private var loading = false
 
   var body: some View {
     NavigationView {
       List {
         Section {
-          Button("选择 JSON 文件") { choosing = true }.accessibilityIdentifier("choosePersonalDictionaryFile")
+          Button("选择 JSON 文件") { choosing = true }.disabled(loading)
+            .accessibilityIdentifier("choosePersonalDictionaryFile")
           Button("保存示例文件") {
             do { document = try PersonalDictionaryDocument(); exporting = true }
             catch { self.error = error.localizedDescription }
@@ -35,6 +38,7 @@ struct PersonalDictionaryImportView: View {
         } footer: {
           Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持搜狗等输入法的专有词库文件。")
         }
+        if loading { Section { ProgressView("正在读取并校验词库…") } }
         if let preview {
           Section {
             Text(fileName).font(.headline)
@@ -67,16 +71,30 @@ struct PersonalDictionaryImportView: View {
           Button("确认导入") {
             guard let preview else { return }
             do { try save(preview.entries); dismiss() } catch { self.error = error.localizedDescription }
-          }.disabled(preview == nil).accessibilityIdentifier("confirmPersonalDictionaryImport")
+          }.disabled(preview == nil || loading).accessibilityIdentifier("confirmPersonalDictionaryImport")
         }
       }
       .fileImporter(isPresented: $choosing, allowedContentTypes: [.json]) { result in
         // Invalidate an earlier preview before attempting to load a replacement file.
-        preview = nil
         do {
           let url = try result.get()
-          preview = try PersonalDictionaryImport.read(from: url)
-          fileName = url.lastPathComponent
+          preview = nil
+          loading = true
+          readTask?.cancel()
+          readTask = Task { @MainActor in
+            do {
+              let imported = try await Task.detached(priority: .userInitiated) {
+                try PersonalDictionaryImport.read(from: url)
+              }.value
+              guard !Task.isCancelled else { return }
+              preview = imported
+              fileName = url.lastPathComponent
+            } catch {
+              guard !Task.isCancelled else { return }
+              self.error = error.localizedDescription
+            }
+            loading = false
+          }
         } catch { self.error = error.localizedDescription }
       }
       .fileExporter(isPresented: $exporting, document: document, contentType: .json,
@@ -86,6 +104,7 @@ struct PersonalDictionaryImportView: View {
       .alert("导入个人词库", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
         Button("好", role: .cancel) { error = nil }
       } message: { Text(error ?? "") }
+      .onDisappear { readTask?.cancel(); readTask = nil }
     }
   }
 }
