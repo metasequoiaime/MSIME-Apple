@@ -102,6 +102,8 @@ targets:
       - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
         buildPhase: resources
       - path: platforms/ios/App/Resources/Assets.xcassets
+      - path: platforms/ios/App/Resources/LaunchScreen.storyboard
+        buildPhase: resources
       - path: platforms/ios/SharedUI
       - path: platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources

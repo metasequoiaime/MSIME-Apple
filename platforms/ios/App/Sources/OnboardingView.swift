@@ -262,7 +262,7 @@ struct OnboardingView: View {
       .padding(.horizontal, 22)
       .padding(.vertical, 30)
     }
-    .background(MetasequoiaTheme.mist.ignoresSafeArea())
+    .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     .tint(MetasequoiaTheme.forest)
     .navigationTitle("启用指南")
     .navigationBarTitleDisplayMode(.inline)
@@ -283,7 +283,7 @@ struct OnboardingView: View {
       VStack(alignment: .leading, spacing: 5) {
         Text("水杉输入法")
           .font(.system(.largeTitle, design: .rounded).weight(.bold))
-          .foregroundStyle(MetasequoiaTheme.ink)
+          .foregroundStyle(.primary)
         Text("添加键盘，开始使用水杉输入法")
           .font(.subheadline.weight(.medium))
           .foregroundStyle(MetasequoiaTheme.needle)
@@ -310,7 +310,7 @@ struct OnboardingView: View {
       VStack(alignment: .leading, spacing: 5) {
         Text(title)
           .font(.headline)
-          .foregroundStyle(MetasequoiaTheme.ink)
+          .foregroundStyle(.primary)
         Text(detail)
           .font(.subheadline)
           .foregroundStyle(.secondary)

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23501" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="launch-controller">
+    <device id="retina6_1" orientation="portrait" appearance="light"/>
+    <dependencies><plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23501"/><capability name="Safe area layout guides" minToolsVersion="9.0"/><capability name="System colors in document resources" minToolsVersion="11.0"/><capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/></dependencies>
+    <scenes><scene sceneID="launch-scene"><objects>
+        <viewController id="launch-controller" sceneMemberID="viewController"><view key="view" contentMode="scaleToFill" id="launch-view">
+            <rect key="frame" x="0.0" y="0.0" width="414" height="896"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="18" translatesAutoresizingMaskIntoConstraints="NO" id="brand-stack">
+                    <rect key="frame" x="77" y="332" width="260" height="232"/>
+                    <subviews>
+                        <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="MSIMELogo" translatesAutoresizingMaskIntoConstraints="NO" id="brand-logo">
+                            <rect key="frame" x="82" y="0" width="96" height="96"/>
+                            <constraints><constraint firstAttribute="width" constant="96" id="logo-width"/><constraint firstAttribute="height" constant="96" id="logo-height"/></constraints>
+                        </imageView>
+                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="水杉输入法" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="brand-title">
+                            <rect key="frame" x="45" y="114" width="170" height="36"/>
+                            <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="30"/>
+                            <color key="textColor" systemColor="labelColor"/>
+                        </label>
+                        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="让输入更自然" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="brand-subtitle">
+                            <rect key="frame" x="82" y="168" width="96" height="20"/>
+                            <fontDescription key="fontDescription" type="system" pointSize="16"/>
+                            <color key="textColor" systemColor="secondaryLabelColor"/>
+                        </label>
+                    </subviews>
+                </stackView>
+            </subviews>
+            <viewLayoutGuide key="safeArea" id="launch-safe"/>
+            <color key="backgroundColor" systemColor="systemGroupedBackgroundColor"/>
+            <constraints><constraint firstItem="brand-stack" firstAttribute="centerX" secondItem="launch-view" secondAttribute="centerX" id="brand-x"/><constraint firstItem="brand-stack" firstAttribute="centerY" secondItem="launch-view" secondAttribute="centerY" id="brand-y"/><constraint firstItem="brand-stack" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="launch-safe" secondAttribute="leading" constant="24" id="brand-leading"/><constraint firstItem="launch-safe" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="brand-stack" secondAttribute="trailing" constant="24" id="brand-trailing"/></constraints>
+        </view></viewController>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="launch-responder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+    </objects></scene></scenes>
+    <resources><image name="MSIMELogo" width="1024" height="1024"/><systemColor name="labelColor"><color white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/></systemColor><systemColor name="secondaryLabelColor"><color red="0.235" green="0.235" blue="0.263" alpha="0.6" colorSpace="custom" customColorSpace="sRGB"/></systemColor><systemColor name="systemGroupedBackgroundColor"><color red="0.949" green="0.949" blue="0.969" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></systemColor></resources>
+</document>

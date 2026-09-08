@@ -59,6 +59,11 @@ struct AccountSettingsView: View {
         }
       }
       Section {
+        NavigationLink(destination: WelcomeFlowView()) {
+          Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
+        }.accessibilityIdentifier("replayOnboardingLink")
+      }
+      Section {
         Label("本地数据与云端作品", systemImage: "lock.shield")
           .font(.subheadline)
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")

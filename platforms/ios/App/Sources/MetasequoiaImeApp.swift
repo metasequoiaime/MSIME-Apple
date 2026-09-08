@@ -16,7 +16,9 @@ struct MetasequoiaImeApp: App {
   var body: some Scene {
     WindowGroup {
       #if DEBUG && targetEnvironment(simulator)
-      if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") || ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
+      if ProcessInfo.processInfo.arguments.contains("-launchScreenPreview") {
+        LaunchScreenPreview().ignoresSafeArea()
+      } else if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") || ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
         KeyboardAIView(text: previewText,
           configuration: CustomServiceConfiguration(endpoint: "https://fixture.invalid/v1/chat/completions", model: "fixture"),
           canSend: { false }, insert: { _ in false }, close: {},
@@ -51,7 +53,8 @@ struct MetasequoiaImeApp: App {
       if hasCompletedOnboarding {
         MainTabView()
       } else {
-        OnboardingView(onFinish: { hasCompletedOnboarding = true })
+        NavigationView { WelcomeFlowView(onFinish: { hasCompletedOnboarding = true }) }
+          .navigationViewStyle(.stack)
       }
   }
 }
@@ -88,3 +91,12 @@ private struct MainTabView: View {
     .tint(MetasequoiaTheme.forest)
   }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+private struct LaunchScreenPreview: UIViewControllerRepresentable {
+  func makeUIViewController(context: Context) -> UIViewController {
+    UIStoryboard(name: "LaunchScreen", bundle: .main).instantiateInitialViewController()!
+  }
+  func updateUIViewController(_ controller: UIViewController, context: Context) {}
+}
+#endif

@@ -33,6 +33,47 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testBrandedLaunchScreenResource() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-launchScreenPreview"]
+    app.launch()
+    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["让输入更自然"].exists)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "System launch storyboard"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+  }
+
+  @MainActor
+  func testWelcomeFlowSelectsSchemeAndCompletesOnce() {
+    let app = XCUIApplication()
+    app.launchArguments = ["--reset-onboarding-for-ui-tests"]
+    app.launch()
+    XCTAssertTrue(app.navigationBars["欢迎使用水杉"].waitForExistence(timeout: 5))
+    let welcome = XCTAttachment(screenshot: app.screenshot())
+    welcome.name = "Welcome onboarding"
+    welcome.lifetime = .keepAlways
+    add(welcome)
+    app.buttons["nextOnboardingButton"].tap()
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
+    app.buttons["nextOnboardingButton"].tap()
+    app.buttons["welcomeScheme_nineKey"].tap()
+    XCTAssertEqual(app.buttons["welcomeScheme_nineKey"].value as? String, "已选择")
+    app.buttons["nextOnboardingButton"].tap()
+    XCTAssertTrue(app.buttons["welcomeTryoutLink"].exists)
+    app.buttons["finishOnboardingButton"].tap()
+    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+    app.terminate()
+    app.launchArguments = []
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["nextOnboardingButton"].exists)
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
+  }
+
+  @MainActor
   func testReplyTonePreviewFitsCompactKeyboard() {
     let app = XCUIApplication()
     app.launchArguments = ["-keyboardReplyPreview", "-keyboardCompactPreview"]
@@ -720,7 +761,7 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
     app.launch()
-    let finish = app.buttons["finishOnboardingButton"]
+    let finish = app.buttons["skipOnboardingButton"]
     XCTAssertTrue(finish.waitForExistence(timeout: 10))
     if !finish.isHittable { app.swipeUp() }
     finish.tap()
@@ -743,6 +784,10 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 
     let outputPicker = app.segmentedControls["chineseOutputPicker"]
+    for _ in 0..<6 {
+      if outputPicker.isHittable { break }
+      app.swipeUp()
+    }
     XCTAssertTrue(outputPicker.exists)
     XCTAssertTrue(outputPicker.buttons["简体"].exists)
     XCTAssertTrue(outputPicker.buttons["繁体"].exists)
