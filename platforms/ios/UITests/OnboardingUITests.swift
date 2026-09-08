@@ -2,6 +2,60 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testKeyboardAIShowsSelectedTextAndRejectsStaleInput() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-keyboardAIPreview"]
+    app.launch()
+    XCTAssertTrue(app.staticTexts["这是一段待润色的测试文字。只有点击发送才会请求服务。"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.staticTexts["输入位置或 AI 配置已变化，请关闭后重试。"].exists)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Keyboard AI narrow panel"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.buttons["keyboardAISend"].tap()
+    XCTAssertTrue(app.staticTexts["输入位置或 AI 配置已变化，请关闭后重试。"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["keyboardAIInsert"].exists)
+  }
+
+  @MainActor
+  func testKeyboardAIOptInCanBeSavedAndRevoked() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.ai.provider", "custom",
+      "-service.ai.endpoint", "https://keyboard-ai-fixture.invalid/v1/chat/completions",
+      "-service.ai.model", "fixture"]
+    func openAI() {
+      app.buttons["aiSettingsLink"].tap()
+      for _ in 0..<6 {
+        if app.switches["keyboardAIEnabled"].isHittable { break }
+        app.swipeUp()
+      }
+    }
+    app.launch()
+    openAI()
+    let toggle = app.switches["keyboardAIEnabled"]
+    if toggle.value as? String == "1" { toggle.switches.firstMatch.tap() }
+    toggle.switches.firstMatch.tap()
+    for _ in 0..<6 {
+      if app.buttons["saveServiceConfiguration"].isHittable { break }
+      app.swipeDown()
+    }
+    app.buttons["saveServiceConfiguration"].tap()
+    app.terminate()
+    app.launch()
+    openAI()
+    XCTAssertEqual(toggle.value as? String, "1")
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Keyboard AI settings enabled"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    toggle.switches.firstMatch.tap()
+    app.terminate()
+    app.launch()
+    openAI()
+    XCTAssertEqual(toggle.value as? String, "0")
+  }
+
+  @MainActor
   func testPersonalDictionaryValidatesBeforeQueueing() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-personalDictionaryTestID", UUID().uuidString]

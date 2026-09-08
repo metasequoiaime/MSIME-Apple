@@ -11,7 +11,7 @@ enum CustomServiceKind: String {
 
 // Official endpoint/model documentation, checked 2026-09-07. These presets use the
 // providers' Chat Completions compatibility APIs; request codecs remain in Engine.
-enum AIProviderPreset: String, CaseIterable {
+enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
   case everyAPI, openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, openRouter, custom
 
   var title: String {
@@ -80,7 +80,7 @@ enum AIProviderPreset: String, CaseIterable {
 
 // File transcription presets use Engine's multipart file/model codec.
 // Official provider documentation checked 2026-09-07.
-enum VoiceProviderPreset: String, CaseIterable {
+enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   case everyAPI, openAI, siliconFlow, groq, mistral, custom
 
   var title: String {
@@ -132,7 +132,7 @@ struct ServiceFailure: LocalizedError {
   var errorDescription: String? { message }
 }
 
-struct CustomServiceConfiguration {
+struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   var provider: AIProviderPreset = .custom
   var voiceProvider: VoiceProviderPreset = .custom
   var endpoint = ""

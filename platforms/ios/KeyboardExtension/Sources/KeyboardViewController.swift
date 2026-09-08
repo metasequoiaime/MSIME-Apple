@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 @MainActor
@@ -9,6 +10,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let skinBackdrop = KeyboardSkinBackgroundView()
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
+  private var aiPanel: UIViewController?
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
@@ -168,8 +170,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyKeyboardSkin()
   }
 
+  override func selectionWillChange(_ textInput: UITextInput?) {
+    super.selectionWillChange(textInput)
+    closeKeyboardAI()
+  }
+
   override func textWillChange(_ textInput: UITextInput?) {
     super.textWillChange(textInput)
+    closeKeyboardAI()
     // Our own edit coming back to us: the composition it produced is still the live one.
     if pendingOwnEdits > 0 {
       pendingOwnEdits -= 1
@@ -190,6 +198,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    closeKeyboardAI()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
     closeSkinPicker()
@@ -517,6 +526,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(moreShortcut, title: nil, symbol: "ellipsis.circle", label: "更多快捷设置", id: "moreShortcut")
     moreShortcut.menu = UIMenu(children: [
+      UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
+        self?.showKeyboardAI()
+      },
       UIMenu(title: "按键反馈", options: .displayInline, children: [
         UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
           state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
@@ -1055,6 +1067,47 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSchemeButton()
     updateLanguageModeButton()
     render(snapshot, source: source)
+  }
+
+  private func showKeyboardAI() {
+    guard hasFullAccess else { showDiagnostic("AI 需要开启键盘的“允许完全访问”。"); return }
+    guard let configuration = KeyboardAIService.configuration() else {
+      showDiagnostic("请在水杉 App 的 AI 设置中启用键盘 AI 并保存配置。"); return
+    }
+    guard !hasComposition, let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
+          let selected = textDocumentProxy.selectedText, !selected.isEmpty, selected.count <= 10_000 else {
+      showDiagnostic("请先完成输入，再选中要润色的文字（最多一万字）。"); return
+    }
+    closeSkinPicker()
+    closeKeyboardAI()
+    let selection = KeyboardAISelection(document: document, before: textDocumentProxy.documentContextBeforeInput,
+                                         selected: selected, after: textDocumentProxy.documentContextAfterInput)
+    let matches: () -> Bool = { [weak self] in
+      guard let self, hasFullAccess, aiPanel != nil else { return false }
+      return selection.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
+        before: textDocumentProxy.documentContextBeforeInput, selected: textDocumentProxy.selectedText,
+        after: textDocumentProxy.documentContextAfterInput)
+    }
+    let panel = UIHostingController(rootView: KeyboardAIView(text: selected, configuration: configuration,
+      canSend: matches, insert: { [weak self] result in
+        guard let self, matches(), KeyboardAIService.configuration() == configuration else { return false }
+        insertOwnText(result, source: .ai)
+        return true
+      }, close: { [weak self] in self?.closeKeyboardAI() }))
+    aiPanel = panel
+    addChild(panel)
+    panel.view.frame = view.bounds
+    panel.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    view.addSubview(panel.view)
+    panel.didMove(toParent: self)
+  }
+
+  private func closeKeyboardAI() {
+    guard let panel = aiPanel else { return }
+    aiPanel = nil
+    panel.willMove(toParent: nil)
+    panel.view.removeFromSuperview()
+    panel.removeFromParent()
   }
 
   private func synchronizePersonalDictionary(force: Bool) {

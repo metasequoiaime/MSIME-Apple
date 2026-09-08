@@ -132,6 +132,7 @@ struct ServiceSettingsView: View {
   @State private var modelStatus = ""
   @State private var fetchingModels = false
   @State private var token = ""
+  @State private var keyboardAIEnabled = KeyboardAIService.configuration() != nil
   @State private var input = ""
   @State private var output = ""
   @State private var status = ""
@@ -151,6 +152,17 @@ struct ServiceSettingsView: View {
       configurationSection
 
       if kind == .ai {
+        Section {
+          Toggle("在键盘中启用 AI", isOn: $keyboardAIEnabled)
+            .accessibilityIdentifier("keyboardAIEnabled")
+            .onChange(of: keyboardAIEnabled) { enabled in
+              if !enabled {
+                do { try KeyboardAIService.disable() } catch { status = error.localizedDescription }
+              }
+            }
+        } footer: {
+          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”中使用。需要允许完全访问；每次发送前会预览文字。")
+        }
         Section("AI 润色") {
           TextEditor(text: $input).frame(minHeight: 100)
             .accessibilityLabel("待润色文字").accessibilityIdentifier("aiInputText")
@@ -351,6 +363,7 @@ struct ServiceSettingsView: View {
           do {
             let url = try configuration.validatedURL()
             try ServiceTokenStore.write("", kind: kind, url: url)
+            if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false }
             token = ""
             fetchedModels = nil
             modelStatus = ""
@@ -425,6 +438,9 @@ struct ServiceSettingsView: View {
     do {
       try configuration.save(kind, token: token)
       token = ""
+      if kind == .ai && keyboardAIEnabled {
+        try KeyboardAIService.publish(configuration, token: ServiceTokenStore.read(.ai, url: configuration.validatedURL()))
+      }
       status = "配置已保存"
       return true
     } catch { status = error.localizedDescription; return false }

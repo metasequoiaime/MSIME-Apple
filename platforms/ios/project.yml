@@ -8,6 +8,7 @@ options:
 
 settings:
   base:
+    BREW_PREFIX: /opt/homebrew
     # Only used by local Xcode builds, which never upload. The release scripts override it with the
     # commit count, because App Store Connect wants this unique and increasing inside one
     # MARKETING_VERSION and would reject a second upload that reused the value.
@@ -121,6 +122,7 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(PROJECT_DIR)/../../shared/apple-bridge
+          - $(PROJECT_DIR)/../../platforms/ios/App/Services
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
           - $(BREW_PREFIX)/include
@@ -144,6 +146,10 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/KeyboardExtension/Sources
+      - path: platforms/ios/App/Services/CustomService.swift
+      - path: platforms/ios/App/Services/KeyboardAIService.swift
+      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: platforms/ios/SharedUI
@@ -172,6 +178,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MetasequoiaKeyboard
         CODE_SIGN_STYLE: Automatic
@@ -179,6 +186,10 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(PROJECT_DIR)/../../shared/apple-bridge
+          - $(PROJECT_DIR)/../../platforms/ios/App/Services
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
+          - $(BREW_PREFIX)/include
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
@@ -194,6 +205,10 @@ targets:
     sources:
       - path: platforms/ios/KeyboardTests
       - path: platforms/ios/KeyboardExtension/Sources
+      - path: platforms/ios/App/Services/CustomService.swift
+      - path: platforms/ios/App/Services/KeyboardAIService.swift
+      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: platforms/ios/SharedUI
@@ -222,6 +237,10 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(PROJECT_DIR)/../../shared/apple-bridge
+          - $(PROJECT_DIR)/../../platforms/ios/App/Services
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
+          - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
+          - $(BREW_PREFIX)/include
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/include
     dependencies:
       - target: MetasequoiaAppleBridge
