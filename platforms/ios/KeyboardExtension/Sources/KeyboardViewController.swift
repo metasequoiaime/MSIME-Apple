@@ -40,7 +40,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let nextPageButton = UIButton()
   private let candidateStack = UIStackView()
   private let candidateEmptySpacer = UIView()
-  private let languageModeButton = UIButton()
   private let schemeButton = UIButton()
   private let shortcutBar = UIStackView()
   private var candidateContent: UIStackView?
@@ -424,8 +423,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preeditButton.accessibilityIdentifier = "preeditButton"
 
     updateLanguageModeButton()
-    languageModeButton.addAction(
-      UIAction { [weak self] _ in self?.toggleInputMode() }, for: .primaryActionTriggered)
 
 
     updateSchemeButton()
@@ -524,10 +521,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [languageModeButton, schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
+    for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
-      if button !== languageModeButton {
-        button.widthAnchor.constraint(equalTo: languageModeButton.widthAnchor, constant: button === schemeButton ? 6 : 0).isActive = true
+      if button !== schemeButton {
+        button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
       }
     }
     container.addSubview(shortcutBar)
@@ -843,7 +840,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return attributes
     }
     language.accessibilityIdentifier = "bottomLanguageKey"
-    language.isHidden = true
+    language.isHidden = false
     bottomLanguageButton = language
     bottomLanguageWidth = language.widthAnchor.constraint(equalToConstant: 34)
     fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
@@ -860,7 +857,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     standardActionWidths = [
       layoutToggle.widthAnchor.constraint(equalToConstant: 48.4),
-      space.widthAnchor.constraint(greaterThanOrEqualToConstant: 79.2),
+      space.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
       enter.widthAnchor.constraint(equalToConstant: 59.4),
     ]
     symbolDeleteWidth = delete.widthAnchor.constraint(equalToConstant: 44)
@@ -1115,11 +1112,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 5, bottom: 3, trailing: 5)
     configuration.background.cornerRadius = 8
-    languageModeButton.configuration = configuration
-    languageModeButton.accessibilityIdentifier = "languageModeButton"
-    languageModeButton.accessibilityLabel =
+    bottomLanguageButton?.configuration = configuration
+    bottomLanguageButton?.accessibilityIdentifier = "bottomLanguageKey"
+    bottomLanguageButton?.accessibilityLabel =
       isChineseMode ? "切换到英文输入" : "切换到所选输入方案"
-    languageModeButton.accessibilityValue = isChineseMode ? (inputScheme == .japanese ? "日语输入" : "中文输入") : "英文输入"
+    bottomLanguageButton?.accessibilityValue = isChineseMode ? (inputScheme == .japanese ? "日语输入" : "中文输入") : "英文输入"
     updateShortcutButtons()
     updateKeyboardLayout()
   }
@@ -1539,7 +1536,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyActionWidths[0].isActive = false
     nineKeyActionWidths[0] = nineKeySymbolsButton.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: layout.sidebarRatio)
     standardActionWidths[0].constant = layout == .msime ? 48.4 : 40
-    standardActionWidths[1].constant = layout == .msime ? 79.2 : 44
+    standardActionWidths[1].constant = 44
     standardActionWidths[2].constant = layout == .msime ? 59.4 : 48
     quickPunctuationWidth?.constant = layout == .msime ? 44 : 28
     updateShortcutButtons()
@@ -1577,9 +1574,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let layout = KeyboardLayoutPreference.selected
       nineKeySymbolsButton.isHidden = !(usesNineKeyLayout || (layout.showsFullKeyboardSymbols && !showsSymbols))
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && !usesNineKeyLayout
-      bottomLanguageButton?.isHidden = !layout.showsBottomLanguage
-      bottomLanguageWidth?.isActive = layout.showsBottomLanguage
-      bottomLanguageButton?.accessibilityValue = languageModeButton.accessibilityValue
+      bottomLanguageButton?.isHidden = false
+      bottomLanguageWidth?.isActive = true
       quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden
       let punctuation = quickPunctuationSymbols

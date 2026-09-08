@@ -29,8 +29,7 @@ struct KeyboardSkinPreview: View {
         Spacer(minLength: 0)
         if layout == .doubao { Image(systemName: "waveform").font(.caption) }
         Text(nineKey ? "九键" : "全拼").font(.caption)
-        Text("中").font(.caption.weight(.semibold)).padding(6)
-          .foregroundStyle(color(skin.actionForeground)).background(color(skin.actionBackground), in: RoundedRectangle(cornerRadius: 6))
+
       }.padding(.horizontal, 6).frame(height: 32)
         .background(color(skin.keyBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
       if nineKey {

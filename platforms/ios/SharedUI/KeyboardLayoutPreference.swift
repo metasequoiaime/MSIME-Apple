@@ -23,7 +23,7 @@ enum KeyboardLayoutPreset: String, CaseIterable {
   var rowSpacing: Double { self == .sogou || self == .doubao ? 6 : 7 }
   var sidebarRatio: Double { self == .msime ? 0.14 : 0.12 }
   var centeredLetters: Bool { self != .msime }
-  var showsBottomLanguage: Bool { self != .msime }
+  var showsBottomLanguage: Bool { true }
   var showsFullKeyboardSymbols: Bool { self == .sogou }
 }
 
