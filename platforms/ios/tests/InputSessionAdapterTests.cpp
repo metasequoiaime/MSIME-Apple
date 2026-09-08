@@ -2,6 +2,7 @@
 #include "ShuangpinKeymap.h"
 
 #include <metasequoia/session.h>
+#include <metasequoia/dictionary_state.h>
 
 #include "user_dictionary/user_dictionary_journal.h"
 
@@ -101,6 +102,44 @@ void TestRuntimeGenerationUpgrade(const std::filesystem::path &root)
         InputSessionAdapter adapter(first);
         for (const auto &word : type(adapter).candidates)
             Require(word != "补好", "Switching back resurrected a deleted candidate.");
+    }
+    const auto restored = metasequoia::stage_dictionary_state(resources, root / "restored", "base",
+        [](metasequoia::DictionaryStateRecord &) { return false; });
+    {
+        InputSessionAdapter adapter(first);
+        bool published = false;
+        const auto publish = [&] { published = true; };
+        type(adapter);
+        Require(!adapter.activate_dictionary_generation(restored, publish) && !published,
+                "Activation interrupted composition or published early.");
+        Require(!adapter.handle_character('a').preedit.empty(), "Rejected activation lost composition.");
+        adapter.cancel();
+        adapter.open_local_mode('U');
+        Require(!adapter.activate_dictionary_generation(restored, publish) && !published,
+                "Activation interrupted local input mode.");
+        adapter.cancel();
+        bool failedPublish = false;
+        try {
+            adapter.activate_dictionary_generation(restored, [] { throw std::runtime_error("synthetic publication failure"); });
+        } catch (const std::exception &) { failedPublish = true; }
+        Require(failedPublish, "Publication failure was swallowed.");
+        Require(type(adapter).candidates.size() == 1, "Failed publication changed active dictionary.");
+        adapter.cancel();
+        adapter.switch_to_shuangpin_profile("ziranma");
+        Require(adapter.set_learning_enabled(true), "Cannot enable generation learning fixture.");
+        Require(adapter.activate_dictionary_generation(restored, publish) && published &&
+                    adapter.uses_shuangpin() && adapter.shuangpin_profile_name() == "ziranma" && adapter.learning_enabled(),
+                "Successful activation lost settings or did not publish.");
+        adapter.switch_to_nine_key();
+        Require(adapter.activate_dictionary_generation(first, [] {}), "Cannot restore previous generation.");
+        InputSnapshot snapshot;
+        for (char c : std::string("28426")) snapshot = adapter.handle_character(c);
+        Require(snapshot.candidates.size() == 1, "Activation lost nine-key mode or retained the wrong generation.");
+        adapter.cancel();
+        Require(adapter.activate_dictionary_generation(restored, [] {}), "Cannot activate clean snapshot.");
+        for (char c : std::string("28426")) snapshot = adapter.handle_character(c);
+        Require(snapshot.candidates.size() >= 2 && snapshot.candidates.at(1) == "补好",
+                "Empty snapshot activation retained an old tombstone.");
     }
     // A replay failure must leave prepared generations usable and never publish a ready marker.
     const auto journal = user / "msime_user.db";
