@@ -42,7 +42,7 @@ final class MacSettingsModel: ObservableObject {
     self.accountID = accountID; self.client = client; self.account = account; self.local = local ?? .native
   }
   private func authorize() async throws -> String {
-    let identity = try await account.credentials()
+    let identity = try await account.credentials(matchingUserID: accountID)
     try Task.checkCancellation()
     guard identity.userID == accountID else { throw CancellationError() }
     return identity.token
