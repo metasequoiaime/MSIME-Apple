@@ -170,6 +170,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
     pendingOwnEdits = 0
+    if schemePicker != nil { closeKeyboardPicker() }
     synchronizeInputContext()
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
@@ -1098,7 +1099,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func selectInputScheme(_ scheme: ChineseInputScheme) {
-    guard scheme != inputScheme else { return }
+    guard InputSchemePreference.enabledSchemes.contains(scheme), scheme != inputScheme else { return }
     playInputClick()
     let source = typingSource
     inputScheme = scheme

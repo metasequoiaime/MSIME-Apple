@@ -177,7 +177,7 @@ final class OnboardingUITests: XCTestCase {
     func openEditor() {
       app.buttons["skinSettingsLink"].tap()
       app.buttons["customSkinEditorLink"].tap()
-      app.segmentedControls["customSkinSections"].buttons["键帽"].tap()
+      app.buttons["skinEditorTab_按键"].tap()
     }
     app.launch()
     openEditor()
@@ -219,7 +219,7 @@ final class OnboardingUITests: XCTestCase {
     attachment.lifetime = .keepAlways
     add(attachment)
     XCTAssertTrue(app.buttons["applyCustomSkin"].label.contains("正在使用"))
-    app.segmentedControls["customSkinSections"].buttons["设计"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
     // Exercise explicit reset after checking persistence, using simulator-only settings.
     for _ in 0..<5 {
       if app.buttons["重置我的皮肤"].isHittable { break }
@@ -227,12 +227,12 @@ final class OnboardingUITests: XCTestCase {
     }
     app.buttons["重置我的皮肤"].tap()
     app.buttons["重置"].tap()
-    app.segmentedControls["customSkinSections"].buttons["键帽"].tap()
+    app.buttons["skinEditorTab_按键"].tap()
     for _ in 0..<5 {
       if radius.isHittable { break }
       app.swipeDown()
     }
-    XCTAssertEqual(radius.value as? String, "8")
+    XCTAssertEqual(radiusLabel.label, "圆角 · 8")
   }
 
   @MainActor
@@ -242,7 +242,7 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
-    let sections = app.segmentedControls["customSkinSections"]
+    app.buttons["skinEditorTemplates"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
     XCTAssertTrue(app.buttons["undoSkinDesign"].isEnabled)
     app.buttons["saveCustomSkin"].tap()
@@ -253,12 +253,17 @@ final class OnboardingUITests: XCTestCase {
     field.typeText(name)
     app.buttons["confirmSaveCustomSkin"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].waitForExistence(timeout: 5))
-    sections.buttons["设计"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
     app.buttons["skinTemplate_水杉留白"].tap()
     app.buttons["undoSkinDesign"].tap()
-    sections.buttons["背景"].tap()
+    app.buttons["skinEditorTab_背景"].tap()
+    for _ in 0..<12 {
+      if app.switches["customSkinGradient"].exists && app.switches["customSkinGradient"].isHittable { break }
+      let controls = app.collectionViews.firstMatch
+      controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+    }
     XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "1")
-    XCTAssertTrue(app.buttons["customSkinPhoto"].exists)
+    XCTAssertTrue(app.buttons["skinEditorTab_背景"].exists)
     let image = XCTAttachment(screenshot: app.screenshot())
     image.name = "Skin studio gradient and fixed preview"
     image.lifetime = .keepAlways
@@ -267,25 +272,60 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
-    app.segmentedControls["customSkinSections"].buttons["我的"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].exists)
-    app.segmentedControls["customSkinSections"].buttons["设计"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
     app.buttons["skinTemplate_水杉留白"].tap()
-    app.segmentedControls["customSkinSections"].buttons["我的"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     app.buttons["管理" + name].tap()
     app.buttons["用当前设计更新"].tap()
     app.buttons["更新已保存的皮肤"].tap()
-    app.segmentedControls["customSkinSections"].buttons["设计"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
-    app.segmentedControls["customSkinSections"].buttons["我的"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     app.buttons["savedSkin_" + name].tap()
-    app.segmentedControls["customSkinSections"].buttons["背景"].tap()
+    app.buttons["skinEditorTab_背景"].tap()
+    for _ in 0..<12 {
+      if app.switches["customSkinGradient"].exists && app.switches["customSkinGradient"].isHittable { break }
+      let controls = app.collectionViews.firstMatch
+      controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+    }
     XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "0")
-    app.segmentedControls["customSkinSections"].buttons["我的"].tap()
+    app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     app.buttons["管理" + name].tap()
     app.buttons["删除"].tap()
     app.buttons["删除"].tap()
     XCTAssertFalse(app.buttons["savedSkin_" + name].exists)
+  }
+
+  @MainActor
+  func testSkinEditorKeepsFullPreviewBelowMaterialGrid() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["customSkinEditorLink"].tap()
+    let preview = app.otherElements["fullKeyboardSkinPreview"]
+    XCTAssertTrue(preview.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["skinBackgroundPreset_0"].isHittable)
+    XCTAssertTrue(app.buttons["saveCustomSkin"].isHittable)
+    let frame = preview.frame
+    XCTAssertGreaterThan(frame.width, app.frame.width * 0.9)
+    XCTAssertGreaterThan(frame.minY, app.buttons["skinEditorTab_背景"].frame.maxY)
+    app.buttons["skinBackgroundPreset_5"].tap()
+    XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "Reference skin editor with pinned keyboard"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    for tab in ["按键", "文本", "音效", "背景"] {
+      app.buttons["skinEditorTab_" + tab].tap()
+      XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1)
+      XCTAssertTrue(preview.isHittable)
+    }
+    app.segmentedControls["skinEditorPreviewLayout"].buttons["9 键"].tap()
+    XCTAssertTrue(preview.label.contains("9 键"))
+    XCTAssertEqual(preview.frame.height, frame.height, accuracy: 1)
   }
 
   @MainActor
@@ -534,6 +574,85 @@ final class OnboardingUITests: XCTestCase {
     selectProvider("自定义", picker: "aiProviderPicker", app: app)
     XCTAssertTrue(app.textFields["serviceEndpoint"].isEnabled)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, app.textFields["serviceEndpoint"].placeholderValue)
+  }
+
+  @MainActor
+  func testFuzzyPreferencesAndInformationPages() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    for _ in 0..<5 {
+      if app.buttons["fuzzyPinyinSettingsLink"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["fuzzyPinyinSettingsLink"].tap()
+    XCTAssertTrue(app.staticTexts["fuzzyPinyinAvailability"].exists)
+    let enabled = app.switches["fuzzyPinyinEnabled"]
+    if enabled.value as? String == "0" { enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+    let rule = app.switches["fuzzyPinyinRule_z-zh"]
+    if rule.value as? String == "0" { rule.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+    XCTAssertEqual(enabled.value as? String, "1")
+    XCTAssertEqual(rule.value as? String, "1")
+    app.terminate()
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    for _ in 0..<5 {
+      if app.buttons["fuzzyPinyinSettingsLink"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["fuzzyPinyinSettingsLink"].tap()
+    XCTAssertEqual(enabled.value as? String, "1")
+    XCTAssertEqual(rule.value as? String, "1")
+    rule.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    for _ in 0..<6 {
+      if app.buttons["desktopDownloadLink"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["desktopDownloadLink"].tap()
+    for platform in ["macOS", "Windows", "Linux"] {
+      app.segmentedControls["desktopPlatformPicker"].buttons[platform].tap()
+      XCTAssertTrue(app.staticTexts[platform + " 安装指南"].exists)
+      XCTAssertTrue(app.buttons["desktopReleaseLink"].exists)
+    }
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Desktop download guide"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["aboutSettingsLink"].tap()
+    XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
+    XCTAssertTrue(app.navigationBars["关于水杉"].exists)
+  }
+
+  @MainActor
+  func testInputSchemeVisibilityPersistsAndFallsBack() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    let full = app.switches["enabledInputScheme_quanpin"]
+    let nine = app.switches["enabledInputScheme_nineKey"]
+    if full.value as? String == "0" { full.tap() }
+    if nine.value as? String == "0" { nine.tap() }
+    app.buttons["inputScheme_nineKey"].tap()
+    nine.tap()
+    XCTAssertEqual(nine.value as? String, "0")
+    XCTAssertEqual(app.buttons["inputScheme_quanpin"].value as? String, "已选择")
+    app.terminate()
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertEqual(nine.value as? String, "0")
+    XCTAssertFalse(app.buttons["inputScheme_nineKey"].isEnabled)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Input scheme visibility settings"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    nine.tap()
+    XCTAssertTrue(app.buttons["inputScheme_nineKey"].isEnabled)
   }
 
   @MainActor

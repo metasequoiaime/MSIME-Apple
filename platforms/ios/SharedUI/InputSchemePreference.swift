@@ -25,19 +25,38 @@ enum ChineseInputScheme: String, CaseIterable {
 }
 
 enum InputSchemePreference {
+  static let enabledSchemesKey = "enabledInputSchemes"
+  private static var defaults: UserDefaults { UserDefaults(suiteName: appGroupIdentifier) ?? .standard }
+
+  static var enabledSchemes: [ChineseInputScheme] {
+    get {
+      guard let stored = defaults.stringArray(forKey: enabledSchemesKey) else { return ChineseInputScheme.allCases }
+      let enabled = ChineseInputScheme.allCases.filter { stored.contains($0.rawValue) }
+      return enabled.isEmpty ? [.quanpin] : enabled
+    }
+    set {
+      let ordered = ChineseInputScheme.allCases.filter { newValue.contains($0) }
+      let enabled = ordered.isEmpty ? [.quanpin] : ordered
+      defaults.set(enabled.map(\.rawValue), forKey: enabledSchemesKey)
+      scheme = scheme
+    }
+  }
+
   private static let schemeKey = "chineseInputScheme"
   static var scheme: ChineseInputScheme {
     get {
       let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
       if let value = defaults.string(forKey: schemeKey), let scheme = ChineseInputScheme(rawValue: value) {
-        return scheme
+        return enabledSchemes.contains(scheme) ? scheme : enabledSchemes[0]
       }
-      return usesShuangpin ? .shuangpin : .quanpin
+      let legacy: ChineseInputScheme = usesShuangpin ? .shuangpin : .quanpin
+      return enabledSchemes.contains(legacy) ? legacy : enabledSchemes[0]
     }
     set {
       let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
-      defaults.set(newValue.shuangpinProfile != nil, forKey: key)
-      defaults.set(newValue.rawValue, forKey: schemeKey)
+      let selected = enabledSchemes.contains(newValue) ? newValue : enabledSchemes[0]
+      defaults.set(selected.shuangpinProfile != nil, forKey: key)
+      defaults.set(selected.rawValue, forKey: schemeKey)
     }
   }
 

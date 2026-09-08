@@ -64,16 +64,13 @@ struct SettingsView: View {
           .accessibilityIdentifier("openKeyboardSettingsButton")
         }
 
-        Section("关于") {
-          HStack {
-            Text("版本")
-            Spacer()
-            Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
-              .foregroundStyle(.secondary)
-          }
-          Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+        Section("了解水杉") {
+          NavigationLink(destination: DesktopDownloadView()) {
+            Label("电脑版下载", systemImage: "desktopcomputer")
+          }.accessibilityIdentifier("desktopDownloadLink")
+          NavigationLink(destination: AboutView()) {
+            Label("关于水杉", systemImage: "info.circle")
+          }.accessibilityIdentifier("aboutSettingsLink")
         }
       }
       .navigationTitle("设置")
@@ -94,34 +91,55 @@ struct InputSettingsView: View {
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
+  @State private var enabledSchemes = InputSchemePreference.enabledSchemes
   @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
 
   var body: some View {
     Form {
         Section {
           ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
-            Button {
-              inputScheme = scheme
-              InputSchemePreference.scheme = scheme
-            } label: {
-              HStack {
-                Text(scheme.title).foregroundStyle(.primary)
-                Spacer()
-                if inputScheme == scheme {
-                  Image(systemName: "checkmark")
-                    .foregroundStyle(MetasequoiaTheme.forest)
-                    .accessibilityHidden(true)
+            HStack {
+              Button {
+                inputScheme = scheme
+                InputSchemePreference.scheme = scheme
+              } label: {
+                HStack {
+                  Text(scheme.title).foregroundStyle(.primary)
+                  Spacer()
+                  if inputScheme == scheme {
+                    Image(systemName: "checkmark")
+                      .foregroundStyle(MetasequoiaTheme.forest)
+                      .accessibilityHidden(true)
+                  }
                 }
               }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("inputScheme_\(scheme.rawValue)")
+              .accessibilityValue(inputScheme == scheme ? "已选择" : "未选择")
+              .accessibilityAddTraits(inputScheme == scheme ? [.isSelected] : [])
+              .disabled(!enabledSchemes.contains(scheme))
+              Toggle(scheme.title, isOn: Binding(get: { enabledSchemes.contains(scheme) }, set: { enabled in
+                var selection = enabledSchemes
+                if enabled { selection.append(scheme) } else { selection.removeAll { $0 == scheme } }
+                InputSchemePreference.enabledSchemes = selection
+                reloadPreferences()
+              }))
+              .labelsHidden()
+              .disabled(enabledSchemes.count == 1 && enabledSchemes.contains(scheme))
+              .accessibilityIdentifier("enabledInputScheme_\(scheme.rawValue)")
             }
-            .accessibilityIdentifier("inputScheme_\(scheme.rawValue)")
-            .accessibilityValue(inputScheme == scheme ? "已选择" : "未选择")
-            .accessibilityAddTraits(inputScheme == scheme ? [.isSelected] : [])
+
           }
         } header: {
           Text("输入方案")
         } footer: {
-          Text("选择常用键盘，也可以在输入时切换。左右滑动空格可移动光标；滑动前会先完成当前输入。")
+          Text("开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
+        }
+
+        Section {
+          NavigationLink(destination: FuzzyPinyinSettingsView()) {
+            Label("模糊音", systemImage: "waveform.path")
+          }.accessibilityIdentifier("fuzzyPinyinSettingsLink")
         }
 
         Section {
@@ -184,6 +202,7 @@ struct InputSettingsView: View {
 
   private func reloadPreferences() {
     inputScheme = InputSchemePreference.scheme
+    enabledSchemes = InputSchemePreference.enabledSchemes
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
   }
 }
