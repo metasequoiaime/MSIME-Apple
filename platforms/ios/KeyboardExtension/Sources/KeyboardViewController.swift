@@ -19,6 +19,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
+  private lazy var snapshotWorker: DictionarySnapshotWorker = {
+    let worker = DictionarySnapshotWorker(session: session)
+    worker.report = { [weak self] in self?.showDiagnostic($0) }
+    worker.applied = { [weak self] in self?.synchronizePersonalDictionary(force: true) }
+    return worker
+  }()
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private let replyModel = ReplyKeyboardModel()
@@ -171,14 +177,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
+    snapshotWorker.tick(idle: !hasComposition && !session.isInLocalMode, fullAccess: hasFullAccess, force: true)
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.synchronizePersonalDictionary(force: false) }
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.synchronizePersonalDictionary(force: false)
+        self.snapshotWorker.tick(idle: !self.hasComposition && !self.session.isInLocalMode, fullAccess: self.hasFullAccess)
+      }
     }
   }
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    do { try session.resumeDictionarySession() }
+    catch { showDiagnostic(error.localizedDescription) }
     // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
@@ -225,6 +238,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     replyModel.setText("")
+    snapshotWorker.stop()
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -235,6 +249,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
     render(session.finishComposition())
+    _ = session.suspendDictionarySession()
     pendingOwnEdits = 0
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()

@@ -24,6 +24,12 @@ private final class AccountProtocol: URLProtocol {
       if !authenticated { status = 401 }
     case ("PUT", "/v1/users/me/clipboard/settings"), ("DELETE", "/v1/users/me/clipboard"):
       status = authenticated ? 204 : 401; body = ""
+    case ("GET", "/v1/users/me/dictionaries/quick"):
+      let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+      let search = components.queryItems?.first(where: { $0.name == "q" })?.value ?? ""
+      let object: [String: Any] = ["entries": [["id": String(repeating: "a", count: 64), "kind": "quick", "code": "test", "word": search, "weight": 100000, "revision": 1]], "has_more": false, "offset": 0]
+      body = String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+      if !authenticated { status = 401 }
     case ("POST", "/v1/auth/login"):
       // A compromised/misconfigured endpoint must not persist malformed tokens.
       body = #"{"access_token":"invalid","refresh_token":"invalid","token_type":"Bearer","expires_in":900,"user":{"id":"synthetic","display_name":"","created_at":"2026-09-08"}}"#
@@ -91,6 +97,19 @@ final class BackendAccountClientTests: XCTestCase {
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
     do { try await client().deleteClipboard(id: "../auth/logout", token: "session"); XCTFail("unsafe id") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
+  }
+  func testDictionarySearchCannotInjectAnotherQueryParameter() async throws {
+    let text = "合成 & q=other + % #"
+    let page = try await client().dictionary(.quick, search: text, token: "session")
+    XCTAssertEqual(page.entries.first?.word, text)
+    XCTAssertFalse(page.has_more)
+  }
+  func testDictionaryMutationRejectsUnsafeEntryIDAndInvalidRevision() async throws {
+    for (id, revision) in [("../../auth/logout", 1), (String(repeating: "a", count: 64), 0)] {
+      let entry = BackendAccountClient.DictionaryEntry(id: id, kind: .quick, code: "test", word: "合成", weight: 1, revision: Int64(revision))
+      do { _ = try await client().deleteDictionary(entry, token: "session"); XCTFail("unsafe mutation") }
+      catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
+    }
   }
   func testCredentialsCannotGoToAnotherOrigin() async throws {
     for path in ["https://other.invalid/v1/users/me", "//other.invalid/v1/users/me", "/v1/\\other.invalid", "/v1/users/me#fragment"] {

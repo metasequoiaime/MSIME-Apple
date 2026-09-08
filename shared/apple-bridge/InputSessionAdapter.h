@@ -3,6 +3,7 @@
 #include <metasequoia/personal_dictionary.h>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -67,9 +68,16 @@ class InputSessionAdapter
     bool set_learning_enabled(bool enabled);
     bool learning_enabled() const;
     bool set_fuzzy_pinyin_rules(std::uint32_t rules);
+    RuntimePaths runtime_paths() const;
+    bool idle() const;
     PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
                                                     const std::optional<PersonalDictionaryEntry> &replacement,
                                                     const std::string &request_id);
+    // The host supplies an Engine-staged, verified generation and owns all other
+    // writers. Publish its durable pointer only after constructing the replacement
+    // session. A throwing publisher leaves this adapter on its original paths.
+    // Returns false during composition/local input, without invoking publish.
+    bool activate_dictionary_generation(const RuntimePaths &paths, const std::function<void()> &publish);
     PersonalDictionaryPage personal_words(std::size_t offset, std::size_t limit) const;
     InputSnapshot edit_candidate(std::size_t index, const std::string &expected_word, CandidateAction action);
     InputSnapshot switch_to_shuangpin(bool uses_shuangpin);

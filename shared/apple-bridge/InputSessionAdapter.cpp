@@ -11,7 +11,8 @@ class InputSessionAdapter::Impl
   public:
     explicit Impl(const RuntimePaths &runtime_paths, SchemeType scheme = SchemeType::Quanpin,
                   std::string profile = "xiaohe", bool learning = false, std::uint32_t fuzzy = 0)
-        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy)}, profile_name{std::move(profile)}
+        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy)},
+          profile_name{std::move(profile)}
     {
     }
 
@@ -168,9 +169,11 @@ bool InputSessionAdapter::set_learning_enabled(bool enabled)
 bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
 {
     rules &= 0x7ff;
-    if (rules == fuzzy_pinyin_rules_) return true;
+    if (rules == fuzzy_pinyin_rules_)
+        return true;
     const auto current = impl_->session.snapshot();
-    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None) return false;
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
     const bool nine_key = impl_->nine_key;
     impl_ = std::make_unique<Impl>(impl_->paths, current.scheme, impl_->profile_name, learning_enabled_, rules);
     impl_->nine_key = nine_key;
@@ -182,6 +185,17 @@ bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
 bool InputSessionAdapter::learning_enabled() const
 {
     return learning_enabled_;
+}
+
+bool InputSessionAdapter::idle() const
+{
+    const auto snapshot = impl_->session.snapshot();
+    return snapshot.preedit.empty() && snapshot.local_mode == LocalInputMode::None;
+}
+
+RuntimePaths InputSessionAdapter::runtime_paths() const
+{
+    return impl_->paths;
 }
 
 PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
@@ -200,6 +214,24 @@ PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     return result;
+}
+
+bool InputSessionAdapter::activate_dictionary_generation(const RuntimePaths &paths,
+                                                         const std::function<void()> &publish)
+{
+    const auto current = impl_->session.snapshot();
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
+    paths.validate();
+    auto replacement =
+        std::make_unique<Impl>(paths, current.scheme, impl_->profile_name, learning_enabled_, fuzzy_pinyin_rules_);
+    replacement->nine_key = impl_->nine_key;
+    replacement->session.set_nine_key_enabled(replacement->nine_key);
+    // No throwing operation follows publication: swap only transfers ownership.
+    // Constructing beforehand also keeps the original session intact on failure.
+    publish();
+    impl_.swap(replacement);
+    return true;
 }
 
 PersonalDictionaryPage InputSessionAdapter::personal_words(std::size_t offset, std::size_t limit) const
@@ -275,7 +307,8 @@ InputSnapshot InputSessionAdapter::switch_to_japanese()
     if (impl_->session.snapshot().scheme == SchemeType::JapaneseRomaji && !impl_->nine_key)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_);
+    impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_,
+                                   fuzzy_pinyin_rules_);
     return snapshot;
 }
 
