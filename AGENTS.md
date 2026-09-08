@@ -11,3 +11,5 @@
 macOS 每次 Engine 动作完成后更新值快照；候选选择必须用当前快照校验索引与词条。
 活动组合继续使用创建时的偏好，组合结束后才按新的 SessionOptions 重建会话。
 高亮候选的自动提交调用 Session::finish(index)，剩余分段仍由 Engine 完成。
+
+iOS 个人词库通过 Engine `<metasequoia/personal_dictionary.h>` 校验和编辑；SharedUI 同步文件仅传递用户操作、确认和分页快照，不复制拼音解析或 SQL。键盘仅在完全访问开启且会话空闲时处理队列，写入前释放会话，完成后保留方案、九键和学习偏好重建。操作 UUID 作为 Engine 事务回执 ID，确认文件写入中断后的重试必须复用它。

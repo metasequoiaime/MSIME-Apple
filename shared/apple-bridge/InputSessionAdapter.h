@@ -1,5 +1,6 @@
 #pragma once
 
+#include <metasequoia/personal_dictionary.h>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -64,6 +65,10 @@ class InputSessionAdapter
     // Returns false during composition; the platform retries after its current snapshot is idle.
     bool set_learning_enabled(bool enabled);
     bool learning_enabled() const;
+    PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
+                                                    const std::optional<PersonalDictionaryEntry> &replacement,
+                                                    const std::string &request_id);
+    PersonalDictionaryPage personal_words(std::size_t offset, std::size_t limit) const;
     InputSnapshot edit_candidate(std::size_t index, const std::string &expected_word, CandidateAction action);
     InputSnapshot switch_to_shuangpin(bool uses_shuangpin);
     bool uses_shuangpin() const;

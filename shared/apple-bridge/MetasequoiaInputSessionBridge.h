@@ -37,6 +37,12 @@ typedef NS_ENUM(NSInteger, MetasequoiaCandidateAction) {
 - (MetasequoiaInputSnapshot *)cancel;
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index;
 - (BOOL)setLearningEnabled:(BOOL)enabled;
+- (BOOL)applyPersonalPrevious:(nullable NSDictionary<NSString *, id> *)previous
+                  replacement:(nullable NSDictionary<NSString *, id> *)replacement
+                    requestID:(NSString *)requestID
+                        error:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)personalEntriesAtOffset:(NSUInteger)offset error:(NSError **)error;
+
 - (MetasequoiaInputSnapshot *)editCandidateAtIndex:(NSUInteger)index
                                       expectedWord:(NSString *)word
                                             action:(MetasequoiaCandidateAction)action;

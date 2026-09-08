@@ -116,10 +116,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/App/Resources/MetasequoiaImeIOS.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         BREW_PREFIX: /opt/homebrew
-        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/App/Services/AppServicesBridge.h
+        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/App/Sources/App-Bridging-Header.h
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         HEADER_SEARCH_PATHS:
           - $(inherited)
+          - $(PROJECT_DIR)/../../shared/apple-bridge
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include/msime/voice
           - $(BREW_PREFIX)/include
@@ -135,6 +136,8 @@ targets:
           PROVISIONING_PROFILE_SPECIFIER: MSIME iOS TestFlight Distribution
     dependencies:
       - target: MetasequoiaKeyboard
+      - target: MetasequoiaAppleBridge
+      - sdk: libsqlite3.tbd
 
   MetasequoiaKeyboard:
     type: app-extension

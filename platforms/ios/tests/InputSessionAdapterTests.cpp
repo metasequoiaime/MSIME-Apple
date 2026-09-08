@@ -123,6 +123,26 @@ void TestRuntimeGenerationUpgrade(const std::filesystem::path &root)
     {
         InputSessionAdapter adapter(first);
         Require(type(adapter).candidates.at(0) == "不好", "Failed upgrade damaged the working generation.");
+        adapter.cancel();
+        adapter.switch_to_nine_key();
+        Require(adapter.set_learning_enabled(true), "Cannot configure editor fixture learning.");
+        adapter.handle_character('2');
+        const metasequoia::PersonalDictionaryEntry personal{metasequoia::PersonalDictionaryKind::Pinyin, "bu'hao",
+                                                            "布好", 100000};
+        Require(!adapter.edit_personal_word(std::nullopt, personal, "adapter-add").success,
+                "Personal dictionary edit interrupted a composition.");
+        Require(!adapter.handle_character('8').preedit.empty(), "Rejected edit lost the composition.");
+        adapter.cancel();
+        Require(adapter.edit_personal_word(std::nullopt, personal, "adapter-add").success && adapter.learning_enabled(),
+                "Idle edit failed or lost learning preference.");
+        metasequoia::apple::InputSnapshot snapshot;
+        for (char c : std::string("28426"))
+            snapshot = adapter.handle_character(c);
+        Require(snapshot.candidates.at(0) == "布好", "Personal edit lost nine-key mode or prepared paths.");
+        adapter.cancel();
+        Require(adapter.personal_words(0, 100).entries.size() == 1, "Personal list did not expose the new word.");
+        Require(adapter.edit_personal_word(personal, std::nullopt, "adapter-remove").success,
+                "Cannot remove editor fixture word.");
     }
 }
 

@@ -169,6 +169,29 @@ bool InputSessionAdapter::learning_enabled() const
     return learning_enabled_;
 }
 
+PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
+    const std::optional<PersonalDictionaryEntry> &previous, const std::optional<PersonalDictionaryEntry> &replacement,
+    const std::string &request_id)
+{
+    const auto current = impl_->session.snapshot();
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return {false, "Composition is active"};
+    const auto paths = impl_->paths;
+    const auto profile = impl_->profile_name;
+    const bool nine_key = impl_->nine_key;
+    impl_.reset();
+    const auto result = edit_personal_dictionary(paths, previous, replacement, request_id);
+    impl_ = std::make_unique<Impl>(paths, current.scheme, profile, learning_enabled_);
+    impl_->nine_key = nine_key;
+    impl_->session.set_nine_key_enabled(nine_key);
+    return result;
+}
+
+PersonalDictionaryPage InputSessionAdapter::personal_words(std::size_t offset, std::size_t limit) const
+{
+    return personal_dictionary_entries(impl_->paths, offset, limit);
+}
+
 InputSnapshot InputSessionAdapter::edit_candidate(std::size_t index, const std::string &expected_word,
                                                   CandidateAction action)
 {

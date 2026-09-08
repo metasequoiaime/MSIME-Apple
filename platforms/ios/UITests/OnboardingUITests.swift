@@ -2,6 +2,39 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testPersonalDictionaryValidatesBeforeQueueing() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-personalDictionaryTestID", UUID().uuidString]
+    app.launch()
+    app.buttons["dictionarySettingsLink"].tap()
+    app.buttons["personalDictionaryLink"].tap()
+    app.buttons["addPersonalWord"].tap()
+    app.textFields["personalWordValue"].tap()
+    app.textFields["personalWordValue"].typeText("你好")
+    app.textFields["personalWordCode"].tap()
+    app.textFields["personalWordCode"].typeText("nihao")
+    app.buttons["savePersonalWord"].tap()
+    XCTAssertTrue(app.staticTexts["请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"].waitForExistence(timeout: 5))
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Personal word editor validation"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.textFields["personalWordCode"].typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5) + "ni hao")
+    app.buttons["savePersonalWord"].tap()
+    XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
+    app.terminate()
+    app.launch()
+    app.buttons["dictionarySettingsLink"].tap()
+    app.buttons["personalDictionaryLink"].tap()
+    XCTAssertTrue(app.staticTexts["1 项等待键盘同步"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["等待同步 · 保存"].exists)
+    let pending = XCTAttachment(screenshot: app.screenshot())
+    pending.name = "Personal dictionary pending confirmation"
+    pending.lifetime = .keepAlways
+    add(pending)
+  }
+
+  @MainActor
   func testCustomSkinDesignPersistsAndApplies() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

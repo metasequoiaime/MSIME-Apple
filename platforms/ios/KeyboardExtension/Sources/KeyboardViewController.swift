@@ -9,6 +9,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let skinBackdrop = KeyboardSkinBackgroundView()
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
+  private var personalDictionaryTimer: Timer?
+  private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
   private let exitLocalModeButton = UIButton()
   private var localModeTrigger: String?
@@ -143,6 +145,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     prepareKeyFeedback()
+    synchronizePersonalDictionary(force: true)
+    personalDictionaryTimer?.invalidate()
+    personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.synchronizePersonalDictionary(force: false) }
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -178,6 +185,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    personalDictionaryTimer?.invalidate()
+    personalDictionaryTimer = nil
     closeSkinPicker()
     cursorMovement.cancel()
     spaceButton?.configuration?.title = "空格"
@@ -1017,6 +1026,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSchemeButton()
     updateLanguageModeButton()
     render(snapshot, source: source)
+  }
+
+  private func synchronizePersonalDictionary(force: Bool) {
+    guard hasFullAccess, !hasComposition, !session.isInLocalMode, !synchronizingPersonalDictionary else { return }
+    let store = PersonalDictionaryStore()
+    do {
+      let state = try store.read()
+      guard force || state.pendingCount > 0 || state.refreshID != state.completedRefreshID else { return }
+      synchronizingPersonalDictionary = true
+      defer { synchronizingPersonalDictionary = false }
+      try store.synchronize(apply: { request in
+        try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
+                                          requestID: request.id.uuidString)
+      }, page: { offset in
+        let result = try session.personalEntries(atOffset: UInt(offset))
+        guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {
+          throw PersonalDictionaryStore.StoreError.invalidState
+        }
+        return PersonalWordPage(entries: try rows.map { try PersonalWord(bridgeValue: $0) }, hasMore: hasMore)
+      })
+    } catch PersonalDictionaryStore.StoreError.busy {
+      // Another process owns this short transaction; the timer retries without interrupting typing.
+    } catch {
+      showDiagnostic(error.localizedDescription)
+    }
   }
 
   private func synchronizeInputSchemePreference() {

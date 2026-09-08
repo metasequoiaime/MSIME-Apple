@@ -79,6 +79,11 @@ struct DictionarySettingsView: View {
       } footer: {
         Text("开启后，引擎根据你选择的词调整候选排序，并学习支持的拼音组词。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
       }
+      Section {
+        NavigationLink(destination: PersonalDictionaryView()) {
+          Label("个人词库", systemImage: "text.badge.plus")
+        }.accessibilityIdentifier("personalDictionaryLink")
+      }
       Section("已安装词库") {
         Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
         Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／Shoudao 双拼、86 五笔和日语罗马字；提供英文补全、快捷短语、表情及颜文字。")
@@ -106,7 +111,7 @@ struct DictionarySettingsView: View {
         Label("长按候选词", systemImage: "hand.tap")
         Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到首位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
-        Text("日语和本地工具暂不支持候选词管理。第三方词库导入和个人词条新增仍待接入。")
+        Text("日语和本地工具暂不支持候选词管理。第三方词库文件导入仍待接入。")
           .foregroundStyle(.secondary)
       }
     }

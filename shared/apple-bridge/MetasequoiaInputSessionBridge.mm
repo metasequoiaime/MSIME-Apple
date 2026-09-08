@@ -2,6 +2,7 @@
 
 #include "InputSessionAdapter.h"
 #include "DictionaryInstallation.h"
+#include "PersonalDictionaryBridge.h"
 #include "ShuangpinKeymap.h"
 
 #include <cstdlib>
@@ -91,6 +92,34 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
         _adapter = std::make_unique<metasequoia::apple::InputSessionAdapter>(installation.paths);
     }
     return self;
+}
+
+- (BOOL)applyPersonalPrevious:(NSDictionary<NSString *, id> *)previous
+                  replacement:(NSDictionary<NSString *, id> *)replacement
+                    requestID:(NSString *)requestID
+                        error:(NSError **)error
+{
+    auto oldEntry = previous ? metasequoia::apple::DecodePersonalWord(previous, error) : std::nullopt;
+    auto newEntry = replacement ? metasequoia::apple::DecodePersonalWord(replacement, error) : std::nullopt;
+    if ((previous && !oldEntry) || (replacement && !newEntry))
+        return NO;
+    const auto result = _adapter->edit_personal_word(oldEntry, newEntry, requestID.UTF8String ?: "");
+    if (!result.success)
+        metasequoia::apple::PersonalDictionaryError(error, result.error);
+    return result.success;
+}
+- (NSDictionary<NSString *, id> *)personalEntriesAtOffset:(NSUInteger)offset error:(NSError **)error
+{
+    const auto page = _adapter->personal_words(offset, 100);
+    if (!page.error.empty())
+    {
+        metasequoia::apple::PersonalDictionaryError(error, page.error);
+        return nil;
+    }
+    NSMutableArray *entries = [NSMutableArray array];
+    for (const auto &entry : page.entries)
+        [entries addObject:metasequoia::apple::EncodePersonalWord(entry)];
+    return @{@"entries" : entries, @"hasMore" : @(page.has_more)};
 }
 
 - (MetasequoiaInputSnapshot *)handleCharacter:(NSString *)character
