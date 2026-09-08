@@ -57,6 +57,15 @@ struct AccountSettingsView: View {
         }
       }
 
+        Section("了解水杉") {
+          NavigationLink(destination: DesktopDownloadView()) {
+            Label("电脑版下载", systemImage: "desktopcomputer")
+          }.accessibilityIdentifier("desktopDownloadLink")
+          NavigationLink(destination: AboutView()) {
+            Label("关于水杉", systemImage: "info.circle")
+          }.accessibilityIdentifier("aboutSettingsLink")
+        }
+
       Section {
         NavigationLink(destination: WelcomeFlowView()) {
           Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")

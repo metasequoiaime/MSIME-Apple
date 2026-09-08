@@ -110,6 +110,7 @@ struct CommunitySkinDetail: View {
   @State private var busy = false
   @State private var message: String?
   @State private var confirmsRemoval = false
+  @State private var trial: KeyboardSkinTrial?
   @Environment(\.dismiss) private var dismiss
   private var skin: CommunitySkin { updated ?? initial }
   var body: some View {
@@ -131,11 +132,9 @@ struct CommunitySkinDetail: View {
             library.append(SavedKeyboardSkin(id: id, name: skin.name, design: design))
           }
           guard CustomSkinLibrary.save(library) else { throw CommunityFailure(message: "无法保存皮肤，请检查设备存储。") }
-          CustomKeyboardSkinStore.save(design)
-          KeyboardFeedbackPreference.defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
-          updated = try await SkinCommunityAPI.shared.detail(skin.id)
-          message = "已保存并应用，下次打开键盘即可使用。"
-        } } label: { Label("下载并使用", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity) }
+          trial = try KeyboardSkinTrialStore().begin(name: skin.name, design: design)
+          updated = try? await SkinCommunityAPI.shared.detail(skin.id)
+        } } label: { Label("下载并试用", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity) }
           .buttonStyle(.borderedProminent).disabled(busy).accessibilityIdentifier("downloadCommunitySkin")
         if !skin.owned {
           Text("我的评分（下载后可评，可重新选择）").font(.subheadline)
@@ -155,6 +154,9 @@ struct CommunitySkinDetail: View {
       }.padding()
     }.navigationTitle("皮肤详情").navigationBarTitleDisplayMode(.inline)
       .task { run { updated = try await SkinCommunityAPI.shared.detail(initial.id) } }
+      .sheet(item: $trial, onDismiss: {
+        do { try KeyboardSkinTrialStore().restorePending() } catch { message = error.localizedDescription }
+      }) { CommunitySkinTrialView(trial: $0) }
       .confirmationDialog("下架后其他用户无法再下载，已下载的本地皮肤会保留。", isPresented: $confirmsRemoval, titleVisibility: .visible) {
         Button("下架", role: .destructive) { run { try await SkinCommunityAPI.shared.unpublish(skin.id); dismiss() } }
       }

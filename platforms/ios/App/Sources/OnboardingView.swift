@@ -45,10 +45,6 @@ struct SettingsView: View {
             Label("试用键盘", systemImage: "keyboard")
           }
           .accessibilityIdentifier("keyboardTryoutLink")
-          NavigationLink(destination: OnboardingView()) {
-            Label("启用指南", systemImage: "list.number")
-          }
-          .accessibilityIdentifier("keyboardGuideLink")
           Button {
             guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
             UIApplication.shared.open(url)
@@ -58,14 +54,7 @@ struct SettingsView: View {
           .accessibilityIdentifier("openKeyboardSettingsButton")
         }
 
-        Section("了解水杉") {
-          NavigationLink(destination: DesktopDownloadView()) {
-            Label("电脑版下载", systemImage: "desktopcomputer")
-          }.accessibilityIdentifier("desktopDownloadLink")
-          NavigationLink(destination: AboutView()) {
-            Label("关于水杉", systemImage: "info.circle")
-          }.accessibilityIdentifier("aboutSettingsLink")
-        }
+
       }
       .navigationTitle("设置")
     }

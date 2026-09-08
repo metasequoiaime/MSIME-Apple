@@ -107,6 +107,7 @@ final class KeyboardChatModel: ObservableObject {
 }
 
 struct KeyboardTryoutView: View {
+  var focusOnAppear = false
   @StateObject private var chat = KeyboardChatModel()
   @State private var draft = ""
   @State private var showAccount = false
@@ -194,7 +195,7 @@ struct KeyboardTryoutView: View {
           else { Button { clearConfirmation = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新对话").disabled(chat.messages.isEmpty) }
         }
       }
-      .task { await chat.loadModels() }
+      .task { focused = focusOnAppear; await chat.loadModels() }
       .onDisappear { chat.cancel(); focused = false }
       .sheet(isPresented: $showAccount, onDismiss: { Task { await chat.loadModels() } }) {
         NavigationView { AccountSettingsView().toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { showAccount = false } } } }

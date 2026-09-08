@@ -3,6 +3,13 @@ import Foundation
 
 enum CommunityPreviewFixtures {
   static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("-communityPreview") }
+  static var skins: [CommunitySkin] {
+    CustomKeyboardSkin.templates.prefix(2).enumerated().map { index, template in
+      CommunitySkin(id: "20000000-0000-4000-8000-00000000000\(index + 1)", name: template.0,
+        description: "试用皮肤", author: "水杉精选", design: template.1, downloads: 0,
+        rating_count: 0, rating_average: 0, owned: false, my_rating: 0)
+    }
+  }
   static let items: [CommunityResource] = [
     CommunityResource(id: "10000000-0000-4000-8000-000000000001", kind: .dictionary, name: "开发者常用词", description: "常见开发术语，输入更顺手", author: "水杉精选",
       content: .init(entries: [.init(PersonalWord(key: "dai ma", value: "代码")), .init(PersonalWord(key: "kai fa", value: "开发"))]), revision: 1, saves: 12, saved: false, owned: false, rating_count: 2, rating_average: 4.5, my_rating: 0),

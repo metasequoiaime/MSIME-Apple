@@ -107,19 +107,27 @@ actor SkinCommunityAPI {
   func clearExpiredLogin() async throws { try await account.forget() }
   func list(offset: Int = 0, search: String = "") async throws -> CommunityPage {
     #if DEBUG && targetEnvironment(simulator)
-    if CommunityPreviewFixtures.enabled { return CommunityPage(skins: [], has_more: false) }
+    if CommunityPreviewFixtures.enabled { return CommunityPage(skins: CommunityPreviewFixtures.skins, has_more: false) }
     #endif
     var parts = URLComponents()
     parts.path = "/v1/community/skins"
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
     return try await request(parts.string!)
   }
-  func detail(_ id: String) async throws -> CommunitySkin { try await request("/v1/community/skins/\(id)") }
+  func detail(_ id: String) async throws -> CommunitySkin {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin }
+    #endif
+    return try await request("/v1/community/skins/\(id)")
+  }
   func publish(id: String, name: String, description: String, design: CustomKeyboardSkin) async throws {
     struct Payload: Encodable { let id: String; let name: String; let description: String; let design: CustomKeyboardSkin }
     let _: [String: String] = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized)), authenticated: true)
   }
   func download(_ id: String) async throws -> CustomKeyboardSkin {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin.design }
+    #endif
     struct Result: Decodable, Sendable { let design: CustomKeyboardSkin }
     let result: Result = try await request("/v1/community/skins/\(id)/download", method: "POST", body: Data("{}".utf8), authenticated: true)
     return result.design.normalized

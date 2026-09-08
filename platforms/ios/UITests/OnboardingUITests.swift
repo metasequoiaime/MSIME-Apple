@@ -64,7 +64,44 @@ final class OnboardingUITests: XCTestCase {
     let detail = XCTAttachment(screenshot: app.screenshot()); detail.name = "Community reply preview"; detail.lifetime = .keepAlways; add(detail)
     app.navigationBars.buttons.firstMatch.tap()
     app.buttons["publishCommunityWork"].tap()
-    XCTAssertTrue(app.buttons["回复模板"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["发布回复"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textViews["communityPromptEditor"].exists)
+    app.buttons["取消"].tap()
+    app.buttons["communityCategory-1"].tap()
+    app.buttons["publishCommunityWork"].tap()
+    XCTAssertTrue(app.navigationBars["发布词库"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["添加到待发布词库"].exists)
+    app.buttons["取消"].tap()
+    app.buttons["communityCategory-0"].tap()
+    app.buttons["publishCommunityWork"].tap()
+    XCTAssertTrue(app.navigationBars["发布皮肤"].waitForExistence(timeout: 5))
+  }
+
+  @MainActor
+  func testSkinDownloadOpensTryoutAndRestores() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview", "--keyboard-chat-ui-fixture"]
+    app.launch()
+    XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
+    XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
+    app.tabBars.buttons["社区"].tap()
+    let card = app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5)); card.tap()
+    app.buttons["downloadCommunitySkin"].tap()
+    XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
+    XCTAssertTrue(app.buttons["keepTrialSkin"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Skin trial with undo"; shot.lifetime = .keepAlways; add(shot)
+    app.buttons["restoreTrialSkin"].tap()
+    XCTAssertTrue(app.navigationBars["皮肤详情"].waitForExistence(timeout: 5))
+    app.tabBars.buttons["我的"].tap()
+    for _ in 0..<5 {
+      if app.buttons["aboutSettingsLink"].isHittable { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(app.buttons["desktopDownloadLink"].exists)
+    app.buttons["aboutSettingsLink"].tap()
+    XCTAssertTrue(app.navigationBars["关于水杉"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -773,6 +810,7 @@ final class OnboardingUITests: XCTestCase {
     enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.tabBars.buttons["我的"].tap()
     for _ in 0..<6 {
       if app.buttons["desktopDownloadLink"].isHittable { break }
       app.swipeUp()
@@ -948,8 +986,7 @@ final class OnboardingUITests: XCTestCase {
     wait(for: [unfocused], timeout: 10)
     XCTAssertEqual(tryoutField.value as? String, "test")
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    app.buttons["keyboardGuideLink"].tap()
-    XCTAssertTrue(app.navigationBars["启用指南"].exists)
+    XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
   }
 }

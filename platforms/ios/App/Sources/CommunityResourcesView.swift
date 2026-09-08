@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct CommunityHomeView: View {
   @State private var category = 0
   @State private var publishing: Int?
-  @State private var choosePublish = false
   @State private var account = false
   @State private var refresh = UUID()
   var body: some View {
@@ -24,14 +23,9 @@ struct CommunityHomeView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
-        Button { choosePublish = true } label: { Label("发布", systemImage: "plus").labelStyle(.titleAndIcon).font(.subheadline.weight(.semibold)) }
+        Button { publish(category) } label: { Label("发布", systemImage: "plus").labelStyle(.titleAndIcon).font(.subheadline.weight(.semibold)) }
           .accessibilityLabel("发布作品").accessibilityIdentifier("publishCommunityWork")
       }
-    }
-    .confirmationDialog("发布到社区", isPresented: $choosePublish, titleVisibility: .visible) {
-      Button("皮肤设计") { publish(0) }
-      Button("词库") { publish(1) }
-      Button("回复模板") { publish(2) }
     }
     .sheet(isPresented: Binding(get: { publishing != nil }, set: { if !$0 { publishing = nil } }), onDismiss: { refresh = UUID() }) {
       if publishing == 0 { CommunityPublishView {} }
@@ -55,6 +49,9 @@ struct CommunityHomeView: View {
       .accessibilityAddTraits(category == value ? [.isSelected] : [])
   }
   private func publish(_ kind: Int) {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled { publishing = kind; return }
+    #endif
     Task { if (try? await SkinCommunityAPI.shared.signedIn()) == true { publishing = kind } else { account = true } }
   }
 }

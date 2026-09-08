@@ -5,6 +5,7 @@ struct MetasequoiaImeApp: App {
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
+    try? KeyboardSkinTrialStore().restorePending()
     #if DEBUG
     if ProcessInfo.processInfo.arguments.contains("--reset-onboarding-for-ui-tests") {
       UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
