@@ -148,7 +148,7 @@ private struct MacAccountView: View {
         Button("云剪贴板…") { clipboard = true }
         Button("桌面设置同步…") { settings = true }
         Button("云词库…") { dictionary = true }
-        Button("完整云词库备份…") { snapshot = true }
+        Button("云词库同步与备份…") { snapshot = true }
         Button("退出登录") { model.logout() }
         Button("退出所有设备") { model.logout(all: true) }
         Button("注销账号", role: .destructive) { deleting = true }

@@ -1,6 +1,8 @@
 #import "MetasequoiaInputController.h"
 
 #import "DictionaryInstaller.h"
+#include "DictionaryRuntime.h"
+#include "../../../shared/apple-bridge/DictionarySessionLease.h"
 #import "FloatingToolbarPanel.h"
 #import "ChineseTextConversion.h"
 #include "CandidateFontSize.h"
@@ -89,11 +91,18 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
 }
 } // namespace
 
+static NSHashTable *LiveDictionaryControllers()
+{
+    static NSHashTable *controllers = [NSHashTable weakObjectsHashTable];
+    return controllers;
+}
+
 @interface MetasequoiaInputController () <MetasequoiaFloatingToolbarDelegate, MetasequoiaCandidatePanelDelegate>
 @end
 
 @implementation MetasequoiaInputController
 {
+    std::unique_ptr<metasequoia::apple::DictionarySessionLease> _dictionaryLease;
     std::unique_ptr<metasequoia::Session> _session;
     metasequoia::SessionOptions _sessionOptions;
     metasequoia::SessionSnapshot _sessionSnapshot;
@@ -117,6 +126,21 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
     id<MetasequoiaVoiceService> _voiceService;
     NSUInteger _voiceGeneration;
     id _voiceMouseMonitor;
+}
+
+// Main-thread publication first checks every composition, then releases every
+// idle session. Cross-process readers remain protected by DictionarySessionLease.
++ (NSNumber *)suspendForCloudDictionarySwitch
+{
+    if (!NSThread.isMainThread)
+        return @NO;
+    for (MetasequoiaInputController *controller in LiveDictionaryControllers())
+        if (controller->_session && (!controller->_sessionSnapshot.preedit.empty() ||
+                                     controller->_sessionSnapshot.local_mode != metasequoia::LocalInputMode::None))
+            return @NO;
+    for (MetasequoiaInputController *controller in LiveDictionaryControllers())
+        [controller prepareForLearnedDataReset:nil];
+    return @YES;
 }
 
 - (instancetype)initWithServer:(IMKServer *)server delegate:(id)delegate client:(id)inputClient
@@ -197,6 +221,7 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
     (void)notification;
     [self commitLeadingCandidate:self.client];
     _session.reset();
+    _dictionaryLease.reset();
     _candidateSelection.reset();
     _candidateHighlightedIndex = 0;
     _candidatePageStart = 0;
@@ -211,6 +236,7 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
 
 - (void)reloadSessionFromPreferences
 {
+    [LiveDictionaryControllers() addObject:self];
     const NSInteger storedScheme = [MetasequoiaPreferencesWindowController storedScheme];
     _shuangpinKeymapEnabled = [MetasequoiaPreferencesWindowController storedShuangpinKeymapEnabled];
     if (storedScheme != 1 || !_shuangpinKeymapEnabled)
@@ -238,7 +264,10 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
     {
         return;
     }
-    const auto paths = metasequoia::RuntimePaths::legacy();
+    if (!_dictionaryLease)
+        _dictionaryLease =
+            std::make_unique<metasequoia::apple::DictionarySessionLease>(MetasequoiaDictionaryUserDirectory());
+    const auto paths = MetasequoiaCurrentDictionaryPaths();
     metasequoia::SessionOptions options;
     options.paths = paths;
     options.scheme = preferences.scheme;
@@ -305,7 +334,17 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
     }
 
     _dictionaryRetryAfter = 0.0;
-    [self reloadSessionFromPreferences];
+    try
+    {
+        [self reloadSessionFromPreferences];
+    }
+    catch (const std::exception &)
+    {
+        _session.reset();
+        _dictionaryLease.reset();
+        _dictionaryRetryAfter = now + kDictionaryRetryDelay;
+        return NO;
+    }
     return _session != nullptr;
 }
 

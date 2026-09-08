@@ -15,6 +15,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendSnapshotClient.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendFileTransfer.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendSnapshotView.swift"
+    "${METASEQUOIA_MACOS_ROOT}/src/BackendLocalSnapshot.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/BackendInputModifiers.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CloudCandidatesView.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CloudDictionaryCatalogView.swift"

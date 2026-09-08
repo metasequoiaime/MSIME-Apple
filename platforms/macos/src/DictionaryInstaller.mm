@@ -952,6 +952,19 @@ BOOL ResetMetasequoiaLearnedDataForCurrentUser(NSError **error)
     }
 
     NSURL *dataDirectory = [applicationSupport URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
+    if ([fileManager fileExistsAtPath:[dataDirectory URLByAppendingPathComponent:@"active-user-generation"].path])
+    {
+        Class runtime = NSClassFromString(@"MSIMEMacDictionarySync");
+        SEL reset = NSSelectorFromString(@"reset");
+        if (!runtime || ![runtime respondsToSelector:reset])
+            return Fail(error, 423, @"词库同步运行时不可用，请重新启动输入法后重试。");
+        using Reset = NSDictionary *(*)(id, SEL);
+        NSDictionary *result = reinterpret_cast<Reset>([runtime methodForSelector:reset])(runtime, reset);
+        NSError *failure = result[@"error"];
+        if (failure && error)
+            *error = failure;
+        return result != nil && failure == nil;
+    }
     NSURL *source = [[NSBundle mainBundle] URLForResource:@"msime" withExtension:@"db"];
     NSString *fingerprint = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"MetasequoiaDictionarySHA256"];
     return ResetMetasequoiaLearnedData(source, dataDirectory, fingerprint, error);

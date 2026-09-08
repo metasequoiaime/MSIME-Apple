@@ -271,9 +271,10 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
         if (error)
             *error =
                 streamError
-                    ?: [NSError errorWithDomain:@"app.msime.snapshot"
-                                           code:1
-                                       userInfo:@{NSLocalizedDescriptionKey : @"词库快照准备失败，原有词库未更改。"}];
+                    ? streamError
+                    : [NSError errorWithDomain:@"app.msime.snapshot"
+                                          code:1
+                                      userInfo:@{NSLocalizedDescriptionKey : @"词库快照准备失败，原有词库未更改。"}];
         return nil;
     }
 }

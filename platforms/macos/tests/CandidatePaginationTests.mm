@@ -3,6 +3,7 @@
 // IMKCandidates cannot render without a registered input-method client.
 #include "../src/MetasequoiaInputController.mm"
 #include "../../../vendor/MetasequoiaImeEngine/user_dictionary/user_dictionary_journal.h"
+#include "../../../shared/apple-bridge/DictionarySnapshotBridge.h"
 #include <sqlite3.h>
 #include <filesystem>
 #include <stdexcept>
@@ -697,6 +698,91 @@ static void RunHelpcodeIsolationTests(NSString *directory)
     [defaults setVolatileDomain:@{} forName:NSArgumentDomain];
 }
 
+static void RunDictionarySwitchTests(NSString *directory)
+{
+    NSURL *user = [NSURL fileURLWithPath:directory];
+    NSURL *resources =
+        [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+    NSFileManager *manager = NSFileManager.defaultManager;
+    Require([manager createDirectoryAtURL:resources withIntermediateDirectories:YES attributes:nil error:nil],
+            "Cannot create snapshot resources.");
+    @try
+    {
+        Require([manager copyItemAtURL:[user URLByAppendingPathComponent:@"msime.db"]
+                                 toURL:[resources URLByAppendingPathComponent:@"msime.db"]
+                                 error:nil],
+                "Cannot copy snapshot fixture.");
+        sqlite3 *database = nullptr;
+        Require(sqlite3_open([resources URLByAppendingPathComponent:@"english.db"].fileSystemRepresentation,
+                             &database) == SQLITE_OK,
+                "Cannot create English fixture.");
+        Require(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER)", nullptr,
+                             nullptr, nullptr) == SQLITE_OK,
+                "Cannot create English schema.");
+        sqlite3_close(database);
+        __block BOOL emitted = NO;
+        NSError *error = nil;
+        NSString *content = [@"" stringByPaddingToLength:128 withString:@"a" startingAtIndex:0];
+        MSIMEPreparedDictionarySnapshot *prepared =
+            [DictionarySnapshotBridge prepareResources:resources
+                                         userDirectory:user
+                                            identifier:NSUUID.UUID.UUIDString
+                                     contentIdentifier:content
+                                        maximumRecords:1
+                                            nextRecord:^NSDictionary *(NSError **failure) {
+                                              (void)failure;
+                                              if (emitted)
+                                                  return nil;
+                                              emitted = YES;
+                                              return @{
+                                                  @"type" : @"overlay",
+                                                  @"deleted" : @NO,
+                                                  @"data" : @{
+                                                      @"kind" : @"pinyin",
+                                                      @"code" : @"ni'hao",
+                                                      @"word" : @"你好",
+                                                      @"weight" : @100000,
+                                                      @"user_inserted" : @YES
+                                                  }
+                                              };
+                                            }
+                                                 error:&error];
+        Require(prepared != nil && error == nil, "Cannot stage controller snapshot.");
+        Class runtime = NSClassFromString(@"MSIMEMacDictionarySync");
+        SEL activate = NSSelectorFromString(@"activate:");
+        using Activate = NSDictionary *(*)(id, SEL, NSDictionary *);
+        const auto call = reinterpret_cast<Activate>([runtime methodForSelector:activate]);
+        NSString *version = [NSString
+            stringWithFormat:@"local-v1::%s",
+                             metasequoia::apple::DictionaryStateRevision(MetasequoiaCurrentDictionaryPaths()).c_str()];
+        RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+        PaginationTestController *controller = [PaginationTestController alloc];
+        controller.testClient = [RecordingInputClient new];
+        [controller prepareTestPanel:panel];
+        NSDictionary *request = @{@"prepared" : prepared, @"version" : version};
+        Require([call(runtime, activate, request)[@"error"] code] == 423, "Publication interrupted composition.");
+        Require([controller testHasComposition], "Rejected publication changed composition.");
+        Press(controller, kVK_Escape, @"\x1b");
+        Require([call(runtime, activate, @{@"prepared" : prepared, @"version" : @"stale"})[@"error"] code] == 409,
+                "Stale local state was replaced.");
+        NSDictionary *result = call(runtime, activate, request);
+        Require(result[@"error"] == nil, "Cannot activate idle controller snapshot.");
+        [controller prepareEmptyTestPanel:panel];
+        for (NSString *key in @[ @"n", @"i", @"h", @"a", @"o" ])
+            Press(controller, 0, key);
+        Require([[controller testCandidateAtIndex:0] isEqualToString:@"你好"],
+                "Recreated controller did not use published snapshot.");
+        Press(controller, kVK_Space, @" ");
+        Require([controller.testClient.committed isEqualToString:@"你好"],
+                "Snapshot candidate was not committed through IMK boundary.");
+        [controller prepareForLearnedDataReset:nil];
+    }
+    @finally
+    {
+        [manager removeItemAtURL:resources error:nil];
+    }
+}
+
 int main()
 {
     @autoreleasepool
@@ -743,11 +829,15 @@ int main()
         sqlite3_close(database);
         try
         {
-            RunTests();
-            RunVoiceTests();
-            RunFullWidthAndLocalModeTests();
-            RunChinesePunctuationTests();
-            RunHelpcodeIsolationTests(directory);
+            @autoreleasepool
+            {
+                RunTests();
+                RunVoiceTests();
+                RunFullWidthAndLocalModeTests();
+                RunChinesePunctuationTests();
+                RunHelpcodeIsolationTests(directory);
+            }
+            RunDictionarySwitchTests(directory);
         }
         catch (const std::exception &error)
         {
