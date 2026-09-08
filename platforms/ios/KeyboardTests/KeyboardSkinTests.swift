@@ -176,12 +176,20 @@ final class KeyboardSkinTests: XCTestCase {
     let defaults = KeyboardFeedbackPreference.defaults
     let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
     let selection = KeyboardSkinPreference.selected
+    let scheme = InputSchemePreference.scheme
+    let enabledSchemes = InputSchemePreference.enabledSchemes
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .quanpin
     defer {
+      InputSchemePreference.enabledSchemes = enabledSchemes
+      InputSchemePreference.scheme = scheme
       if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
       defaults.set(selection.rawValue, forKey: KeyboardSkinPreference.key)
     }
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
     defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
+    // Compare the same letter-key layout even after UI tests select nine keys. The nine-key
+    // sidebar deliberately uses flat punctuation buttons without individual skin surfaces.
     var referenceFrames: [CGRect]?
     for (name, template) in CustomKeyboardSkin.templates.prefix(4) {
       var design = template
