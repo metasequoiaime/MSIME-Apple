@@ -2,6 +2,36 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testVoiceResultIsExplicitlyTransferredAndClaimedOnce() {
+    let app = XCUIApplication()
+    let isolation = ["-voiceHandoffTestID", UUID().uuidString]
+    app.launchArguments = isolation + ["-hasCompletedOnboarding", "YES", "-voiceResultFixture"]
+    app.launch()
+    app.buttons["voiceSettingsLink"].tap()
+    XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
+    for _ in 0..<8 {
+      if app.buttons["sendVoiceToKeyboard"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["sendVoiceToKeyboard"].tap()
+    XCTAssertTrue(app.staticTexts["等待键盘插入"].waitForExistence(timeout: 5))
+    app.terminate()
+    app.launchArguments = isolation + ["-keyboardVoicePreview"]
+    app.launch()
+    XCTAssertTrue(app.staticTexts["语音交接测试。"].waitForExistence(timeout: 5))
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Keyboard voice result preview"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.buttons["keyboardVoiceInsert"].tap()
+    XCTAssertTrue(app.staticTexts["插入验证：语音交接测试。"].waitForExistence(timeout: 5))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["请在水杉 App 的“语音设置”中录音识别，点击“发送到键盘”，再返回这里插入。"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["keyboardVoiceInsert"].exists)
+  }
+
+  @MainActor
   func testKeyboardAIShowsSelectedTextAndRejectsStaleInput() {
     let app = XCUIApplication()
     app.launchArguments = ["-keyboardAIPreview"]

@@ -21,6 +21,8 @@ struct MetasequoiaImeApp: App {
           configuration: CustomServiceConfiguration(endpoint: "https://fixture.invalid/v1/chat/completions", model: "fixture"),
           canSend: { false }, insert: { _ in false }, close: {})
           .frame(width: 320, height: 260)
+      } else if ProcessInfo.processInfo.arguments.contains("-keyboardVoicePreview") {
+        KeyboardVoicePreviewFixture().frame(width: 320, height: 260)
       } else { applicationContent }
       #else
       applicationContent
@@ -36,3 +38,20 @@ struct MetasequoiaImeApp: App {
       }
   }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+private struct KeyboardVoicePreviewFixture: View {
+  @State private var entry = try? VoiceTextHandoffStore().read()
+  @State private var inserted = ""
+  @State private var closed = false
+  var body: some View {
+    if closed { Text(inserted.isEmpty ? "已关闭" : "插入验证：" + inserted) }
+    else {
+      KeyboardVoiceView(entry: entry, insert: {
+        guard let entry else { throw VoiceTextHandoffStore.Failure.stale }
+        inserted = try VoiceTextHandoffStore().consume(entry.id)
+      }, close: { closed = true })
+    }
+  }
+}
+#endif

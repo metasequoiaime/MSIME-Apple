@@ -134,6 +134,7 @@ struct ServiceSettingsView: View {
   @State private var token = ""
   @State private var keyboardAIEnabled = KeyboardAIService.configuration() != nil
   @State private var input = ""
+  @State private var voiceTransfer: VoiceTextHandoff?
   @State private var output = ""
   @State private var status = ""
   @State private var busy = false
@@ -144,6 +145,11 @@ struct ServiceSettingsView: View {
   init(kind: CustomServiceKind) {
     self.kind = kind
     _configuration = State(initialValue: CustomServiceConfiguration.load(kind))
+    #if DEBUG && targetEnvironment(simulator)
+    if kind == .voice && ProcessInfo.processInfo.arguments.contains("-voiceResultFixture") {
+      _output = State(initialValue: "语音交接测试。")
+    }
+    #endif
   }
 
   var body: some View {
@@ -190,7 +196,7 @@ struct ServiceSettingsView: View {
         } header: {
           Text("语音转文字")
         } footer: {
-          Text("在水杉 App 中录音并复制识别结果。iOS 键盘扩展不能直接录音。")
+          Text("在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
         }
       }
       if busy {
@@ -203,6 +209,30 @@ struct ServiceSettingsView: View {
         Section("结果") {
           Text(output).textSelection(.enabled)
           Button("复制结果") { UIPasteboard.general.string = output; status = "已复制" }
+          if kind == .voice {
+            Button(voiceTransfer == nil ? "发送到键盘" : "更新待插入结果") {
+              do {
+                voiceTransfer = try VoiceTextHandoffStore().save(output)
+                status = "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。"
+              } catch { status = error.localizedDescription }
+            }.accessibilityIdentifier("sendVoiceToKeyboard")
+          }
+        }
+      }
+      if kind == .voice, let voiceTransfer {
+        Section {
+          Text(voiceTransfer.text).lineLimit(3)
+          Text("有效至 \(voiceTransfer.expiresAt.formatted(date: .omitted, time: .shortened))")
+            .font(.caption).foregroundStyle(.secondary)
+          Button("清除待插入结果", role: .destructive) {
+            do {
+              try VoiceTextHandoffStore().discard(voiceTransfer.id)
+              self.voiceTransfer = nil
+              status = "已清除待插入结果"
+            } catch { status = error.localizedDescription; refreshVoiceTransfer() }
+          }.accessibilityIdentifier("clearVoiceTransfer")
+        } header: { Text("等待键盘插入") } footer: {
+          Text("需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。")
         }
       }
       Section {
@@ -230,10 +260,23 @@ struct ServiceSettingsView: View {
       }
     }
     .onChange(of: configuration.endpoint) { _ in fetchedModels = nil; modelStatus = "" }
+    .task {
+      guard kind == .voice else { return }
+      while !Task.isCancelled {
+        refreshVoiceTransfer()
+        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { break }
+      }
+    }
     .onDisappear { cancelAndClear() }
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
+      if phase == .active && kind == .voice { refreshVoiceTransfer() }
     }
+  }
+
+  private func refreshVoiceTransfer() {
+    do { voiceTransfer = try VoiceTextHandoffStore().read() }
+    catch { status = error.localizedDescription }
   }
 
   private var selectedProviderID: String {

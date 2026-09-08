@@ -1,9 +1,9 @@
 import SwiftUI
 
-struct KeyboardAISelection: Equatable {
+struct KeyboardDocumentContext: Equatable {
   let document: UUID
   let before: String?
-  let selected: String
+  let selected: String?
   let after: String?
 
   func matches(document: UUID?, before: String?, selected: String?, after: String?) -> Bool {

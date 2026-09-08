@@ -4,7 +4,7 @@ import Security
 final class KeyboardAITests: XCTestCase {
   func testAISelectionRejectsDocumentCaretAndTextChanges() {
     let id = UUID()
-    let selection = KeyboardAISelection(document: id, before: "before", selected: "fixture", after: "after")
+    let selection = KeyboardDocumentContext(document: id, before: "before", selected: "fixture", after: "after")
     XCTAssertTrue(selection.matches(document: id, before: "before", selected: "fixture", after: "after"))
     XCTAssertFalse(selection.matches(document: UUID(), before: "before", selected: "fixture", after: "after"))
     XCTAssertFalse(selection.matches(document: nil, before: "before", selected: "fixture", after: "after"))
