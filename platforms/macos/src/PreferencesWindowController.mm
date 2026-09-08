@@ -1,3 +1,5 @@
+extern "C" void MSIMEShowBackendAccount(void);
+
 #import "PreferencesWindowController.h"
 
 #include "CandidateFontSize.h"
@@ -853,6 +855,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                 NSForegroundColorAttributeName : [NSColor linkColor],
             }];
 
+    NSButton *accountButton = [NSButton buttonWithTitle:@"管理水杉账号…"
+                                                 target:self
+                                                 action:@selector(showBackendAccount:)];
+    accountButton.bezelStyle = NSBezelStyleRounded;
+    accountButton.accessibilityIdentifier = @"MetasequoiaBackendAccount";
+    NSBox *accountCard = CardWithViews(@[ PreferenceRow(@"登录与账号管理", accountButton) ], 4.0);
+
     NSBox *updateCard = CardWithViews(
         @[
             PreferenceRow(@"当前版本", _versionLabel),
@@ -868,9 +877,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     feedbackCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSView *updatesPage =
-        PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
-                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
+    NSView *updatesPage = PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。", @[
+        SectionLabel(@"水杉账号"), accountCard, SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"),
+        feedbackCard
+    ]);
     updatesPage.accessibilityLabel = @"更新与反馈设置页";
 
     _preferencePages = @[ generalPage, appearancePage, _skinSettings, dataPage, updatesPage, wubiPage ];
@@ -960,6 +970,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     item.action = @selector(selectPreferencesPageFromToolbar:);
     item.tag = index;
     return item;
+}
+
+- (void)showBackendAccount:(id)sender
+{
+    (void)sender;
+    MSIMEShowBackendAccount();
 }
 
 - (void)refreshUpdateControls
