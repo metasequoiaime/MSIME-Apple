@@ -50,7 +50,7 @@ struct SkinCommunityView: View {
       }
       }
     }
-    .navigationTitle(onlyMine ? "已发布作品" : (embedded ? "社区" : "皮肤社区"))
+    .navigationTitle(onlyMine ? "我发布的皮肤" : (embedded ? "社区" : "皮肤社区"))
     .navigationBarTitleDisplayMode(.inline)
     .refreshable { do { try await load() } catch { message = error.localizedDescription } }
     .task {
@@ -62,14 +62,11 @@ struct SkinCommunityView: View {
     }
     .sheet(isPresented: $showPublish) { CommunityPublishView { run { try await load() } } }
     .sheet(isPresented: $showAccount, onDismiss: {
-      Task { signedIn = (try? await api.signedIn()) ?? false }
-    }) {
-      NavigationView {
-        AccountSettingsView().toolbar {
-          ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showAccount = false } }
-        }
-      }.navigationViewStyle(.stack)
-    }
+      Task {
+        signedIn = (try? await api.signedIn()) ?? false
+        if signedIn { showPublish = true }
+      }
+    }) { AccountLoginSheet() }
     .alert("皮肤社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }

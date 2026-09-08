@@ -11,7 +11,6 @@ struct SettingsView: View {
     skin == .custom ? (CustomSkinLibrary.designs.first { $0.design == design }?.name ?? "自定义皮肤") : skin.title
   }
   var body: some View {
-    NavigationView {
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
           VStack(alignment: .leading, spacing: 5) {
@@ -68,7 +67,7 @@ struct SettingsView: View {
         .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
         .onChange(of: scenePhase) { if $0 == .active { refresh() } }
-    }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+      .tint(MetasequoiaTheme.accent)
   }
   private var keyboardCard: some View {
     NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {

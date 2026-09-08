@@ -4,7 +4,7 @@ import AuthenticationServices
 struct AccountSettingsView: View {
   @State private var signedIn = false
   @State private var designs = CustomSkinLibrary.designs
-  @State private var showPublish = false
+  @State private var replayOnboarding = false
 
   var body: some View {
     Form {
@@ -20,26 +20,25 @@ struct AccountSettingsView: View {
             }
           }.padding(.vertical, 4)
         }.accessibilityIdentifier("accountLocalDesigns")
-        if signedIn {
-          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            HStack(spacing: 12) {
-              accountIcon("square.stack.3d.up.fill", color: MetasequoiaTheme.accent)
-              VStack(alignment: .leading, spacing: 4) {
-                Text("已发布作品").foregroundStyle(.primary)
-                Text("查看下载、评分和管理作品").font(.caption).foregroundStyle(.secondary)
-              }
-            }.padding(.vertical, 4)
-          }.accessibilityIdentifier("accountPublishedSkins")
-          Button { showPublish = true } label: {
-            Label("发布新作品", systemImage: "square.and.arrow.up")
-          }
-        }
       }
 
-      Section("社区收藏与发布") {
-        ForEach(CommunityResourceKind.allCases) { kind in
-          NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) { Label("收藏的\(kind.title)", systemImage: "bookmark") }
-          NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) { Label("我发布的\(kind.title)", systemImage: kind.icon) }
+      if signedIn {
+        Section("我发布的作品") {
+          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
+            Label("我发布的皮肤", systemImage: "paintpalette")
+          }.accessibilityIdentifier("accountPublishedSkins")
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
+              Label("我发布的\(kind.title)", systemImage: kind.icon)
+            }
+          }
+        }
+        Section("我的收藏") {
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
+              Label("收藏的\(kind.title)", systemImage: "bookmark")
+            }
+          }
         }
       }
 
@@ -67,7 +66,7 @@ struct AccountSettingsView: View {
         }
 
       Section {
-        NavigationLink(destination: WelcomeFlowView()) {
+        Button { replayOnboarding = true } label: {
           Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")
         }.accessibilityIdentifier("replayOnboardingLink")
       }
@@ -80,7 +79,9 @@ struct AccountSettingsView: View {
     }
     .navigationTitle("我的")
     .task { designs = CustomSkinLibrary.designs }
-    .sheet(isPresented: $showPublish) { CommunityPublishView {} }
+    .sheet(isPresented: $replayOnboarding) {
+      NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
+    }
   }
 
   private func accountIcon(_ symbol: String, color: Color) -> some View {

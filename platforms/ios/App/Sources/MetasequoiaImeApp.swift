@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MetasequoiaImeApp: App {
+  @StateObject private var onboardingNavigation = AppNavigation()
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
@@ -58,7 +59,7 @@ struct MetasequoiaImeApp: App {
         MainTabView()
       } else {
         NavigationView { WelcomeFlowView(onFinish: { hasCompletedOnboarding = true }) }
-          .navigationViewStyle(.stack)
+          .navigationViewStyle(.stack).environmentObject(onboardingNavigation)
       }
   }
 }
@@ -81,21 +82,20 @@ private struct KeyboardVoicePreviewFixture: View {
 #endif
 
 private struct MainTabView: View {
+  @StateObject private var navigation = AppNavigation()
   var body: some View {
-    TabView {
-      SettingsView()
-        .tabItem { Label("键盘", systemImage: "keyboard") }
-      NavigationView { CommunityHomeView() }
-        .navigationViewStyle(.stack)
-        .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }
-      NavigationView { TypingStatisticsView() }
-        .navigationViewStyle(.stack)
-        .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
-      NavigationView { AccountSettingsView() }
-        .navigationViewStyle(.stack)
-        .tabItem { Label("我的", systemImage: "person.crop.circle") }
+    TabView(selection: $navigation.tab) {
+      NavigationView { SettingsView() }.navigationViewStyle(.stack)
+        .tabItem { Label("键盘", systemImage: "keyboard") }.tag(AppNavigation.Tab.keyboard)
+      NavigationView { CommunityHomeView() }.navigationViewStyle(.stack).id(navigation.communityRoot)
+        .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.community)
+      NavigationView { TypingStatisticsView() }.navigationViewStyle(.stack)
+        .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(AppNavigation.Tab.statistics)
+      NavigationView { AccountSettingsView() }.navigationViewStyle(.stack)
+        .tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(AppNavigation.Tab.account)
     }
-    .tint(MetasequoiaTheme.forest)
+    .environmentObject(navigation)
+    .tint(MetasequoiaTheme.accent)
   }
 }
 

@@ -2,10 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct CommunityHomeView: View {
-  @State private var category = 0
+  @EnvironmentObject private var navigation: AppNavigation
+  private var category: Int { navigation.communityCategory }
+  @State private var pendingPublish: Int?
   @State private var publishing: Int?
   @State private var account = false
   @State private var refresh = UUID()
+  @State private var didPublish = false
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 10) {
@@ -27,18 +30,21 @@ struct CommunityHomeView: View {
           .accessibilityLabel("发布作品").accessibilityIdentifier("publishCommunityWork")
       }
     }
-    .sheet(isPresented: Binding(get: { publishing != nil }, set: { if !$0 { publishing = nil } }), onDismiss: { refresh = UUID() }) {
-      if publishing == 0 { CommunityPublishView {} }
-      else { CommunityResourceEditor(kind: publishing == 1 ? .dictionary : .reply) }
+    .sheet(isPresented: Binding(get: { publishing != nil }, set: { if !$0 { publishing = nil } }), onDismiss: {
+      if didPublish { refresh = UUID(); didPublish = false }
+    }) {
+      if publishing == 0 { CommunityPublishView { didPublish = true } }
+      else { CommunityResourceEditor(kind: publishing == 1 ? .dictionary : .reply, onPublished: { didPublish = true }) }
     }
-    .sheet(isPresented: $account) {
-      NavigationView { AccountSettingsView().toolbar {
-        ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { account = false } }
-      }}.navigationViewStyle(.stack)
-    }
+    .sheet(isPresented: $account, onDismiss: {
+      let pending = pendingPublish; pendingPublish = nil
+      Task {
+        if let pending, (try? await SkinCommunityAPI.shared.signedIn()) == true { publishing = pending }
+      }
+    }) { AccountLoginSheet() }
   }
   private func categoryButton(_ value: Int, title: String, symbol: String) -> some View {
-    Button { category = value } label: {
+    Button { navigation.communityCategory = value } label: {
       HStack(spacing: 6) {
         Image(systemName: symbol).font(.system(size: 16, weight: .medium))
         Text(title).font(.system(size: 15, weight: .semibold))
@@ -52,7 +58,7 @@ struct CommunityHomeView: View {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled { publishing = kind; return }
     #endif
-    Task { if (try? await SkinCommunityAPI.shared.signedIn()) == true { publishing = kind } else { account = true } }
+    Task { if (try? await SkinCommunityAPI.shared.signedIn()) == true { publishing = kind } else { pendingPublish = kind; account = true } }
   }
 }
 
@@ -211,6 +217,7 @@ struct CommunityResourceDetail: View {
 struct CommunityResourceEditor: View {
   let kind: CommunityResourceKind
   var existing: CommunityResource?
+  var onPublished: () -> Void = {}
   @State private var publicationID = UUID().uuidString.lowercased()
   @State private var name = ""
   @State private var description = ""
@@ -300,7 +307,7 @@ struct CommunityResourceEditor: View {
                   prompt: kind == .reply ? prompt : nil)
                 try await SkinCommunityAPI.shared.publishResource(id: publicationID, kind: kind, name: name,
                   description: description, content: content, revision: existing?.revision ?? 0)
-                dismiss()
+                onPublished(); dismiss()
               } catch { message = error.localizedDescription }
             }
           }

@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct SkinSettingsView: View {
+  @EnvironmentObject private var navigation: AppNavigation
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
   @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
@@ -17,7 +18,7 @@ struct SkinSettingsView: View {
         }.accessibilityIdentifier("customSkinEditorLink")
       }
       Section {
-        NavigationLink(destination: SkinCommunityView()) { Label("皮肤社区", systemImage: "person.3.fill") }
+        Button { navigation.discoverSkins() } label: { Label("去社区发现皮肤", systemImage: "square.grid.2x2") }
           .accessibilityIdentifier("skinCommunityLink")
       }
       Section("完整键盘预览") {

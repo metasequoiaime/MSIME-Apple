@@ -181,6 +181,73 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testSkinDiscoveryUsesCommunityTabAndReturnsToOrigin() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview"]
+    app.launch()
+    app.tabBars.buttons["社区"].tap()
+    app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].tap()
+    XCTAssertTrue(app.navigationBars["皮肤详情"].waitForExistence(timeout: 5))
+    app.tabBars.buttons["键盘"].tap()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinCommunityLink"].tap()
+    XCTAssertTrue(app.tabBars.buttons["社区"].isSelected)
+    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.navigationBars["皮肤详情"].exists)
+    app.buttons["communityCategory-2"].tap()
+    app.tabBars.buttons["键盘"].tap()
+    XCTAssertTrue(app.navigationBars["皮肤"].exists)
+    app.buttons["skinCommunityLink"].tap()
+    XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
+    app.tabBars.buttons["键盘"].tap()
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    app.tabBars.buttons["我的"].tap()
+    let replay = app.buttons["replayOnboardingLink"]
+    for _ in 0..<6 { if replay.isHittable { break }; app.swipeUp() }
+    replay.tap()
+    XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
+    app.buttons["skipOnboardingButton"].tap()
+    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
+  }
+
+  @MainActor
+  func testChatLoginIsFocusedAndCancelReturnsToTryout() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardTryoutLink"].tap()
+    let login = app.buttons["登录使用 AI"]
+    XCTAssertTrue(login.waitForExistence(timeout: 8))
+    login.tap()
+    XCTAssertTrue(app.navigationBars["登录水杉"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["accountLocalDesigns"].exists)
+    XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
+    app.navigationBars["登录水杉"].buttons["取消"].tap()
+    XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+  }
+
+  @MainActor
+  func testCancellingPublicationPreservesCommunitySearch() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview"]
+    app.launch()
+    app.tabBars.buttons["社区"].tap()
+    app.buttons["communityCategory-2"].tap()
+    let search = app.textFields.firstMatch
+    search.tap(); search.typeText("reply\n")
+    app.buttons["publishCommunityWork"].tap()
+    XCTAssertTrue(app.navigationBars["发布回复"].waitForExistence(timeout: 5))
+    app.buttons["取消"].tap()
+    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
+    XCTAssertEqual(search.value as? String, "reply")
+    XCTAssertTrue(app.buttons["communityCategory-2"].isSelected)
+  }
+
+  @MainActor
   func testBrandedLaunchScreenResource() {
     let app = XCUIApplication()
     app.launchArguments = ["-launchScreenPreview"]

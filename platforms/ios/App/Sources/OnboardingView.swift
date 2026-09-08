@@ -4,7 +4,7 @@ import UIKit
 struct KeyboardSettingsView: View {
   var body: some View {
     Form {
-        Section("键盘与服务") {
+        Section("键盘外观与输入") {
           NavigationLink(destination: InputSettingsView()) {
             Label("输入设置", systemImage: "slider.horizontal.3")
           }.accessibilityIdentifier("inputSettingsLink")
@@ -14,6 +14,8 @@ struct KeyboardSettingsView: View {
           NavigationLink(destination: SkinSettingsView()) {
             Label("皮肤", systemImage: "paintpalette")
           }.accessibilityIdentifier("skinSettingsLink")
+        }
+        Section("词库与智能服务") {
           NavigationLink(destination: DictionarySettingsView()) {
             Label("词库", systemImage: "books.vertical")
           }.accessibilityIdentifier("dictionarySettingsLink")

@@ -198,7 +198,7 @@ struct KeyboardTryoutView: View {
       .task { focused = focusOnAppear; await chat.loadModels() }
       .onDisappear { chat.cancel(); focused = false }
       .sheet(isPresented: $showAccount, onDismiss: { Task { await chat.loadModels() } }) {
-        NavigationView { AccountSettingsView().toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { showAccount = false } } } }
+        AccountLoginSheet()
       }
       .confirmationDialog("开始新对话？当前消息将被清空。", isPresented: $clearConfirmation, titleVisibility: .visible) {
         Button("新对话", role: .destructive) { chat.clear() }
