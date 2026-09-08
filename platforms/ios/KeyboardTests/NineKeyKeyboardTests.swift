@@ -4,6 +4,66 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testLayoutPresetsKeepKeysInBoundsAcrossBothKeyboards() throws {
+    let previousLayout = KeyboardLayoutPreference.selected
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      KeyboardLayoutPreference.selected = previousLayout
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    for preset in KeyboardLayoutPreset.allCases {
+      KeyboardLayoutPreference.selected = preset
+      for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+        InputSchemePreference.scheme = scheme
+        for width in [320.0, 414.0] {
+          let controller = KeyboardViewController()
+          controller.loadViewIfNeeded()
+          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+          controller.view.layoutIfNeeded()
+          let space = try button("spaceKey", in: controller)
+          let enter = try button("returnKey", in: controller)
+          XCTAssertGreaterThanOrEqual(space.bounds.width, 43.5, "\(preset) / \(scheme) / \(width)")
+          XCTAssertEqual(controller.view.bounds.height, 260, accuracy: 0.5)
+          XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width)
+          let language = try button("bottomLanguageKey", in: controller)
+          XCTAssertEqual(language.isHidden, preset == .msime)
+          if preset != .msime {
+            XCTAssertGreaterThanOrEqual(language.convert(language.bounds, to: controller.view).minX,
+              space.convert(space.bounds, to: controller.view).maxX)
+          }
+          if width == 414 {
+            let renderer = UIGraphicsImageRenderer(bounds: controller.view.bounds)
+            let screenshot = renderer.image { context in controller.view.layer.render(in: context.cgContext) }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "Layout-\(preset.rawValue)-\(scheme.rawValue)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+          }
+        }
+      }
+    }
+  }
+
+  func testLayoutPreferencePreservesActiveComposition() throws {
+    let previousLayout = KeyboardLayoutPreference.selected
+    let previousScheme = InputSchemePreference.scheme
+    defer { KeyboardLayoutPreference.selected = previousLayout; InputSchemePreference.scheme = previousScheme }
+    KeyboardLayoutPreference.selected = .msime
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+    key.sendActions(for: .primaryActionTriggered)
+    let before = try button("preeditButton", in: controller).configuration?.title
+    KeyboardLayoutPreference.selected = .wechat
+    controller.viewWillAppear(false)
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, before)
+    XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
+  }
+
   func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() {
     let bridge = MetasequoiaInputSessionBridge()
     XCTAssertTrue(bridge.setFuzzyPinyinRules(1))

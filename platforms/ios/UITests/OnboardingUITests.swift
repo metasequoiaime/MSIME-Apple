@@ -14,6 +14,35 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testLayoutPresetSelectionPersists() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardLayoutLink"].tap()
+    let wechat = app.buttons["layoutPreset_wechat"]
+    for _ in 0..<6 {
+      if wechat.isHittable { break }
+      app.swipeUp()
+    }
+    wechat.tap()
+    XCTAssertEqual(wechat.value as? String, "已选择")
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["keyboardLayoutLink"].tap()
+    for _ in 0..<6 {
+      if wechat.isHittable { break }
+      app.swipeUp()
+    }
+    XCTAssertEqual(wechat.value as? String, "已选择")
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Layout presets selection"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["keyboardLayoutLink"].tap()
+    app.buttons["layoutPreset_msime"].tap()
+  }
+
+  @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

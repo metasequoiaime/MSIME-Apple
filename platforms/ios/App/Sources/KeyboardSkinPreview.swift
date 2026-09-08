@@ -5,6 +5,7 @@ struct KeyboardSkinPreview: View {
   let skin: KeyboardSkin
   let nineKey: Bool
   var compact = false
+  var layout: KeyboardLayoutPreset = .msime
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -12,12 +13,13 @@ struct KeyboardSkinPreview: View {
   }
 
   var body: some View {
-    VStack(spacing: compact ? 4 : 7) {
+    VStack(spacing: compact ? 4 : layout.rowSpacing) {
       HStack(spacing: 10) {
         Text("ni hao").font(.caption).foregroundStyle(color(skin.accent))
         Text("你好").font(.subheadline.weight(.medium))
         Text("你号").font(.subheadline)
         Spacer(minLength: 0)
+        if layout == .doubao { Image(systemName: "waveform").font(.caption) }
         Text(nineKey ? "九键" : "全拼").font(.caption)
         Text("中").font(.caption.weight(.semibold)).padding(6)
           .foregroundStyle(color(skin.actionForeground)).background(color(skin.actionBackground), in: RoundedRectangle(cornerRadius: 6))
@@ -28,21 +30,21 @@ struct KeyboardSkinPreview: View {
           VStack(spacing: 5) {
             ForEach(["，", "。", "？", "！"], id: \.self) { value in key(value) }
           }.frame(width: 38)
-          VStack(spacing: compact ? 4 : 7) {
+          VStack(spacing: compact ? 4 : layout.rowSpacing) {
             row(["分词", "ABC", "DEF"])
             row(["GHI", "JKL", "MNO"])
             row(["PQRS", "TUV", "WXYZ"])
           }
-          VStack(spacing: compact ? 4 : 7) {
+          VStack(spacing: compact ? 4 : layout.rowSpacing) {
             key("⌫")
             key("重输")
             key("0")
           }.frame(width: 38)
         }.frame(height: compact ? 75 : 137)
       } else {
-        VStack(spacing: compact ? 4 : 7) {
+        VStack(spacing: compact ? 4 : layout.rowSpacing) {
           row(Array("qwertyuiop").map(String.init))
-          row(Array("asdfghjkl").map(String.init))
+          row(Array("asdfghjkl").map(String.init)).padding(.horizontal, layout.centeredLetters ? 14 : 0)
           HStack(spacing: 5) {
             key("⇧").frame(width: 38)
             row(Array("zxcvbnm").map(String.init))
@@ -51,12 +53,15 @@ struct KeyboardSkinPreview: View {
         }.frame(height: compact ? 75 : 137)
       }
       HStack(spacing: 6) {
-        if nineKey { key("符").frame(width: 38) }
+        if nineKey || layout.showsFullKeyboardSymbols { key("符").frame(width: 30) }
         key("123").frame(width: 38)
-        Image(systemName: "globe").frame(width: 34, height: compact ? 30 : 40)
-          .background(keySurface())
+        if layout == .msime {
+          Image(systemName: "globe").frame(width: 34, height: compact ? 30 : 40)
+            .background(keySurface())
+        }
         if !nineKey { key("，").frame(width: 38) }
         key("空格")
+        if layout.showsBottomLanguage { key("中/英").frame(width: 30) }
         key("换行", emphasized: true).frame(width: 52)
       }.frame(height: compact ? 30 : 40)
     }

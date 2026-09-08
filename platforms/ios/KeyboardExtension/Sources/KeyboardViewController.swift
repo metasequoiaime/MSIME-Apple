@@ -8,6 +8,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private let skinBackdrop = KeyboardSkinBackgroundView()
+  private var keyboardRoot: UIStackView?
+  private var nineGrid: UIStackView?
+  private var nineControls: UIStackView?
+  private var nineSidebarWidth: NSLayoutConstraint?
+  private var fullSymbolsWidth: NSLayoutConstraint?
+  private var bottomLanguageWidth: NSLayoutConstraint?
+  private var bottomLanguageButton: UIButton?
+  private var appliedLayout: KeyboardLayoutPreset?
+
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
   private var servicePanel: UIViewController?
@@ -234,6 +243,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func installKeyboard() {
     let root = UIStackView()
+    keyboardRoot = root
     root.axis = .vertical
     root.spacing = 7
     root.translatesAutoresizingMaskIntoConstraints = false
@@ -298,8 +308,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ])
     }
     nineKeyContainer.addArrangedSubview(sidebar)
-    sidebar.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: 0.14).isActive = true
+    nineSidebarWidth = sidebar.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: 0.14)
+    nineSidebarWidth?.isActive = true
     let nineKeyGrid = UIStackView()
+    nineGrid = nineKeyGrid
     nineKeyGrid.axis = .vertical
     nineKeyGrid.spacing = 7
     nineKeyGrid.distribution = .fillEqually
@@ -349,6 +361,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       nineKeyRows.append(row)
     }
     let controls = UIStackView()
+    nineControls = controls
     controls.axis = .vertical
     controls.spacing = 7
     controls.distribution = .fillEqually
@@ -510,6 +523,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
+      if KeyboardLayoutPreference.selected == .doubao { showKeyboardVoice(); return }
       usesTraditionalOutput.toggle()
       ChineseOutputPreference.usesTraditional = usesTraditionalOutput
       renderCandidateStrip()
@@ -541,6 +555,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
     scriptShortcut.isEnabled = !(isChineseMode && inputScheme == .japanese)
     scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
+    if KeyboardLayoutPreference.selected == .doubao {
+      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
+      scriptShortcut.isEnabled = true
+      scriptShortcut.accessibilityValue = nil
+    }
     if inputScheme == .thoughtfulReply {
       configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
         label: "生成高情商回复", id: "replyShortcut")
@@ -772,6 +791,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let self else { return }
       handleSymbol(quickPunctuationSymbols[0])
     }
+    punctuation.configuration?.contentInsets = .zero
     punctuation.accessibilityIdentifier = "quickPunctuationKey"
     punctuation.accessibilityHint = "轻点输入，长按选择常用标点"
     quickPunctuationButton = punctuation
@@ -795,6 +815,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     space.addGestureRecognizer(pan)
     spaceButton = space
     row.addArrangedSubview(space)
+    let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
+    language.configuration?.contentInsets = .zero
+    language.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.font = .systemFont(ofSize: 13, weight: .medium)
+      return attributes
+    }
+    language.accessibilityIdentifier = "bottomLanguageKey"
+    language.isHidden = true
+    bottomLanguageButton = language
+    bottomLanguageWidth = language.widthAnchor.constraint(equalToConstant: 34)
+    fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
+    row.addArrangedSubview(language)
 
     let enter = makeKey(title: "换行", accessibilityLabel: "换行", emphasized: true) { [weak self] in
       self?.handleReturn()
@@ -1462,7 +1495,48 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return ["，", "。", "？", "！", "、", "；", "："]
   }
 
+  private func updateLetterRowInsets() {
+    guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
+    let inset = KeyboardLayoutPreference.selected.centeredLetters && inputScheme != .microsoft
+      ? max(0, view.bounds.width - 10) * 0.05 : 0
+    let margins = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
+    if row.layoutMargins != margins {
+      row.isLayoutMarginsRelativeArrangement = true
+      row.layoutMargins = margins
+    }
+  }
+
+  private func applyLayoutPreferences() {
+    guard actionRow != nil else { return }
+    let layout = KeyboardLayoutPreference.selected
+    updateLetterRowInsets()
+    guard appliedLayout != layout else { return }
+    appliedLayout = layout
+    keyboardRoot?.spacing = layout.rowSpacing
+    nineGrid?.spacing = layout.rowSpacing
+    nineControls?.spacing = layout.rowSpacing
+    nineKeyHeight.constant = layout.rowSpacing * 2
+    for row in letterRowViews + symbolRowViews + nineKeyRows {
+      (row as? UIStackView)?.spacing = layout.keySpacing
+    }
+    actionRow.spacing = layout.keySpacing
+    nineKeyContainer.spacing = layout.keySpacing
+    if let old = nineSidebarWidth, let sidebar = old.firstItem as? UIView {
+      old.isActive = false
+      nineSidebarWidth = sidebar.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: layout.sidebarRatio)
+      nineSidebarWidth?.isActive = true
+    }
+    nineKeyActionWidths[0].isActive = false
+    nineKeyActionWidths[0] = nineKeySymbolsButton.widthAnchor.constraint(equalTo: nineKeyContainer.widthAnchor, multiplier: layout.sidebarRatio)
+    standardActionWidths[0].constant = layout == .msime ? 48.4 : 40
+    standardActionWidths[1].constant = layout == .msime ? 79.2 : 44
+    standardActionWidths[2].constant = layout == .msime ? 59.4 : 48
+    quickPunctuationWidth?.constant = layout == .msime ? 44 : 28
+    updateShortcutButtons()
+  }
+
   private func updateKeyboardLayout() {
+    applyLayoutPreferences()
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
@@ -1490,7 +1564,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         globeWidthConstraint = actionGlobeButton.widthAnchor.constraint(equalToConstant: 44)
         globeWidthConstraint?.isActive = true
       }
-      nineKeySymbolsButton.isHidden = !usesNineKeyLayout
+      let layout = KeyboardLayoutPreference.selected
+      nineKeySymbolsButton.isHidden = !(usesNineKeyLayout || (layout.showsFullKeyboardSymbols && !showsSymbols))
+      fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && !usesNineKeyLayout
+      bottomLanguageButton?.isHidden = !layout.showsBottomLanguage
+      bottomLanguageWidth?.isActive = layout.showsBottomLanguage
+      bottomLanguageButton?.accessibilityValue = languageModeButton.accessibilityValue
       quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden
       let punctuation = quickPunctuationSymbols
@@ -1853,6 +1932,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    updateLetterRowInsets()
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
     }

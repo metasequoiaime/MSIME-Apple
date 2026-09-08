@@ -23,6 +23,9 @@ struct SettingsView: View {
           NavigationLink(destination: InputSettingsView()) {
             Label("输入设置", systemImage: "slider.horizontal.3")
           }.accessibilityIdentifier("inputSettingsLink")
+          NavigationLink(destination: KeyboardLayoutSettingsView()) {
+            Label("键盘布局", systemImage: "rectangle.3.group")
+          }.accessibilityIdentifier("keyboardLayoutLink")
           NavigationLink(destination: SkinSettingsView()) {
             Label("皮肤", systemImage: "paintpalette")
           }.accessibilityIdentifier("skinSettingsLink")
