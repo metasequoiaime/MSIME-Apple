@@ -19,6 +19,8 @@ settings:
     # CFBundleShortVersionString separately and the patch digit would buy a review per release. The
     # full value stays here: it is what release-please writes, and local builds never upload.
     MARKETING_VERSION: 0.48.6 # x-release-please-version
+    # ML Kit Digital Ink 4.x provides x86_64 simulator binaries.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: arm64
     SWIFT_VERSION: 6.0
     IPHONEOS_DEPLOYMENT_TARGET: 15.0
     # Xcode 26 no longer falls back to the target name when a target leaves PRODUCT_NAME unset, so a
@@ -120,6 +122,10 @@ targets:
       # them.
       - path: LICENSE
         buildPhase: resources
+      - path: platforms/ios/SharedResources/MLKit-NOTICES.txt
+        buildPhase: resources
+      - path: platforms/ios/SharedResources/MLKit-Dependencies.txt
+        buildPhase: resources
       - path: THIRD_PARTY_NOTICES.txt
         buildPhase: resources
       - path: platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt
@@ -217,6 +223,18 @@ targets:
       - target: MetasequoiaAppleBridge
       - sdk: libsqlite3.tbd
 
+  MetasequoiaKeyboardTestHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: platforms/ios/KeyboardTestHost
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboardtesthost
+        CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
+
   MetasequoiaKeyboardTests:
     type: bundle.unit-test
     platform: iOS
@@ -262,6 +280,8 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboardtests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MetasequoiaKeyboardTestHost.app/MetasequoiaKeyboardTestHost
+        BUNDLE_LOADER: $(TEST_HOST)
         SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
@@ -272,6 +292,7 @@ targets:
           - $(BREW_PREFIX)/include
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/include
     dependencies:
+      - target: MetasequoiaKeyboardTestHost
       - target: MetasequoiaAppleBridge
       - sdk: libsqlite3.tbd
 

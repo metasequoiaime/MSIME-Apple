@@ -7,3 +7,5 @@
 #import "AppServicesBridge.h"
 
 #import "DictionarySnapshotBridge.h"
+
+#import "HandwritingDownloadSession.h"

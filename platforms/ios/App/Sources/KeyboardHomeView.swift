@@ -83,6 +83,16 @@ struct SettingsView: View {
         }
         Group {
           if scheme == .thoughtfulReply { replyPreview }
+          else if scheme == .handwriting {
+            KeyboardPreviewCanvas {
+              VStack(spacing: 12) {
+                Text("手写输入").font(.headline)
+                Image(systemName: "hand.draw").font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
+                Text("在键盘上书写，停笔后选择候选文字").font(.subheadline)
+                Text("撤销一笔 · 清空 · 选字上屏").font(.caption).foregroundStyle(.secondary)
+              }.frame(maxWidth: .infinity, maxHeight: .infinity).background(MetasequoiaTheme.canvas)
+            }
+          }
           else { KeyboardSkinPreview(skin: skin, nineKey: scheme == .nineKey, layout: layout).id(design) }
         }.clipShape(RoundedRectangle(cornerRadius: 13)).allowsHitTesting(false).accessibilityHidden(true)
         HStack(spacing: 7) {

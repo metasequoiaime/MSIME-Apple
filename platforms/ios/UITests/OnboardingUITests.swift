@@ -1109,6 +1109,27 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testHandwritingCanBeEnabledSelectedAndDisabled() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["inputSettingsLink"].tap()
+    let enabled = app.switches["enabledInputScheme_handwriting"]
+    for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
+    XCTAssertTrue(enabled.isHittable)
+    if enabled.value as? String == "0" { enabled.tap() }
+    let scheme = app.buttons["inputScheme_handwriting"]
+    scheme.tap()
+    XCTAssertEqual(scheme.value as? String, "已选择")
+    app.terminate(); app.launch()
+    XCTAssertTrue(app.staticTexts["手写输入"].waitForExistence(timeout: 5))
+    app.buttons["inputSettingsLink"].tap()
+    for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
+    enabled.tap()
+    XCTAssertFalse(scheme.isEnabled)
+  }
+
+  @MainActor
   func testInputSchemeVisibilityPersistsAndFallsBack() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

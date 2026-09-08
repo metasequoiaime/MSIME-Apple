@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_path="${1:-build/ios/MetasequoiaImeIOS.xcodeproj}"
+project_path="${1:-build/ios/MetasequoiaImeIOS.xcworkspace}"
 derived_data_path="${2:-build/ios-derived}"
 
 if [[ ! -d "${project_path}" ]]; then
@@ -16,14 +16,18 @@ else
 import json
 import re
 import sys
+import subprocess
 
 devices_by_runtime = json.load(sys.stdin)["devices"]
+runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "runtime", "list", "-j"]))
+compatible = {r["runtimeIdentifier"] for r in runtimes.values()
+              if "x86_64" in r.get("supportedArchitectures", [])}
 
 def version_key(runtime):
     return tuple(int(part) for part in re.findall(r"\d+", runtime))
 
 for runtime in sorted(devices_by_runtime, key=version_key, reverse=True):
-    if ".iOS-" not in runtime:
+    if ".iOS-" not in runtime or runtime not in compatible:
         continue
     devices = sorted(
         devices_by_runtime[runtime],
@@ -34,7 +38,7 @@ for runtime in sorted(devices_by_runtime, key=version_key, reverse=True):
             print(device["udid"])
             raise SystemExit(0)
 
-raise SystemExit("No available iPhone Simulator runtime was found")
+raise SystemExit("No x86_64-compatible iPhone Simulator found; install a universal iOS runtime")
 ')"
 fi
 
@@ -45,9 +49,9 @@ xcrun simctl boot "${test_device_id}"
 xcrun simctl bootstatus "${test_device_id}" -b
 
 xcodebuild \
-  -project "${project_path}" \
+  -workspace "${project_path}" \
   -scheme MetasequoiaImeIOS \
   -configuration Debug \
-  -destination "platform=iOS Simulator,id=${test_device_id}" \
+  -destination "platform=iOS Simulator,id=${test_device_id},arch=x86_64" \
   -derivedDataPath "${derived_data_path}" \
   test

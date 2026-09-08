@@ -427,6 +427,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testSchemeCardsSelectAndKeepKeyboardHeight() throws {
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for width in [320.0, 414.0] {
@@ -927,7 +930,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let nine = try button("nineKey6", in: controller)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, ChineseInputScheme.allCases.count)
+    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, InputSchemePreference.enabledSchemes.count)
     try button("closeSchemePicker", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "64426" {
       try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)

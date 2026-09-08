@@ -147,7 +147,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install project generator
-        run: brew install boost fmt spdlog nlohmann-json xcodegen
+        run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
       - name: Test shared account transport and session lifecycle
         run: swift test --package-path shared/backend
       - name: Validate keyboard configuration
@@ -160,10 +160,11 @@ jobs:
         run: |
           mkdir -p build/ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          pod install --deployment --project-directory=platforms/ios
       - name: Build host app and keyboard extension
         run: |
           xcodebuild \
-            -project build/ios/MetasequoiaImeIOS.xcodeproj \
+            -workspace build/ios/MetasequoiaImeIOS.xcworkspace \
             -scheme MetasequoiaImeIOS \
             -configuration Debug \
             -sdk iphonesimulator \

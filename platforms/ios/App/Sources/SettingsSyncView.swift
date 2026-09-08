@@ -3,7 +3,7 @@ import SwiftUI
 private enum IOSCloudSettings {
   static func snapshot() throws -> [String: BackendPreferenceValue] {
     let scheme = InputSchemePreference.scheme
-    let name = scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .thoughtfulReply) ? "quanpin" : scheme.rawValue)
+    let name = scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .thoughtfulReply || scheme == .handwriting) ? "quanpin" : scheme.rawValue)
     let skinData = try JSONEncoder().encode(CustomKeyboardSkinStore.current)
     var settings: [String: BackendPreferenceValue] = [
       "input.schema": .string(name),

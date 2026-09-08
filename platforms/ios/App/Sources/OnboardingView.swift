@@ -95,6 +95,12 @@ struct InputSettingsView: View {
           Text("开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
         }
 
+        Section("手写输入") {
+          Text("首次在键盘中下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google ML Kit 会发送性能及使用统计。")
+            .font(.footnote).foregroundStyle(.secondary)
+          Link("手写 SDK 隐私说明", destination: URL(string: "https://developers.google.com/ml-kit/terms")!)
+        }
+
         Section("高情商回复") {
           Text("复制对方的话，切换到高情商回复键盘，点“粘贴”后选择九宫格里的回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。")
             .font(.footnote).foregroundStyle(.secondary)

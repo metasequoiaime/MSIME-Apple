@@ -51,6 +51,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var schemePicker: KeyboardSchemePickerView?
   private let moreShortcut = UIButton()
   private var morePicker: KeyboardMorePickerView?
+  private let handwriting = HandwritingInputView()
+  private var handwritingHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
@@ -210,12 +212,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func selectionWillChange(_ textInput: UITextInput?) {
     super.selectionWillChange(textInput)
     replyModel.invalidateContext()
+    handwriting.clear()
     closeKeyboardService()
   }
 
   override func textWillChange(_ textInput: UITextInput?) {
     super.textWillChange(textInput)
     replyModel.invalidateContext()
+    handwriting.clear()
     closeKeyboardService()
     // Our own edit coming back to us: the composition it produced is still the live one.
     if pendingOwnEdits > 0 {
@@ -239,6 +243,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     replyModel.setText("")
+    handwriting.deactivate()
     snapshotWorker.stop()
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
@@ -280,6 +285,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
+    handwriting.isHidden = true
+    handwriting.onInsert = { [weak self] text in
+      guard let self, inputScheme == .handwriting, isChineseMode else { return }
+      render(session.finishComposition())
+      insertOwnText(ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput), source: .handwriting)
+      playInputClick()
+    }
+    handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
+    handwriting.onDelete = { [weak self] in self?.handleBackspace() }
+    root.addArrangedSubview(handwriting)
     for row in symbolRows {
       let rowView = makeSymbolRow(row)
       rowView.isHidden = true
@@ -294,6 +309,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    handwritingHeight = handwriting.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
     updateKeyboardLayout()
   }
 
@@ -1165,6 +1181,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
     case .wubi: session.switchToWubi()
     case .japanese: session.switchToJapanese()
+    case .handwriting: session.switch(toShuangpin: false)
     case .quanpin, .shuangpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
     }
   }
@@ -1177,6 +1194,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     playInputClick()
     let source = typingSource
+    handwriting.clear()
     inputScheme = scheme
     let snapshot = applyInputScheme()
     InputSchemePreference.scheme = scheme
@@ -1551,7 +1569,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
-    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey }
+    let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
+    if !writes && !handwriting.isHidden { handwriting.deactivate() }
+    handwriting.isHidden = !writes
+    if writes { handwriting.activate() }
+    handwritingHeight?.isActive = writes
+    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
     nineKeyRows.forEach { $0.isHidden = showsSymbols || !nineKey }
     let hasSpellings = !session.nineKeySpellings().isEmpty
@@ -1580,7 +1603,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && !usesNineKeyLayout
       bottomLanguageButton?.isHidden = false
       bottomLanguageWidth?.isActive = true
-      quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols
+      quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols || writes
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden
       let punctuation = quickPunctuationSymbols
       quickPunctuationButton.configuration?.title = punctuation[0]
@@ -1603,6 +1626,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleBackspace() {
+    if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
     let snapshot = session.handleBackspace()
     if !snapshot.isHandled {
@@ -1698,6 +1722,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleSpace() {
+    if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
@@ -1711,6 +1736,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // newline after every committed word, and in a field whose return key is 发送 or 完成 it also
   // fired that field's primary action. macOS swallows Return during a composition for this reason.
   private func handleReturn() {
+    if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
     let snapshot = session.finishComposition()
     if !snapshot.isHandled {
@@ -2127,6 +2153,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func applyKeyboardSkin() {
+    handwriting.canvas.setNeedsDisplay()
     replyModel.objectWillChange.send()
     let skin = KeyboardSkinPreference.selected
     view.backgroundColor = skin.background

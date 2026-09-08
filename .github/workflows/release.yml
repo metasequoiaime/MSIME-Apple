@@ -246,7 +246,7 @@ jobs:
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
-        run: brew install boost fmt spdlog nlohmann-json xcodegen
+        run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
       - name: Import Developer ID signing certificates
         if: ${{ steps.signing.outputs.signing_enabled == 'true' }}
         env:

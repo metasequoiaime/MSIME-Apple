@@ -76,6 +76,7 @@ final class KeyboardSchemePickerView: UIView {
       case .shoudao: glyph = "S"; badge = "双"
       case .wubi: glyph = "五"; badge = "86"
       case .japanese: glyph = "あ"; badge = "日"
+      case .handwriting: glyph = "写"; badge = "手"
       case .thoughtfulReply: glyph = "聊"; badge = "AI"
       }
       return makeCard(title: scheme.title, glyph: glyph, badge: badge,

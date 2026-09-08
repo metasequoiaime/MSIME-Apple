@@ -1,0 +1,28 @@
+source 'https://cdn.cocoapods.org/'
+platform :ios, '15.0'
+build_root = ENV.fetch('MSIME_IOS_BUILD_ROOT', File.expand_path('../../build/ios', __dir__))
+project File.join(build_root, 'MetasequoiaImeIOS.xcodeproj')
+workspace File.join(build_root, 'MetasequoiaImeIOS.xcworkspace')
+use_frameworks! :linkage => :static
+
+# 4.x is the last Digital Ink SDK supporting the product's iOS 15.0 deployment target.
+# Language models are managed independently by ML Kit.
+abstract_target 'HandwritingSDK' do
+  pod 'MLKitDigitalInkRecognition', '4.0.0'
+  target 'MetasequoiaKeyboard'
+  target 'MetasequoiaKeyboardTests'
+end
+
+target 'MetasequoiaImeIOS' do
+end
+
+target 'MetasequoiaKeyboardTestHost' do
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
+  end
+end

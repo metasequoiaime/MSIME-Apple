@@ -32,7 +32,7 @@ for profile in \
     fi
 done
 
-for tool in git xcodegen xcodebuild xcrun; do
+for tool in git pod xcodegen xcodebuild xcrun; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
@@ -93,6 +93,7 @@ rm -rf -- "$build_root"
 mkdir -p "$build_root" "$export_path"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
+MSIME_IOS_BUILD_ROOT="$build_root" pod install --deployment --project-directory="$project_root/platforms/ios"
 
 # Install the exact distribution profiles selected by the Release configuration. Xcode's cloud
 # signing fallback can select a development profile for an automatic archive, which then cannot be
@@ -111,7 +112,7 @@ keyboard_profile_name=$(security cms -D -i "$METASEQUOIA_IOS_KEYBOARD_PROVISIONI
 archive_log="$build_root/archive.log"
 set +e
 xcodebuild archive \
-    -project "$build_root/MetasequoiaImeIOS.xcodeproj" \
+    -workspace "$build_root/MetasequoiaImeIOS.xcworkspace" \
     -scheme MetasequoiaImeIOS \
     -configuration Release \
     -destination 'generic/platform=iOS' \

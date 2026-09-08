@@ -14,3 +14,6 @@
 /platforms/ios/KeyboardExtension/Resources/dict_japanese.dat.sha256
 /platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt
 /platforms/ios/KeyboardExtension/Resources/mozc_dictionary_oss_README.txt.sha256
+
+# CocoaPods dependencies are restored from Podfile.lock.
+platforms/ios/Pods/

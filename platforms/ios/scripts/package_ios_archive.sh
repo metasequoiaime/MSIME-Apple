@@ -30,7 +30,7 @@ fi
 version=${tag_name#v}
 version=${version%%-build.*}
 
-for tool in git xcodegen xcodebuild ditto shasum; do
+for tool in git pod xcodegen xcodebuild ditto shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
@@ -92,11 +92,12 @@ rm -rf -- "$build_root"
 mkdir -p "$build_root" "$output_dir"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
+MSIME_IOS_BUILD_ROOT="$build_root" pod install --deployment --project-directory="$project_root/platforms/ios"
 
 # The version settings are passed on the command line as well as being bumped in project.yml, so the
 # archive follows the tag being built even when the spec is momentarily behind it.
 xcodebuild archive \
-    -project "$build_root/MetasequoiaImeIOS.xcodeproj" \
+    -workspace "$build_root/MetasequoiaImeIOS.xcworkspace" \
     -scheme MetasequoiaImeIOS \
     -configuration Release \
     -destination 'generic/platform=iOS' \

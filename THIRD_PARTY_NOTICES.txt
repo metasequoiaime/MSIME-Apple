@@ -103,3 +103,9 @@ Its upstream copyright and redistribution terms are included in
 mozc_dictionary_oss_README.txt in the iOS host application resources.
 The model and notice are verified against the published manifest authenticated
 by product-lock.json.
+
+The iOS handwriting keyboard uses Google ML Kit Digital Ink Recognition 4.0.0.
+Copyright Google LLC. SDK terms: https://developers.google.com/ml-kit/terms
+Language models are downloaded by ML Kit on first use. Handwriting recognition
+runs on the device after the model is downloaded.
+Bundled notices: MLKit-NOTICES.txt and MLKit-Dependencies.txt.

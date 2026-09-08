@@ -9,11 +9,12 @@ See [Apple platform architecture](../../docs/apple-platform-architecture.md) for
 Generate and build the current shell for the Simulator from the repository root:
 
 ```sh
-brew install boost fmt spdlog xcodegen
+brew install boost fmt spdlog xcodegen cocoapods
 python3 platforms/ios/scripts/prepare_dictionary.py
 mkdir -p build/ios
 xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
-xcodebuild -project build/ios/MetasequoiaImeIOS.xcodeproj -scheme MetasequoiaImeIOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios-derived CODE_SIGNING_ALLOWED=NO build
+pod install --deployment --project-directory=platforms/ios
+xcodebuild -workspace build/ios/MetasequoiaImeIOS.xcworkspace -scheme MetasequoiaImeIOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios-derived CODE_SIGNING_ALLOWED=NO build
 bash platforms/ios/scripts/run_ui_tests.sh
 ```
 
@@ -52,3 +53,11 @@ openssl base64 -A -in AuthKey_<KEY_ID>.p8 | pbcopy
 The issuer ID and key ID are entered as plain text in their respective secrets. The workflow uses
 the existing `MACOS_NOTARY_TEAM_ID` secret for the Apple Developer team ID because both workflows
 belong to the same team.
+
+### 手写输入
+
+在 App 的输入方案中启用「手写」，再从键盘方案卡片切换。首次点「下载中文手写模型」需要网络和键盘完全访问权限，下载完成后识别在设备上运行，可撤销、清空、选择候选上屏，支持简繁输出设置。没有下载模型时不会接受笔迹。
+
+识别使用锁定的 ML Kit Digital Ink 4.0.0，保留 iOS 15.0 支持；SDK 和依赖通过 Podfile.lock 恢复。每次重新运行 XcodeGen 后都需要再运行 pod install，开发时打开生成的 xcworkspace。该 SDK 只提供 x86_64 模拟器库，因此测试需要 universal 模拟器运行时（ARM-only 运行时不能运行）；真机使用 arm64。
+
+ML Kit 会发送性能与使用统计，应用的输入方案页和关于页提供相关说明。模型准备在键盘扩展自己的生命周期内完成；下载会话通过系统公开的 sharedContainerIdentifier 使用 App Group。适配器在 SDK 初始化之前为后台会话工厂补充默认共享目录，仅在扩展进程生效，保留显式指定的目录。
