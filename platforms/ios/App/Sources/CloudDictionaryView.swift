@@ -109,11 +109,10 @@ struct CloudDictionaryView: View {
     } message: { Text("下载内容仅在 Engine 完成处理后生效，可在本机词库查看成功或失败状态。") }
   }
   @MainActor private func authorizedToken(matching expected: String) async throws -> String {
-    guard try await session.user()?.id == expected else { throw BackendAccountClient.Failure(status: 401) }
-    let token = try await session.accessToken()
-    guard try await session.user()?.id == expected else { throw BackendAccountClient.Failure(status: 401) }
+    let identity = try await session.credentials()
+    guard identity.userID == expected else { throw BackendAccountClient.Failure(status: 401) }
     try Task.checkCancellation()
-    return token
+    return identity.token
   }
   @MainActor private func load(offset: Int) async throws {
     guard let identity = try await session.user()?.id else { throw BackendAccountClient.Failure(status: 401) }
