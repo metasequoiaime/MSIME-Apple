@@ -23,20 +23,20 @@ struct KeyboardLayoutSettingsView: View {
                 Text(preset.title).font(.headline)
                 Spacer()
                 Image(systemName: selected == preset ? "checkmark.circle.fill" : "circle")
-                  .foregroundStyle(selected == preset ? MetasequoiaTheme.forest : .secondary)
+                  .foregroundStyle(selected == preset ? MetasequoiaTheme.accent : .secondary)
               }
               Text(preset.detail).font(.caption).foregroundStyle(.secondary)
-              KeyboardSkinPreview(skin: KeyboardSkinPreference.selected, nineKey: nineKey, compact: true, layout: preset)
+              KeyboardSkinPreview(skin: KeyboardSkinPreference.selected, nineKey: nineKey, compact: false, layout: preset)
             }.padding(14)
               .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-              .overlay(RoundedRectangle(cornerRadius: 18).stroke(selected == preset ? MetasequoiaTheme.forest : .clear, lineWidth: 2))
+              .overlay(RoundedRectangle(cornerRadius: 18).stroke(selected == preset ? MetasequoiaTheme.accent : .clear, lineWidth: 2))
           }.buttonStyle(.plain).accessibilityIdentifier("layoutPreset_\(preset.rawValue)")
             .accessibilityValue(selected == preset ? "已选择" : "未选择")
         }
         Text("布局调整按键排列和间距，不会切换输入方案或改变皮肤。语音入口用于打开已识别的语音结果。")
           .font(.footnote).foregroundStyle(.secondary)
       }.padding(20)
-    }.background(Color(uiColor: .systemGroupedBackground))
+    }.background(MetasequoiaTheme.canvas)
       .navigationTitle("键盘布局").navigationBarTitleDisplayMode(.inline)
       .onAppear { selected = KeyboardLayoutPreference.selected }
   }

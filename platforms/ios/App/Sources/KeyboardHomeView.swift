@@ -21,13 +21,13 @@ struct SettingsView: View {
           keyboardCard
           HStack(spacing: 10) {
             NavigationLink(destination: SkinSettingsView()) {
-              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette", color: .purple)
+              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("skinSettingsLink")
             NavigationLink(destination: InputSettingsView()) {
-              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: .teal)
+              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("布局", subtitle: layout.title, symbol: "rectangle.3.group", color: .orange)
+              quickEntry("布局", subtitle: layout.title, symbol: "rectangle.3.group", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("keyboardLayoutLink")
           }.buttonStyle(.plain)
           Button {
@@ -39,36 +39,36 @@ struct SettingsView: View {
           } label: {
             HStack(spacing: 13) {
               Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                .font(.system(size: 25)).foregroundStyle(.purple)
-                .frame(width: 50, height: 50).background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
+                .font(.system(size: 25)).foregroundStyle(MetasequoiaTheme.accent)
+                .frame(width: 50, height: 50).background(MetasequoiaTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
               VStack(alignment: .leading, spacing: 5) {
                 Text("高情商回复").font(.headline).foregroundStyle(.primary)
                 Text("切换回复键盘，试试更合适的表达").font(.caption).foregroundStyle(.secondary)
               }
               Spacer(minLength: 0)
-              Image(systemName: "arrow.up.right").font(.subheadline.weight(.semibold)).foregroundStyle(.purple)
+              Image(systemName: "arrow.up.right").font(.subheadline.weight(.semibold)).foregroundStyle(MetasequoiaTheme.accent)
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-              .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+              .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
           }.buttonStyle(.plain).accessibilityIdentifier("homeThoughtfulReply")
           NavigationLink(destination: KeyboardSettingsView()) {
             HStack(spacing: 12) {
-              Image(systemName: "slider.horizontal.3").font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.forest)
+              Image(systemName: "slider.horizontal.3").font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.accent)
               VStack(alignment: .leading, spacing: 4) {
                 Text("键盘设置").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                 Text("输入偏好、词库、AI 与语音").font(.caption).foregroundStyle(.secondary)
               }
               Spacer()
               Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            }.padding(16).background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 18))
           }.buttonStyle(.plain).accessibilityIdentifier("keyboardSettingsLink")
           NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true), isActive: $replyActive) { EmptyView() }
             .hidden().accessibilityHidden(true)
         }.padding(.horizontal, 16).padding(.bottom, 20)
-      }.background(Color(uiColor: .systemGroupedBackground))
+      }.background(MetasequoiaTheme.canvas)
         .navigationTitle("水杉输入法").navigationBarTitleDisplayMode(.inline)
         .onAppear { refresh() }
         .onChange(of: scenePhase) { if $0 == .active { refresh() } }
-    }.navigationViewStyle(.stack).tint(MetasequoiaTheme.forest)
+    }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
   }
   private var keyboardCard: some View {
     NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {
@@ -79,7 +79,7 @@ struct SettingsView: View {
             Text("\(skinName) · \(scheme.title)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
           }
           Spacer(minLength: 5)
-          Text("当前外观").font(.system(size: 10, weight: .medium)).foregroundStyle(MetasequoiaTheme.forest)
+          Text("当前外观").font(.system(size: 10, weight: .medium)).foregroundStyle(MetasequoiaTheme.accent)
             .padding(.horizontal, 9).padding(.vertical, 5).background(MetasequoiaTheme.forest.opacity(0.08), in: Capsule())
         }
         Group {
@@ -93,7 +93,7 @@ struct SettingsView: View {
           Image(systemName: "arrow.right")
         }.font(.subheadline).foregroundStyle(.white).padding(.horizontal, 14).frame(height: 44)
           .background(MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 12))
-      }.padding(14).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+      }.padding(14).background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
     }.buttonStyle(.plain).accessibilityIdentifier("keyboardTryoutLink")
   }
   private var replyPreview: some View {
@@ -115,7 +115,7 @@ struct SettingsView: View {
       Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
       Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
     }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-      .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 17))
+      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 17))
   }
   private func refresh() {
     scheme = InputSchemePreference.scheme; skin = KeyboardSkinPreference.selected

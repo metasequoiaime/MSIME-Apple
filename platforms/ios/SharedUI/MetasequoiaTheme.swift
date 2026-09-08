@@ -3,6 +3,18 @@ import UIKit
 
 enum MetasequoiaTheme {
   static let forest = Color(red: 24 / 255, green: 92 / 255, blue: 72 / 255)
+  // Adaptive accents for text and icons; forest stays dark for white button labels.
+  static let accent = Color(uiColor: forestUIColor)
+  static let canvas = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 17 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1)
+      : UIColor(red: 241 / 255, green: 247 / 255, blue: 243 / 255, alpha: 1)
+  })
+  static let surface = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 29 / 255, green: 38 / 255, blue: 33 / 255, alpha: 1)
+      : .white
+  })
   static let needle = Color(red: 77 / 255, green: 138 / 255, blue: 114 / 255)
   static let mist = Color(red: 243 / 255, green: 247 / 255, blue: 245 / 255)
   static let cone = Color(red: 167 / 255, green: 103 / 255, blue: 59 / 255)

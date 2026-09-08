@@ -13,7 +13,7 @@ struct AccountSettingsView: View {
       Section("我的创作") {
         NavigationLink(destination: CustomSkinEditorView()) {
           HStack(spacing: 12) {
-            accountIcon("paintbrush.pointed.fill", color: .purple)
+            accountIcon("paintbrush.pointed.fill", color: MetasequoiaTheme.accent)
             VStack(alignment: .leading, spacing: 4) {
               Text("我的设计").foregroundStyle(.primary)
               Text("保存在本机的 \(designs.count) 款皮肤").font(.caption).foregroundStyle(.secondary)
@@ -23,7 +23,7 @@ struct AccountSettingsView: View {
         if signedIn {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
             HStack(spacing: 12) {
-              accountIcon("square.stack.3d.up.fill", color: .orange)
+              accountIcon("square.stack.3d.up.fill", color: MetasequoiaTheme.accent)
               VStack(alignment: .leading, spacing: 4) {
                 Text("已发布作品").foregroundStyle(.primary)
                 Text("查看下载、评分和管理作品").font(.caption).foregroundStyle(.secondary)

@@ -19,6 +19,17 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["keyboardLayoutLink"].tap()
+    let mode = app.segmentedControls["layoutPreviewMode"]
+    let first = app.buttons["layoutPreset_msime"]
+    var previewHeights: [CGFloat] = []
+    for title in ["26 键", "9 键"] {
+      mode.buttons[title].tap()
+      previewHeights.append(first.frame.height)
+      XCTAssertGreaterThan(first.frame.height, 280, "完整布局预览不能使用压缩缩略图高度")
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Full layout preview \(title)"; shot.lifetime = .keepAlways; add(shot)
+    }
+    XCTAssertEqual(previewHeights[0], previewHeights[1], accuracy: 1)
     let wechat = app.buttons["layoutPreset_wechat"]
     for _ in 0..<6 {
       if wechat.isHittable { break }
