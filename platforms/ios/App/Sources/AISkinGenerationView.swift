@@ -16,7 +16,7 @@ struct AISkinGenerationView: View {
     NavigationView {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
-          Text("描述你想要的键盘，AI 为你设计三种风格。")
+          Text("描述你想要的键盘，AI 为你绘制三套插画主题，搭配可编辑键帽。")
           Text("例如：奶油白与鼠尾草绿，圆润、安静").font(.caption).foregroundStyle(.secondary)
           TextEditor(text: $prompt).frame(minHeight: 90).overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3))).accessibilityIdentifier("aiSkinPrompt")
             .onChange(of: prompt) { if $0.count > 500 { prompt = String($0.prefix(500)) } }
@@ -30,7 +30,7 @@ struct AISkinGenerationView: View {
             .accessibilityIdentifier("generateAISkins")
           Text("点击生成时仅发送这段风格描述。生成结果不会自动应用、保存或公开。")
             .font(.caption).foregroundStyle(.secondary)
-          if busy { HStack { ProgressView(); Text("正在设计…"); Button("取消") { request?.cancel() } } }
+          if busy { HStack { ProgressView(); Text("正在绘制三套主题插画，可能需要几分钟…"); Button("取消") { request?.cancel() } } }
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
