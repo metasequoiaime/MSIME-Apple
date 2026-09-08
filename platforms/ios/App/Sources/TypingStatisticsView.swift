@@ -45,6 +45,8 @@ struct TypingStatisticsView: View {
       StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink),
       StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue),
       StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple),
+      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange),
+      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo),
       StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray),
     ]
   }
@@ -77,7 +79,7 @@ struct TypingStatisticsView: View {
       Section {
         distribution(languageSlices)
       } header: { Text("语言模式") }
-        footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。") }
+        footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
       Section {
         distribution(sourceSlices)
       } header: { Text("输入方案") }
