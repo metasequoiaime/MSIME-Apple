@@ -34,11 +34,16 @@ final class ReplyKeyboardModel: ObservableObject {
     }
     if self.style != style { replies = [] }
     self.style = style
-    busy = true; status = "正在生成 · \(style)"
+    let template = style.hasPrefix("community:") ? CommunityLibrary.replies.first { "community:\($0.id)" == style } : nil
+    if style.hasPrefix("community:") && template == nil { status = "模板已移除，请重新选择"; return }
+    busy = true; status = "正在生成 · \(template?.name ?? style)"
     let id = UUID(); generation = id
-    let prompt = polish
+    let basePrompt = polish
       ? "请以\(style)的语气润色用户文字，保持原意，不编造事实或承诺。只输出一条简短自然的成稿，不加标题、解释或引号。"
       : "用户内容是对方发来的话，请代拟一条\(style)风格的回复。尊重对方且有边界，不编造事实、关系或承诺。只输出一条简短自然、可以直接发送的回复，不加标题、解释或引号。"
+    let prompt = template.map { item in
+      "\(polish ? "润色用户原文，保持原意。" : "用户内容是对方发来的话，请代拟回复。")\n\(item.content.prompt ?? "")\n只输出可直接使用的一条回复，不编造事实或承诺。"
+    } ?? basePrompt
     let source = text
     operation = Task { @MainActor in
       do {
@@ -79,16 +84,23 @@ struct ReplyKeyboardView: View {
   var body: some View {
     VStack(spacing: 5) {
       HStack(spacing: 8) {
-        Button(action: schemes) {
-          Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 22))
-        }.accessibilityLabel("选择输入方案").accessibilityIdentifier("replySchemes")
         Picker("操作", selection: $model.polish) {
           Text("帮你回").tag(false)
           Text("帮润色").tag(true)
         }.pickerStyle(.segmented).frame(maxWidth: 200).accessibilityIdentifier("replyMode")
+        Button(action: schemes) {
+          Image(systemName: "keyboard").font(.system(size: 22))
+        }.accessibilityLabel("选择输入方案").accessibilityIdentifier("replySchemes")
         Spacer(minLength: 0)
+        Menu {
+          if CommunityLibrary.replies.isEmpty { Text("在 App 社区收藏并添加回复模板") }
+          ForEach(CommunityLibrary.replies) { item in
+            Button(item.name) { generate("community:\(item.id)") }
+          }
+        } label: { Image(systemName: "bookmark") }
+          .accessibilityLabel("回复模板").accessibilityIdentifier("replyTemplates").disabled(model.busy)
         Button(action: skins) { Image(systemName: "tshirt") }.accessibilityLabel("切换皮肤")
-        Button(action: dismiss) { Image(systemName: "keyboard.chevron.compact.down") }.accessibilityLabel("收起键盘")
+        Button(action: dismiss) { Image(systemName: "chevron.down") }.accessibilityLabel("收起键盘")
       }.frame(height: 36)
       HStack(spacing: 6) {
         Button(action: paste) {

@@ -61,7 +61,10 @@ actor SkinCommunityAPI {
     default:
       switch status {
       case 401: message = "登录已过期，请重新使用 Apple 登录。"
-      case 404: message = "社区功能尚未上线，或这款皮肤已下架。"
+      case 404: message = "作品不存在或已下架。"
+      case 400: message = "请检查名称、词条或提示词是否符合要求。"
+      case 403: message = "收藏后才能评分，且不能评价自己的作品。"
+      case 409: message = "作品已更新或达到发布上限，请刷新后重试。"
       case 429: message = "操作较频繁，请稍后重试。"
       default: message = "社区暂时不可用，请稍后重试。"
       }
@@ -103,6 +106,9 @@ actor SkinCommunityAPI {
   }
   func clearExpiredLogin() async throws { try await account.forget() }
   func list(offset: Int = 0, search: String = "") async throws -> CommunityPage {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled { return CommunityPage(skins: [], has_more: false) }
+    #endif
     var parts = URLComponents()
     parts.path = "/v1/community/skins"
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
@@ -124,4 +130,44 @@ actor SkinCommunityAPI {
   func unpublish(_ id: String) async throws {
     let _: [String: Bool] = try await request("/v1/community/skins/\(id)", method: "DELETE", authenticated: true)
   }
+  struct ResourcePage: Decodable { let items: [CommunityResource]; let has_more: Bool }
+  func resources(_ kind: CommunityResourceKind, scope: String = "", search: String = "", offset: Int = 0) async throws -> ResourcePage {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled {
+      return ResourcePage(items: CommunityPreviewFixtures.items.filter { $0.kind == kind && (scope != "saved" || $0.saved) && (scope != "mine" || $0.owned) }, has_more: false)
+    }
+    #endif
+    var parts = URLComponents(); parts.path = "/v1/community/resources"
+    parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope),
+      .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
+    return try await request(parts.string!)
+  }
+  func resource(_ id: String) async throws -> CommunityResource {
+    #if DEBUG && targetEnvironment(simulator)
+    if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }
+    #endif
+    return try await request("/v1/community/resources/\(id)")
+  }
+  func publishResource(id: String, kind: CommunityResourceKind, name: String, description: String,
+                       content: CommunityResourceContent, revision: Int) async throws {
+    struct Payload: Encodable {
+      let id: String; let kind: CommunityResourceKind; let name: String; let description: String
+      let content: CommunityResourceContent; let revision: Int
+    }
+    struct Result: Decodable { let id: String; let revision: Int }
+    let _: Result = try await request("/v1/community/resources", method: "POST", body: JSONEncoder().encode(
+      Payload(id: id, kind: kind, name: name, description: description, content: content, revision: revision)), authenticated: true)
+  }
+  func saveResource(_ id: String, saved: Bool) async throws {
+    let _: [String: Bool] = try await request("/v1/community/resources/\(id)/save", method: "PUT",
+      body: JSONSerialization.data(withJSONObject: ["saved": saved]), authenticated: true)
+  }
+  func rateResource(_ id: String, stars: Int) async throws {
+    let _: [String: Int] = try await request("/v1/community/resources/\(id)/rating", method: "PUT",
+      body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
+  }
+  func unpublishResource(_ id: String) async throws {
+    let _: [String: Bool] = try await request("/v1/community/resources/\(id)", method: "DELETE", authenticated: true)
+  }
+
 }

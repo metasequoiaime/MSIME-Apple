@@ -631,7 +631,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }),
     ])
     if let moreMenu { morePicker?.update(menu: moreMenu) }
-    configure(dismissShortcut, title: nil, symbol: "keyboard.chevron.compact.down", label: "收起键盘", id: "dismissShortcut")
+    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
   }
 
   private func makeSpellingStrip() -> UIView {
@@ -1468,17 +1468,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLetterCaseControls()
 
     var configuration = UIButton.Configuration.plain()
-    switch inputScheme {
-    case .nineKey: configuration.title = "九键"
-    case .shuangpin: configuration.title = "小鹤"
-    case .quanpin: configuration.title = "全拼"
-    case .ziranma: configuration.title = "自然"
-    case .microsoft: configuration.title = "微软"
-    case .shoudao: configuration.title = "SD"
-    case .wubi: configuration.title = "五笔"
-    case .japanese: configuration.title = "日语"
-    case .thoughtfulReply: configuration.title = "回复"
-    }
+    configuration.image = UIImage(systemName: "keyboard")
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)

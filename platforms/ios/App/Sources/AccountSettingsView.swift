@@ -36,6 +36,13 @@ struct AccountSettingsView: View {
         }
       }
 
+      Section("社区收藏与发布") {
+        ForEach(CommunityResourceKind.allCases) { kind in
+          NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) { Label("收藏的\(kind.title)", systemImage: "bookmark") }
+          NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) { Label("我发布的\(kind.title)", systemImage: kind.icon) }
+        }
+      }
+
       if signedIn {
         Section("云端数据") {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {

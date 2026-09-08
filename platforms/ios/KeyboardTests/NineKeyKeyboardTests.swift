@@ -593,9 +593,9 @@ final class NineKeyKeyboardTests: XCTestCase {
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
             XCTAssertGreaterThanOrEqual(selector.bounds.width, 50)
-            let label = try XCTUnwrap(selector.titleLabel)
-            let insets = try XCTUnwrap(selector.configuration).contentInsets
-            XCTAssertLessThanOrEqual(label.intrinsicContentSize.width + insets.leading + insets.trailing, selector.bounds.width)
+            XCTAssertNil(selector.configuration?.title)
+            XCTAssertNotNil(selector.configuration?.image)
+            XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
             for id in ["languageModeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }

@@ -16,7 +16,9 @@ struct MetasequoiaImeApp: App {
   var body: some Scene {
     WindowGroup {
       #if DEBUG && targetEnvironment(simulator)
-      if ProcessInfo.processInfo.arguments.contains("-launchScreenPreview") {
+      if ProcessInfo.processInfo.arguments.contains("-communityReplyEditorPreview") {
+        CommunityResourceEditor(kind: .reply)
+      } else if ProcessInfo.processInfo.arguments.contains("-launchScreenPreview") {
         LaunchScreenPreview().ignoresSafeArea()
       } else if ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
         ReplyKeyboardPreview().frame(width: 390, height: 260)
@@ -82,7 +84,7 @@ private struct MainTabView: View {
     TabView {
       SettingsView()
         .tabItem { Label("键盘", systemImage: "keyboard") }
-      NavigationView { SkinCommunityView() }
+      NavigationView { CommunityHomeView() }
         .navigationViewStyle(.stack)
         .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }
       NavigationView { TypingStatisticsView() }

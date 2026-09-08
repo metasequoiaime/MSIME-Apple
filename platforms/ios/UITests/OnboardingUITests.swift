@@ -43,6 +43,31 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testCommunityCategoriesPreviewAndPublisher() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview"]
+    app.launch()
+    app.tabBars.buttons["社区"].tap()
+    app.buttons["communityCategory-1"].tap()
+    XCTAssertEqual(app.segmentedControls.count, 0)
+    let first = app.buttons["communityResource-10000000-0000-4000-8000-000000000001"]
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    let second = app.buttons["communityResource-10000000-0000-4000-8000-000000000002"]
+    XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Community word packs"; shot.lifetime = .keepAlways; add(shot)
+    first.tap()
+    XCTAssertTrue(app.buttons["导入这版词库"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons.firstMatch.tap()
+    app.buttons["communityCategory-2"].tap()
+    app.buttons["communityResource-10000000-0000-4000-8000-000000000003"].tap()
+    XCTAssertTrue(app.buttons["添加到回复键盘"].waitForExistence(timeout: 5))
+    let detail = XCTAttachment(screenshot: app.screenshot()); detail.name = "Community reply preview"; detail.lifetime = .keepAlways; add(detail)
+    app.navigationBars.buttons.firstMatch.tap()
+    app.buttons["publishCommunityWork"].tap()
+    XCTAssertTrue(app.buttons["回复模板"].waitForExistence(timeout: 5))
+  }
+
+  @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
@@ -50,7 +75,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.tabBars.buttons["键盘"].isSelected)
     app.buttons["inputSettingsLink"].tap()
     app.tabBars.buttons["社区"].tap()
-    XCTAssertTrue(app.navigationBars["皮肤社区"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.tabBars.buttons.count, 4)
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))

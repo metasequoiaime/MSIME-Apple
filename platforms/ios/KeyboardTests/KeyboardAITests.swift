@@ -26,6 +26,32 @@ final class KeyboardAITests: XCTestCase {
     XCTAssertEqual(inserted, 0)
   }
 
+  @MainActor
+  func testDownloadedReplyTemplateReachesPromptAndRemovalPreventsReuse() async throws {
+    let id = UUID().uuidString
+    let item = CommunityResource(id: id, kind: .reply, name: "测试风格", description: "测试", author: "测试作者",
+      content: .init(prompt: "使用三句简短的话"), revision: 1, saves: 0, saved: true, owned: false,
+      rating_count: 0, rating_average: 0, my_rating: 0)
+    try CommunityLibrary.save(item)
+    defer { try? CommunityLibrary.remove(id) }
+    let model = ReplyKeyboardModel()
+    model.setText("你好")
+    var captured = ""
+    var requests = 0
+    model.generate(style: "community:\(id)", request: { source, prompt in
+      XCTAssertEqual(source, "你好"); captured = prompt; requests += 1; return "你好呀"
+    }, insert: { _ in XCTFail("must not insert automatically"); return false })
+    while model.busy { await Task.yield() }
+    XCTAssertTrue(captured.contains("使用三句简短的话"))
+    XCTAssertEqual(model.replies, ["你好呀"])
+    try CommunityLibrary.remove(id)
+    model.resetResults()
+    model.generate(style: "community:\(id)", request: { _, _ in requests += 1; return "unexpected" }, insert: { _ in false })
+    XCTAssertEqual(requests, 1)
+    XCTAssertFalse(model.busy)
+    XCTAssertTrue(model.status.contains("模板已移除"))
+  }
+
   func testAISelectionRejectsDocumentCaretAndTextChanges() {
     let id = UUID()
     let selection = KeyboardDocumentContext(document: id, before: "before", selected: "fixture", after: "after")

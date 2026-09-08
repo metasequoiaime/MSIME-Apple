@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SkinCommunityView: View {
   var onlyMine = false
+  var embedded = false
   private var visibleSkins: [CommunitySkin] { onlyMine ? skins.filter(\.owned) : skins }
   @State private var skins: [CommunitySkin] = []
   @State private var more = false
@@ -13,13 +14,15 @@ struct SkinCommunityView: View {
   @State private var showAccount = false
   private let api = SkinCommunityAPI.shared
 
-  var body: some View {
+  private var gallery: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
-        if !signedIn {
-          Text("发现喜欢的键盘设计，登录后可发布、下载和评分。")
-            .font(.footnote).foregroundStyle(.secondary)
-        }
+        CommunitySearchField(text: $search, placeholder: "搜索皮肤设计") { run { try await load() } }
+        VStack(alignment: .leading, spacing: 4) {
+          Text(onlyMine ? "你的公开设计" : "换个心情，从键盘开始").font(.system(size: 20, weight: .bold))
+          Text("发现创作者的配色与巧思，找到你的那一款")
+            .font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 2)
         if visibleSkins.isEmpty && !busy {
           Text(onlyMine ? (more ? "当前页没有你的作品，继续加载查看更多。" : "还没有已发布的作品，分享你的第一款设计吧。") : "暂时没有皮肤，发布你的第一款设计吧。")
             .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 40)
@@ -27,20 +30,7 @@ struct SkinCommunityView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
           ForEach(visibleSkins) { skin in
             NavigationLink { CommunitySkinDetail(initial: skin) } label: {
-              VStack(alignment: .leading, spacing: 7) {
-                CommunityDesignPreview(design: skin.design, compact: true).frame(height: 100)
-                Text(skin.name).font(.subheadline.weight(.semibold)).lineLimit(2)
-                  .frame(height: 38, alignment: .topLeading)
-                Text(skin.owned ? "我的作品" : skin.author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                HStack(spacing: 3) {
-                  Image(systemName: "arrow.down.to.line")
-                  Text("\(skin.downloads)")
-                  Spacer(minLength: 2)
-                  Image(systemName: "star.fill")
-                  Text(skin.rating_count == 0 ? "暂无评分" : String(format: "%.1f", skin.rating_average))
-                }.font(.caption2).foregroundStyle(.secondary)
-              }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+              CommunitySkinCard(skin: skin)
             }.buttonStyle(.plain).accessibilityIdentifier("communitySkinCard-\(skin.id)")
           }
         }
@@ -49,16 +39,19 @@ struct SkinCommunityView: View {
       }.padding(16)
     }
     .background(Color(uiColor: .systemGroupedBackground))
+  }
+  var body: some View {
+    gallery
     .toolbar {
-      ToolbarItem(placement: .navigationBarTrailing) {
+      ToolbarItem(placement: .navigationBarTrailing) { if !embedded {
         Button { if signedIn { showPublish = true } else { showAccount = true } } label: {
           Label("发布", systemImage: "plus")
         }.accessibilityLabel("发布我的设计").accessibilityIdentifier("publishCommunitySkin")
       }
+      }
     }
-    .navigationTitle(onlyMine ? "已发布作品" : "皮肤社区")
-    .searchable(text: $search, prompt: "搜索皮肤名称")
-    .onSubmit(of: .search) { run { try await load() } }
+    .navigationTitle(onlyMine ? "已发布作品" : (embedded ? "社区" : "皮肤社区"))
+    .navigationBarTitleDisplayMode(.inline)
     .refreshable { do { try await load() } catch { message = error.localizedDescription } }
     .task {
       signedIn = (try? await api.signedIn()) ?? false
@@ -91,6 +84,24 @@ struct SkinCommunityView: View {
     guard !busy else { return }; busy = true
     Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
   }
+}
+
+private struct CommunitySkinCard: View {
+  let skin: CommunitySkin
+  var body: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      CommunityDesignPreview(design: skin.design, compact: true).frame(height: 124)
+      Text(skin.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+      CommunityAuthorLabel(name: skin.owned ? "我的作品" : skin.author)
+      HStack(spacing: 3) {
+        Label("\(skin.downloads)", systemImage: "arrow.down.to.line")
+        Spacer(minLength: 2)
+        Label(skin.rating_count == 0 ? "暂无评分" : String(format: "%.1f", skin.rating_average), systemImage: "star")
+      }.font(.system(size: 10)).foregroundStyle(.secondary)
+    }.padding(10).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19))
+      .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(Color.primary.opacity(0.035), lineWidth: 1))
+  }
+
 }
 
 struct CommunitySkinDetail: View {
