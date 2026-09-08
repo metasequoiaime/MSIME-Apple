@@ -1,7 +1,7 @@
 import SwiftUI
 
 @MainActor
-struct CommunityResourcesView: View {
+struct BackendCommunityResourcesView: View {
   let accountID: String
   @Environment(\.dismiss) private var dismiss
   @State private var kind: BackendAccountClient.ResourceKind = .dictionary
@@ -54,7 +54,7 @@ struct CommunityResourcesView: View {
       CommunityResourceDetailView(initial: item, authorize: authorize).communitySheetSize()
     }
     .sheet(isPresented: $creating, onDismiss: { load() }) {
-      CommunityResourceEditor(kind: kind, existing: nil, authorize: authorize).communitySheetSize()
+      BackendCommunityResourceEditor(kind: kind, existing: nil, authorize: authorize).communitySheetSize()
     }
   }
   private func load(append: Bool = false) {
@@ -134,7 +134,7 @@ private struct CommunityResourceDetailView: View {
     }
     .task { run { _ in } }
     .onDisappear { pending?.cancel(); current = nil; applicationResource = nil; applicationRevision = nil; applying = false }
-    .sheet(isPresented: $editing, onDismiss: { run { _ in } }) { CommunityResourceEditor(kind: value.kind, existing: value, authorize: authorize).communitySheetSize() }
+    .sheet(isPresented: $editing, onDismiss: { run { _ in } }) { BackendCommunityResourceEditor(kind: value.kind, existing: value, authorize: authorize).communitySheetSize() }
     .alert("导入这个词包？", isPresented: $applying) {
       Button("取消", role: .cancel) { applicationResource = nil; applicationRevision = nil }
       Button("确认导入") {
@@ -172,7 +172,7 @@ private struct CommunityResourceDetailView: View {
 }
 
 @MainActor
-private struct CommunityResourceEditor: View {
+private struct BackendCommunityResourceEditor: View {
   let kind: BackendAccountClient.ResourceKind
   let existing: BackendAccountClient.CommunityResource?
   let authorize: () async throws -> String
@@ -275,7 +275,7 @@ struct CommunityResourcesAccountView: View {
   @State private var message: String?
   var body: some View {
     Group {
-      if let accountID { CommunityResourcesView(accountID: accountID) }
+      if let accountID { BackendCommunityResourcesView(accountID: accountID) }
       else if let message { Text(message).foregroundStyle(.secondary) }
       else { ProgressView("正在读取账号…") }
     }.task {

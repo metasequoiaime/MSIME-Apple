@@ -180,7 +180,7 @@ private struct MacAccountView: View {
     }
     .padding(24).frame(width: 420, height: 440).disabled(model.busy || model.authorizing)
     .sheet(isPresented: $resources) {
-      if let user = model.user { CommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
+      if let user = model.user { BackendCommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
     }
     .sheet(isPresented: $snapshot) {
       if let user = model.user { MacCloudSnapshotView(accountID: user.id) }
