@@ -4,6 +4,65 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testFieldLanguagePreferenceIsTemporaryAndRespectsManualChoice() {
+    var context = KeyboardInputContext()
+    let ordinary = UUID(), code = UUID(), url = UUID()
+    XCTAssertNil(context.languageOverride(for: .default, document: ordinary, isChinese: true))
+    XCTAssertEqual(context.languageOverride(for: .asciiCapable, document: code, isChinese: true), false)
+    // A user explicitly switched to Chinese in this field; callbacks must not force English again.
+    XCTAssertNil(context.languageOverride(for: .asciiCapable, document: code, isChinese: true))
+    XCTAssertEqual(context.languageOverride(for: .URL, document: url, isChinese: true), false)
+    XCTAssertEqual(context.languageOverride(for: .default, document: ordinary, isChinese: false), true)
+    XCTAssertEqual(context.languageOverride(for: .emailAddress, document: code, isChinese: false), false)
+    XCTAssertEqual(context.languageOverride(for: .default, document: ordinary, isChinese: false), false)
+    XCTAssertNil(context.languageOverride(for: .webSearch, document: UUID(), isChinese: true))
+    XCTAssertNil(context.languageOverride(for: .default, document: UUID(), isChinese: true))
+  }
+
+  func testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    for width in [320.0, 414.0] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      let ordinary = UUID()
+      controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+      for type in [UIKeyboardType.asciiCapable, .emailAddress, .URL] {
+        // Any preedit left after a missed focus callback must not enter the new field.
+        try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+        let field = UUID()
+        controller.applyInputContext(keyboardType: type, documentIdentifier: field)
+        controller.view.layoutIfNeeded()
+        XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "英文输入")
+        XCTAssertTrue(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
+        XCTAssertFalse(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }).isHidden)
+        let q = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
+        XCTAssertFalse(try XCTUnwrap(q.superview).isHidden)
+        XCTAssertEqual(q.bounds.height, try button("returnKey", in: controller).bounds.height, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(q.bounds.height, 44)
+        if type != .asciiCapable { XCTAssertEqual(q.configuration?.title, "q") }
+        q.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "英文输入")
+        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+        controller.view.layoutIfNeeded()
+        for symbol in ["@", "/", "_", "="] {
+          let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "符号 \(symbol)" } as? UIButton)
+          XCTAssertFalse(try XCTUnwrap(key.superview).isHidden)
+          XCTAssertGreaterThan(key.bounds.width, 20)
+        }
+        controller.applyInputContext(keyboardType: type, documentIdentifier: field)
+        controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+        controller.view.layoutIfNeeded()
+        XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "中文输入")
+        XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
+        XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 9 键")
+        XCTAssertEqual(controller.view.bounds.height, 260)
+      }
+    }
+  }
+
   func testCursorDragCannotResumeAfterDocumentChangeOrCancellation() {
     var movement = SpaceCursorMovement()
     let first = UUID(), second = UUID()

@@ -43,6 +43,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var didRepeatBackspace = false
   private var hasComposition = false
   private var isChineseMode = true
+  private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && inputScheme != .japanese }
@@ -105,8 +106,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ]
   private let symbolRows = [
     Array("1234567890").map(String.init),
-    [",", ".", "?", "!", ";", ":", "'", "\""],
-    ["(", ")", "[", "]", "<", ">", "\\", "-"],
+    [",", ".", "?", "!", ";", ":", "'", "\"", "@", "/"],
+    ["(", ")", "[", "]", "<", ">", "\\", "-", "_", "="],
   ]
 
   override func loadView() {
@@ -140,10 +141,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLetterCaseControls()
     updateCandidateStrip(preedit: "", candidates: [])
     applyKeyboardSkin()
+    synchronizeInputContext()
   }
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
     personalDictionaryTimer?.invalidate()
@@ -158,6 +161,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
     pendingOwnEdits = 0
+    synchronizeInputContext()
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
@@ -179,6 +183,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func textDidChange(_ textInput: UITextInput?) {
     super.textDidChange(textInput)
+    synchronizeInputContext()
     updateReturnKey()
     updateAutomaticCapitalization()
   }
@@ -843,6 +848,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     insertOwnText(symbol)
   }
 
+  private func synchronizeInputContext() {
+    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
+    applyInputContext(keyboardType: textDocumentProxy.keyboardType ?? .default, documentIdentifier: document)
+  }
+
+  // Explicit UIKit-trait boundary also allows layout/state regression tests without a fake engine.
+  func applyInputContext(keyboardType: UIKeyboardType, documentIdentifier: UUID) {
+    guard let chinese = inputContext.languageOverride(for: keyboardType, document: documentIdentifier,
+                                                      isChinese: isChineseMode) else { return }
+    // textWillChange normally finishes in the old field. If UIKit skipped that boundary, never
+    // insert its remaining preedit into the new field while changing the keyboard's presentation.
+    render(session.cancel())
+    isChineseMode = chinese
+    showsSymbols = false
+    letterCaseState = .lowercase
+    isAutomaticShift = false
+    lastShiftTapTime = nil
+    updateLanguageModeButton()
+    updateAutomaticCapitalization()
+    updateCandidateStrip(preedit: "", candidates: [])
+  }
+
   private func toggleInputMode() {
     playInputClick()
     let snapshot = isChineseMode ? session.finishComposition() : session.cancel()
@@ -888,7 +915,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     let mode: EnglishCapitalizationMode
-    switch textDocumentProxy.autocapitalizationType ?? .sentences {
+    let capitalization = (inputContext.keyboardType == .URL || inputContext.keyboardType == .emailAddress)
+      ? UITextAutocapitalizationType.none : (textDocumentProxy.autocapitalizationType ?? .sentences)
+    switch capitalization {
     case .none:
       mode = .none
     case .words:
@@ -1309,16 +1338,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func moveCursor(by offset: Int) {
     guard offset != 0 else { return }
-    let document = textDocumentProxy.documentIdentifier
+    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
     if hasComposition { render(session.finishComposition()) }
-    guard textDocumentProxy.documentIdentifier == document else { return }
+    guard KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
   }
 
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
+    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+      cursorMovement.cancel()
+      spaceButton?.configuration?.title = "空格"
+      return
+    }
     switch pan.state {
     case .began:
-      cursorMovement.begin(at: pan.translation(in: view).x, document: textDocumentProxy.documentIdentifier)
+      cursorMovement.begin(at: pan.translation(in: view).x, document: document)
       if hasComposition { render(session.finishComposition()) }
       spaceButton?.configuration?.title = "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
@@ -1326,7 +1360,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
     case .changed:
       moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
-                                           document: textDocumentProxy.documentIdentifier))
+                                           document: document))
       if !cursorMovement.isActive { spaceButton?.configuration?.title = "空格" }
     case .ended, .cancelled, .failed:
       cursorMovement.cancel()

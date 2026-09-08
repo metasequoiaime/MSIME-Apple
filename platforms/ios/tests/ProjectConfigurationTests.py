@@ -575,7 +575,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("case .done:", controller)
         self.assertIn("enterButton?.accessibilityLabel = title", controller)
 
-        self.assertIn("switch textDocumentProxy.autocapitalizationType ?? .sentences", controller)
+        self.assertIn("textDocumentProxy.autocapitalizationType ?? .sentences", controller)
 
     def test_project_and_ci_run_native_onboarding_ui_tests(self):
         project = (IOS_ROOT / "project.yml").read_text()
