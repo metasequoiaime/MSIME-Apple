@@ -43,4 +43,37 @@ final class BackendSnapshotTests: XCTestCase {
   func testOversizedSingleLineIsRejected() throws {
     XCTAssertThrowsError(try inspect(Data(String(repeating: " ", count: 65536).utf8)))
   }
+  func testDuplicateEscapedKeysAndNonIntegerNumbersAreRejected() throws {
+    let malformed = [
+      header.replacingOccurrences(of: "\"version\":1", with: "\"version\":1,\"version\":1"),
+      header.replacingOccurrences(of: "\"version\":1", with: #""version":1,"vers\u0069on":1"#),
+      header.replacingOccurrences(of: "\"version\":1", with: "\"version\":1.0"),
+      header.replacingOccurrences(of: "\"version\":1", with: "\"version\":1e0")
+    ]
+    for line in malformed { XCTAssertThrowsError(try inspect(framed([line])), line) }
+  }
+  func testRecordFieldsRejectInvalidDataEvenWithCorrectChecksum() throws {
+    let entry = #"{"type":"entry","data":{"id":"synthetic","kind":"quick","code":"sample","word":"样例","weight":10,"revision":1,"updated_at":"2026-09-08T00:00:00Z"}}"#
+    XCTAssertEqual(try inspect(framed([header, entry])).entries, 1)
+    let invalid = [
+      entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0"),
+      entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":true"),
+      entry.replacingOccurrences(of: "\"revision\":1", with: "\"revision\":10001"),
+      entry.replacingOccurrences(of: "\"kind\":\"quick\"", with: "\"kind\":\"other\""),
+      entry.replacingOccurrences(of: "\"id\":\"synthetic\"", with: "\"id\":null"),
+      entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"user_inserted\":false"),
+      entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"unexpected\":1"),
+      entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "invalid"),
+      entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "2026-02-30T00:00:00Z"),
+      entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "2026-09-08T00:00:00Zjunk"),
+      entry.replacingOccurrences(of: "\"weight\":10", with: #""weight":10,"we\u0069ght":10"#),
+      #"{"type":"position","data":{"context":"pinyin:sample","code":"sample","word":"样例","position":6}}"#,
+      #"{"type":"selection","data":{"context":"pinyin:sample","code":"sample","word":"样例","count":11}}"#
+    ]
+    for line in invalid { XCTAssertThrowsError(try inspect(framed([header, line])), line) }
+    let tombstone = entry.replacingOccurrences(of: "\"type\":\"entry\"", with: "\"type\":\"overlay\",\"deleted\":true")
+      .replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0")
+    XCTAssertEqual(try inspect(framed([header, tombstone])).overlays, 1)
+  }
+
 }

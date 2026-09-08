@@ -2,8 +2,8 @@ import Foundation
 import CoreFoundation
 import CryptoKit
 
-/// Validates transport framing and checksum, without claiming that every dictionary
-/// operation is semantically valid. Engine staging must succeed before activation.
+/// Validates framing, record fields and checksum. Cross-record consistency and
+/// Engine staging must also succeed before any local dictionary activation.
 struct BackendSnapshotEnvelope: Sendable {
   let revision: Int64
   let sha256: String
@@ -32,6 +32,8 @@ struct BackendSnapshotEnvelope: Sendable {
     }
     func record(_ data: Data) throws {
       try Task.checkCancellation()
+      var syntax = SnapshotJSONSyntax(data)
+      try syntax.validate()
       guard !finished, !data.isEmpty, data.count < 65536, String(data: data, encoding: .utf8) != nil,
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let type = object["type"] as? String else { throw bad }
@@ -57,6 +59,7 @@ struct BackendSnapshotEnvelope: Sendable {
           guard Set(object.keys) == ["type", "data", "deleted"], let deleted = object["deleted"] as? NSNumber,
                 CFGetTypeID(deleted) == CFBooleanGetTypeID() else { throw bad }
         } else { guard Set(object.keys) == ["type", "data"] else { throw bad } }
+        try SnapshotRecordFields.validate(object, revision: revision!)
         next = ["entry": 1, "overlay": 2, "position": 3, "selection": 4][type]!
       default: throw bad
       }
@@ -94,6 +97,141 @@ extension BackendAccountClient {
     } catch {
       try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
       throw error
+    }
+  }
+}
+
+
+/// The wire format contains only objects and scalar values. Foundation otherwise
+/// silently accepts repeated keys, including keys written with Unicode escapes.
+private struct SnapshotJSONSyntax {
+  private let bytes: [UInt8]
+  private var offset = 0
+  private let bad = BackendAccountClient.Failure(status: 400)
+  init(_ data: Data) { bytes = Array(data) }
+  mutating func validate() throws {
+    guard !bytes.isEmpty, bytes.count < 65536 else { throw bad }
+    try object(depth: 0)
+    whitespace()
+    guard offset == bytes.count else { throw bad }
+  }
+  private mutating func whitespace() {
+    while offset < bytes.count, [9, 10, 13, 32].contains(bytes[offset]) { offset += 1 }
+  }
+  private mutating func consume(_ byte: UInt8) throws {
+    whitespace()
+    guard offset < bytes.count, bytes[offset] == byte else { throw bad }
+    offset += 1
+  }
+  private mutating func string() throws -> String {
+    whitespace()
+    let start = offset
+    try consume(34)
+    while offset < bytes.count {
+      let byte = bytes[offset]; offset += 1
+      if byte == 34 {
+        return try JSONDecoder().decode(String.self, from: Data(bytes[start..<offset]))
+      }
+      if byte == 92 { offset += 1 }
+    }
+    throw bad
+  }
+  private mutating func object(depth: Int) throws {
+    guard depth <= 1 else { throw bad }
+    try consume(123)
+    whitespace()
+    if offset < bytes.count, bytes[offset] == 125 { offset += 1; return }
+    var keys = Set<String>()
+    while true {
+      guard keys.insert(try string()).inserted else { throw bad }
+      try consume(58)
+      whitespace()
+      guard offset < bytes.count else { throw bad }
+      switch bytes[offset] {
+      case 123: try object(depth: depth + 1)
+      case 34: _ = try string()
+      case 91: throw bad
+      default:
+        let start = offset
+        while offset < bytes.count, ![9, 10, 13, 32, 44, 125].contains(bytes[offset]) { offset += 1 }
+        let token = String(decoding: bytes[start..<offset], as: UTF8.self)
+        // All numeric fields in this protocol are integers. Reject 1.0 and 1e0
+        // even when NSNumber happens to represent either as an integer.
+        guard ["true", "false", "null"].contains(token) ||
+          (!token.isEmpty && !token.contains(".") && !token.contains("e") && !token.contains("E") && Int64(token) != nil) else { throw bad }
+      }
+      whitespace()
+      guard offset < bytes.count else { throw bad }
+      if bytes[offset] == 125 { offset += 1; return }
+      try consume(44)
+    }
+  }
+}
+
+private enum SnapshotRecordFields {
+  private static let timestampPattern = try! NSRegularExpression(
+    pattern: #"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.,][0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})\z"#)
+  private static func validTimestamp(_ timestamp: String) -> Bool {
+    let range = NSRange(timestamp.startIndex..<timestamp.endIndex, in: timestamp)
+    guard timestampPattern.firstMatch(in: timestamp, range: range) != nil else { return false }
+    let bytes = Array(timestamp.utf8)
+    func number(_ start: Int, _ end: Int) -> Int { Int(String(decoding: bytes[start..<end], as: UTF8.self))! }
+    let year = number(0, 4), month = number(5, 7), day = number(8, 10)
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    guard (1...12).contains(month), (1...days[month - 1]).contains(day),
+          number(11, 13) < 24, number(14, 16) < 60, number(17, 19) < 60 else { return false }
+    if bytes.last != 90 {
+      guard number(bytes.count - 5, bytes.count - 3) < 24, number(bytes.count - 2, bytes.count) < 60 else { return false }
+    }
+    // ISO8601DateFormatter alone accepts trailing text and normalizes February
+    // 30; validate syntax and calendar fields before asking it to parse the zone.
+    let formatter = ISO8601DateFormatter()
+    let normalized = timestamp.replacingOccurrences(of: ",", with: ".")
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let fractional = formatter.date(from: normalized)
+    formatter.formatOptions = [.withInternetDateTime]
+    guard let date = fractional ?? formatter.date(from: normalized) else { return false }
+    return date != formatter.date(from: "0001-01-01T00:00:00Z")
+  }
+
+  static func validate(_ object: [String: Any], revision: Int64) throws {
+    let bad = BackendAccountClient.Failure(status: 400)
+    guard let type = object["type"] as? String, let data = object["data"] as? [String: Any] else { throw bad }
+    func integer(_ key: String) throws -> Int64 {
+      guard let number = data[key] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+            let value = Int64(number.stringValue) else { throw bad }
+      return value
+    }
+    func text(_ key: String, maximum: Int) throws -> String {
+      guard let value = data[key] as? String, !value.isEmpty, value.utf8.count <= maximum,
+            !value.utf8.contains(where: { [0, 9, 10, 13].contains($0) }) else { throw bad }
+      return value
+    }
+    let code = try text("code", maximum: 512)
+    let word = try text("word", maximum: 2048)
+    if type == "entry" || type == "overlay" {
+      var keys = Set(data.keys)
+      if keys.remove("user_inserted") != nil {
+        guard let value = data["user_inserted"] as? NSNumber, CFGetTypeID(value) == CFBooleanGetTypeID(),
+              type != "entry" || value.boolValue else { throw bad }
+      }
+      guard keys == ["id", "kind", "code", "word", "weight", "revision", "updated_at"],
+            let kind = data["kind"] as? String, ["pinyin", "wubi", "english", "quick"].contains(kind),
+            data["id"] is String else { throw bad }
+      if type == "entry" { _ = try text("id", maximum: 128) }
+      let weight = try integer("weight"), recordRevision = try integer("revision")
+      guard (0...100000000).contains(weight), weight > 0 || object["deleted"] as? Bool == true,
+            recordRevision >= 1, recordRevision <= revision,
+            let timestamp = data["updated_at"] as? String else { throw bad }
+      guard validTimestamp(timestamp) else { throw bad }
+    } else {
+      let field = type == "position" ? "position" : "count"
+      guard Set(data.keys) == ["context", "code", "word", field] else { throw bad }
+      let context = try text("context", maximum: 512)
+      guard context.utf8.count + code.utf8.count + word.utf8.count <= 2048 else { throw bad }
+      let value = try integer(field)
+      guard (type == "position" ? (1...5) : (0...10)).contains(Int(value)) else { throw bad }
     }
   }
 }
