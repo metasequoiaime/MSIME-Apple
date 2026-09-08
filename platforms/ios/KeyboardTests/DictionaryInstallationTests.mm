@@ -2,6 +2,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #include "DictionaryInstallation.h"
 #include "InputSessionAdapter.h"
+#include "DictionarySnapshotBridge.h"
 #include <sqlite3.h>
 #include <fcntl.h>
 #include <sys/file.h>
@@ -64,11 +65,23 @@
     XCTAssertFalse(first.diagnostic.has_value());
     XCTAssertTrue(first.paths.dictionaries != first.paths.user_data);
     XCTAssertTrue(first.paths.resources == std::filesystem::path(resources.fileSystemRepresentation));
+    const auto initialRevision = metasequoia::apple::DictionaryStateRevision(first.paths);
     {
         metasequoia::apple::InputSessionAdapter adapter(first.paths);
         XCTAssertTrue(adapter.set_learning_enabled(true));
         XCTAssertTrue(type(adapter).candidates.at(1) == "补好");
         XCTAssertTrue(adapter.select_candidate(1).commit == "补好");
+    }
+    const auto learnedRevision = metasequoia::apple::DictionaryStateRevision(first.paths);
+    XCTAssertTrue(learnedRevision != initialRevision);
+    XCTAssertTrue(metasequoia::apple::DictionaryStateRevision(first.paths) == learnedRevision);
+    {
+        metasequoia::apple::InputSessionAdapter adapter(first.paths);
+        type(adapter);
+        XCTAssertTrue(adapter.edit_candidate(1, "不好", metasequoia::apple::CandidateAction::FixFirst).handled);
+        XCTAssertTrue(metasequoia::apple::DictionaryStateRevision(first.paths) != learnedRevision);
+        XCTAssertTrue(adapter.edit_candidate(0, "不好", metasequoia::apple::CandidateAction::ClearPosition).handled);
+        XCTAssertTrue(metasequoia::apple::DictionaryStateRevision(first.paths) == learnedRevision);
     }
     // A changed bundle is verified before activation; a bad digest keeps the working generation.
     [manager removeItemAtURL:cache error:nil];

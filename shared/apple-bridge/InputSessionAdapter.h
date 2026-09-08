@@ -66,6 +66,7 @@ class InputSessionAdapter
     // Returns false during composition; the platform retries after its current snapshot is idle.
     bool set_learning_enabled(bool enabled);
     bool learning_enabled() const;
+    RuntimePaths runtime_paths() const;
     PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
                                                     const std::optional<PersonalDictionaryEntry> &replacement,
                                                     const std::string &request_id);

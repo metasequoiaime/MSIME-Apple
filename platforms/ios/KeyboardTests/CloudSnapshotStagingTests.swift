@@ -37,7 +37,7 @@ final class CloudSnapshotStagingTests: XCTestCase {
     let footer = try JSONSerialization.data(withJSONObject: ["type": "footer", "records": lines.count, "sha256": digest])
     let file = root.appendingPathComponent("source.ndjson")
     try (body + footer + Data([10])).write(to: file)
-    let snapshot = try BackendPreparedSnapshot(copying: file)
+    var snapshot = try BackendPreparedSnapshot(copying: file)
     func stage(_ identifier: String) throws -> MSIMEPreparedDictionarySnapshot {
       let stream = try BackendSnapshotRecordStream(snapshot: snapshot)
       return try DictionarySnapshotBridge.prepare(resources: resources, user: user, identifier: identifier,
@@ -50,6 +50,11 @@ final class CloudSnapshotStagingTests: XCTestCase {
     let identifier = UUID().uuidString
     let prepared = try stage(identifier)
     XCTAssertEqual(prepared.identifier, identifier)
+    let revision = try prepared.stateRevision()
+    XCTAssertEqual(revision.count, 64)
+    XCTAssertEqual(try prepared.stateRevision(), revision)
+    let identical = try stage(UUID().uuidString)
+    XCTAssertEqual(try identical.stateRevision(), revision)
     let generation = user.appendingPathComponent("snapshot-generations").appendingPathComponent(identifier)
     var db: OpaquePointer?
     XCTAssertEqual(sqlite3_open_v2(generation.appendingPathComponent("user/msime_user.db").path, &db, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
@@ -74,6 +79,13 @@ final class CloudSnapshotStagingTests: XCTestCase {
       sqlite3_finalize(query)
     }
     XCTAssertFalse(FileManager.default.fileExists(atPath: user.appendingPathComponent("active-user-generation").path))
+    let countedBody = Data(String(decoding: body, as: UTF8.self).replacingOccurrences(of: "\"count\":2", with: "\"count\":3").utf8)
+    let countedDigest = SHA256.hash(data: countedBody).map { String(format: "%02x", $0) }.joined()
+    let countedFooter = try JSONSerialization.data(withJSONObject: ["type": "footer", "records": lines.count, "sha256": countedDigest])
+    try (countedBody + countedFooter + Data([10])).write(to: file)
+    snapshot = try BackendPreparedSnapshot(copying: file)
+    let counted = try stage(UUID().uuidString)
+    XCTAssertNotEqual(try counted.stateRevision(), revision, "Selection-only changes must invalidate the local version")
     // Simulate corruption after preview. Engine must roll back even though the
     // overlay and both candidate records arrive before the missing footer.
     try body.write(to: snapshot.url)

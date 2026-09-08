@@ -2,6 +2,11 @@
 #import <Foundation/Foundation.h>
 #ifdef __cplusplus
 #include <metasequoia/session.h>
+namespace metasequoia::apple {
+// Stable digest of one consistent logical journal snapshot. Only the digest is
+// exposed to callers; pair it with the active generation ID.
+std::string DictionaryStateRevision(const RuntimePaths &paths);
+}
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -10,6 +15,7 @@ typedef NSDictionary<NSString *, id> *_Nullable (^MSIMESnapshotNextRecord)(NSErr
 
 @interface MSIMEPreparedDictionarySnapshot : NSObject
 @property(nonatomic, copy, readonly) NSString *identifier;
+- (nullable NSString *)stateRevisionWithError:(NSError **)error NS_SWIFT_NAME(stateRevision());
 - (instancetype)init NS_UNAVAILABLE;
 #ifdef __cplusplus
 - (const metasequoia::RuntimePaths &)runtimePaths;

@@ -2,6 +2,9 @@
 #include "DictionaryInstallation.h"
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
+#import <CommonCrypto/CommonDigest.h>
+#include <array>
+#include <type_traits>
 
 namespace
 {
@@ -80,6 +83,59 @@ metasequoia::DictionaryStateRecord Decode(NSDictionary *record)
 }
 }
 
+namespace metasequoia::apple
+{
+std::string DictionaryStateRevision(const RuntimePaths &paths)
+{
+    CC_SHA256_CTX hash;
+    CC_SHA256_Init(&hash);
+    const auto integer = [&](std::uint64_t value) {
+        std::array<unsigned char, 8> bytes;
+        for (int index = 7; index >= 0; --index) { bytes[index] = value & 255; value >>= 8; }
+        CC_SHA256_Update(&hash, bytes.data(), static_cast<CC_LONG>(bytes.size()));
+    };
+    const auto text = [&](const std::string &value) {
+        integer(value.size());
+        CC_SHA256_Update(&hash, value.data(), static_cast<CC_LONG>(value.size()));
+    };
+    text("msime-local-dictionary-state-v1");
+    stream_dictionary_state(paths, [&](const DictionaryStateRecord &record) {
+        std::visit([&](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, DictionaryStateEntry>)
+            {
+                text("entry");
+                switch (value.kind)
+                {
+                case PersonalDictionaryKind::Pinyin: text("pinyin"); break;
+                case PersonalDictionaryKind::Wubi: text("wubi"); break;
+                case PersonalDictionaryKind::QuickPhrase: text("quick"); break;
+                case PersonalDictionaryKind::English: text("english"); break;
+                }
+                text(value.key); text(value.value); integer(value.weight); text(value.display);
+                integer(value.deleted); integer(value.user_inserted);
+            }
+            else
+            {
+                if constexpr (std::is_same_v<T, DictionaryStatePosition>) text("position");
+                else text("selection");
+                text(value.context); text(value.key); text(value.value);
+                if constexpr (std::is_same_v<T, DictionaryStatePosition>) integer(value.position);
+                else integer(value.count);
+            }
+        }, record);
+        return true;
+    });
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &hash);
+    const char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(64);
+    for (const auto byte : digest) { result += digits[byte >> 4]; result += digits[byte & 15]; }
+    return result;
+}
+}
+
 @interface MSIMEPreparedDictionarySnapshot ()
 - (instancetype)initWithIdentifier:(NSString *)identifier paths:(const metasequoia::RuntimePaths &)paths;
 @end
@@ -94,6 +150,16 @@ metasequoia::DictionaryStateRecord Decode(NSDictionary *record)
     return self;
 }
 - (const metasequoia::RuntimePaths &)runtimePaths { return _paths; }
+- (NSString *)stateRevisionWithError:(NSError **)error
+{
+    try { return [NSString stringWithUTF8String:metasequoia::apple::DictionaryStateRevision(_paths).c_str()]; }
+    catch (const std::exception &)
+    {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:2
+            userInfo:@{NSLocalizedDescriptionKey: @"无法读取本地词库版本，请稍后重试。"}];
+        return nil;
+    }
+}
 @end
 
 @implementation DictionarySnapshotBridge

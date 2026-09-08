@@ -169,6 +169,11 @@ bool InputSessionAdapter::learning_enabled() const
     return learning_enabled_;
 }
 
+RuntimePaths InputSessionAdapter::runtime_paths() const
+{
+    return impl_->paths;
+}
+
 PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
     const std::optional<PersonalDictionaryEntry> &previous, const std::optional<PersonalDictionaryEntry> &replacement,
     const std::string &request_id)

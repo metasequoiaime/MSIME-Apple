@@ -2,6 +2,7 @@
 
 #include "InputSessionAdapter.h"
 #include "DictionaryInstallation.h"
+#include "DictionarySnapshotBridge.h"
 #include "PersonalDictionaryBridge.h"
 #include "ShuangpinKeymap.h"
 
@@ -92,6 +93,24 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
         _adapter = std::make_unique<metasequoia::apple::InputSessionAdapter>(installation.paths);
     }
     return self;
+}
+
+- (NSString *)localDictionaryStateVersionWithError:(NSError **)error
+{
+    try
+    {
+        const auto paths = _adapter->runtime_paths();
+        std::string generation = "legacy";
+        if (paths.user_data.filename() == "user" && paths.user_data.parent_path().parent_path().filename() == "snapshot-generations")
+            generation = paths.user_data.parent_path().filename().string();
+        return StringFromUTF8("local-v1:" + generation + ":" + metasequoia::apple::DictionaryStateRevision(paths));
+    }
+    catch (const std::exception &)
+    {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:2
+            userInfo:@{NSLocalizedDescriptionKey: @"无法读取本地词库版本，请稍后重试。"}];
+        return nil;
+    }
 }
 
 - (BOOL)applyPersonalPrevious:(NSDictionary<NSString *, id> *)previous
