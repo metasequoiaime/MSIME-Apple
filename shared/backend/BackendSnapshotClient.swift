@@ -1,9 +1,10 @@
 import Foundation
 import CoreFoundation
 import CryptoKit
+import SQLite3
 
-/// Validates framing, record fields and checksum. Cross-record consistency and
-/// Engine staging must also succeed before any local dictionary activation.
+/// Validates framing, fields, cross-record consistency and checksum. Engine
+/// staging must still succeed before any local dictionary activation.
 struct BackendSnapshotEnvelope: Sendable {
   let revision: Int64
   let sha256: String
@@ -16,6 +17,7 @@ struct BackendSnapshotEnvelope: Sendable {
   static func inspect(_ file: URL) throws -> Self {
     let handle = try FileHandle(forReadingFrom: file)
     defer { try? handle.close() }
+    let index = try SnapshotRecordIndex()
     var hash = SHA256()
     var line = Data()
     var count = 0, bytes = 0, category = -1
@@ -60,6 +62,7 @@ struct BackendSnapshotEnvelope: Sendable {
                 CFGetTypeID(deleted) == CFBooleanGetTypeID() else { throw bad }
         } else { guard Set(object.keys) == ["type", "data"] else { throw bad } }
         try SnapshotRecordFields.validate(object, revision: revision!)
+        try index.insert(object)
         next = ["entry": 1, "overlay": 2, "position": 3, "selection": 4][type]!
       default: throw bad
       }
@@ -82,6 +85,7 @@ struct BackendSnapshotEnvelope: Sendable {
     }
     if !line.isEmpty { try record(line) }
     guard finished, let revision, let checksum else { throw bad }
+    try index.validate()
     return .init(revision: revision, sha256: checksum, records: count, entries: totals[1], overlays: totals[2], positions: totals[3], selections: totals[4])
   }
 }
@@ -233,5 +237,90 @@ private enum SnapshotRecordFields {
       let value = try integer(field)
       guard (type == "position" ? (1...5) : (0...10)).contains(Int(value)) else { throw bad }
     }
+  }
+}
+
+
+/// A disposable wire-format index, never a local Engine dictionary. Keeping
+/// identities on disk bounds memory even for large overlay/counter snapshots.
+private final class SnapshotRecordIndex {
+  private var database: OpaquePointer?
+  private var insertion: OpaquePointer?
+  private let directory: URL
+  private var entries = 0
+  private let bad = BackendAccountClient.Failure(status: 400)
+  init() throws {
+    directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-index-" + UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    do {
+      let file = directory.appendingPathComponent("records.sqlite")
+      guard sqlite3_open_v2(file.path, &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else { throw bad }
+      sqlite3_progress_handler(database, 1000, { _ in Task.isCancelled ? 1 : 0 }, nil)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+      #if os(iOS)
+      try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file.path)
+      #endif
+      try execute("""
+        PRAGMA cache_size=-2048;
+        PRAGMA temp_store=FILE;
+        CREATE TABLE records(type TEXT, scope TEXT, code TEXT, word TEXT, id TEXT, weight INTEGER, owned INTEGER, deleted INTEGER, slot INTEGER,
+          PRIMARY KEY(type,scope,code,word)) WITHOUT ROWID;
+        CREATE UNIQUE INDEX entry_ids ON records(id) WHERE type='entry';
+        CREATE UNIQUE INDEX position_slots ON records(scope,slot) WHERE type='position';
+        BEGIN;
+        """)
+      guard sqlite3_prepare_v2(database, "INSERT INTO records VALUES(?,?,?,?,?,?,?,?,?)", -1, &insertion, nil) == SQLITE_OK else { throw bad }
+    } catch { cleanup(); throw error }
+  }
+  deinit { cleanup() }
+  private func cleanup() {
+    sqlite3_finalize(insertion); insertion = nil
+    sqlite3_close(database); database = nil
+    try? FileManager.default.removeItem(at: directory)
+  }
+  private func execute(_ sql: String) throws {
+    guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw bad }
+  }
+  func insert(_ object: [String: Any]) throws {
+    guard let type = object["type"] as? String, let data = object["data"] as? [String: Any],
+          let scope = data["kind"] as? String ?? data["context"] as? String,
+          let code = data["code"] as? String, let word = data["word"] as? String else { throw bad }
+    if type == "entry" { entries += 1; guard entries <= 100000 else { throw bad } }
+    sqlite3_reset(insertion); sqlite3_clear_bindings(insertion)
+    let strings = [type, scope, code, word, data["id"] as? String ?? ""]
+    for (offset, value) in strings.enumerated() {
+      let result = value.withCString { sqlite3_bind_text(insertion, Int32(offset + 1), $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+      guard result == SQLITE_OK else { throw bad }
+    }
+    let numbers: [Int64] = [(data["weight"] as? NSNumber)?.int64Value ?? 0,
+      (data["user_inserted"] as? Bool ?? true) ? 1 : 0,
+      (object["deleted"] as? Bool ?? false) ? 1 : 0,
+      (data["position"] as? NSNumber)?.int64Value ?? 0]
+    for (offset, value) in numbers.enumerated() {
+      guard sqlite3_bind_int64(insertion, Int32(offset + 6), value) == SQLITE_OK else { throw bad }
+    }
+    guard sqlite3_step(insertion) == SQLITE_DONE else { throw bad }
+  }
+  func validate() throws {
+    try Task.checkCancellation()
+    // Same invariant as server restore: every personal entry has a matching
+    // live, user-owned overlay with equal weight, and vice versa. Base ranking
+    // overrides and tombstones do not require a personal entry.
+    let sql = """
+      SELECT EXISTS(
+        SELECT 1 FROM records e LEFT JOIN records o
+          ON o.type='overlay' AND e.scope=o.scope AND e.code=o.code AND e.word=o.word
+        WHERE e.type='entry' AND (o.type IS NULL OR o.deleted=1 OR o.owned=0 OR e.weight<>o.weight)
+        UNION ALL
+        SELECT 1 FROM records o LEFT JOIN records e
+          ON e.type='entry' AND e.scope=o.scope AND e.code=o.code AND e.word=o.word
+        WHERE o.type='overlay' AND o.deleted=0 AND o.owned=1 AND e.type IS NULL
+      )
+      """
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else { throw bad }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW, sqlite3_column_int(statement, 0) == 0 else { throw bad }
+    try Task.checkCancellation()
   }
 }

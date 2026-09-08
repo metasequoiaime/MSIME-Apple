@@ -25,9 +25,9 @@ final class BackendSnapshotTests: XCTestCase {
       {"type":"entry","data":{"id":"\(index)","kind":"quick","code":"file\(index)","word":"合成备份样例","weight":100,"revision":1,"updated_at":"2026-09-08T00:00:00Z"}}
       """
     }
-    let result = try inspect(framed([header] + lines))
+    let result = try inspect(framed([header] + lines + lines.map(overlay)))
     XCTAssertEqual(result.entries, 10000)
-    XCTAssertEqual(result.records, 10001)
+    XCTAssertEqual(result.records, 20001)
     XCTAssertEqual(result.revision, 10000)
   }
   func testTruncationTamperingTrailingDataAndCategoryRegressionAreRejected() throws {
@@ -54,7 +54,7 @@ final class BackendSnapshotTests: XCTestCase {
   }
   func testRecordFieldsRejectInvalidDataEvenWithCorrectChecksum() throws {
     let entry = #"{"type":"entry","data":{"id":"synthetic","kind":"quick","code":"sample","word":"样例","weight":10,"revision":1,"updated_at":"2026-09-08T00:00:00Z"}}"#
-    XCTAssertEqual(try inspect(framed([header, entry])).entries, 1)
+    XCTAssertEqual(try inspect(framed([header, entry, overlay(entry)])).entries, 1)
     let invalid = [
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0"),
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":true"),
@@ -74,6 +74,32 @@ final class BackendSnapshotTests: XCTestCase {
     let tombstone = entry.replacingOccurrences(of: "\"type\":\"entry\"", with: "\"type\":\"overlay\",\"deleted\":true")
       .replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0")
     XCTAssertEqual(try inspect(framed([header, tombstone])).overlays, 1)
+  }
+
+  private func overlay(_ entry: String) -> String {
+    entry.replacingOccurrences(of: "\"type\":\"entry\"", with: "\"type\":\"overlay\",\"deleted\":false")
+  }
+  func testCrossRecordDuplicatesAndCoherence() throws {
+    let entry = #"{"type":"entry","data":{"id":"synthetic","kind":"quick","code":"sample","word":"样例","weight":10,"revision":1,"updated_at":"2026-09-08T00:00:00Z"}}"#
+    let live = overlay(entry)
+    let position = #"{"type":"position","data":{"context":"pinyin:sample","code":"sample","word":"样例","position":2}}"#
+    let selection = #"{"type":"selection","data":{"context":"pinyin:sample","code":"sample","word":"样例","count":2}}"#
+    let invalid: [[String]] = [
+      [entry], [live], [entry, entry, live], [entry, live, live],
+      [entry, entry.replacingOccurrences(of: "sample", with: "another"), live],
+      [entry, live.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":11")],
+      [entry, live.replacingOccurrences(of: "\"deleted\":false", with: "\"deleted\":true")],
+      [entry, live.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"user_inserted\":false")],
+      [position, position],
+      [position, position.replacingOccurrences(of: "样例", with: "另一词条")],
+      [selection, selection]
+    ]
+    for records in invalid { XCTAssertThrowsError(try inspect(framed([header] + records))) }
+    let base = live.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"user_inserted\":false")
+    XCTAssertEqual(try inspect(framed([header, base, position, selection])).records, 4)
+    let pair = try inspect(framed([header, entry, live, position, selection]))
+    XCTAssertEqual(pair.entries, 1)
+    XCTAssertEqual(pair.overlays, 1)
   }
 
 }
