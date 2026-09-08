@@ -536,14 +536,16 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn("private var isChineseMode = true", controller)
-        self.assertIn("languageModeButton", controller)
+        self.assertIn("bottomLanguageButton", controller)
         self.assertIn("toggleInputMode", controller)
         self.assertIn("render(session.handleCharacter(character))", controller)
         self.assertIn("insertOwnText(output)", controller)
         self.assertIn("if !isChineseMode {\n      insertOwnText(symbol)", controller)
         self.assertIn("isChineseMode ? session.finishComposition() : session.cancel()", controller)
         self.assertIn('inputScheme == .japanese ? "日" : "中"', controller)
-        self.assertIn('languageModeButton.accessibilityIdentifier = "languageModeButton"', controller)
+        self.assertIn('bottomLanguageButton?.accessibilityIdentifier = "bottomLanguageKey"', controller)
+        self.assertIn("bottomLanguageButton?.configuration = configuration", controller)
+        self.assertIn("bottomLanguageButton?.isHidden = false", controller)
 
     def test_english_keyboard_supports_one_shot_shift_and_caps_lock(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
@@ -603,9 +605,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn(
-            "space.widthAnchor.constraint(greaterThanOrEqualToConstant: 79.2)",
+            "space.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)",
             controller,
         )
+        # Presets add bottom-row actions; keep Space's minimum small enough for
+        # narrow screens, including when applying a different preset at runtime.
+        self.assertIn("standardActionWidths[1].constant = 44", controller)
         self.assertIn(
             "delete.widthAnchor.constraint(equalToConstant: 44)",
             controller,
