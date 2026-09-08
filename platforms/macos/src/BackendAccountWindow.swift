@@ -138,6 +138,7 @@ private struct MacAccountView: View {
   @State private var clipboard = false
   @State private var settings = false
   @State private var dictionary = false
+  @State private var snapshot = false
   var body: some View {
     Form {
       if let user = model.user {
@@ -147,6 +148,7 @@ private struct MacAccountView: View {
         Button("云剪贴板…") { clipboard = true }
         Button("桌面设置同步…") { settings = true }
         Button("云词库…") { dictionary = true }
+        Button("完整云词库备份…") { snapshot = true }
         Button("退出登录") { model.logout() }
         Button("退出所有设备") { model.logout(all: true) }
         Button("注销账号", role: .destructive) { deleting = true }
@@ -173,6 +175,9 @@ private struct MacAccountView: View {
       if let message = model.message { Text(message).foregroundStyle(.secondary) }
     }
     .padding(24).frame(width: 420, height: 440).disabled(model.busy || model.authorizing)
+    .sheet(isPresented: $snapshot) {
+      if let user = model.user { MacCloudSnapshotView(accountID: user.id) }
+    }
     .sheet(isPresented: $dictionary) {
       if let user = model.user { MacCloudDictionaryView(accountID: user.id) }
     }

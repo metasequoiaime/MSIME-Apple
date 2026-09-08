@@ -107,19 +107,7 @@ final class MacDictionaryModel: ObservableObject {
       let file = try await self.client.exportDictionary(kind, format: format, token: token)
       defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
       _ = try await self.authorize()
-      let scoped = destination.startAccessingSecurityScopedResource()
-      defer { if scoped { destination.stopAccessingSecurityScopedResource() } }
-      let temporary = destination.deletingLastPathComponent().appendingPathComponent("." + UUID().uuidString)
-      defer { try? FileManager.default.removeItem(at: temporary) }
-      let copy = Task.detached(priority: .utility) {
-        try Task.checkCancellation()
-        try FileManager.default.copyItem(at: file, to: temporary)
-        try Task.checkCancellation()
-      }
-      try await withTaskCancellationHandler(operation: { try await copy.value }, onCancel: { copy.cancel() })
-      _ = try await self.authorize()
-      if FileManager.default.fileExists(atPath: destination.path) { _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary) }
-      else { try FileManager.default.moveItem(at: temporary, to: destination) }
+      try await MacCloudFileTransfer.save(file, to: destination) { _ = try await self.authorize() }
       self.message = "云词库已导出。"
     }
   }
