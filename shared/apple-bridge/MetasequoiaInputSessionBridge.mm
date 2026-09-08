@@ -3,11 +3,13 @@
 #include "InputSessionAdapter.h"
 #include "DictionaryInstallation.h"
 #include "DictionarySnapshotBridge.h"
+#include "DictionarySessionLease.h"
 #include "PersonalDictionaryBridge.h"
 #include "ShuangpinKeymap.h"
 
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -19,30 +21,42 @@ NSString *StringFromUTF8(const std::string &value)
     return string == nil ? @"" : string;
 }
 
-const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
+NSURL *UserDataRoot()
 {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSURL *support = [manager URLForDirectory:NSApplicationSupportDirectory inDomain:NSUserDomainMask
+        appropriateForURL:nil create:YES error:nil];
+    NSURL *home = [NSURL fileURLWithPath:NSHomeDirectory() isDirectory:YES];
+    support = support ?: [home URLByAppendingPathComponent:@"Library/Application Support" isDirectory:YES];
+    return [support URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
+}
+metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh = false)
+{
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> guard(mutex);
     static metasequoia::apple::DictionaryInstallation installation;
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-      NSFileManager *manager = NSFileManager.defaultManager;
-      NSURL *support = [manager URLForDirectory:NSApplicationSupportDirectory
-                                       inDomain:NSUserDomainMask
-                              appropriateForURL:nil
-                                         create:YES
-                                          error:nil];
-      NSURL *cache = [manager URLForDirectory:NSCachesDirectory
-                                     inDomain:NSUserDomainMask
-                            appropriateForURL:nil
-                                       create:YES
-                                        error:nil];
-      NSURL *home = [NSURL fileURLWithPath:NSHomeDirectory() isDirectory:YES];
-      support = support ?: [home URLByAppendingPathComponent:@"Library/Application Support" isDirectory:YES];
-      cache = cache ?: [home URLByAppendingPathComponent:@"Library/Caches" isDirectory:YES];
-      NSURL *user = [support URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES];
-      NSURL *resources = [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class].resourceURL;
-      installation = metasequoia::apple::PrepareDictionaryInstallation(
-          resources, user, [cache URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES]);
-    });
+    const auto prepare = [] {
+        NSURL *cache = [NSFileManager.defaultManager URLForDirectory:NSCachesDirectory inDomain:NSUserDomainMask
+            appropriateForURL:nil create:YES error:nil];
+        NSURL *home = [NSURL fileURLWithPath:NSHomeDirectory() isDirectory:YES];
+        cache = cache ?: [home URLByAppendingPathComponent:@"Library/Caches" isDirectory:YES];
+        return metasequoia::apple::PrepareDictionaryInstallation(
+            [NSBundle bundleForClass:MetasequoiaInputSessionBridge.class].resourceURL, UserDataRoot(),
+            [cache URLByAppendingPathComponent:@"metasequoiaime" isDirectory:YES]);
+    };
+    dispatch_once(&onceToken, ^{ installation = prepare(); });
+    if (!refresh) return installation;
+    // A process may outlive all its keyboard controllers while another process
+    // publishes a new generation. Its next bridge must not reuse cached old paths.
+    try
+    {
+        NSString *active = metasequoia::apple::ActiveDictionarySnapshotIdentifier(UserDataRoot());
+        const auto root = std::filesystem::path(UserDataRoot().fileSystemRepresentation);
+        const auto expected = active.length ? root / "snapshot-generations" / active.UTF8String / "user" : root;
+        if (installation.paths.user_data != expected) installation = prepare();
+    }
+    catch (const std::exception &) { installation = prepare(); }
     return installation;
 }
 } // namespace
@@ -81,7 +95,9 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
 
 @implementation MetasequoiaInputSessionBridge
 {
+    std::unique_ptr<metasequoia::apple::DictionarySessionLease> _sessionLease;
     std::unique_ptr<metasequoia::apple::InputSessionAdapter> _adapter;
+    std::optional<std::string> _installationDiagnostic;
 }
 
 - (instancetype)init
@@ -89,8 +105,11 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
     self = [super init];
     if (self != nil)
     {
-        const auto &installation = ConfigureDataDirectory();
+        try { _sessionLease = std::make_unique<metasequoia::apple::DictionarySessionLease>(UserDataRoot()); }
+        catch (const std::exception &) { /* Keep typing available with learning and edits disabled. */ }
+        const auto &installation = ConfigureDataDirectory(true);
         _adapter = std::make_unique<metasequoia::apple::InputSessionAdapter>(installation.paths);
+        _installationDiagnostic = installation.diagnostic;
     }
     return self;
 }
@@ -113,11 +132,78 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
     }
 }
 
+- (NSDictionary<NSString *, id> *)dictionarySnapshotContextWithError:(NSError **)error
+{
+    try
+    {
+        if (!_sessionLease) throw std::runtime_error("Dictionary lease unavailable");
+        const auto paths = _adapter->runtime_paths();
+        NSString *version = [self localDictionaryStateVersionWithError:error];
+        if (!version) return nil;
+        return @{@"resources": [NSURL fileURLWithFileSystemRepresentation:paths.resources.c_str() isDirectory:YES relativeToURL:nil],
+                 @"user": UserDataRoot(), @"contentIdentifier": StringFromUTF8(paths.dictionaries.filename().string()),
+                 @"localVersion": version};
+    }
+    catch (const std::exception &)
+    {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:2
+            userInfo:@{NSLocalizedDescriptionKey: @"本地词库尚未准备完成，请稍后重试。"}];
+        return nil;
+    }
+}
+
+- (BOOL)activateDictionarySnapshot:(MSIMEPreparedDictionarySnapshot *)snapshot
+                  expectedVersion:(NSString *)expectedVersion error:(NSError **)error
+{
+    NSError *failure = nil;
+    bool activated = false;
+    try
+    {
+        if (!_sessionLease) throw std::runtime_error("Dictionary lease unavailable");
+        const bool exclusive = _sessionLease->exclusively([&] {
+            NSString *active = metasequoia::apple::ActiveDictionarySnapshotIdentifier(UserDataRoot());
+            if ([active isEqualToString:snapshot.identifier]) { activated = true; return; }
+            NSString *version = [self localDictionaryStateVersionWithError:&failure];
+            if (!version || ![version isEqualToString:expectedVersion])
+            {
+                if (!failure) failure = [NSError errorWithDomain:@"app.msime.snapshot" code:409
+                    userInfo:@{NSLocalizedDescriptionKey: @"本地词库已变化，请重新确认后再应用。"}];
+                return;
+            }
+            // Allocate everything before publishing; the adapter swaps ownership
+            // only after publication. New bridges resolve the durable pointer.
+            auto replacement = snapshot.runtimePaths;
+            activated = _adapter->activate_dictionary_generation(replacement, [&] {
+                metasequoia::apple::PublishDictionaryInstallation(UserDataRoot(), snapshot.identifier, replacement, active);
+            });
+            if (activated)
+            {
+                _installationDiagnostic.reset();
+            }
+        });
+        if ((!exclusive || !activated) && !failure)
+            failure = [NSError errorWithDomain:@"app.msime.snapshot" code:423
+                userInfo:@{NSLocalizedDescriptionKey: @"键盘会话正在使用词库，空闲后将重试。"}];
+    }
+    catch (const std::exception &)
+    {
+        failure = [NSError errorWithDomain:@"app.msime.snapshot" code:1
+            userInfo:@{NSLocalizedDescriptionKey: @"词库切换未完成，已保留原有数据。"}];
+    }
+    if (!activated && error) *error = failure;
+    return activated;
+}
+
 - (BOOL)applyPersonalPrevious:(NSDictionary<NSString *, id> *)previous
                   replacement:(NSDictionary<NSString *, id> *)replacement
                     requestID:(NSString *)requestID
                         error:(NSError **)error
 {
+    if (!_sessionLease)
+    {
+        metasequoia::apple::PersonalDictionaryError(error, "词库锁暂不可用，请重新打开键盘后重试。");
+        return NO;
+    }
     auto oldEntry = previous ? metasequoia::apple::DecodePersonalWord(previous, error) : std::nullopt;
     auto newEntry = replacement ? metasequoia::apple::DecodePersonalWord(replacement, error) : std::nullopt;
     if ((previous && !oldEntry) || (replacement && !newEntry))
@@ -203,6 +289,7 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
 
 - (BOOL)setLearningEnabled:(BOOL)enabled
 {
+    if (enabled && !_sessionLease) return NO;
     return _adapter->set_learning_enabled(enabled);
 }
 
@@ -210,6 +297,7 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
                                       expectedWord:(NSString *)word
                                             action:(MetasequoiaCandidateAction)action
 {
+    if (!_sessionLease) return [self snapshotFrom:_adapter->handle_character('\0')];
     using metasequoia::apple::CandidateAction;
     CandidateAction operation;
     switch (action)
@@ -301,6 +389,7 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
 
 - (MetasequoiaInputSnapshot *)snapshotFrom:(metasequoia::apple::InputSnapshot)snapshot
 {
+    if (!_sessionLease) snapshot.diagnostic = "词库锁暂不可用，已暂停学习和词库修改。";
     NSMutableArray<NSString *> *candidates = [NSMutableArray arrayWithCapacity:snapshot.candidates.size()];
     for (const auto &candidate : snapshot.candidates)
     {
@@ -308,7 +397,7 @@ const metasequoia::apple::DictionaryInstallation &ConfigureDataDirectory()
     }
 
     NSString *commitText = snapshot.commit.has_value() ? StringFromUTF8(*snapshot.commit) : nil;
-    const auto &diagnostic = snapshot.diagnostic ? snapshot.diagnostic : ConfigureDataDirectory().diagnostic;
+    const auto &diagnostic = snapshot.diagnostic ? snapshot.diagnostic : _installationDiagnostic;
     NSString *diagnosticText = diagnostic ? StringFromUTF8(*diagnostic) : nil;
     return [[MetasequoiaInputSnapshot alloc] initWithHandled:snapshot.handled
                                                   commitText:commitText

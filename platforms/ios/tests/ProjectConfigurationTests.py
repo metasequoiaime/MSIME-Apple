@@ -482,7 +482,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         installer = (IOS_ROOT.parents[1] / "shared/apple-bridge/DictionaryInstallation.mm").read_text()
         self.assertIn("PrepareDictionaryInstallation", bridge)
         self.assertIn("InputSessionAdapter>(installation.paths)", bridge)
-        self.assertLess(bridge.index("const auto &installation = ConfigureDataDirectory()"),
+        self.assertLess(bridge.index("const auto &installation = ConfigureDataDirectory(true)"),
                         bridge.index("InputSessionAdapter>(installation.paths)"))
         self.assertIn("prepare_runtime_paths", installer)
         self.assertIn('@[@"msime.db",@"english.db",@"others.db",@"dict_japanese.dat"]', "".join(installer.split()))
