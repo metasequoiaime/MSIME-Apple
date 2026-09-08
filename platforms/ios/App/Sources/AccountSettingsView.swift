@@ -47,16 +47,7 @@ struct AccountSettingsView: View {
         }
       }
 
-      Section("发现与记录") {
-        NavigationLink(destination: SkinCommunityView()) {
-          HStack(spacing: 12) {
-            accountIcon("person.3.fill", color: MetasequoiaTheme.forest)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("皮肤社区").foregroundStyle(.primary)
-              Text("发现设计，下载使用，为喜欢的作品评分").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
-        }
+      Section("我的记录") {
         NavigationLink(destination: TypingStatisticsView()) {
           HStack(spacing: 12) {
             accountIcon("chart.bar.xaxis", color: .blue)

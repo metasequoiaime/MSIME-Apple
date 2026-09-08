@@ -48,7 +48,7 @@ struct MetasequoiaImeApp: App {
 
   @ViewBuilder private var applicationContent: some View {
       if hasCompletedOnboarding {
-        SettingsView()
+        MainTabView()
       } else {
         OnboardingView(onFinish: { hasCompletedOnboarding = true })
       }
@@ -71,3 +71,19 @@ private struct KeyboardVoicePreviewFixture: View {
   }
 }
 #endif
+
+private struct MainTabView: View {
+  var body: some View {
+    TabView {
+      SettingsView()
+        .tabItem { Label("键盘", systemImage: "keyboard") }
+      NavigationView { SkinCommunityView() }
+        .navigationViewStyle(.stack)
+        .tabItem { Label("社区", systemImage: "person.3.fill") }
+      NavigationView { AccountSettingsView() }
+        .navigationViewStyle(.stack)
+        .tabItem { Label("我的", systemImage: "person.crop.circle") }
+    }
+    .tint(MetasequoiaTheme.forest)
+  }
+}

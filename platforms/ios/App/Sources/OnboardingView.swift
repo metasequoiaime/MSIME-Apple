@@ -19,12 +19,6 @@ struct SettingsView: View {
           }
         }
 
-        Section {
-          NavigationLink(destination: AccountSettingsView()) {
-            Label("我的 · 账号与作品", systemImage: "person.crop.circle")
-          }.accessibilityIdentifier("accountSettingsLink")
-        }
-
         Section("键盘与服务") {
           NavigationLink(destination: InputSettingsView()) {
             Label("输入设置", systemImage: "slider.horizontal.3")

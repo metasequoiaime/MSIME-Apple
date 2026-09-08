@@ -14,7 +14,15 @@ struct SkinCommunityView: View {
 
   var body: some View {
     List {
-      AppleAccountSection(signedIn: $signedIn)
+      if !signedIn {
+        Section {
+          NavigationLink(destination: AccountSettingsView()) {
+            Label("登录，发布你的键盘设计", systemImage: "person.crop.circle")
+          }
+          Text("发现喜欢的皮肤，下载使用并为设计评分。")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+      }
       if signedIn {
         Section {
           Button { showPublish = true } label: { Label("发布我的设计", systemImage: "square.and.arrow.up") }
@@ -44,7 +52,10 @@ struct SkinCommunityView: View {
     .searchable(text: $search, prompt: "搜索皮肤名称")
     .onSubmit(of: .search) { run { try await load() } }
     .refreshable { do { try await load() } catch { message = error.localizedDescription } }
-    .task { run { try await load() } }
+    .task {
+      signedIn = (try? await api.signedIn()) ?? false
+      run { try await load() }
+    }
     .onChange(of: signedIn) { _ in
       Task { do { try await load() } catch { message = error.localizedDescription } }
     }

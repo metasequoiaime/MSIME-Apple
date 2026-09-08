@@ -6,11 +6,30 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    let account = app.buttons["accountSettingsLink"]
+    let account = app.tabBars.buttons["我的"]
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
     XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["accountLocalDesigns"].exists)
+  }
+
+  @MainActor
+  func testMainTabsKeepIndependentNavigation() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["键盘"].isSelected)
+    app.buttons["inputSettingsLink"].tap()
+    app.tabBars.buttons["社区"].tap()
+    XCTAssertTrue(app.navigationBars["皮肤社区"].waitForExistence(timeout: 5))
+    app.tabBars.buttons["我的"].tap()
+    XCTAssertTrue(app.buttons["accountLocalDesigns"].waitForExistence(timeout: 5))
+    app.tabBars.buttons["键盘"].tap()
+    XCTAssertTrue(app.navigationBars["输入设置"].exists)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "Independent bottom tabs"
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   @MainActor
