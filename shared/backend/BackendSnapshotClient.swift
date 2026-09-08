@@ -348,6 +348,7 @@ private final class SnapshotRecordIndex {
 final class BackendPreparedSnapshot: @unchecked Sendable {
   let url: URL
   let envelope: BackendSnapshotEnvelope
+  let fileSHA256: String
   static func prepareDocument(_ source: URL) async throws -> BackendPreparedSnapshot {
     let access = source.startAccessingSecurityScopedResource()
     defer { if access { source.stopAccessingSecurityScopedResource() } }
@@ -369,13 +370,16 @@ final class BackendPreparedSnapshot: @unchecked Sendable {
       let output = try FileHandle(forWritingTo: url)
       defer { try? output.close() }
       var count = 0
+      var fileHash = SHA256()
       while let data = try input.read(upToCount: 65536), !data.isEmpty {
         try Task.checkCancellation()
         count += data.count
         guard count <= 512 * 1024 * 1024 else { throw BackendAccountClient.Failure(status: 400) }
+        fileHash.update(data: data)
         try output.write(contentsOf: data)
       }
       try output.synchronize()
+      fileSHA256 = fileHash.finalize().map { String(format: "%02x", $0) }.joined()
       envelope = try BackendSnapshotEnvelope.inspect(url)
     } catch {
       try? FileManager.default.removeItem(at: directory)
