@@ -310,6 +310,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.handleSymbol(symbol)
       }
       button.configuration?.background.backgroundColor = .clear
+      button.configuration?.background.customView = nil
       punctuationStack.addArrangedSubview(button)
     }
     for content in [punctuationStack, makeSpellingStrip()] {
