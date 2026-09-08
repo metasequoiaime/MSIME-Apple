@@ -3,6 +3,10 @@
 #include "DictionaryInstallation.h"
 #include "InputSessionAdapter.h"
 #include <sqlite3.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#include <metasequoia/dictionary_state.h>
 
 @interface DictionaryInstallationTests : XCTestCase
 @end
@@ -130,6 +134,72 @@
         XCTAssertTrue(type(adapter).candidates.at(0) == "补好");
     }
     XCTAssertTrue([manager fileExistsAtPath:[legacyUser URLByAppendingPathComponent:@"msime.db"].path]);
+    // Restored state owns a separate journal as well as separate derived files.
+    NSString *snapshotID = NSUUID.UUID.UUIDString;
+    const auto directory = metasequoia::apple::DictionarySnapshotDirectory(user, snapshotID);
+    const auto restored = metasequoia::stage_dictionary_state(resources.fileSystemRepresentation, directory,
+        nextGeneration.UTF8String, [](metasequoia::DictionaryStateRecord &) { return false; });
+    XCTAssertTrue([metasequoia::apple::ActiveDictionarySnapshotIdentifier(user) isEqualToString:@""]);
+    metasequoia::apple::PublishDictionaryInstallation(user, snapshotID, restored, @"");
+    auto restoredStartup = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
+    XCTAssertFalse(restoredStartup.diagnostic.has_value());
+    XCTAssertTrue(restoredStartup.paths.user_data == restored.user_data);
+    XCTAssertTrue(restoredStartup.paths.dictionaries == restored.dictionaries);
+    const int lock = open([user URLByAppendingPathComponent:@"dictionary-install.lock"].fileSystemRepresentation,
+                          O_CREAT | O_RDWR, 0600);
+    XCTAssertTrue(lock >= 0);
+    XCTAssertEqual(flock(lock, LOCK_EX | LOCK_NB), 0);
+    auto busy = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
+    XCTAssertTrue(busy.diagnostic.has_value());
+    XCTAssertTrue(busy.paths.user_data == restored.user_data);
+    XCTAssertTrue(busy.paths.dictionaries == restored.dictionaries);
+    flock(lock, LOCK_UN);
+    close(lock);
+    {
+        metasequoia::apple::InputSessionAdapter adapter(restoredStartup.paths);
+        XCTAssertTrue(type(adapter).candidates.at(0) == "不好");
+        adapter.cancel();
+        XCTAssertTrue(adapter.set_learning_enabled(true));
+        type(adapter);
+        XCTAssertTrue(adapter.select_candidate(1).commit == "补好");
+    }
+    bool rejectedPublication = false;
+    try { metasequoia::apple::PublishDictionaryInstallation(user, snapshotID, restored, @""); }
+    catch (const std::exception &) { rejectedPublication = true; }
+    XCTAssertTrue(rejectedPublication);
+    XCTAssertTrue([metasequoia::apple::ActiveDictionarySnapshotIdentifier(user) isEqualToString:snapshotID]);
+    rejectedPublication = false;
+    try { metasequoia::apple::PublishDictionaryInstallation(user, NSUUID.UUID.UUIDString, restored, snapshotID); }
+    catch (const std::exception &) { rejectedPublication = true; }
+    XCTAssertTrue(rejectedPublication);
+    // A new resource release replays the restored journal, never the old root journal.
+    seed(@"msime.db", "CREATE TABLE snapshot_release(value INTEGER);");
+    // Invalidate the verified resource cache as a real bundle URL changes on upgrade.
+    [manager removeItemAtPath:[NSString stringWithUTF8String:restoredStartup.paths.cache.c_str()] error:nil];
+    auto badSnapshotUpgrade = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
+    XCTAssertTrue(badSnapshotUpgrade.diagnostic.has_value());
+    XCTAssertTrue(badSnapshotUpgrade.paths.dictionaries == restoredStartup.paths.dictionaries);
+    writeDigests();
+    auto snapshotUpgrade = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
+    XCTAssertFalse(snapshotUpgrade.diagnostic.has_value());
+    XCTAssertTrue(snapshotUpgrade.paths.user_data == restored.user_data);
+    XCTAssertTrue(snapshotUpgrade.paths.dictionaries != restored.dictionaries);
+    {
+        metasequoia::apple::InputSessionAdapter adapter(snapshotUpgrade.paths);
+        XCTAssertTrue(type(adapter).candidates.at(0) == "补好");
+    }
+    XCTAssertTrue([manager fileExistsAtPath:journal.path]);
+    NSURL *activeMarker = [user URLByAppendingPathComponent:@"active-user-generation"];
+    XCTAssertTrue([manager removeItemAtURL:activeMarker error:nil]);
+    XCTAssertTrue([manager createDirectoryAtURL:activeMarker withIntermediateDirectories:NO attributes:nil error:nil]);
+    bool invalidMarker = false;
+    try { metasequoia::apple::ActiveDictionarySnapshotIdentifier(user); }
+    catch (const std::exception &) { invalidMarker = true; }
+    XCTAssertTrue(invalidMarker);
+    XCTAssertTrue([manager removeItemAtURL:activeMarker error:nil]);
+    XCTAssertTrue([snapshotID writeToURL:activeMarker atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    auto finalStartup = metasequoia::apple::PrepareDictionaryInstallation(resources, user, cache);
+    XCTAssertTrue(finalStartup.paths.user_data == restored.user_data);
     XCTAssertTrue([manager removeItemAtURL:root error:nil]);
 }
 @end
