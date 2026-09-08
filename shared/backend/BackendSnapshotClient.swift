@@ -384,3 +384,71 @@ final class BackendPreparedSnapshot: @unchecked Sendable {
   }
   deinit { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 }
+
+
+/// A synchronous pull stream for Engine staging callbacks. Records remain
+/// provisional until next() reaches verified EOF; any error discards staging.
+final class BackendSnapshotRecordStream {
+  let snapshot: BackendPreparedSnapshot
+  private let input: FileHandle
+  private var chunk = Data()
+  private var offset = 0
+  private var hash = SHA256()
+  private var count = 0
+  private var bytes = 0
+  private var finished = false
+  init(snapshot: BackendPreparedSnapshot) throws {
+    self.snapshot = snapshot
+    input = try FileHandle(forReadingFrom: snapshot.url)
+  }
+  deinit { try? input.close() }
+  func next() throws -> [String: Any]? {
+    if finished { return nil }
+    let bad = BackendAccountClient.Failure(status: 400)
+    while let line = try readLine() {
+      try Task.checkCancellation()
+      guard let object = try JSONSerialization.jsonObject(with: line) as? [String: Any],
+            let type = object["type"] as? String else { throw bad }
+      if type == "footer" {
+        var syntax = SnapshotJSONSyntax(line)
+        try syntax.validate()
+        let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
+        guard Set(object.keys) == ["type", "records", "sha256"],
+              let footerCount = object["records"] as? NSNumber, CFGetTypeID(footerCount) != CFBooleanGetTypeID(),
+              digest == snapshot.envelope.sha256, count == snapshot.envelope.records,
+              object["sha256"] as? String == digest,
+              (object["records"] as? NSNumber)?.intValue == count,
+              try readLine() == nil else { throw bad }
+        finished = true
+        return nil
+      }
+      hash.update(data: line); hash.update(data: Data([10])); count += 1
+      guard count <= snapshot.envelope.records else { throw bad }
+      switch type {
+      case "header", "entry": continue
+      case "overlay", "position", "selection": return object
+      default: throw bad
+      }
+    }
+    throw bad // EOF without the checksum footer is never a successful stream end.
+  }
+  private func readLine() throws -> Data? {
+    var line = Data()
+    while true {
+      try Task.checkCancellation()
+      if offset == chunk.count {
+        chunk = try input.read(upToCount: 65536) ?? Data()
+        offset = 0; bytes += chunk.count
+        guard bytes <= 512 * 1024 * 1024 else { throw BackendAccountClient.Failure(status: 400) }
+        if chunk.isEmpty { return line.isEmpty ? nil : line }
+      }
+      if let newline = chunk[offset...].firstIndex(of: 10) {
+        line.append(chunk[offset..<newline]); offset = newline + 1
+        guard !line.isEmpty, line.count < 65536 else { throw BackendAccountClient.Failure(status: 400) }
+        return line
+      }
+      line.append(chunk[offset...]); offset = chunk.count
+      guard line.count < 65536 else { throw BackendAccountClient.Failure(status: 400) }
+    }
+  }
+}
