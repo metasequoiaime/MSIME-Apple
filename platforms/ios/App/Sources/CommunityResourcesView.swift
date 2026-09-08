@@ -150,10 +150,13 @@ struct CommunityResourceDetail: View {
               Divider()
             }
           }
-          Button("导入这版词库") { confirmImport = true }.buttonStyle(.borderedProminent).disabled(busy)
+          Button("导入这版词库到本机") { confirmImport = true }.buttonStyle(.borderedProminent).disabled(busy)
           Text("导入会添加到本机个人词库。开启完全访问后，在键盘空闲时由引擎处理；收藏和查看更新不会自动修改词条。")
             .font(.caption).foregroundStyle(.secondary)
           NavigationLink("查看导入状态", destination: PersonalDictionaryView())
+          if let resourceID = UUID(uuidString: item.id) {
+            CommunityCloudImportButton(resourceID: resourceID, resourceRevision: item.revision)
+          }
         } else {
           Text("提示词预览").font(.headline)
           Text(item.content.prompt ?? "").font(.body).textSelection(.enabled)

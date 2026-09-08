@@ -87,9 +87,6 @@ private struct CommunityResourceDetailView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
-  @State private var applying = false
-  @State private var applicationRevision: Int64?
-  @State private var applicationResource: BackendAccountClient.CommunityResource?
   @State private var deleting = false
   @State private var editing = false
   private let client = BackendAccountClient()
@@ -109,14 +106,12 @@ private struct CommunityResourceDetailView: View {
           }
         }
         if value.kind == .dictionary {
-          Button("导入我的云端词库") {
-            run(refresh: false) { token in
-              let snapshot = value
-              let catalog = try await client.dictionaryCatalog(.quick, code: "", token: token)
-              _ = try await authorize()
-              applicationResource = snapshot; applicationRevision = catalog.revision; applying = true
-            }
-          }.disabled(busy)
+          CommunityCloudImportButton(resourceID: value.id, resourceRevision: value.revision) {
+            let token = try await authorize()
+            let identity = try await BackendAccountSession.shared.credentials(retrying: nil)
+            guard identity.token == token else { throw CancellationError() }
+            return identity
+          }
         }
         Button(value.saved ? "取消收藏" : "收藏") { run { token in try await client.saveResource(value.id, saved: !value.saved, token: token) } }.disabled(busy)
         if value.saved && !value.owned {
@@ -133,23 +128,8 @@ private struct CommunityResourceDetailView: View {
       }
     }
     .task { run { _ in } }
-    .onDisappear { pending?.cancel(); current = nil; applicationResource = nil; applicationRevision = nil; applying = false }
+    .onDisappear { pending?.cancel(); current = nil }
     .sheet(isPresented: $editing, onDismiss: { run { _ in } }) { BackendCommunityResourceEditor(kind: value.kind, existing: value, authorize: authorize).communitySheetSize() }
-    .alert("导入这个词包？", isPresented: $applying) {
-      Button("取消", role: .cancel) { applicationResource = nil; applicationRevision = nil }
-      Button("确认导入") {
-        guard let resource = applicationResource, let revision = applicationRevision else { return }
-        applicationResource = nil; applicationRevision = nil
-        run(refresh: false) { token in
-          let result = try await client.applyResource(resource.id, resourceRevision: resource.revision,
-            dictionaryRevision: revision, token: token)
-          _ = try await authorize()
-          message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
-        }
-      }
-    } message: {
-      Text("将导入所查看版本的全部词条。同编码、同文字的词条会更新权重，其他词条保留。词包或云端词库发生变化时，将停止导入，请重新查看后再试。")
-    }
     .alert("删除此资源？", isPresented: $deleting) {
       Button("取消", role: .cancel) { }
       Button("删除", role: .destructive) { run(refresh: false) { token in try await client.deleteResource(value.id, token: token); _ = try await authorize(); dismiss() } }
@@ -284,5 +264,71 @@ struct CommunityResourcesAccountView: View {
         try Task.checkCancellation(); accountID = identity.userID
       } catch { if !Task.isCancelled { message = error.localizedDescription } }
     }.onDisappear { accountID = nil }
+  }
+}
+
+// Both native community layouts use the same account-bound import confirmation.
+@MainActor
+struct CommunityCloudImportButton: View {
+  let resourceID: UUID
+  let resourceRevision: Int
+  var credentials: @MainActor () async throws -> (userID: String, token: String) = {
+    try await BackendAccountSession.shared.credentials()
+  }
+  private struct Preview {
+    let resourceID: UUID
+    let resourceRevision: Int
+    let dictionaryRevision: Int64
+    let accountID: String
+  }
+  @State private var preview: Preview?
+  @State private var confirming = false
+  @State private var busy = false
+  @State private var message: String?
+  @State private var pending: Task<Void, Never>?
+  private let client = BackendAccountClient()
+  var body: some View {
+    Button("导入我的云端词库") {
+      let id = resourceID, version = resourceRevision
+      run {
+        let identity = try await credentials()
+        let catalog = try await client.dictionaryCatalog(.quick, code: "", token: identity.token)
+        _ = try await BackendAccountSession.shared.credentials(matchingUserID: identity.userID)
+        try Task.checkCancellation()
+        preview = Preview(resourceID: id, resourceRevision: version, dictionaryRevision: catalog.revision, accountID: identity.userID)
+        confirming = true
+      }
+    }.disabled(busy)
+    if busy { ProgressView() }
+    if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+    Color.clear.frame(height: 0)
+      .onDisappear { pending?.cancel(); preview = nil; confirming = false; message = nil }
+      .alert("导入这个词包？", isPresented: $confirming) {
+        Button("取消", role: .cancel) { preview = nil }
+        Button("确认导入") {
+          guard let selected = preview else { return }
+          preview = nil
+          run {
+            let identity = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID)
+            try Task.checkCancellation()
+            let result = try await client.applyResource(selected.resourceID, resourceRevision: selected.resourceRevision,
+              dictionaryRevision: selected.dictionaryRevision, token: identity.token)
+            _ = try await BackendAccountSession.shared.credentials(matchingUserID: selected.accountID)
+            try Task.checkCancellation()
+            message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
+          }
+        }
+      } message: {
+        Text("将导入所查看版本的全部词条。同编码、同文字的词条会更新权重，其他词条保留。词包或云端词库发生变化时将停止导入，请重新查看后再试。")
+      }
+  }
+  private func run(_ action: @escaping @MainActor () async throws -> Void) {
+    guard !busy else { return }; busy = true; message = nil
+    pending = Task {
+      defer { busy = false }
+      do { try await action() }
+      catch is CancellationError { preview = nil; confirming = false }
+      catch { if !Task.isCancelled { message = error.localizedDescription } }
+    }
   }
 }
