@@ -2044,10 +2044,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
-    let picker = KeyboardSchemePickerView(selected: inputScheme, onSelect: { [weak self] scheme in
+    let picker = KeyboardSchemePickerView(selected: inputScheme, isChineseMode: isChineseMode, onSelect: { [weak self] scheme in
       guard let self else { return }
       closeKeyboardPicker()
+      if !isChineseMode { toggleInputMode() }
       selectInputScheme(scheme)
+    }, onSelectEnglish: { [weak self] in
+      guard let self else { return }
+      closeKeyboardPicker()
+      if isChineseMode { toggleInputMode() }
+    }, onSelectSkin: { [weak self] skin in
+      guard let self else { return }
+      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      closeKeyboardPicker()
+      applyKeyboardSkin()
+      playInputClick()
+    }, onSettings: { [weak self] in
+      self?.showMorePicker()
     }, onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false

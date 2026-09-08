@@ -405,16 +405,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testWidePickerCardsPreservePreviewAspectRatio() throws {
-    for nineKey in [false, true] {
-      let picker = KeyboardSchemePickerView(selected: nineKey ? .nineKey : .quanpin, onSelect: { _ in }, onClose: {})
-      picker.frame = CGRect(x: 0, y: 0, width: 812, height: 216)
+  func testSchemeGridHasFourColumnsAtNarrowAndWideSizes() throws {
+    for width in [320.0, 414.0, 812.0] {
+      let picker = KeyboardSchemePickerView(selected: .nineKey, onSelect: { _ in }, onClose: {})
+      picker.frame = CGRect(x: 0, y: 0, width: width, height: width > 500 ? 216 : 260)
       picker.layoutIfNeeded()
-      for miniature in descendants(picker).compactMap({ $0 as? KeyboardSkinMiniature }) {
-        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
-        XCTAssertLessThanOrEqual(miniature.bounds.width, 220)
-        XCTAssertLessThanOrEqual(try XCTUnwrap(miniature.superview).bounds.height, 176)
+      let cards = descendants(picker).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }
+      XCTAssertGreaterThanOrEqual(cards.count, 4)
+      let firstRow = cards.prefix(4).map { $0.convert($0.bounds, to: picker) }
+      for frame in firstRow {
+        XCTAssertEqual(frame.minY, firstRow[0].minY, accuracy: 0.1)
+        XCTAssertEqual(frame.width, firstRow[0].width, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(frame.width, 60)
+        XCTAssertGreaterThanOrEqual(frame.height, 44)
+        XCTAssertGreaterThanOrEqual(frame.minX, 14)
+        XCTAssertLessThanOrEqual(frame.maxX, width - 14)
       }
+      XCTAssertEqual(Set(firstRow.map { $0.minX }).count, 4)
+      XCTAssertTrue(descendants(picker).compactMap { $0 as? KeyboardSkinMiniature }.isEmpty)
     }
   }
 
@@ -433,11 +441,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(picker.bounds.height, 260)
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
-        XCTAssertGreaterThan(card.bounds.width, 140)
-        let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
-        XCTAssertGreaterThan(miniature.bounds.height, 75)
-        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
-        XCTAssertEqual(card.bounds.height, miniature.bounds.height + 36, accuracy: 0.1)
+        XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
+        XCTAssertEqual(card.bounds.height, 62, accuracy: 0.1)
       }
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
@@ -458,6 +463,33 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSchemePicker" })
       XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
     }
+  }
+
+  func testSchemePickerSwitchesEnglishThemesAndSettings() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 260)
+    controller.view.layoutIfNeeded()
+    try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("schemeEnglishCard", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "英文输入")
+    try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("schemeEnglishCard", in: controller).accessibilityValue, "已选中")
+    XCTAssertEqual(try button("schemeCard-quanpin", in: controller).accessibilityValue, "")
+    try button("schemeCard-quanpin", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入")
+    try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("schemePickerThemeTab", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
+    try button("schemePickerKeyboardTab", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
+    XCTAssertEqual(try button("schemeCard-quanpin", in: controller).accessibilityValue, "已选中")
+    try button("schemePickerSettings", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSchemePickerView })
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
   }
 
   func testVisibleInputViewReflectsSoundPreference() throws {

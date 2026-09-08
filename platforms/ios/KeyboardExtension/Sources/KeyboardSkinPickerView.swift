@@ -1,15 +1,17 @@
 import UIKit
 
 final class KeyboardSkinPickerView: UIView {
-  init(selected: KeyboardSkin, onSelect: @escaping (KeyboardSkin) -> Void, onClose: @escaping () -> Void) {
+  init(selected: KeyboardSkin, showsHeader: Bool = true, onSelect: @escaping (KeyboardSkin) -> Void, onClose: @escaping () -> Void) {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSkinPicker"
     backgroundColor = .secondarySystemBackground
     let header = UILabel()
     header.text = "选择皮肤"
+    header.isHidden = !showsHeader
     header.font = .systemFont(ofSize: 17, weight: .semibold)
     let close = UIButton(type: .system)
     close.setTitle("完成", for: .normal)
+    close.isHidden = !showsHeader
     close.accessibilityIdentifier = "closeSkinPicker"
     close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
     let scroll = UIScrollView()
@@ -116,7 +118,7 @@ final class KeyboardSkinPickerView: UIView {
     NSLayoutConstraint.activate([
       header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
       header.topAnchor.constraint(equalTo: topAnchor),
-      header.heightAnchor.constraint(equalToConstant: 40),
+      header.heightAnchor.constraint(equalToConstant: showsHeader ? 40 : 0),
       close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
       close.topAnchor.constraint(equalTo: topAnchor),
       close.heightAnchor.constraint(equalToConstant: 40),
