@@ -3,12 +3,12 @@ import SwiftUI
 private enum IOSCloudSettings {
   static func snapshot() throws -> [String: BackendPreferenceValue] {
     let scheme = InputSchemePreference.scheme
-    let name = scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .thoughtfulReply || scheme == .handwriting) ? "quanpin" : scheme.rawValue)
+    let name = scheme.isJapanese ? "japanese" : scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .thoughtfulReply || scheme == .handwriting) ? "quanpin" : scheme.rawValue)
     let skinData = try JSONEncoder().encode(CustomKeyboardSkinStore.current)
     var settings: [String: BackendPreferenceValue] = [
       "input.schema": .string(name),
       "input.character_set": .string(ChineseOutputPreference.usesTraditional ? "traditional" : "simplified"),
-      "platform.ios.nine_key": .boolean(scheme == .nineKey),
+      "platform.ios.nine_key": .boolean(scheme == .nineKey || scheme == .japaneseNineKey),
       "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
       "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
       "platform.ios.haptic_strength": .string(KeyboardFeedbackPreference.hapticStrength.rawValue),

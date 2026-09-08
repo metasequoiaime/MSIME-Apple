@@ -72,7 +72,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
-  private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && inputScheme != .japanese }
+  private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && !inputScheme.isJapanese }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
@@ -292,7 +292,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       makeKey(title: title, accessibilityLabel: label, action: action)
     }
     japaneseKeys.onInput = { [weak self] input in
-      guard let self, isChineseMode, inputScheme == .japanese else { return }
+      guard let self, isChineseMode, inputScheme.isJapanese else { return }
       playInputClick()
       for character in input { render(session.handleCharacter(String(character))) }
     }
@@ -601,7 +601,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
       label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.isEnabled = !(isChineseMode && inputScheme == .japanese)
+    scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
     scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
     if KeyboardLayoutPreference.selected == .doubao {
       configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
@@ -1140,7 +1140,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateLanguageModeButton() {
     var configuration = UIButton.Configuration.filled()
-    configuration.title = isChineseMode ? (inputScheme == .japanese ? "日" : "中") : "英"
+    configuration.title = isChineseMode ? (inputScheme.isJapanese ? "日" : "中") : "英"
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.actionForeground
     configuration.baseBackgroundColor = KeyboardSkinPreference.selected.actionBackground
     configuration.contentInsets = NSDirectionalEdgeInsets(
@@ -1152,7 +1152,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     bottomLanguageButton?.accessibilityIdentifier = "bottomLanguageKey"
     bottomLanguageButton?.accessibilityLabel =
       isChineseMode ? "切换到英文输入" : "切换到所选输入方案"
-    bottomLanguageButton?.accessibilityValue = isChineseMode ? (inputScheme == .japanese ? "日语输入" : "中文输入") : "英文输入"
+    bottomLanguageButton?.accessibilityValue = isChineseMode ? (inputScheme.isJapanese ? "日语输入" : "中文输入") : "英文输入"
     updateShortcutButtons()
     updateKeyboardLayout()
   }
@@ -1196,7 +1196,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .nineKey: session.switchToNineKey()
     case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
     case .wubi: session.switchToWubi()
-    case .japanese: session.switchToJapanese()
+    case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .handwriting: session.switch(toShuangpin: false)
     case .quanpin, .shuangpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
     }
@@ -1497,7 +1497,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func chineseOutput(_ text: String) -> String {
-    if inputScheme == .japanese || localModeTrigger == "R" { return text }
+    if inputScheme.isJapanese || localModeTrigger == "R" { return text }
     return ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
   }
 
@@ -1536,7 +1536,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private var quickPunctuationSymbols: [String] {
     guard isChineseMode, !session.isInLocalMode else { return [",", ".", "?", "!", ":", ";", "@"] }
-    if inputScheme == .japanese { return ["、", "。", "？", "！", "「", "」", "・"] }
+    if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
     return ["，", "。", "？", "！", "、", "；", "："]
   }
 
@@ -1584,7 +1584,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyLayoutPreferences()
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
-    let kana = isChineseMode && inputScheme == .japanese && !JapaneseKeyboardPreference.usesRomanKeys && !session.isInLocalMode
+    let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
     japaneseKeys?.isHidden = !kana || showsSymbols
     japaneseHeight?.constant = KeyboardLayoutPreference.selected.rowSpacing * 2
     japaneseHeight?.isActive = kana && !showsSymbols
@@ -1777,7 +1777,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // Every document mutation the keyboard makes goes through here so textWillChange can tell its own
   // echo apart from a genuine host-initiated change.
   private var typingSource: TypingSource {
-    if localModeTrigger == "R" { return .japanese }
+    if localModeTrigger == "R" || (isChineseMode && inputScheme.isJapanese) { return .japanese }
     if localModeTrigger != nil { return .local }
     if !isChineseMode { return .english }
     if inputScheme == .thoughtfulReply { return .quanpin }
@@ -1898,7 +1898,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       })
     button.accessibilityLabel = "候选词 \(number)：\(display)"
     button.accessibilityIdentifier = "candidate-\(number)"
-    if isChineseMode && inputScheme != .japanese && !session.isInLocalMode {
+    if isChineseMode && !inputScheme.isJapanese && !session.isInLocalMode {
       let revision = candidateRevision
       func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
                   destructive: Bool = false) -> UIAction {

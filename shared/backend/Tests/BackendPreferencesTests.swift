@@ -29,6 +29,10 @@ final class BackendPreferencesTests: XCTestCase {
       ["platform.ios.sound_enabled": .string("true")],
       ["platform.ios.haptic_strength": .string("unsafe")]
     ] { XCTAssertThrowsError(try IOSPreferencePlan(settings)) }
+    let japanese = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(true)])
+    XCTAssertEqual(japanese.scheme, "japaneseNineKey")
+    let roman = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(false)])
+    XCTAssertEqual(roman.scheme, "japanese")
     let nine = try IOSPreferencePlan(["input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(true)])
     XCTAssertEqual(nine.scheme, "nineKey")
     XCTAssertNil(nine.sound)

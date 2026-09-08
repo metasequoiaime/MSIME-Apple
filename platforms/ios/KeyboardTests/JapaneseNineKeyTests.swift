@@ -6,15 +6,12 @@ final class JapaneseNineKeyTests: XCTestCase {
   func testKanaKeysFeedJapaneseEngineCandidates() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
-    let roman = JapaneseKeyboardPreference.usesRomanKeys
     defer {
       InputSchemePreference.enabledSchemes = enabled
       InputSchemePreference.scheme = previous
-      JapaneseKeyboardPreference.usesRomanKeys = roman
     }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
-    InputSchemePreference.scheme = .japanese
-    JapaneseKeyboardPreference.usesRomanKeys = false
+    InputSchemePreference.scheme = .japaneseNineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
@@ -30,9 +27,37 @@ final class JapaneseNineKeyTests: XCTestCase {
       controller.view.layer.render(in: $0.cgContext)
     })
     screenshot.name = "Japanese nine-key candidates"; screenshot.lifetime = .keepAlways; add(screenshot)
-    JapaneseKeyboardPreference.usesRomanKeys = true
-    controller.viewWillAppear(false)
+    let picker = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "schemeButton" } as? UIButton)
+    picker.sendActions(for: .primaryActionTriggered)
+    for name in ["japanese", "japaneseNineKey"] {
+      XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityIdentifier == "schemeCard-\(name)" })
+    }
+    let roman = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "schemeCard-japanese" } as? UIButton)
+    roman.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(InputSchemePreference.scheme, .japanese)
     XCTAssertTrue(panel.isHidden)
+    controller.view.layoutIfNeeded()
+    let letter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
+    XCTAssertGreaterThan(letter.bounds.height, 40)
+    picker.sendActions(for: .primaryActionTriggered)
+    let nine = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "schemeCard-japaneseNineKey" } as? UIButton)
+    nine.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(InputSchemePreference.scheme, .japaneseNineKey)
+    XCTAssertFalse(panel.isHidden)
+  }
+
+  func testExistingJapaneseEnablesBothLayoutsOnlyOnce() throws {
+    let name = "japanese-scheme-test-" + UUID().uuidString
+    let store = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer { store.removePersistentDomain(forName: name) }
+    store.set(["quanpin", "japanese"], forKey: InputSchemePreference.enabledSchemesKey)
+    store.set("japanese", forKey: "chineseInputScheme")
+    InputSchemePreference.splitJapaneseSchemes(in: store)
+    XCTAssertEqual(store.string(forKey: "chineseInputScheme"), "japaneseNineKey")
+    XCTAssertEqual(store.stringArray(forKey: InputSchemePreference.enabledSchemesKey), ["quanpin", "japanese", "japaneseNineKey"])
+    store.set(["quanpin", "japanese"], forKey: InputSchemePreference.enabledSchemesKey)
+    InputSchemePreference.splitJapaneseSchemes(in: store)
+    XCTAssertEqual(store.stringArray(forKey: InputSchemePreference.enabledSchemesKey), ["quanpin", "japanese"], "A user can disable nine keys after the split")
   }
 
   func testEveryKanaKeyConvertsAndLayoutsKeepFullHeight() throws {

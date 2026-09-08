@@ -75,7 +75,8 @@ final class KeyboardSchemePickerView: UIView {
       case .microsoft: glyph = "微"; badge = "双"
       case .shoudao: glyph = "S"; badge = "双"
       case .wubi: glyph = "五"; badge = "86"
-      case .japanese: glyph = "あ"; badge = "日"
+      case .japanese: glyph = "あ"; badge = "26"
+      case .japaneseNineKey: glyph = "あ"; badge = "9"
       case .handwriting: glyph = "写"; badge = "手"
       case .thoughtfulReply: glyph = "聊"; badge = "AI"
       }
