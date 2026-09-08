@@ -19,6 +19,7 @@ struct CustomSkinEditorView: View {
   @State private var renaming: UUID?
   @State private var deleting: SavedKeyboardSkin?
   @State private var replacing: SavedKeyboardSkin?
+  @State private var showAI = false
   @State private var showPhotos = false
   @State private var message: String?
   @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults) private var soundEnabled = true
@@ -291,6 +292,8 @@ if section == "我的" {
   var body: some View {
     GeometryReader { geometry in
       VStack(spacing: 0) {
+        Button { showAI = true } label: { Label("AI 设计皮肤", systemImage: "sparkles").frame(maxWidth: .infinity) }
+          .buttonStyle(.bordered).padding(.horizontal).accessibilityIdentifier("openAISkinDesigner")
         categoryBar
         if geometry.size.width > geometry.size.height {
           HStack(spacing: 0) {
@@ -330,6 +333,9 @@ if section == "我的" {
           }.accessibilityIdentifier("saveCustomSkin")
         }
       }
+    }
+    .sheet(isPresented: $showAI, onDismiss: { saved = CustomSkinLibrary.designs }) {
+      AISkinGenerationView { next in apply(next); selected = KeyboardSkin.custom.rawValue }
     }
     .sheet(isPresented: $showPhotos) {
       SkinPhotoPicker { data in

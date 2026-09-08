@@ -166,6 +166,7 @@ struct CommunitySkinDetail: View {
 }
 
 struct CommunityPublishView: View {
+  var initialSelection: UUID? = nil
   var onPublished: () -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var library = CustomSkinLibrary.designs
@@ -202,11 +203,12 @@ struct CommunityPublishView: View {
             } catch { message = error.localizedDescription }
           }
         }.disabled(busy || !agrees || design == nil || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .accessibilityIdentifier("confirmCommunitySkinPublication")
         if busy { ProgressView() }
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear { if let first = library.first { selected = first.id; name = first.name } }
+        .onAppear { if let first = library.first(where: { $0.id == initialSelection }) ?? library.first { selected = first.id; name = first.name } }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
