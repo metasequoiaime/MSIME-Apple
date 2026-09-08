@@ -30,7 +30,7 @@ final class KeyboardSkinPickerView: UIView {
           let card = KeyboardKeyButton()
           var config = UIButton.Configuration.filled()
           config.title = item.name
-          config.subtitle = "A  S  D    ↵"
+          config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 74, trailing: 8)
           config.titleLineBreakMode = .byTruncatingTail
           config.baseForegroundColor = CustomKeyboardSkin.color(item.design.keyForeground)
           config.baseBackgroundColor = CustomKeyboardSkin.color(item.design.keyBackground)
@@ -38,7 +38,17 @@ final class KeyboardSkinPickerView: UIView {
           config.background.strokeWidth = max(1, item.design.borderWidth)
           config.background.strokeColor = CustomKeyboardSkin.color(item.design.customBorderColor ?? item.design.accent)
           card.configuration = config
-          card.heightAnchor.constraint(equalToConstant: 72).isActive = true
+          card.heightAnchor.constraint(equalToConstant: 104).isActive = true
+          let miniature = KeyboardSkinMiniature(skin: .custom, design: item.design)
+          miniature.isUserInteractionEnabled = false
+          miniature.translatesAutoresizingMaskIntoConstraints = false
+          card.addSubview(miniature)
+          NSLayoutConstraint.activate([
+            miniature.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 6),
+            miniature.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -6),
+            miniature.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -6),
+            miniature.heightAnchor.constraint(equalToConstant: 64)
+          ])
           card.accessibilityIdentifier = "savedSkinCard-" + item.id.uuidString
           card.accessibilityLabel = item.name
           let active = selected == .custom && item.design == CustomKeyboardSkinStore.current
@@ -124,7 +134,9 @@ final class KeyboardSkinPickerView: UIView {
 final class KeyboardSkinMiniature: UIView {
   let skin: KeyboardSkin
   let nineKey: Bool
-  init(skin: KeyboardSkin, nineKey: Bool = false) {
+  let designOverride: CustomKeyboardSkin?
+  init(skin: KeyboardSkin, nineKey: Bool = false, design: CustomKeyboardSkin? = nil) {
+    self.designOverride = design
     self.nineKey = nineKey
     self.skin = skin
     super.init(frame: .zero)
@@ -134,7 +146,9 @@ final class KeyboardSkinMiniature: UIView {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   override func draw(_ rect: CGRect) {
+    let design = skin == .custom ? (designOverride ?? CustomKeyboardSkinStore.current) : nil
     let backdrop = KeyboardSkinBackgroundView(frame: bounds)
+    backdrop.designOverride = design
     backdrop.skin = skin
     backdrop.overrideUserInterfaceStyle = traitCollection.userInterfaceStyle
     backdrop.draw(bounds)
@@ -151,6 +165,15 @@ final class KeyboardSkinMiniature: UIView {
       let width = (bounds.width - inset * 2 - gap * CGFloat(row.count - 1)) / CGFloat(row.count)
       for (index, title) in row.enumerated() {
         let key = CGRect(x: inset + CGFloat(index) * (width + gap), y: CGFloat(rowIndex) * (height + gap), width: width, height: height)
+        if let design, let context = UIGraphicsGetCurrentContext() {
+          let surface = SkinKeySurfaceView(frame: CGRect(origin: .zero, size: key.size))
+          surface.design = design; surface.scale = 0.3
+          surface.fillColor = CustomKeyboardSkin.color(title == "↵" ? design.actionBackground : design.keyBackground)
+            .withAlphaComponent(title == "↵" ? 1 : design.keyOpacity ?? 1)
+          context.saveGState(); context.translateBy(x: key.minX, y: key.minY)
+          surface.draw(surface.bounds)
+          context.restoreGState()
+        } else {
         let path = UIBezierPath(roundedRect: key, cornerRadius: min(skin.cornerRadius * 0.3, height * 0.4))
         if skin.shadowOpacity > 0 {
           UIColor.black.withAlphaComponent(CGFloat(skin.shadowOpacity)).setFill()
@@ -159,8 +182,11 @@ final class KeyboardSkinMiniature: UIView {
         (title == "↵" ? skin.actionBackground : skin.keyBackground).setFill()
         path.fill()
         if skin.borderWidth > 0 { skin.borderColor.setStroke(); path.lineWidth = 0.5; path.stroke() }
-        let font = skin.usesMonospacedFont ? UIFont.monospacedSystemFont(ofSize: 7, weight: .medium) : UIFont.systemFont(ofSize: 7, weight: .medium)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: title == "↵" ? skin.actionForeground : skin.keyForeground]
+        }
+        let font = (design?.monospaced ?? skin.usesMonospacedFont) ? UIFont.monospacedSystemFont(ofSize: 7, weight: .medium) : UIFont.systemFont(ofSize: 7, weight: .medium)
+        let foreground = design.map { CustomKeyboardSkin.color(title == "↵" ? CustomKeyboardSkin.readableText(on: $0.actionBackground) : $0.keyForeground) }
+          ?? (title == "↵" ? skin.actionForeground : skin.keyForeground)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
         let size = (title as NSString).size(withAttributes: attributes)
         (title as NSString).draw(at: CGPoint(x: key.midX - size.width / 2, y: key.midY - size.height / 2), withAttributes: attributes)
       }

@@ -536,10 +536,18 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     openEditor()
     let radius = app.sliders["customSkinCornerRadius"]
-    for _ in 0..<5 {
-      if radius.isHittable { break }
-      app.descendants(matching: .any)["skinEditorControls"].firstMatch.swipeUp()
+    func revealRadius() {
+      let controls = app.descendants(matching: .any)["skinEditorControls"].firstMatch
+      for _ in 0..<12 {
+        let top = app.buttons["skinEditorTab_按键"].frame.maxY + 28
+        let bottom = app.buttons["applyCustomSkin"].frame.minY - 28
+        if radius.exists && radius.isHittable && radius.frame.minY > top && radius.frame.maxY < bottom { return }
+        let down = radius.exists && radius.frame.midY < top
+        controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+          .press(forDuration: 0.05, thenDragTo: controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.7 : 0.3)))
+      }
     }
+    revealRadius()
     XCTAssertTrue(radius.isHittable)
     // XCTest's normalized drag is approximate, and Slider.value can be a
     // percentage on one runtime and a domain value on another. Verify the
@@ -558,10 +566,7 @@ final class OnboardingUITests: XCTestCase {
     app.terminate()
     app.launch()
     openEditor()
-    for _ in 0..<5 {
-      if radius.isHittable { break }
-      app.descendants(matching: .any)["skinEditorControls"].firstMatch.swipeUp()
-    }
+    revealRadius()
     XCTAssertEqual(radiusLabel.label, edited, "The edited corner radius must survive restarting the app")
     for _ in 0..<5 {
       if app.buttons["applyCustomSkin"].isHittable { break }
@@ -573,19 +578,12 @@ final class OnboardingUITests: XCTestCase {
     attachment.lifetime = .keepAlways
     add(attachment)
     XCTAssertTrue(app.buttons["applyCustomSkin"].label.contains("正在使用"))
-    app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
-    // Exercise explicit reset after checking persistence, using simulator-only settings.
-    for _ in 0..<5 {
-      if app.buttons["重置我的皮肤"].isHittable { break }
-      app.descendants(matching: .any)["skinEditorControls"].firstMatch.swipeUp()
-    }
+    // Reset lives in the editor tools menu, independent of the selected category.
+    app.buttons["skinEditorTools"].tap()
     app.buttons["重置我的皮肤"].tap()
     app.buttons["重置"].tap()
     app.buttons["skinEditorTab_按键"].tap()
-    for _ in 0..<5 {
-      if radius.isHittable { break }
-      app.descendants(matching: .any)["skinEditorControls"].firstMatch.swipeDown()
-    }
+    revealRadius()
     XCTAssertEqual(radiusLabel.label, "圆角 · 8")
   }
 
