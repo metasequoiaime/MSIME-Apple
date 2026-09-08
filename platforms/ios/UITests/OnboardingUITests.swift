@@ -30,20 +30,25 @@ final class OnboardingUITests: XCTestCase {
       button.tap()
       // iOS 26 exposes its icon notification in the host app's hierarchy.
       let confirmation = app.buttons.matching(NSPredicate(format: "label IN %@", ["OK", "好"])).firstMatch
-      if confirmation.waitForExistence(timeout: 5) {
+      if confirmation.waitForExistence(timeout: 10) {
+        XCTAssertFalse(app.alerts["暂时无法更换图标"].exists, app.alerts.debugDescription)
         confirmation.tap()
       } else if springboard.alerts.firstMatch.exists {
         springboard.alerts.buttons.firstMatch.tap()
       }
       let selected = XCTNSPredicateExpectation(
         predicate: NSPredicate(format: "value == %@", "使用中"), object: button)
-      XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+      XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
     }
-    select("sky")
-    select("dusk")
-    select("vermilion")
-    app.swipeDown()
-    select("forest")
+    for style in ["sky", "dusk", "vermilion", "forest"] {
+      select(style)
+      // Exercise OS persistence for every icon and finish the previous system notification
+      // session before requesting another change.
+      app.terminate()
+      app.launch()
+      openIcons()
+      XCTAssertEqual(app.buttons["appIcon_\(style)"].value as? String, "使用中")
+    }
     let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
     selectedScreenshot.name = "App icon selected"
     selectedScreenshot.lifetime = .keepAlways
@@ -1306,20 +1311,14 @@ final class OnboardingUITests: XCTestCase {
     tryoutLink.tap()
     let tryoutField = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(tryoutField.waitForExistence(timeout: 10))
-    // The first tap can be lost while XCTest is establishing the automation session on a fresh
-    // simulator. Retap a bounded number of times, and only type after the field reports focus;
-    // otherwise typeText fails with "Neither element nor any descendant has keyboard focus".
-    var hasFocus = false
-    for _ in 0..<3 {
-      tryoutField.tap()
-      let focused = expectation(
-        for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: tryoutField)
-      if XCTWaiter().wait(for: [focused], timeout: 4) == .completed {
-        hasFocus = true
-        break
-      }
+    // This screen focuses the field on appearance. Avoid tapping an already focused field
+    // while the keyboard is animating: XCTest can hit a keyboard key instead of the field.
+    let focused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: tryoutField)
+    guard XCTWaiter.wait(for: [focused], timeout: 10) == .completed else {
+      XCTFail("The tryout field did not receive focus on appearance")
+      return
     }
-    XCTAssertTrue(hasFocus, "The tryout field did not receive keyboard focus after tapping")
     tryoutField.typeText("test")
     XCTAssertEqual(tryoutField.value as? String, "test")
 

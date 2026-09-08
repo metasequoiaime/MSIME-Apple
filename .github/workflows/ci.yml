@@ -139,7 +139,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.mac_only != true }}
     # ML Kit ships x86_64 simulator binaries; run them natively instead of under Rosetta.
     runs-on: macos-15-intel
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
@@ -182,5 +182,12 @@ jobs:
       - name: Test native iOS keyboard and settings
         # Includes simulator boot, test-bundle compilation, and the full UI/unit suite.
         # Includes the expanded skin, community, account, and handwriting suites.
-        timeout-minutes: 60
+        timeout-minutes: 80
         run: bash platforms/ios/scripts/run_ui_tests.sh
+      - name: Upload iOS test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-test-results
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
