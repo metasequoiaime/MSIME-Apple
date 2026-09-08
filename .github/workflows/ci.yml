@@ -169,6 +169,8 @@ jobs:
             -derivedDataPath build/ios-derived \
             CODE_SIGNING_ALLOWED=NO \
             build
-      - name: Test native iOS onboarding
-        timeout-minutes: 15
+      - name: Test native iOS keyboard and settings
+        # Includes simulator boot, test-bundle compilation, and the full UI/unit suite.
+        # A cold hosted runner spends about 6 minutes before the UI tests start.
+        timeout-minutes: 30
         run: bash platforms/ios/scripts/run_ui_tests.sh
