@@ -8,6 +8,14 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     app.buttons["dictionarySettingsLink"].tap()
     app.buttons["personalDictionaryLink"].tap()
+    app.buttons["importPersonalDictionary"].tap()
+    XCTAssertTrue(app.buttons["choosePersonalDictionaryFile"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["confirmPersonalDictionaryImport"].isEnabled)
+    let importScreen = XCTAttachment(screenshot: app.screenshot())
+    importScreen.name = "Personal dictionary import"
+    importScreen.lifetime = .keepAlways
+    add(importScreen)
+    app.buttons["取消"].tap()
     app.buttons["addPersonalWord"].tap()
     app.textFields["personalWordValue"].tap()
     app.textFields["personalWordValue"].typeText("你好")

@@ -132,6 +132,26 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     return request.id
   }
 
+  // Queue the entire validated import in one file replacement. Dictionary edits are later
+  // acknowledged individually by the Engine, so failed entries remain independently retryable.
+  func enqueueImport(_ words: [PersonalWord]) throws {
+    let validated = try words.map { try $0.validated() }
+    guard !validated.isEmpty, validated.count <= 128,
+          Set(validated.map(\.id)).count == validated.count else { throw StoreError.invalidState }
+    try update { state in
+      guard state.requests.filter({ $0.status != .applied }).count + validated.count <= 128
+      else { throw StoreError.tooManyRequests }
+      let identities = Set(validated.map(\.id))
+      guard !state.requests.contains(where: {
+        $0.status != .applied && !identities.isDisjoint(with: [$0.previous?.id, $0.replacement?.id].compactMap { $0 })
+      }) else { throw StoreError.conflict }
+      let finished = Set(state.requests.filter { $0.status == .applied }.suffix(31).map(\.id))
+      state.requests.removeAll { $0.status == .applied && !finished.contains($0.id) }
+      state.requests.append(contentsOf: validated.map { PersonalWordRequest(replacement: $0) })
+      state.refreshID = UUID()
+    }
+  }
+
   func retry(_ id: UUID) throws {
     try update { state in
       guard let index = state.requests.firstIndex(where: { $0.id == id && $0.status == .failed }) else { return }

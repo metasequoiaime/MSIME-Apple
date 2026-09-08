@@ -88,6 +88,54 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(try PersonalWord(kind: .quickPhrase, key: "HELLO1", value: "第一行\n第二行").validated().key, "hello1")
   }
 
+  func testImportValidatesAllEntriesAndRejectsMalformedOrDuplicateData() throws {
+    let example = try PersonalDictionaryImport.decode(PersonalDictionaryImport.example.encoded())
+    XCTAssertEqual(example.entries.count, 4)
+    XCTAssertEqual(example.entries[0].key, "ni'hao")
+    XCTAssertEqual(example.entries[3].value, "你好！\n很高兴认识你。")
+    var invalid = example
+    invalid.entries.append(.init(key: "nihao", value: "你好"))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(invalid.encoded())) { error in
+      XCTAssertTrue(error.localizedDescription.contains("第 5 条"))
+    }
+    invalid = example
+    invalid.entries.append(.init(key: "NI HAO", value: "你好"))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(invalid.encoded())) { error in
+      XCTAssertTrue(error.localizedDescription.contains("重复"))
+    }
+    invalid = example
+    invalid.version = 2
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(invalid.encoded()))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(Data("{}".utf8)))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(Data(repeating: 32, count: 1_048_577)))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(PersonalDictionaryImport(entries: []).encoded()))
+    let oversized = PersonalDictionaryImport(entries: Array(repeating: example.entries[0], count: 129))
+    XCTAssertThrowsError(try PersonalDictionaryImport.decode(oversized.encoded()))
+  }
+
+  func testImportQueueIsAtomicOnValidationConflictAndCapacityFailure() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = PersonalDictionaryStore(directory: root)
+    let words = try PersonalDictionaryImport.decode(PersonalDictionaryImport.example.encoded()).entries
+    try store.enqueueImport(words)
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    let original = try Data(contentsOf: file)
+    XCTAssertEqual(try store.read().pendingCount, 4)
+    let fresh = PersonalWord(kind: .quickPhrase, key: "newfixture", value: "fixture")
+    XCTAssertThrowsError(try store.enqueueImport([fresh, words[0]]))
+    XCTAssertEqual(try Data(contentsOf: file), original)
+    XCTAssertThrowsError(try store.enqueueImport([fresh, .init(key: "nihao", value: "你好")]))
+    XCTAssertEqual(try Data(contentsOf: file), original)
+    let tooMany = (0..<125).map { PersonalWord(kind: .quickPhrase, key: "fixture\($0)", value: "fixture") }
+    XCTAssertThrowsError(try store.enqueueImport(tooMany))
+    XCTAssertEqual(try Data(contentsOf: file), original)
+    try store.synchronize(apply: { _ in }, page: { _ in .init(entries: [], hasMore: false) })
+    try store.enqueueImport(tooMany)
+    XCTAssertEqual(try store.read().pendingCount, 125)
+    XCTAssertEqual(Set(try store.read().requests.map(\.id)).count, 129)
+  }
+
   func testMalformedStateIsPreservedAndReadDoesNotCreateFiles() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

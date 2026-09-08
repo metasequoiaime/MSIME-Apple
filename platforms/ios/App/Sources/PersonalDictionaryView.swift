@@ -9,6 +9,7 @@ struct PersonalDictionaryView: View {
   @State private var lastReadError: String?
   @State private var trial = ""
   @State private var search = ""
+  @State private var importing = false
   private let store: PersonalDictionaryStore
   init() {
     #if DEBUG && targetEnvironment(simulator)
@@ -42,6 +43,10 @@ struct PersonalDictionaryView: View {
             .font(.caption).foregroundStyle(.secondary)
         }
         if let message = state.snapshotError { Text(message).font(.footnote).foregroundStyle(.red) }
+      }
+      Section {
+        Button { importing = true } label: { Label("从文件导入词条", systemImage: "square.and.arrow.down") }
+          .accessibilityIdentifier("importPersonalDictionary")
       }
       let requests = state.requests.filter { $0.status != .applied }
       if !requests.isEmpty {
@@ -111,6 +116,12 @@ struct PersonalDictionaryView: View {
     .sheet(item: $editing) { item in
       PersonalWordEditor(previous: item.previous) { replacement in
         try store.enqueue(previous: item.previous, replacement: replacement)
+        refresh()
+      }
+    }
+    .sheet(isPresented: $importing) {
+      PersonalDictionaryImportView { words in
+        try store.enqueueImport(words)
         refresh()
       }
     }
