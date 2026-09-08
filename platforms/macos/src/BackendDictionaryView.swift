@@ -20,7 +20,7 @@ final class MacDictionaryModel: ObservableObject {
   init(accountID: String, client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
     self.accountID = accountID; self.client = client; self.account = account
   }
-  private func authorize() async throws -> String {
+  func authorize() async throws -> String {
     let identity = try await account.credentials()
     try Task.checkCancellation()
     guard !closed, identity.userID == accountID else { throw CancellationError() }
@@ -136,6 +136,8 @@ struct MacCloudDictionaryView: View {
   @State private var weight = "100000"
   @State private var deleting: BackendAccountClient.DictionaryEntry?
   @State private var importing = false
+  @State private var management: Management?
+  private enum Management: String, Identifiable { case catalog, candidates; var id: String { rawValue } }
   init(accountID: String) { _model = StateObject(wrappedValue: MacDictionaryModel(accountID: accountID)) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -149,6 +151,10 @@ struct MacCloudDictionaryView: View {
         TextField("搜索词条或编码", text: $model.search).onSubmit { model.refresh() }
         Button("查询") { model.refresh() }
         Button("添加词条") { entry = nil; code = ""; word = ""; weight = "100000"; editing = true }
+      }.disabled(model.busy)
+      HStack {
+        Button("完整词库目录…") { management = .catalog }
+        Button("云端候选与排序…") { management = .candidates }
       }.disabled(model.busy)
       List(model.page?.entries ?? []) { row in
         HStack {
@@ -179,6 +185,16 @@ struct MacCloudDictionaryView: View {
       if let message = model.message { Text(message).foregroundStyle(.secondary) }
     }.padding(20).frame(width: 660, height: 650)
     .onAppear { model.refresh() }.onDisappear { model.close() }
+    .sheet(item: $management) { selected in
+      VStack {
+        HStack {
+          Text(selected == .catalog ? "完整词库目录" : "云端候选与排序").font(.title2)
+          Spacer(); Button("关闭") { management = nil }
+        }.padding()
+        if selected == .catalog { CloudDictionaryCatalogView(kind: model.kind, authorize: { try await model.authorize() }) }
+        else { CloudCandidatesView(kind: model.kind, authorize: { try await model.authorize() }) }
+      }.frame(width: 650, height: 650)
+    }
     .sheet(isPresented: $editing) {
       VStack(alignment: .leading, spacing: 12) {
         Text(entry == nil ? "添加云端词条" : "编辑云端词条").font(.headline)

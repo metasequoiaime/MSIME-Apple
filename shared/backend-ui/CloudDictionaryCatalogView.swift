@@ -21,7 +21,7 @@ struct CloudDictionaryCatalogView: View {
     List {
       Section(kind.title) {
         TextField(kind == .quick ? "快捷编码，可留空" : "输入编码，例如 shi、a 或 hello", text: $code)
-          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .backendCodeInput()
         if kind == .pinyin {
           Picker("编码方案", selection: $scheme) { Text("全拼").tag("pinyin"); Text("双拼").tag("shuangpin") }
           if scheme == "shuangpin" {
@@ -102,7 +102,7 @@ struct CloudDictionaryCatalogView: View {
     pending = Task {
       defer { busy = false }
       do { try await action() }
-      catch is CancellationError { }
+      catch is CancellationError { page = nil; confirmedQuery = nil }
       catch { message = error.localizedDescription }
     }
   }

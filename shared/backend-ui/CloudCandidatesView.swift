@@ -33,7 +33,7 @@ struct CloudCandidatesView: View {
   var body: some View {
     List {
       Section(kind.title) {
-        TextField("输入编码", text: $text).textInputAutocapitalization(.never).autocorrectionDisabled()
+        TextField("输入编码", text: $text).backendCodeInput()
         if kind == .pinyin {
           Toggle("简拼候选", isOn: $jianpin)
           Picker("编码方案", selection: $scheme) { Text("全拼").tag("pinyin"); Text("双拼").tag("shuangpin") }
@@ -137,7 +137,7 @@ struct CloudCandidatesView: View {
     pending = Task {
       defer { busy = false }
       do { try await work() }
-      catch is CancellationError { }
+      catch is CancellationError { page = nil; positions = []; query = nil }
       catch { message = error.localizedDescription }
     }
   }
