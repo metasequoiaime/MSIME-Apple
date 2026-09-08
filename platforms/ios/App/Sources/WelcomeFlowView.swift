@@ -37,9 +37,11 @@ struct WelcomeFlowView: View {
         Button { if page == 3 { finish() } else { page += 1 } } label: {
           Text(page == 3 ? "开始使用水杉" : (page == 0 ? "开始设置" : "下一步"))
             .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 15)
+            .foregroundStyle(.white)
+            .background(MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(.plain).foregroundStyle(.white)
-        .background(MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 16))
+        .buttonStyle(.plain)
         .accessibilityIdentifier(page == 3 ? "finishOnboardingButton" : "nextOnboardingButton")
         if page > 0 {
           Button("上一步") { page -= 1 }.accessibilityIdentifier("previousOnboardingButton")

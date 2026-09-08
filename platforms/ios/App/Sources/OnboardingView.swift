@@ -208,12 +208,13 @@ struct OnboardingView: View {
             .font(.headline)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
+            .foregroundStyle(.white)
+            .background(
+              MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
-        .background(
-          MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
         .accessibilityIdentifier("openKeyboardSettingsButton")
         .accessibilityHint("打开水杉输入法的系统设置页面")
 

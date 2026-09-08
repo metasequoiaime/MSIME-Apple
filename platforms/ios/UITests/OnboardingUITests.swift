@@ -351,14 +351,14 @@ final class OnboardingUITests: XCTestCase {
     welcome.name = "Welcome onboarding"
     welcome.lifetime = .keepAlways
     add(welcome)
-    app.buttons["nextOnboardingButton"].tap()
-    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
-    app.buttons["nextOnboardingButton"].tap()
+    app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].waitForExistence(timeout: 5))
+    app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     app.buttons["welcomeScheme_nineKey"].tap()
     XCTAssertEqual(app.buttons["welcomeScheme_nineKey"].value as? String, "已选择")
-    app.buttons["nextOnboardingButton"].tap()
+    app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     XCTAssertTrue(app.buttons["welcomeTryoutLink"].exists)
-    app.buttons["finishOnboardingButton"].tap()
+    app.buttons["finishOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
     XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
     app.terminate()
     app.launchArguments = []
