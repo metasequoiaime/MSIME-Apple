@@ -84,7 +84,7 @@ private struct MainTabView: View {
         .tabItem { Label("键盘", systemImage: "keyboard") }
       NavigationView { SkinCommunityView() }
         .navigationViewStyle(.stack)
-        .tabItem { Label("社区", systemImage: "person.3.fill") }
+        .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }
       NavigationView { TypingStatisticsView() }
         .navigationViewStyle(.stack)
         .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
