@@ -47,17 +47,6 @@ struct AccountSettingsView: View {
         }
       }
 
-      Section("我的记录") {
-        NavigationLink(destination: TypingStatisticsView()) {
-          HStack(spacing: 12) {
-            accountIcon("chart.bar.xaxis", color: .blue)
-            VStack(alignment: .leading, spacing: 4) {
-              Text("我的打字统计").foregroundStyle(.primary)
-              Text("查看输入趋势和语言分布").font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.vertical, 4)
-        }
-      }
       Section {
         NavigationLink(destination: WelcomeFlowView()) {
           Label("重新查看新手引导", systemImage: "sparkles.rectangle.stack")

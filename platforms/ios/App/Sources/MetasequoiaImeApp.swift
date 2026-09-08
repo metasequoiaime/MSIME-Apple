@@ -85,6 +85,9 @@ private struct MainTabView: View {
       NavigationView { SkinCommunityView() }
         .navigationViewStyle(.stack)
         .tabItem { Label("社区", systemImage: "person.3.fill") }
+      NavigationView { TypingStatisticsView() }
+        .navigationViewStyle(.stack)
+        .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
       NavigationView { AccountSettingsView() }
         .navigationViewStyle(.stack)
         .tabItem { Label("我的", systemImage: "person.crop.circle") }

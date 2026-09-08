@@ -38,9 +38,6 @@ struct SettingsView: View {
         }
 
         Section("使用键盘") {
-          NavigationLink(destination: TypingStatisticsView()) {
-            Label("打字统计", systemImage: "chart.bar.xaxis")
-          }.accessibilityIdentifier("typingStatisticsLink")
           NavigationLink(destination: KeyboardTryoutView()) {
             Label("试用键盘", systemImage: "keyboard")
           }

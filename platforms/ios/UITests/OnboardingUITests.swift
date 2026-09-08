@@ -22,6 +22,9 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["inputSettingsLink"].tap()
     app.tabBars.buttons["社区"].tap()
     XCTAssertTrue(app.navigationBars["皮肤社区"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.tabBars.buttons.count, 4)
+    app.tabBars.buttons["统计"].tap()
+    XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
     XCTAssertTrue(app.buttons["accountLocalDesigns"].waitForExistence(timeout: 5))
     app.tabBars.buttons["键盘"].tap()
@@ -477,7 +480,7 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    app.buttons["typingStatisticsLink"].tap()
+    app.tabBars.buttons["统计"].tap()
     let period = app.segmentedControls["statisticsPeriod"]
     XCTAssertTrue(period.waitForExistence(timeout: 5))
     period.buttons["30 天"].tap()
@@ -801,7 +804,6 @@ final class OnboardingUITests: XCTestCase {
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     for (identifier, title) in [
-      ("typingStatisticsLink", "打字统计"),
       ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {
