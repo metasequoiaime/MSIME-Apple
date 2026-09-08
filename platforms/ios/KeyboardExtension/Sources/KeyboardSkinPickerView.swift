@@ -131,7 +131,9 @@ final class KeyboardSkinMiniature: UIView {
   static let heightToWidthRatio: CGFloat = 0.6
   let skin: KeyboardSkin
   let nineKey: Bool
-  init(skin: KeyboardSkin, nineKey: Bool = false) {
+  let layout: KeyboardLayoutPreset?
+  init(skin: KeyboardSkin, nineKey: Bool = false, layout: KeyboardLayoutPreset? = nil) {
+    self.layout = layout
     self.nineKey = nineKey
     self.skin = skin
     super.init(frame: .zero)
@@ -153,13 +155,20 @@ final class KeyboardSkinMiniature: UIView {
     let top = "QWERTYUIOP".map { String($0) }
     let middle = "ASDFGHJKL".map { String($0) }
     let bottom = ["⇧"] + "ZXCVBNM".map { String($0) } + ["⌫"]
+    var action = ["123", "空格", "↵"]
+    if let layout {
+      action = (nineKey || layout.showsFullKeyboardSymbols ? ["符"] : []) + ["123"]
+      if layout == .msime { action.append("◎") }
+      if !nineKey { action.append("，") }
+      action += ["空格"] + (layout.showsBottomLanguage ? ["中/英"] : []) + ["↵"]
+    }
     let rows: [[String]] = nineKey
-      ? [["1", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"], ["123", "空格", "↵"]]
-      : [top, middle, bottom, ["123", "空格", "↵"]]
-    let gap: CGFloat = 4
+      ? [["1", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"], action]
+      : [top, middle, bottom, action]
+    let gap: CGFloat = layout?.keySpacing ?? 4
     let height = (canvas.height - gap * 3) / 4
     for (rowIndex, row) in rows.enumerated() {
-      let inset: CGFloat = !nineKey && rowIndex == 1 ? canvas.width * 0.04 : 0
+      let inset: CGFloat = !nineKey && rowIndex == 1 && (layout?.centeredLetters ?? true) ? canvas.width * 0.04 : 0
       let width = (canvas.width - inset * 2 - gap * CGFloat(row.count - 1)) / CGFloat(row.count)
       for (index, title) in row.enumerated() {
         let key = CGRect(x: inset + CGFloat(index) * (width + gap), y: CGFloat(rowIndex) * (height + gap), width: width, height: height)

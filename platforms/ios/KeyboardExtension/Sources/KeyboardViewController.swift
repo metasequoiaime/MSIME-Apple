@@ -46,12 +46,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateContent: UIStackView?
   private let scriptShortcut = UIButton()
   private let skinShortcut = UIButton()
+  private let layoutShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
   private let moreShortcut = UIButton()
   private var morePicker: KeyboardMorePickerView?
-  private var layoutPicker: KeyboardMorePickerView?
+  private var layoutPicker: KeyboardLayoutPickerView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -523,7 +524,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [languageModeButton, schemeButton, scriptShortcut, skinShortcut, dismissShortcut] {
+    for button in [languageModeButton, schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
       if button !== languageModeButton {
         button.widthAnchor.constraint(equalTo: languageModeButton.widthAnchor, constant: button === schemeButton ? 6 : 0).isActive = true
@@ -545,6 +546,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
+    layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
     dismissShortcut.addAction(UIAction { [weak self] _ in self?.dismissKeyboard() }, for: .primaryActionTriggered)
@@ -584,11 +586,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
+    configure(layoutShortcut, title: nil, symbol: "square.grid.3x3", label: "切换布局", id: "layoutShortcut")
+    layoutShortcut.accessibilityValue = KeyboardLayoutPreference.selected.title
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
     moreMenu = UIMenu(children: [
-      UIAction(title: "切换布局", image: UIImage(systemName: "rectangle.split.3x3")) { [weak self] _ in
-        self?.showLayoutPicker()
-      },
       UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
         self?.showClipboardHistory()
       },
@@ -1985,19 +1986,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
-    let menu = UIMenu(title: "键盘布局", children: KeyboardLayoutPreset.allCases.map { layout in
-      UIAction(title: layout.title, image: UIImage(systemName: "rectangle.split.3x3"),
-        state: layout == KeyboardLayoutPreference.selected ? .on : .off) { [weak self] _ in
-        guard let self else { return }
-        KeyboardLayoutPreference.selected = layout
-        closeKeyboardPicker()
-        applyLayoutPreferences()
-        updateKeyboardLayout()
-        updateShortcutButtons()
-        playInputClick()
-      }
-    })
-    let picker = KeyboardMorePickerView(menu: menu, title: "切换布局", onClose: { [weak self] in self?.closeKeyboardPicker() })
+    let picker = KeyboardLayoutPickerView(selected: KeyboardLayoutPreference.selected, nineKey: inputScheme == .nineKey, onSelect: { [weak self] layout in
+      guard let self else { return }
+      KeyboardLayoutPreference.selected = layout
+      closeKeyboardPicker()
+      applyLayoutPreferences()
+      updateKeyboardLayout()
+      updateShortcutButtons()
+      playInputClick()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityIdentifier = "keyboardLayoutPicker"
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false
@@ -2080,7 +2077,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let picker = layoutPicker {
       picker.removeFromSuperview()
       layoutPicker = nil
-      UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+      UIAccessibility.post(notification: .screenChanged, argument: layoutShortcut)
     }
     if let picker = morePicker {
       picker.removeFromSuperview()
