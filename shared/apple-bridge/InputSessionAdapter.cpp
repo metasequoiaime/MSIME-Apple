@@ -11,7 +11,8 @@ class InputSessionAdapter::Impl
   public:
     explicit Impl(const RuntimePaths &runtime_paths, SchemeType scheme = SchemeType::Quanpin,
                   std::string profile = "xiaohe", bool learning = false, std::uint32_t fuzzy = 0)
-        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy)}, profile_name{std::move(profile)}
+        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy)},
+          profile_name{std::move(profile)}
     {
     }
 
@@ -168,9 +169,11 @@ bool InputSessionAdapter::set_learning_enabled(bool enabled)
 bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
 {
     rules &= 0x7ff;
-    if (rules == fuzzy_pinyin_rules_) return true;
+    if (rules == fuzzy_pinyin_rules_)
+        return true;
     const auto current = impl_->session.snapshot();
-    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None) return false;
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
     const bool nine_key = impl_->nine_key;
     impl_ = std::make_unique<Impl>(impl_->paths, current.scheme, impl_->profile_name, learning_enabled_, rules);
     impl_->nine_key = nine_key;
@@ -275,7 +278,8 @@ InputSnapshot InputSessionAdapter::switch_to_japanese()
     if (impl_->session.snapshot().scheme == SchemeType::JapaneseRomaji && !impl_->nine_key)
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
-    impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_);
+    impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_,
+                                   fuzzy_pinyin_rules_);
     return snapshot;
 }
 
