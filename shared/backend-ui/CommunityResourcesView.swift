@@ -48,6 +48,7 @@ struct CommunityResourcesView: View {
     .task { load() }
     .onChange(of: kind) { _ in load() }
     .onChange(of: scope) { _ in load() }
+    .onChange(of: search) { _ in items = []; more = false; nextOffset = 0 }
     .onDisappear { pending?.cancel(); items = []; selected = nil; search = "" }
     .sheet(item: $selected, onDismiss: { load() }) { item in
       CommunityResourceDetailView(initial: item, authorize: authorize).communitySheetSize()
@@ -200,6 +201,7 @@ private struct CommunityResourceEditor: View {
     }
     .onAppear { if let existing { id = existing.id; name = existing.name; description = existing.description; prompt = existing.content.prompt ?? ""; entries = existing.content.entries ?? [] } }
     .onChange(of: sourceKind) { _ in source = nil }
+    .onChange(of: sourceSearch) { _ in source = nil }
     .onDisappear { pending?.cancel(); source = nil; entries = []; prompt = ""; name = ""; description = ""; sourceSearch = "" }
   }
   private func query(offset: Int) {
