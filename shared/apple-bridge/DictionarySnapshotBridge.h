@@ -23,6 +23,8 @@ typedef NSDictionary<NSString *, id> *_Nullable (^MSIMESnapshotNextRecord)(NSErr
 @end
 
 @interface DictionarySnapshotBridge : NSObject
++ (BOOL)discardInactiveIdentifier:(NSString *)identifier userDirectory:(NSURL *)user error:(NSError **)error
+    NS_SWIFT_NAME(discardInactive(identifier:user:));
 // This callback supplies validated overlay/position/selection records. It returns
 // nil only at checksum-verified EOF, and supplies an error on truncation/cancel.
 // Preparation does not publish or activate the new generation.

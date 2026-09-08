@@ -110,6 +110,14 @@ std::filesystem::path DictionarySnapshotDirectory(NSURL *user, NSString *identif
     return [parent URLByAppendingPathComponent:identifier].fileSystemRepresentation;
 }
 
+bool DiscardInactiveDictionarySnapshot(NSURL *user, NSString *identifier)
+{
+    PreparationLock lock(user);
+    if ([ActiveDictionarySnapshotIdentifier(user) isEqualToString:identifier]) return false;
+    std::filesystem::remove_all(DictionarySnapshotDirectory(user, identifier));
+    return true;
+}
+
 void PublishDictionaryInstallation(NSURL *user, NSString *identifier, const RuntimePaths &paths,
                                    NSString *expectedIdentifier)
 {

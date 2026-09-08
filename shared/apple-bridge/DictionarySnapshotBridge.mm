@@ -163,6 +163,17 @@ std::string DictionaryStateRevision(const RuntimePaths &paths)
 @end
 
 @implementation DictionarySnapshotBridge
++ (BOOL)discardInactiveIdentifier:(NSString *)identifier userDirectory:(NSURL *)user error:(NSError **)error
+{
+    try { metasequoia::apple::DiscardInactiveDictionarySnapshot(user, identifier); return YES; }
+    catch (const std::exception &)
+    {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:1
+            userInfo:@{NSLocalizedDescriptionKey: @"无法清理未应用的词库快照。"}];
+        return NO;
+    }
+}
+
 + (MSIMEPreparedDictionarySnapshot *)prepareResources:(NSURL *)resources userDirectory:(NSURL *)user
                                            identifier:(NSString *)identifier contentIdentifier:(NSString *)contentIdentifier
                                        maximumRecords:(NSUInteger)maximumRecords nextRecord:(MSIMESnapshotNextRecord)nextRecord

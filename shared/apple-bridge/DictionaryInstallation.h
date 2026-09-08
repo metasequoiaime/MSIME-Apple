@@ -16,6 +16,7 @@ struct DictionaryInstallation
 std::filesystem::path DictionarySnapshotDirectory(NSURL *user, NSString *identifier);
 // Empty means the original on-device journal. Invalid markers throw.
 NSString *ActiveDictionarySnapshotIdentifier(NSURL *user);
+bool DiscardInactiveDictionarySnapshot(NSURL *user, NSString *identifier);
 // The caller quiesces writers and checks its local-state version before publishing.
 // Compare the expected active identifier to reject competing publications. The
 // adapter invokes this only after it has successfully constructed the new session.

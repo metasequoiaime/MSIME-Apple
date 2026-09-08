@@ -32,6 +32,8 @@ struct CloudDictionaryView: View {
             authorize: { try await authorizedToken(matching: userID) }))
           NavigationLink("查询与管理完整目录", destination: CloudDictionaryCatalogView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) }))
+          NavigationLink("应用完整云词库到本机", destination: CloudDictionaryApplyView(accountID: userID,
+            authorize: { try await authorizedToken(matching: userID) }))
           NavigationLink("导入与导出文件", destination: CloudDictionaryFilesView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) }))
         }

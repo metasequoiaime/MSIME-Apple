@@ -154,6 +154,8 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/KeyboardExtension/Sources
+      - path: shared/backend/BackendAccountClient.swift
+      - path: shared/backend/BackendSnapshotClient.swift
       - path: platforms/ios/App/Services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
       - path: platforms/ios/App/Services/AppServicesBridge.mm

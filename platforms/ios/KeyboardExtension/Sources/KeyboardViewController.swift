@@ -10,6 +10,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let skinBackdrop = KeyboardSkinBackgroundView()
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
+  private lazy var snapshotWorker: DictionarySnapshotWorker = {
+    let worker = DictionarySnapshotWorker(session: session)
+    worker.report = { [weak self] in self?.showDiagnostic($0) }
+    worker.applied = { [weak self] in self?.synchronizePersonalDictionary(force: true) }
+    return worker
+  }()
   private var servicePanel: UIViewController?
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
@@ -158,9 +164,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
+    snapshotWorker.tick(idle: !hasComposition && !session.isInLocalMode, fullAccess: hasFullAccess, force: true)
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.synchronizePersonalDictionary(force: false) }
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.synchronizePersonalDictionary(force: false)
+        self.snapshotWorker.tick(idle: !self.hasComposition && !self.session.isInLocalMode, fullAccess: self.hasFullAccess)
+      }
     }
   }
 
@@ -206,6 +217,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    snapshotWorker.stop()
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
