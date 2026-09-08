@@ -121,3 +121,36 @@ final class SkinCommunityTests: XCTestCase {
     XCTAssertEqual(CustomKeyboardSkin.rgb(try XCTUnwrap(backdrop.backgroundColor)), design.background)
   }
 }
+
+private final class LargeResourceProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let entries = (0..<128).map { ["kind":"quick", "code":"key\($0)", "word":String(repeating:"🌱", count:99), "weight":10] as [String:Any] }
+    let items = (0..<20).map { index in
+      ["id":String(format:"10000000-0000-0000-0000-%012d",index),"kind":"dictionary","name":"词包","description":"","author":"测试",
+       "content":["entries":entries],"revision":1,"saves":0,"saved":false,"owned":false,"rating_count":0,"rating_average":0,"my_rating":0] as [String:Any]
+    }
+    let data = try! JSONSerialization.data(withJSONObject:["items":items,"has_more":false])
+    let status = request.url!.absoluteString.contains("C%2B%2B") ? 200 : 400
+    client?.urlProtocol(self, didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,
+      headerFields:["Content-Type":"application/json","Content-Length":String(data.count)])!, cacheStoragePolicy:.notAllowed)
+    client?.urlProtocol(self,didLoad:data); client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+extension SkinCommunityTests {
+  func testLargeResourcePageKeepsPlusSearchAndOrdinaryLimit() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [LargeResourceProtocol.self]
+    let client = BackendAccountClient(configuration:configuration)
+    let api = SkinCommunityAPI(client:client,account:BackendAccountSession(api:client,storage:CommunityMemoryCredentials()))
+    let page = try await api.resources(.dictionary,search:"C++")
+    XCTAssertEqual(page.items.count,20)
+    XCTAssertEqual(page.items.first?.content.entries?.count,128)
+    do {
+      _ = try await client.request("GET","/v1/community/resources?kind=dictionary&q=C%2B%2B")
+      XCTFail("Ordinary limit was relaxed")
+    } catch is BackendAccountClient.Failure { }
+  }
+}

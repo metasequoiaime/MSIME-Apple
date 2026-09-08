@@ -220,6 +220,7 @@ targets:
     sources:
       - path: platforms/ios/KeyboardTests
       - path: platforms/ios/App/Services/SkinCommunityAPI.swift
+      - path: platforms/ios/App/Services/CommunityPreviewFixtures.swift
       - path: platforms/ios/App/Services/CloudDictionaryTransfer.swift
       - path: shared/backend/BackendDictionaryClient.swift
       - path: shared/backend/BackendCandidateClient.swift

@@ -30,18 +30,18 @@ actor SkinCommunityAPI {
   }
   func currentUser() async throws -> CommunityUser? { try await account.user() }
   func signedIn() async throws -> Bool { try await account.user() != nil }
-  private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false) async throws -> T {
+  private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
     var identity: (userID: String, token: String)?
     if try await account.user() != nil { identity = try await account.credentials() }
     let token = identity?.token
     if authenticated && token == nil { throw CommunityFailure(message: "请先使用 Apple 登录。") }
     let data: Data
     do {
-      do { data = try await client.request(method, path, token: token, body: body) }
+      do { data = try await client.request(method, path, token: token, body: body, maximumResponseBytes: maximumResponseBytes) }
       catch let error as BackendAccountClient.Failure where error.status == 401 && token != nil {
         guard let identity else { throw CancellationError() }
         let fresh = try await account.credentials(retrying: token, matchingUserID: identity.userID)
-        data = try await client.request(method, path, token: fresh.token, body: body)
+        data = try await client.request(method, path, token: fresh.token, body: body, maximumResponseBytes: maximumResponseBytes)
       }
     } catch let error as BackendAccountClient.Failure { throw Self.failure(Data(), status: error.status) }
     guard try await account.user()?.id == identity?.userID else { throw CancellationError() }
@@ -112,6 +112,7 @@ actor SkinCommunityAPI {
     var parts = URLComponents()
     parts.path = "/v1/community/skins"
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
+    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     return try await request(parts.string!)
   }
   func detail(_ id: String) async throws -> CommunitySkin {
@@ -148,13 +149,14 @@ actor SkinCommunityAPI {
     var parts = URLComponents(); parts.path = "/v1/community/resources"
     parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope),
       .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
-    return try await request(parts.string!)
+    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+    return try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
   }
   func resource(_ id: String) async throws -> CommunityResource {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }
     #endif
-    return try await request("/v1/community/resources/\(id)")
+    return try await request("/v1/community/resources/\(id)", maximumResponseBytes: 3 * 1024 * 1024)
   }
   func publishResource(id: String, kind: CommunityResourceKind, name: String, description: String,
                        content: CommunityResourceContent, revision: Int) async throws {
