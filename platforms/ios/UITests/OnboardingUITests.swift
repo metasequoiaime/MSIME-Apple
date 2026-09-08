@@ -342,6 +342,52 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testWelcomePrimaryButtonsRespondAcrossTheirVisibleBackground() {
+    let app = XCUIApplication()
+    app.launchArguments = ["--reset-onboarding-for-ui-tests"]
+    app.launch()
+    let next = app.buttons["nextOnboardingButton"]
+    XCTAssertTrue(next.waitForExistence(timeout: 5))
+    // Tap the colored background, well outside the centered text.
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
+    let settings = app.buttons["openKeyboardSettingsButton"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 5))
+    settings.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+    XCTAssertTrue(systemSettings.wait(for: .runningForeground, timeout: 5))
+    app.activate()
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    XCTAssertTrue(app.buttons["welcomeScheme_nineKey"].waitForExistence(timeout: 5))
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+    let finish = app.buttons["finishOnboardingButton"]
+    XCTAssertTrue(finish.waitForExistence(timeout: 5))
+    finish.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
+    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+  }
+
+  @MainActor
+  func testReplayedWelcomeStartRespondsOutsideText() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+    let replay = app.buttons["replayOnboardingLink"]
+    for _ in 0..<8 {
+      if replay.isHittable { break }
+      app.swipeUp()
+    }
+    replay.tap()
+    let next = app.buttons["nextOnboardingButton"]
+    XCTAssertTrue(next.waitForExistence(timeout: 5))
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].waitForExistence(timeout: 5))
+    app.buttons["skipOnboardingButton"].tap()
+    XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 5))
+  }
+
+  @MainActor
   func testWelcomeFlowSelectsSchemeAndCompletesOnce() {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
