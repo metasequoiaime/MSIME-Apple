@@ -167,6 +167,7 @@ struct CommunitySkinDetail: View {
 
 struct CommunityPublishView: View {
   var onPublished: () -> Void
+  var selectedSkinID: UUID? = nil
   @Environment(\.dismiss) private var dismiss
   @State private var library = CustomSkinLibrary.designs
   @State private var selected = UUID()
@@ -206,7 +207,10 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear { if let first = library.first { selected = first.id; name = first.name } }
+        .onAppear {
+          library = CustomSkinLibrary.designs
+          if let first = library.first(where: { $0.id == selectedSkinID }) ?? library.first { selected = first.id; name = first.name }
+        }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
@@ -216,14 +220,27 @@ struct CommunityPublishView: View {
 struct CommunityDesignPreview: View {
   let design: CustomKeyboardSkin
   var compact = false
+  var nineKey = false
   private func color(_ rgb: UInt32) -> Color { Color(uiColor: CustomKeyboardSkin.color(rgb)) }
   var body: some View {
     VStack(spacing: compact ? 3 : 6) {
-      if !compact { HStack { Text("你好"); Text("你号"); Spacer(); Text("全拼") }.font(.caption).foregroundStyle(color(design.accent)).frame(height: 26) }
-      ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in
-        HStack(spacing: 3) { ForEach(Array(row).map(String.init), id: \.self) { key($0) } }
+      if !compact { HStack { Text("你好"); Text("你号"); Spacer(); Text(nineKey ? "九键" : "全拼") }.font(.caption).foregroundStyle(color(design.accent)).frame(height: 26) }
+      if nineKey {
+        HStack(spacing: 4) {
+          VStack(spacing: 4) { key("，"); key("。"); key("？"); key("！") }.frame(width: 32)
+          VStack(spacing: 4) {
+            ForEach([["分词", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"]], id: \.self) { row in
+              HStack(spacing: 4) { ForEach(row, id: \.self) { key($0) } }
+            }
+          }
+          VStack(spacing: 4) { key("⌫"); key("重输"); key("0") }.frame(width: 36)
+        }.frame(maxHeight: .infinity)
+      } else {
+        ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in
+          HStack(spacing: 3) { ForEach(Array(row).map(String.init), id: \.self) { key($0) } }
+        }
       }
-      HStack(spacing: 3) { key("123"); key("，"); key("空格").frame(minWidth: compact ? 36 : 100); key("↵") }
+      HStack(spacing: 3) { key("123"); key("，"); key("空格").frame(minWidth: compact ? 36 : 100); key("↵") }.frame(height: compact ? 23 : 38)
     }.padding(compact ? 6 : 10).background {
       KeyboardSkinBackdrop(skin: .custom, design: design)
     }.clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)

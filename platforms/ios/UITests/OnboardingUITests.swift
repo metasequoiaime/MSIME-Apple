@@ -475,6 +475,60 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testGeneratedSkinCanSavePublishAndDelete() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-skinGenerationFixture"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["customSkinEditorLink"].tap()
+    app.buttons["openSkinGeneration"].tap()
+    let prompt = app.textViews["skinGenerationPrompt"]
+    XCTAssertTrue(prompt.waitForExistence(timeout: 5))
+    prompt.tap(); prompt.typeText("Green ceramic keyboard")
+    app.buttons["generateSkinButton"].tap()
+    let name = app.textFields["generatedSkinName"]
+    XCTAssertTrue(name.waitForExistence(timeout: 5))
+    // Scroll within the generator, leaving the editor underneath untouched.
+    let scroll = app.scrollViews.firstMatch
+    for _ in 0..<5 { if app.buttons["saveGeneratedSkin"].isHittable { break }; scroll.swipeUp() }
+    app.segmentedControls["generatedSkinLayout"].buttons["9 键"].tap()
+    app.buttons["saveGeneratedSkin"].tap()
+    XCTAssertFalse(app.buttons["saveGeneratedSkin"].isEnabled)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "AI skin saved preview"; shot.lifetime = .keepAlways; add(shot)
+    app.buttons["publishGeneratedSkin"].tap()
+    XCTAssertTrue(app.navigationBars["发布皮肤"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.textFields["皮肤名称（最多 32 字）"].value as? String, "AI 苔绿庭院")
+    app.buttons["取消"].tap()
+    app.buttons["deleteGeneratedSkin"].tap()
+    app.buttons["删除设计"].tap()
+    XCTAssertFalse(app.textFields["generatedSkinName"].exists)
+    app.navigationBars["AI 生成皮肤"].buttons["完成"].tap()
+    app.buttons["skinEditorTools"].tap()
+    app.buttons["我的皮肤"].tap()
+    XCTAssertFalse(app.buttons["savedSkin_AI 苔绿庭院"].exists)
+  }
+
+  @MainActor
+  func testCancelledSkinGenerationDoesNotShowLateResult() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-skinGenerationFixture", "-skinGenerationSlowFixture"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["customSkinEditorLink"].tap()
+    app.buttons["openSkinGeneration"].tap()
+    let prompt = app.textViews["skinGenerationPrompt"]
+    XCTAssertTrue(prompt.waitForExistence(timeout: 5))
+    prompt.tap(); prompt.typeText("Green keyboard")
+    app.buttons["generateSkinButton"].tap()
+    XCTAssertTrue(app.buttons["取消生成"].waitForExistence(timeout: 3))
+    app.buttons["取消生成"].tap()
+    let late = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.textFields["generatedSkinName"])
+    late.isInverted = true
+    XCTAssertEqual(XCTWaiter.wait(for: [late], timeout: 6), .completed)
+    XCTAssertTrue(app.buttons["generateSkinButton"].isEnabled)
+  }
+
+  @MainActor
   func testCuratedSkinCollectionShowsFullPreviewsAndUndo() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

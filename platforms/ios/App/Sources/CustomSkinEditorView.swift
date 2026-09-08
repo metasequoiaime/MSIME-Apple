@@ -20,6 +20,8 @@ struct CustomSkinEditorView: View {
   @State private var deleting: SavedKeyboardSkin?
   @State private var replacing: SavedKeyboardSkin?
   @State private var showPhotos = false
+  @State private var showGenerate = false
+  @State private var publishingSkin: SavedKeyboardSkin?
   @State private var message: String?
   @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults) private var soundEnabled = true
   @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults) private var hapticsEnabled = false
@@ -105,6 +107,11 @@ struct CustomSkinEditorView: View {
 
   private var backgroundGallery: some View {
     Section {
+      Button { showGenerate = true } label: {
+        Label("AI 生成皮肤", systemImage: "sparkles").font(.headline)
+          .frame(maxWidth: .infinity).padding(.vertical, 10)
+      }.accessibilityIdentifier("openSkinGeneration")
+
       HStack(spacing: 12) {
         Button { section = "设计" } label: {
           Label("设计模板", systemImage: "square.grid.2x2").frame(maxWidth: .infinity).frame(height: 44)
@@ -273,6 +280,7 @@ if section == "我的" {
         }.accessibilityIdentifier("savedSkin_" + item.name)
         Spacer()
         Menu {
+          Button("发布到社区") { publishingSkin = item }
           Button("用当前设计更新") { replacing = item }
           Button("重命名") { renaming = item.id; name = item.name; showSave = true }
           Button("删除", role: .destructive) { deleting = item }
@@ -316,6 +324,7 @@ if section == "我的" {
       ToolbarItem(placement: .navigationBarTrailing) {
         HStack(spacing: 10) {
           Menu {
+            Button("AI 生成皮肤", systemImage: "sparkles") { showGenerate = true }
             Button("设计模板", systemImage: "square.grid.2x2") { section = "设计" }
             Button("我的皮肤", systemImage: "square.stack") { section = "我的" }
             Button("重做", systemImage: "arrow.uturn.forward") {
@@ -331,6 +340,10 @@ if section == "我的" {
         }
       }
     }
+    .sheet(isPresented: $showGenerate, onDismiss: { saved = CustomSkinLibrary.designs }) {
+      SkinGenerationView { item in apply(item.design); section = "按键" }
+    }
+    .sheet(item: $publishingSkin) { item in SavedSkinPublishFlow(skinID: item.id) }
     .sheet(isPresented: $showPhotos) {
       SkinPhotoPicker { data in
         showPhotos = false
