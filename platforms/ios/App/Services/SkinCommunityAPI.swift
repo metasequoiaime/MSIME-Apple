@@ -31,17 +31,21 @@ actor SkinCommunityAPI {
   func currentUser() async throws -> CommunityUser? { try await account.user() }
   func signedIn() async throws -> Bool { try await account.user() != nil }
   private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false) async throws -> T {
-    var token: String?
-    if try await account.user() != nil { token = try await account.accessToken() }
+    var identity: (userID: String, token: String)?
+    if try await account.user() != nil { identity = try await account.credentials() }
+    let token = identity?.token
     if authenticated && token == nil { throw CommunityFailure(message: "请先使用 Apple 登录。") }
     let data: Data
     do {
       do { data = try await client.request(method, path, token: token, body: body) }
       catch let error as BackendAccountClient.Failure where error.status == 401 && token != nil {
-        let fresh = try await account.accessToken(retrying: token)
-        data = try await client.request(method, path, token: fresh, body: body)
+        guard let identity else { throw CancellationError() }
+        let fresh = try await account.credentials(retrying: token, matchingUserID: identity.userID)
+        data = try await client.request(method, path, token: fresh.token, body: body)
       }
     } catch let error as BackendAccountClient.Failure { throw Self.failure(Data(), status: error.status) }
+    guard try await account.user()?.id == identity?.userID else { throw CancellationError() }
+    try Task.checkCancellation()
     return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
   }
   private static func failure(_ data: Data, status: Int) -> CommunityFailure {
