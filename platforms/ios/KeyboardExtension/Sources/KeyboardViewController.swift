@@ -78,6 +78,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionDeleteButton: UIButton!
   private var actionGlobeButton: UIButton!
   private var globeWidthConstraint: NSLayoutConstraint?
+  private var japaneseKeys: JapaneseNineKeyView!
+  private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
@@ -286,6 +288,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
+    japaneseKeys = JapaneseNineKeyView { [unowned self] title, label, action in
+      makeKey(title: title, accessibilityLabel: label, action: action)
+    }
+    japaneseKeys.onInput = { [weak self] input in
+      guard let self, isChineseMode, inputScheme == .japanese else { return }
+      playInputClick()
+      for character in input { render(session.handleCharacter(String(character))) }
+    }
+    japaneseKeys.onSymbol = { [weak self] symbol in self?.handleSymbol(symbol) }
+    japaneseKeys.onDelete = { [weak self] in self?.handleBackspace() }
+    root.addArrangedSubview(japaneseKeys)
     handwriting.isHidden = true
     handwriting.onInsert = { [weak self] text in
       guard let self, inputScheme == .handwriting, isChineseMode else { return }
@@ -310,6 +323,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    japaneseHeight = japaneseKeys.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
@@ -1570,13 +1584,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyLayoutPreferences()
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
+    let kana = isChineseMode && inputScheme == .japanese && !JapaneseKeyboardPreference.usesRomanKeys && !session.isInLocalMode
+    japaneseKeys?.isHidden = !kana || showsSymbols
+    japaneseHeight?.constant = KeyboardLayoutPreference.selected.rowSpacing * 2
+    japaneseHeight?.isActive = kana && !showsSymbols
+    japaneseKeys?.applyLayout()
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
     handwriting.isHidden = !writes
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
-    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes }
+    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
     nineKeyRows.forEach { $0.isHidden = showsSymbols || !nineKey }
     let hasSpellings = !session.nineKeySpellings().isEmpty
@@ -1605,7 +1624,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && !usesNineKeyLayout
       bottomLanguageButton?.isHidden = false
       bottomLanguageWidth?.isActive = true
-      quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols || writes
+      quickPunctuationButton.isHidden = usesNineKeyLayout || showsSymbols || writes || kana
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden
       let punctuation = quickPunctuationSymbols
       quickPunctuationButton.configuration?.title = punctuation[0]
@@ -1620,7 +1639,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolRowViews.forEach { $0.isHidden = !showsSymbols }
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
-      configuration.title = showsSymbols ? (nineKey ? "九键" : "ABC") : "123"
+      configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
       layoutToggleButton?.configuration = configuration
     }
     layoutToggleButton?.accessibilityLabel =

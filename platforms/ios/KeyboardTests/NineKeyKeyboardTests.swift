@@ -713,7 +713,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             }
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
-          XCTAssertEqual(punctuation.isHidden, symbols || scheme == .nineKey)
+          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .japanese, .handwriting].contains(scheme))
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme == .japanese ? "、" : "，")
             XCTAssertEqual(punctuation.bounds.width, 44, accuracy: 0.5)
@@ -721,7 +721,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertEqual(punctuation.menu?.children.count, 7)
           }
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !symbols)
-          if !symbols && scheme != .nineKey {
+          if !symbols && ![.nineKey, .japanese, .handwriting].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             let m = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 M" } as? UIButton)
@@ -738,6 +738,9 @@ final class NineKeyKeyboardTests: XCTestCase {
               XCTAssertGreaterThanOrEqual(frame.minX, 4.5)
               XCTAssertLessThanOrEqual(frame.maxX, controller.view.bounds.width - 4.5, "\(scheme) \(label) frame \(frame)")
             }
+          }
+          if !symbols && scheme == .japanese {
+            XCTAssertEqual(try button("japaneseKana0", in: controller).bounds.height, reference, accuracy: 0.5)
           }
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
         }

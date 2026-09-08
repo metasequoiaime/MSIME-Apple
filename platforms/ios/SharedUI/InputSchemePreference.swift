@@ -19,7 +19,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .microsoft: "微软双拼"
     case .shoudao: "Shoudao 双拼"
     case .wubi: "86 五笔"
-    case .japanese: "日语罗马字"
+    case .japanese: "日语"
     case .handwriting: "手写"
     case .thoughtfulReply: "高情商回复"
     }
@@ -82,5 +82,15 @@ enum InputSchemePreference {
       defaults.set(newValue, forKey: key)
       defaults.set(newValue ? ChineseInputScheme.shuangpin.rawValue : ChineseInputScheme.quanpin.rawValue, forKey: schemeKey)
     }
+  }
+}
+
+// A keyboard presentation preference; Engine remains in the Japanese session mode.
+enum JapaneseKeyboardPreference {
+  static let romanKeysKey = "japaneseRomanKeys"
+  static var defaults: UserDefaults { UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard }
+  static var usesRomanKeys: Bool {
+    get { defaults.bool(forKey: romanKeysKey) }
+    set { defaults.set(newValue, forKey: romanKeysKey) }
   }
 }

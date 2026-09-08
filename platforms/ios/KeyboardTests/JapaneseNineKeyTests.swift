@@ -1,0 +1,71 @@
+import XCTest
+import UIKit
+
+@MainActor
+final class JapaneseNineKeyTests: XCTestCase {
+  func testKanaKeysFeedJapaneseEngineCandidates() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    let roman = JapaneseKeyboardPreference.usesRomanKeys
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+      JapaneseKeyboardPreference.usesRomanKeys = roman
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .japanese
+    JapaneseKeyboardPreference.usesRomanKeys = false
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
+    XCTAssertFalse(panel.isHidden)
+    panel.select(4, direction: 1) // に
+    panel.select(5, direction: 4) // ほ
+    panel.select(9, direction: 2) // ん
+    let first = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
+    XCTAssertTrue(first.configuration?.title?.hasSuffix("日本") == true, first.configuration?.title ?? "No candidate")
+    let screenshot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
+      controller.view.layer.render(in: $0.cgContext)
+    })
+    screenshot.name = "Japanese nine-key candidates"; screenshot.lifetime = .keepAlways; add(screenshot)
+    JapaneseKeyboardPreference.usesRomanKeys = true
+    controller.viewWillAppear(false)
+    XCTAssertTrue(panel.isHidden)
+  }
+
+  func testEveryKanaKeyConvertsAndLayoutsKeepFullHeight() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToJapanese()
+    for key in JapaneseNineKeyView.keys {
+      for (kana, input) in zip(key.kana, key.strokes) where !input.isEmpty {
+        _ = bridge.cancel()
+        var snapshot: MetasequoiaInputSnapshot?
+        for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
+        XCTAssertTrue(snapshot?.candidates.contains(kana) == true, "\(input) → \(kana): \(snapshot?.candidates ?? [])")
+      }
+    }
+    let previous = KeyboardLayoutPreference.selected
+    defer { KeyboardLayoutPreference.selected = previous }
+    for layout in KeyboardLayoutPreset.allCases {
+      KeyboardLayoutPreference.selected = layout
+      for width in [320.0, 414.0] {
+        let panel = JapaneseNineKeyView { title, _, action in
+          var config = UIButton.Configuration.plain(); config.title = title
+          return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+        }
+        panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
+        panel.applyLayout(); panel.layoutIfNeeded()
+        let buttons = nodes(panel).compactMap { $0 as? UIButton }
+        XCTAssertEqual(buttons.count, 12)
+        for button in buttons {
+          XCTAssertGreaterThan(button.bounds.height, 45)
+          XCTAssertGreaterThan(button.bounds.width, 44)
+          XCTAssertLessThanOrEqual(button.convert(button.bounds, to: panel).maxX, width + 0.5)
+        }
+      }
+    }
+  }
+  private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { nodes($0) } }
+}

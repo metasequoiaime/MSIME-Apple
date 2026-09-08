@@ -41,6 +41,8 @@ struct KeyboardSettingsView: View {
 }
 
 struct InputSettingsView: View {
+  @AppStorage(JapaneseKeyboardPreference.romanKeysKey, store: JapaneseKeyboardPreference.defaults)
+  private var japaneseRomanKeys = false
   @Environment(\.scenePhase) private var scenePhase
   @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults)
   private var soundEnabled = true
@@ -55,6 +57,14 @@ struct InputSettingsView: View {
 
   var body: some View {
     Form {
+      Section("日语键盘") {
+        Picker("键盘类型", selection: $japaneseRomanKeys) {
+          Text("九键假名").tag(false)
+          Text("26 键罗马字").tag(true)
+        }.pickerStyle(.segmented).accessibilityIdentifier("japaneseKeyboardLayout")
+        Text("九键轻点输入首个假名，向左、上、右、下滑动选字；长按显示选项。小假名与浊音可从「小・゛゜」选择。")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
         Section {
           ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
             HStack {

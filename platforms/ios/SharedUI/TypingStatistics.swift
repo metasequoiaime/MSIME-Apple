@@ -12,7 +12,7 @@ enum TypingSource: String, CaseIterable {
     case .microsoft: "微软双拼"
     case .shoudao: "Shoudao 双拼"
     case .wubi: "86 五笔"
-    case .japanese: "日语罗马字"
+    case .japanese: "日语"
     case .handwriting: "手写"
     case .english: "英文键盘"
     case .local: "本地输入"
