@@ -80,18 +80,58 @@ final class HandwritingTests: XCTestCase {
     InputSchemePreference.scheme = .handwriting
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     for width in [320.0, 414.0] {
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260); controller.view.layoutIfNeeded()
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+      XCTAssertEqual(height.constant, 360)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
-      XCTAssertGreaterThan(panel.canvas.bounds.height, 90)
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 200)
       XCTAssertGreaterThan(panel.canvas.bounds.width, 200)
       let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }); shot.name = "Handwriting keyboard \(Int(width))"; shot.lifetime = .keepAlways; add(shot)
     }
     let language = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
     language.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260)
     XCTAssertTrue(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
     language.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 360)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
+  }
+  func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .handwriting
+    let parent = UIViewController()
+    let controller = KeyboardViewController()
+    parent.addChild(controller)
+    controller.loadViewIfNeeded()
+    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let toggle = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "layoutToggleButton" } as? UIButton)
+    let panel = try XCTUnwrap(nodes(controller.view).first { $0 is HandwritingInputView } as? HandwritingInputView)
+    let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
+    for (verticalSize, width, writingHeight, typingHeight) in [
+      (UIUserInterfaceSizeClass.regular, 414.0, 360.0, 260.0),
+      (.compact, 812.0, 260.0, 216.0),
+      (.regular, 320.0, 360.0, 260.0),
+    ] {
+      parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
+      controller.viewDidLayoutSubviews()
+      XCTAssertEqual(height.constant, writingHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: writingHeight)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(enter.bounds.height, 44, accuracy: 0.5)
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 110 : 200)
+      toggle.sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(panel.isHidden)
+      XCTAssertEqual(height.constant, typingHeight)
+      controller.view.frame.size.height = typingHeight
+      controller.view.layoutIfNeeded()
+      toggle.sendActions(for: .primaryActionTriggered)
+      XCTAssertFalse(panel.isHidden)
+      XCTAssertEqual(height.constant, writingHeight)
+    }
   }
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
 }

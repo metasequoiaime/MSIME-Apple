@@ -675,7 +675,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testAllLayoutsKeepNineKeyHeight() throws {
+  func testKeyLayoutsKeepNineKeyHeight() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for width in [320.0, 414.0] {
@@ -685,7 +685,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260)
       controller.view.layoutIfNeeded()
       let reference = try button("nineKey6", in: controller).bounds.height
-      for scheme in ChineseInputScheme.allCases {
+      // Handwriting has a taller canvas, covered by HandwritingTests.
+      for scheme in ChineseInputScheme.allCases where scheme != .handwriting {
         InputSchemePreference.scheme = scheme
         controller.viewWillAppear(false)
         for symbols in [false, true] {

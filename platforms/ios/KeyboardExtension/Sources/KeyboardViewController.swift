@@ -52,7 +52,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let moreShortcut = UIButton()
   private var morePicker: KeyboardMorePickerView?
   private let handwriting = HandwritingInputView()
-  private var handwritingHeight: NSLayoutConstraint?
+  private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
@@ -165,6 +165,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     height.identifier = "keyboardHeight"
     height.isActive = true
     keyboardHeightConstraint = height
+    updatePreferredKeyboardHeight()
     updateReturnKey()
     // installKeyboard builds the candidate strip before the letter rows exist, so the hints the
     // scheme button gathered there have not reached any key yet.
@@ -309,7 +310,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Keep the three keypad rows the same height as the bottom controls.
     nineKeyHeight = nineKeyContainer.heightAnchor.constraint(
       equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
-    handwritingHeight = handwriting.heightAnchor.constraint(equalTo: actionRow.heightAnchor, multiplier: 3, constant: 14)
+    // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
+    handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
   }
 
@@ -1573,7 +1575,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
     handwriting.isHidden = !writes
     if writes { handwriting.activate() }
-    handwritingHeight?.isActive = writes
+    handwritingActionHeight?.isActive = writes
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes }
     nineKeyContainer.isHidden = showsSymbols || !nineKey
     nineKeyRows.forEach { $0.isHidden = showsSymbols || !nineKey }
@@ -1623,6 +1625,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     layoutToggleButton?.accessibilityLabel =
       showsSymbols ? "切换到字母" : "切换到数字和符号"
+    updatePreferredKeyboardHeight()
   }
 
   private func handleBackspace() {
@@ -1985,11 +1988,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
     }
-    // Use the same viewport for every input layout; content's intrinsic height must not shrink it.
-    let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
-      ?? (traitCollection.verticalSizeClass == .compact)
-    let height: CGFloat = landscape ? 216 : 260
-    if keyboardHeightConstraint?.constant != height { keyboardHeightConstraint?.constant = height }
+    updatePreferredKeyboardHeight()
     func updateShadows(_ node: UIView) {
       if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
         button.layer.shadowPath = UIBezierPath(roundedRect: button.bounds,
@@ -1998,6 +1997,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       node.subviews.forEach { updateShadows($0) }
     }
     updateShadows(view)
+  }
+
+  private func updatePreferredKeyboardHeight() {
+    let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
+      ?? (traitCollection.verticalSizeClass == .compact)
+    let height: CGFloat = handwriting.isHidden
+      ? (landscape ? 216 : 260)
+      : (landscape ? 260 : 360)
+    if keyboardHeightConstraint?.constant != height { keyboardHeightConstraint?.constant = height }
   }
 
   private func showClipboardHistory() {
