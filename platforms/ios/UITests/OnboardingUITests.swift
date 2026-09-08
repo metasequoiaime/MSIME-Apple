@@ -2,6 +2,36 @@ import XCTest
 
 final class OnboardingUITests: XCTestCase {
   @MainActor
+  func testKeyboardAICompactLargeTextKeepsControlsReachable() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-keyboardAIPreview", "-keyboardCompactPreview", "-keyboardLargeType", "-keyboardLongPreview"]
+    app.launch()
+    let send = app.buttons["keyboardAISend"]
+    let close = app.buttons["keyboardServiceClose"]
+    XCTAssertTrue(send.waitForExistence(timeout: 5))
+    XCTAssertTrue(send.isHittable)
+    XCTAssertTrue(close.isHittable)
+    XCTAssertGreaterThanOrEqual(send.frame.height, 44)
+    XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+    XCTAssertLessThanOrEqual(send.frame.maxY - close.frame.minY, 216.5)
+    let scroll = app.scrollViews["keyboardAIScroll"]
+    XCTAssertGreaterThan(scroll.frame.height, 60)
+    // Error notifications must scroll back into view, including the same error on retry.
+    for _ in 0..<2 {
+      scroll.swipeUp()
+      send.tap()
+      let error = app.staticTexts["keyboardAIStatus"]
+      XCTAssertTrue(error.waitForExistence(timeout: 5))
+      XCTAssertGreaterThanOrEqual(error.frame.minY, scroll.frame.minY - 1)
+      XCTAssertLessThan(error.frame.minY, send.frame.minY)
+    }
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Keyboard AI compact accessibility text"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+  }
+
+  @MainActor
   func testVoiceResultIsExplicitlyTransferredAndClaimedOnce() {
     let app = XCUIApplication()
     let isolation = ["-voiceHandoffTestID", UUID().uuidString]
@@ -23,6 +53,7 @@ final class OnboardingUITests: XCTestCase {
     screenshot.name = "Keyboard voice result preview"
     screenshot.lifetime = .keepAlways
     add(screenshot)
+    XCTAssertGreaterThanOrEqual(app.buttons["keyboardVoiceInsert"].frame.height, 44)
     app.buttons["keyboardVoiceInsert"].tap()
     XCTAssertTrue(app.staticTexts["插入验证：语音交接测试。"].waitForExistence(timeout: 5))
     app.terminate()
@@ -42,6 +73,7 @@ final class OnboardingUITests: XCTestCase {
     screenshot.name = "Keyboard AI narrow panel"
     screenshot.lifetime = .keepAlways
     add(screenshot)
+    XCTAssertGreaterThanOrEqual(app.buttons["keyboardAISend"].frame.height, 44)
     app.buttons["keyboardAISend"].tap()
     XCTAssertTrue(app.staticTexts["输入位置或 AI 配置已变化，请关闭后重试。"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["keyboardAIInsert"].exists)

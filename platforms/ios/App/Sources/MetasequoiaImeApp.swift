@@ -17,18 +17,34 @@ struct MetasequoiaImeApp: App {
     WindowGroup {
       #if DEBUG && targetEnvironment(simulator)
       if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") {
-        KeyboardAIView(text: "这是一段待润色的测试文字。只有点击发送才会请求服务。",
+        KeyboardAIView(text: previewText,
           configuration: CustomServiceConfiguration(endpoint: "https://fixture.invalid/v1/chat/completions", model: "fixture"),
           canSend: { false }, insert: { _ in false }, close: {})
-          .frame(width: 320, height: 260)
+          .frame(width: 320, height: previewHeight)
+          .environment(\.sizeCategory, previewSizeCategory)
       } else if ProcessInfo.processInfo.arguments.contains("-keyboardVoicePreview") {
-        KeyboardVoicePreviewFixture().frame(width: 320, height: 260)
+        KeyboardVoicePreviewFixture().frame(width: 320, height: previewHeight)
+          .environment(\.sizeCategory, previewSizeCategory)
       } else { applicationContent }
       #else
       applicationContent
       #endif
     }
   }
+
+  #if DEBUG && targetEnvironment(simulator)
+  private var previewHeight: CGFloat {
+    ProcessInfo.processInfo.arguments.contains("-keyboardCompactPreview") ? 216 : 260
+  }
+  private var previewSizeCategory: ContentSizeCategory {
+    ProcessInfo.processInfo.arguments.contains("-keyboardLargeType") ? .accessibilityExtraExtraExtraLarge : .large
+  }
+  private var previewText: String {
+    ProcessInfo.processInfo.arguments.contains("-keyboardLongPreview")
+      ? String(repeating: "用于检测滚动区的测试段落。", count: 50)
+      : "这是一段待润色的测试文字。只有点击发送才会请求服务。"
+  }
+  #endif
 
   @ViewBuilder private var applicationContent: some View {
       if hasCompletedOnboarding {

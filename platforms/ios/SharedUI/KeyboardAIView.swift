@@ -19,6 +19,7 @@ struct KeyboardAIView: View {
   let close: () -> Void
   @State private var output = ""
   @State private var error = ""
+  @State private var errorID = UUID()
   @State private var busy = false
   @State private var operation: Task<Void, Never>?
 
@@ -26,17 +27,26 @@ struct KeyboardAIView: View {
     VStack(spacing: 4) {
       HStack {
         Label("AI 润色", systemImage: "sparkles").font(.headline)
+          .dynamicTypeSize(...DynamicTypeSize.xxxLarge).accessibilityAddTraits(.isHeader)
         Spacer()
-        Button("关闭", action: close).frame(minHeight: 44)
+        Button("关闭", action: close).accessibilityIdentifier("keyboardServiceClose")
       }
-      Text("发送到 \((try? configuration.validatedURL().host) ?? "") · \(configuration.model)")
-        .font(.caption).lineLimit(2).foregroundStyle(.secondary)
-      ScrollView {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(output.isEmpty ? "待发送的选中文字" : "润色结果").font(.caption).foregroundStyle(.secondary)
-          Text(output.isEmpty ? text : output).font(.body).frame(maxWidth: .infinity, alignment: .leading)
-          if !error.isEmpty { Text(error).foregroundStyle(.red).font(.footnote) }
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 6) {
+            if !error.isEmpty {
+              Text(error).foregroundStyle(.red).font(.footnote)
+                .id("status").accessibilityIdentifier("keyboardAIStatus")
+            }
+            Text("发送到 \(destination) · \(configuration.model)")
+              .font(.caption).foregroundStyle(.secondary)
+            Text(output.isEmpty ? "待发送的选中文字" : "润色结果").font(.caption).foregroundStyle(.secondary)
+            Text(output.isEmpty ? text : output).font(.body).frame(maxWidth: .infinity, alignment: .leading)
+              .accessibilityIdentifier("keyboardAIText")
+          }
         }
+        .accessibilityIdentifier("keyboardAIScroll")
+        .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
       }
       HStack {
         if busy {
@@ -47,19 +57,30 @@ struct KeyboardAIView: View {
         } else {
           Button("替换选中文字") {
             if insert(output) { close() }
-            else { error = "输入位置已变化，请关闭后重新选择文字。" }
+            else { showError("输入位置已变化，请关闭后重新选择文字。") }
           }.accessibilityIdentifier("keyboardAIInsert")
         }
       }.frame(minHeight: 44)
     }
     .padding(.horizontal, 12)
+    .buttonStyle(KeyboardPanelButtonStyle())
     .background(Color(uiColor: .secondarySystemBackground))
     .onDisappear { operation?.cancel() }
   }
 
+  private var destination: String {
+    guard let url = try? configuration.validatedURL(), let host = url.host else { return configuration.endpoint }
+    return "https://" + host + (url.port.map { ":\($0)" } ?? "")
+  }
+
+  private func showError(_ message: String) {
+    error = message
+    errorID = UUID()
+  }
+
   private func send() {
     guard canSend(), KeyboardAIService.configuration() == configuration else {
-      error = "输入位置或 AI 配置已变化，请关闭后重试。"
+      showError("输入位置或 AI 配置已变化，请关闭后重试。")
       return
     }
     busy = true
@@ -77,7 +98,7 @@ struct KeyboardAIView: View {
         }
         output = result
       } catch {
-        if !Task.isCancelled { self.error = error.localizedDescription }
+        if !Task.isCancelled { showError(error.localizedDescription) }
       }
       if !Task.isCancelled { busy = false }
     }
