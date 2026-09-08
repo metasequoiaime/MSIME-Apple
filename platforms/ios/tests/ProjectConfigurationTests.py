@@ -426,15 +426,13 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("diagnosticDismissTimer?.invalidate()", disappear)
 
     def test_onboarding_exposes_a_regular_text_field_for_keyboard_tryout(self):
-        onboarding = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()
-
-        self.assertIn('TextField("在这里试试水杉键盘"', onboarding)
-        self.assertIn('.accessibilityIdentifier("keyboardTryoutField")', onboarding)
-        # Without this the keyboard could not be put away without leaving the app.
-        self.assertIn("@FocusState private var tryoutFocused: Bool", onboarding)
-        self.assertIn(".focused($tryoutFocused)", onboarding)
-        self.assertIn('Button("收起键盘") { tryoutFocused = false }', onboarding)
-        self.assertIn('.accessibilityIdentifier("dismissKeyboardButton")', onboarding)
+        chat = (IOS_ROOT / "App/Sources/KeyboardChatView.swift").read_text()
+        self.assertIn('TextField("输入消息，试试键盘"', chat)
+        self.assertIn('.accessibilityIdentifier("keyboardTryoutField")', chat)
+        self.assertIn("@FocusState private var focused: Bool", chat)
+        self.assertIn(".focused($focused)", chat)
+        self.assertIn('Button("收起键盘") { focused = false }', chat)
+        self.assertIn('.accessibilityIdentifier("dismissKeyboardButton")', chat)
 
     def test_host_app_exposes_the_shared_input_scheme_setting(self):
         onboarding = (IOS_ROOT / "App/Sources/OnboardingView.swift").read_text()

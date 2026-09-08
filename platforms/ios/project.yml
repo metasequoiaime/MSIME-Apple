@@ -92,6 +92,7 @@ targets:
     sources:
       - path: platforms/ios/App/Sources
       - path: shared/backend/BackendAccountClient.swift
+      - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendAccountSession.swift
       - path: shared/backend/BackendClipboardClient.swift
       - path: shared/backend/BackendPreferencesClient.swift
@@ -211,6 +212,7 @@ targets:
       - path: platforms/ios/KeyboardTests
       - path: platforms/ios/App/Services/SkinCommunityAPI.swift
       - path: shared/backend/BackendAccountClient.swift
+      - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendAccountSession.swift
       - path: platforms/ios/KeyboardExtension/Sources
       - path: platforms/ios/App/Services/CustomService.swift
@@ -260,6 +262,7 @@ targets:
     sources:
       - path: platforms/ios/ServiceTests
       - path: shared/backend/BackendAccountClient.swift
+      - path: shared/backend/BackendChatClient.swift
       - path: shared/backend/BackendAccountSession.swift
       - path: shared/backend/BackendClipboardClient.swift
       - path: shared/backend/BackendPreferencesClient.swift

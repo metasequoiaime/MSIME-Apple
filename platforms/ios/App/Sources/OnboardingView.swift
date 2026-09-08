@@ -207,33 +207,6 @@ struct InputSettingsView: View {
   }
 }
 
-struct KeyboardTryoutView: View {
-  @State private var sampleText = ""
-  @FocusState private var tryoutFocused: Bool
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      Text("长按键盘上的地球键，切换到水杉输入法。")
-        .foregroundStyle(.secondary)
-      TextField("在这里试试水杉键盘", text: $sampleText)
-        .focused($tryoutFocused)
-        .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityIdentifier("keyboardTryoutField")
-      if tryoutFocused {
-        Button("收起键盘") { tryoutFocused = false }
-          .accessibilityIdentifier("dismissKeyboardButton")
-      }
-      Spacer()
-    }
-    .padding(22)
-    .background(MetasequoiaTheme.mist.ignoresSafeArea())
-    .navigationTitle("试用键盘")
-    .navigationBarTitleDisplayMode(.inline)
-    .onDisappear { tryoutFocused = false }
-  }
-}
-
 struct OnboardingView: View {
   var onFinish: (() -> Void)? = nil
 

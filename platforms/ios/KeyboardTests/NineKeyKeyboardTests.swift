@@ -4,6 +4,24 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testFuzzyPreferencesWaitForIdleAndSurviveSchemeRebuild() {
+    let bridge = MetasequoiaInputSessionBridge()
+    XCTAssertTrue(bridge.setFuzzyPinyinRules(1))
+    _ = bridge.handleCharacter("z")
+    XCTAssertFalse(bridge.setFuzzyPinyinRules(0))
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.setFuzzyPinyinRules(0))
+    XCTAssertTrue(bridge.setFuzzyPinyinRules(1))
+    _ = bridge.switchToNineKey()
+    _ = bridge.switch(toShuangpinProfile: "xiaohe")
+    _ = bridge.handleCharacter("z")
+    let view = bridge.handleCharacter("s")
+    XCTAssertTrue(view.candidates.contains("中"))
+    XCTAssertFalse(bridge.setFuzzyPinyinRules(0))
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.setFuzzyPinyinRules(0))
+  }
+
   func testDisabledSchemesAreHiddenAndCurrentSchemeFallsBack() throws {
     let defaults = try XCTUnwrap(UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier))
     let previousEnabled = defaults.object(forKey: InputSchemePreference.enabledSchemesKey)

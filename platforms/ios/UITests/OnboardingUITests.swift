@@ -577,6 +577,29 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testKeyboardChatSendsAndDisplaysReply() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
+    app.launch()
+    for _ in 0..<6 {
+      if app.buttons["keyboardTryoutLink"].isHittable { break }
+      app.swipeUp()
+    }
+    app.buttons["keyboardTryoutLink"].tap()
+    XCTAssertTrue(app.buttons["keyboardChatModelPicker"].waitForExistence(timeout: 5))
+    let input = app.textFields["keyboardTryoutField"]
+    input.tap(); input.typeText("hello")
+    app.buttons["keyboardChatSend"].tap()
+    XCTAssertTrue(app.staticTexts["已收到：hello"].waitForExistence(timeout: 5))
+    XCTAssertEqual(input.value as? String, input.placeholderValue)
+    app.buttons["dismissKeyboardButton"].tap()
+    let image = XCTAttachment(screenshot: app.screenshot())
+    image.name = "Keyboard chat with model selection"
+    image.lifetime = .keepAlways
+    add(image)
+  }
+
+  @MainActor
   func testFuzzyPreferencesAndInformationPages() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

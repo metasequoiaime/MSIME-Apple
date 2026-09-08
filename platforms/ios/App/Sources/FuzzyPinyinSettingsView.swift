@@ -23,9 +23,9 @@ struct FuzzyPinyinSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Label("配置可保存，当前版本暂不生效", systemImage: "info.circle")
+        Label("全拼、九键与双拼均支持", systemImage: "info.circle")
           .foregroundStyle(.secondary).accessibilityIdentifier("fuzzyPinyinAvailability")
-        Text("当前版本尚未支持模糊音匹配。这里保存你的偏好，启用开关暂时不会改变输入候选。").font(.footnote).foregroundStyle(.secondary)
+        Text("勾选容易混淆的读音后，会补充对应候选。更改会在当前输入结束后生效。").font(.footnote).foregroundStyle(.secondary)
       }
       Section {
         Toggle("启用模糊音", isOn: $enabled).accessibilityIdentifier("fuzzyPinyinEnabled")
