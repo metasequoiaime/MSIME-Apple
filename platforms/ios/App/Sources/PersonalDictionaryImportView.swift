@@ -36,7 +36,7 @@ struct PersonalDictionaryImportView: View {
             catch { self.error = error.localizedDescription }
           }
         } footer: {
-          Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持搜狗等输入法的专有词库文件。")
+          Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
         }
         if loading { Section { ProgressView("正在读取并校验词库…") } }
         if let preview {

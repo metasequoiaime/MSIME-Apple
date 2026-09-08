@@ -98,7 +98,7 @@ struct WelcomeFlowView: View {
           .accessibilityValue(scheme == choice ? "已选择" : "未选择")
       }
       NavigationLink(destination: KeyboardLayoutSettingsView()) {
-        Label("沿用搜狗、微信或豆包的键位习惯", systemImage: "rectangle.3.group")
+        Label("选择适合你的键盘布局", systemImage: "rectangle.3.group")
       }
       NavigationLink(destination: InputSettingsView()) {
         Label("查看全部输入方案", systemImage: "slider.horizontal.3")

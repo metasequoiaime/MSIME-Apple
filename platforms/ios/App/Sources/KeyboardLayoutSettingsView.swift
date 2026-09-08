@@ -33,7 +33,7 @@ struct KeyboardLayoutSettingsView: View {
           }.buttonStyle(.plain).accessibilityIdentifier("layoutPreset_\(preset.rawValue)")
             .accessibilityValue(selected == preset ? "已选择" : "未选择")
         }
-        Text("习惯布局参考常用键位，不会切换输入引擎或改变皮肤。不同版本及个人设置可能有差异；语音入口使用水杉现有的语音结果功能。")
+        Text("布局调整按键排列和间距，不会切换输入方案或改变皮肤。语音入口用于打开已识别的语音结果。")
           .font(.footnote).foregroundStyle(.secondary)
       }.padding(20)
     }.background(Color(uiColor: .systemGroupedBackground))

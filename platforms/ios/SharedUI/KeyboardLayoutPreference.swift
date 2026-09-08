@@ -6,9 +6,9 @@ enum KeyboardLayoutPreset: String, CaseIterable {
   var title: String {
     switch self {
     case .msime: "水杉默认"
-    case .sogou: "搜狗习惯"
-    case .wechat: "微信习惯"
-    case .doubao: "豆包习惯"
+    case .sogou: "符号增强"
+    case .wechat: "简洁布局"
+    case .doubao: "紧凑语音"
     }
   }
   var detail: String {
