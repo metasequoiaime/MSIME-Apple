@@ -26,6 +26,49 @@ extension BackendAccountClient {
     let previous: DictionaryEntry?
     let replacement: DictionaryEntry?
   }
+  struct DictionaryChangePage: Decodable, Sendable {
+    struct Entry: Decodable, Sendable {
+      let id: String
+      let kind: DictionaryKind
+      let code: String
+      let word: String
+      let weight: Int64
+      let revision: Int64
+      let user_inserted: Bool?
+    }
+    struct Selection: Decodable, Sendable {
+      let context: String
+      let code: String
+      let word: String
+      let count: Int
+    }
+    struct Change: Decodable, Sendable {
+      let revision: Int64
+      let previous: Entry?
+      let replacement: Entry?
+      let reset: Bool?
+      let ranking: [Entry]?
+      let selection: Selection?
+      // A zero position removes a fixed slot; retain it in the change feed.
+      let position: FixedPosition?
+    }
+    let changes: [Change]
+    let next: Int64
+    let has_more: Bool
+  }
+  func dictionaryChanges(after: Int64, limit: Int = 100, token: String) async throws -> DictionaryChangePage {
+    guard after >= 0, (1...100).contains(limit) else { throw Failure(status: 400) }
+    let page: DictionaryChangePage = try await json("GET",
+      "/v1/users/me/dictionary/changes?after=\(after)&limit=\(limit)", token: token)
+    var cursor = after
+    guard page.changes.count <= limit else { throw Failure(status: 502) }
+    for change in page.changes {
+      guard change.revision > cursor else { throw Failure(status: 502) }
+      cursor = change.revision
+    }
+    guard page.next == cursor, !page.has_more || !page.changes.isEmpty else { throw Failure(status: 502) }
+    return page
+  }
   struct DictionaryValue: Encodable, Sendable {
     let code: String
     let word: String

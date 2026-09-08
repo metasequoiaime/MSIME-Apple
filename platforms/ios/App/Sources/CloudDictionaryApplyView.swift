@@ -101,7 +101,14 @@ struct CloudDictionaryApplyView: View {
     pending = Task {
       defer { busy = false }
       do {
+        let token = try await authorize()
+        let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1, token: token)
         _ = try await authorize(); try Task.checkCancellation()
+        guard changes.changes.isEmpty else {
+          self.preview = nil; expectedVersion = nil
+          message = "预览后云词库已变化，请重新下载并确认。"
+          return
+        }
         let copy = Task.detached(priority: .utility) {
           try queue.enqueue(file: preview.url, accountID: accountID, cloudRevision: preview.envelope.revision,
             expectedLocalVersion: version, fileSHA256: preview.fileSHA256)
