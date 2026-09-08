@@ -17,6 +17,9 @@ struct KeyboardSkinPreview: View {
       .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
       .accessibilityIdentifier("fullKeyboardSkinPreview")
   }
+  // Match the native nine-key sidebar proportions within the 390-point canvas.
+  private var nineKeySidebarWidth: CGFloat { (390 - 14) * layout.sidebarRatio }
+
   private var keyboard: some View {
     VStack(spacing: layout.rowSpacing) {
       HStack(spacing: 10) {
@@ -34,7 +37,7 @@ struct KeyboardSkinPreview: View {
         HStack(spacing: 6) {
           VStack(spacing: 5) {
             ForEach(["，", "。", "？", "！"], id: \.self) { value in key(value) }
-          }.frame(width: 38)
+          }.frame(width: nineKeySidebarWidth)
           VStack(spacing: layout.rowSpacing) {
             row(["分词", "ABC", "DEF"])
             row(["GHI", "JKL", "MNO"])
@@ -44,7 +47,7 @@ struct KeyboardSkinPreview: View {
             key("⌫")
             key("重输")
             key("0")
-          }.frame(width: 38)
+          }.frame(width: nineKeySidebarWidth)
         }.frame(maxHeight: .infinity)
       } else {
         VStack(spacing: layout.rowSpacing) {
