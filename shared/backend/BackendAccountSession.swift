@@ -148,9 +148,12 @@ actor BackendAccountSession {
     let value = BackendSavedSession(tokens: tokens, expiresAt: current.expiresAt)
     try storage.save(value); saved = value
   }
-  func credentials() async throws -> (userID: String, token: String) {
-    let token = try await accessToken()
-    guard let saved, saved.tokens.access_token == token else { throw CancellationError() }
+  func credentials(retrying rejectedToken: String? = nil, matchingUserID expected: String? = nil) async throws -> (userID: String, token: String) {
+    try load()
+    if let expected, saved?.tokens.user.id != expected { throw CancellationError() }
+    let token = try await accessToken(retrying: rejectedToken)
+    guard let saved, saved.tokens.access_token == token,
+          expected == nil || saved.tokens.user.id == expected else { throw CancellationError() }
     return (saved.tokens.user.id, token)
   }
   func forget() throws {

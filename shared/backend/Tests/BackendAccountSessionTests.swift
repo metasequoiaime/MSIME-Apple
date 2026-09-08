@@ -62,6 +62,28 @@ final class BackendAccountSessionTests: XCTestCase {
     catch is CancellationError { }
     XCTAssertNil(try storage.load())
   }
+  func testRetryForDifferentAccountNeverRefreshesOrReturnsCurrentToken() async throws {
+    let storage = MemorySessions(.init(tokens: RefreshAPI.tokens(), expiresAt: .distantPast))
+    let api = RefreshAPI()
+    let session = BackendAccountSession(api: api, storage: storage)
+    do {
+      _ = try await session.credentials(retrying: "old-account-token", matchingUserID: "previous-account")
+      XCTFail("must not retry an old account request as the current account")
+    } catch is CancellationError { }
+    let count = await api.refreshCount
+    XCTAssertEqual(count, 0)
+  }
+  func testBoundCredentialsRejectLogoutDuringRefresh() async throws {
+    let storage = MemorySessions(.init(tokens: RefreshAPI.tokens(), expiresAt: .distantPast))
+    let api = RefreshAPI()
+    let session = BackendAccountSession(api: api, storage: storage)
+    let pending = Task { try await session.credentials(matchingUserID: "synthetic-user") }
+    await api.waitUntilRefreshing()
+    try await session.forget()
+    await api.finish()
+    do { _ = try await pending.value; XCTFail("late credentials returned") }
+    catch is CancellationError { }
+  }
   func testLogoutGenerationRejectsLateRefresh() async throws {
     let storage = MemorySessions(.init(tokens: RefreshAPI.tokens(), expiresAt: .distantPast))
     let api = RefreshAPI()
