@@ -1542,8 +1542,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateLetterRowInsets() {
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
-    let inset = KeyboardLayoutPreference.selected.centeredLetters && inputScheme != .microsoft
-      ? max(0, view.bounds.width - 10) * KeyboardLayoutPreference.selected.letterInsetRatio : 0
+    let inset: CGFloat = KeyboardLayoutPreference.selected.centeredLetters && inputScheme != .microsoft
+      ? max(0, view.bounds.width - 10) * CGFloat(KeyboardLayoutPreference.selected.letterInsetRatio) : 0
     let margins = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
     if row.layoutMargins != margins {
       row.isLayoutMarginsRelativeArrangement = true
