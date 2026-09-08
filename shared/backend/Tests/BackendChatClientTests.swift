@@ -10,6 +10,7 @@ private final class ChatProtocol: URLProtocol {
     var status = 200
     if request.value(forHTTPHeaderField: "Authorization") != "Bearer session" { status = 401 }
     if request.url!.path == "/v1/chat/completions" {
+      XCTAssertEqual(request.timeoutInterval, 75)
       let stream = request.httpBodyStream
       stream?.open(); defer { stream?.close() }
       var data = request.httpBody ?? Data()
