@@ -105,15 +105,16 @@ struct BackendAccountClient: Sendable {
   // Used by the explicit user-data screens as well as account operations. No redirects,
   // cookies, cached private data, arbitrary origins, or server error text are exposed.
   func request(_ method: String, _ path: String, token: String? = nil,
-               body: Data? = nil, timeout: TimeInterval = 30) async throws -> Data {
+               body: Data? = nil, timeout: TimeInterval = 30, maximumResponseBytes: Int = 1024 * 1024) async throws -> Data {
+    guard (1...48 * 1024 * 1024).contains(maximumResponseBytes) else { throw Failure(status: 0) }
     let request = try makeRequest(method, path, token: token, body: body, timeout: timeout)
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
     guard (200..<300).contains(response.statusCode) else { throw Failure(status: response.statusCode) }
-    guard response.expectedContentLength <= 1024 * 1024 else { throw Failure(status: 0) }
+    guard response.expectedContentLength <= maximumResponseBytes else { throw Failure(status: 0) }
     var data = Data()
     for try await byte in bytes {
-      guard data.count < 1024 * 1024 else { throw Failure(status: 0) }
+      guard data.count < maximumResponseBytes else { throw Failure(status: 0) }
       data.append(byte)
     }
     try Task.checkCancellation()
@@ -209,8 +210,8 @@ struct BackendAccountClient: Sendable {
   }
 
   func json<T: Decodable>(_ method: String, _ path: String, token: String? = nil,
-                                  body: Data? = nil, timeout: TimeInterval = 30) async throws -> T {
-    let data = try await request(method, path, token: token, body: body, timeout: timeout)
+                                  body: Data? = nil, timeout: TimeInterval = 30, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
+    let data = try await request(method, path, token: token, body: body, timeout: timeout, maximumResponseBytes: maximumResponseBytes)
     do { return try JSONDecoder().decode(T.self, from: data) }
     catch { throw Failure(status: 0) }
   }

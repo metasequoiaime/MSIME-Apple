@@ -101,6 +101,7 @@ targets:
       - path: shared/backend/BackendDictionaryClient.swift
       - path: shared/backend/BackendCandidateClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      - path: shared/backend/BackendCommunityResourceClient.swift
       - path: platforms/ios/App/Services
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
@@ -282,6 +283,7 @@ targets:
       - path: shared/backend/BackendDictionaryClient.swift
       - path: shared/backend/BackendCandidateClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      - path: shared/backend/BackendCommunityResourceClient.swift
       - path: platforms/ios/App/Services/CustomService.swift
       - path: platforms/ios/App/Services/AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp

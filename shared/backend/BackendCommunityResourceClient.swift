@@ -1,0 +1,113 @@
+import Foundation
+
+extension BackendAccountClient {
+  enum ResourceKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case dictionary, reply
+    var id: String { rawValue }
+    var title: String { self == .dictionary ? "共享词包" : "回复模板" }
+  }
+  enum ResourceScope: String, CaseIterable, Sendable { case all = "", mine, saved }
+  struct SharedWord: Codable, Sendable {
+    let kind: DictionaryKind
+    let code: String
+    let word: String
+    let weight: Int64
+  }
+  struct ResourceContent: Codable, Sendable {
+    var entries: [SharedWord]? = nil
+    var prompt: String? = nil
+  }
+  struct CommunityResource: Decodable, Identifiable, Sendable {
+    let id: UUID
+    let kind: ResourceKind
+    let name: String
+    let description: String
+    let author: String
+    let content: ResourceContent
+    let revision: Int
+    let saves: Int
+    let saved: Bool
+    let owned: Bool
+    let rating_count: Int
+    let rating_average: Double
+    let my_rating: Int
+  }
+  struct ResourcePage: Decodable, Sendable {
+    let items: [CommunityResource]
+    let has_more: Bool
+  }
+  struct ResourcePublication: Decodable, Sendable {
+    let id: UUID
+    let revision: Int
+  }
+  // A page contains up to twenty complete 350 KB publications. JSON escaping can
+  // expand a stored character sixfold; give only this endpoint a larger bound.
+  func communityResources(_ kind: ResourceKind, scope: ResourceScope = .all, search: String = "",
+                          offset: Int = 0, token: String? = nil) async throws -> ResourcePage {
+    guard (0...1_000_000).contains(offset), Self.resourceText(search, minimum: 0, maximum: 128, multiline: false),
+          scope == .all || token != nil else { throw Failure(status: 400) }
+    var parts = URLComponents()
+    parts.path = "/v1/community/resources"
+    parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope.rawValue),
+                        .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
+    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+    guard let path = parts.string else { throw Failure(status: 400) }
+    let page: ResourcePage = try await json("GET", path, token: token, maximumResponseBytes: 48 * 1024 * 1024)
+    guard page.items.count <= 20, !page.has_more || !page.items.isEmpty,
+          Set(page.items.map(\.id)).count == page.items.count,
+          page.items.allSatisfy({ $0.kind == kind && $0.revision > 0 }) else { throw Failure(status: 502) }
+    return page
+  }
+  func communityResource(_ id: UUID, token: String? = nil) async throws -> CommunityResource {
+    let value: CommunityResource = try await json("GET", Self.resourcePath(id), token: token,
+                                                 maximumResponseBytes: 3 * 1024 * 1024)
+    guard value.id == id, value.revision > 0 else { throw Failure(status: 502) }
+    return value
+  }
+  func publishResource(id: UUID, kind: ResourceKind, name: String, description: String,
+                       content: ResourceContent, revision: Int, token: String) async throws -> ResourcePublication {
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard revision >= 0, Self.resourceText(name, minimum: 1, maximum: 32, multiline: false),
+          Self.resourceText(description, minimum: 0, maximum: 280, multiline: true) else { throw Failure(status: 400) }
+    switch kind {
+    case .dictionary:
+      guard content.prompt?.isEmpty != false, let entries = content.entries, (1...128).contains(entries.count) else { throw Failure(status: 400) }
+    case .reply:
+      guard content.entries?.isEmpty != false, let prompt = content.prompt,
+            Self.resourceText(prompt, minimum: 1, maximum: 2000, multiline: true) else { throw Failure(status: 400) }
+    }
+    struct Body: Encodable { let id: String; let kind: ResourceKind; let name: String; let description: String; let content: ResourceContent; let revision: Int }
+    let body = try JSONEncoder().encode(Body(id: id.uuidString.lowercased(), kind: kind, name: name,
+                                           description: description, content: content, revision: revision))
+    guard body.count <= 350000 else { throw Failure(status: 400) }
+    let result: ResourcePublication = try await json("POST", "/v1/community/resources", token: token, body: body)
+    guard result.id == id, result.revision > 0 else { throw Failure(status: 502) }
+    return result
+  }
+  func saveResource(_ id: UUID, saved: Bool, token: String) async throws {
+    struct Body: Codable { let saved: Bool }
+    let response: Body = try await json("PUT", Self.resourcePath(id) + "/save", token: token,
+                                        body: JSONEncoder().encode(Body(saved: saved)))
+    guard response.saved == saved else { throw Failure(status: 502) }
+  }
+  func rateResource(_ id: UUID, stars: Int, token: String) async throws {
+    guard (1...5).contains(stars) else { throw Failure(status: 400) }
+    struct Body: Codable { let stars: Int }
+    let response: Body = try await json("PUT", Self.resourcePath(id) + "/rating", token: token,
+                                        body: JSONEncoder().encode(Body(stars: stars)))
+    guard response.stars == stars else { throw Failure(status: 502) }
+  }
+  func deleteResource(_ id: UUID, token: String) async throws {
+    struct Result: Decodable { let deleted: Bool }
+    let response: Result = try await json("DELETE", Self.resourcePath(id), token: token)
+    guard response.deleted else { throw Failure(status: 502) }
+  }
+  private static func resourcePath(_ id: UUID) -> String { "/v1/community/resources/" + id.uuidString.lowercased() }
+  private static func resourceText(_ text: String, minimum: Int, maximum: Int, multiline: Bool) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count >= minimum &&
+      text.unicodeScalars.count <= maximum && text.unicodeScalars.allSatisfy {
+        $0.properties.generalCategory != .control || (multiline && ($0 == "\n" || $0 == "\t"))
+      }
+  }
+}

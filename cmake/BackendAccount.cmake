@@ -13,6 +13,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendDictionaryClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendCandidateClient.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendSnapshotClient.swift"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend/BackendCommunityResourceClient.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendFileTransfer.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendSnapshotView.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendLocalSnapshot.swift"
