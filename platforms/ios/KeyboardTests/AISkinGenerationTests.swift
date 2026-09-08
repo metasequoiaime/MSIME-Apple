@@ -58,8 +58,11 @@ final class AISkinGenerationTests: XCTestCase {
     }
     ThemeProtocol.reset(image: try XCTUnwrap(image.pngData()))
     let api = client()
+    var progress: [Int] = []
     let proposals = try await AISkinService.generate("合成主题验收", client: api,
-      account: BackendAccountSession(api: api, storage: ThemeSessionStorage()))
+      account: BackendAccountSession(api: api, storage: ThemeSessionStorage()), progress: { progress.append($0) })
+    XCTAssertEqual(progress, [1, 2, 3])
+    XCTAssertEqual(proposals.map(\.name), ["鼠尾草晨雾", "奶油月光", "香草信笺"])
     XCTAssertEqual(proposals.count, 3)
     XCTAssertEqual(Set(proposals.compactMap { $0.design.keyShape }).count, 3)
     XCTAssertEqual(Set(proposals.compactMap { $0.design.keyMaterial }).count, 3)
@@ -81,6 +84,6 @@ final class AISkinGenerationTests: XCTestCase {
         account: BackendAccountSession(api: api, storage: ThemeSessionStorage()))
       XCTFail("Corrupt artwork must fail generation")
     } catch { XCTAssertTrue(error.localizedDescription.contains("插画")) }
-    XCTAssertEqual(ThemeProtocol.paths.filter { $0 == "/v1/skins/generate" }.count, 1)
+    XCTAssertTrue((1...3).contains(ThemeProtocol.paths.filter { $0 == "/v1/skins/generate" }.count))
   }
 }

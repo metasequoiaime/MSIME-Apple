@@ -8,6 +8,12 @@ struct AISkinProposal: Identifiable, Sendable {
 }
 
 enum AISkinService {
+  static func drawPrompt() -> String {
+    let scenes = ["月光森林里的狐狸茶屋", "云朵之间的鲸鱼邮局", "雨夜街角的猫咪书店", "星际列车上的花园", "蘑菇村的秋日集市", "珊瑚海里的水母舞会", "雪山小屋与极光", "竹林里的熊猫茶会", "沙漠星空下的旅店", "复古街机里的糖果世界", "樱花河畔的兔子野餐", "漂浮岛屿上的灯塔"]
+    let selected = scenes.shuffled().prefix(3).joined(separator: "；")
+    return "这是一次随机皮肤抽卡。分别围绕以下三个灵感创作三套主题，每套对应一个场景：\(selected)。自由设计原创角色、插画风格和配色，三套键帽造型与材质都要不同，文字清晰。不要使用已有品牌或角色。"
+  }
+
   static let systemPrompt = """
   你是输入法皮肤设计师。根据用户描述生成恰好三套明显不同、精致且文字清晰的键盘皮肤。
   只返回 JSON 对象，不要 Markdown。格式：{"skins":[{"name":"中文名称","description":"中文设计说明","background":"#E8F0EB","keyBackground":"#FFFFFF","keyForeground":"#17251D","accent":"#185C47","actionBackground":"#185C47","gradientEnd":"#D9E8DD","gradientHorizontal":false,"keyShape":"pebble","keyMaterial":"raised","cornerRadius":8,"borderWidth":0,"shadow":0.1,"pattern":0,"monospaced":false}]}
@@ -72,7 +78,8 @@ enum AISkinService {
     return results
   }
   static func generate(_ prompt: String, client: BackendAccountClient = BackendAccountClient(),
-                       account: BackendAccountSession = .shared) async throws -> [AISkinProposal] {
+                       account: BackendAccountSession = .shared,
+                       progress: @MainActor @Sendable (Int) -> Void = { _ in }) async throws -> [AISkinProposal] {
     let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     guard (1...500).contains(prompt.count) else { throw ServiceFailure(message: "请填写 1–500 字的皮肤风格描述。") }
     let identity = try await account.credentials()
@@ -88,16 +95,34 @@ enum AISkinService {
           Set(plans.compactMap { $0.design.keyMaterial }).count == 3 else {
       throw ServiceFailure(message: "AI 未提供足够不同的键帽设计，请重新生成。")
     }
-    var illustrated: [AISkinProposal] = []
-    for plan in plans {
-      let credential = try await account.credentials(matchingUserID: identity.userID)
+    return try await withThrowingTaskGroup(of: (Int, AISkinProposal).self) { group in
+      // The validated response has exactly three independent illustrations.
+      for (index, plan) in plans.enumerated() {
+        group.addTask {
+          (index, try await illustrate(plan, prompt: prompt, client: client, account: account, userID: identity.userID))
+        }
+      }
+      var completed: [(Int, AISkinProposal)] = []
+      for try await value in group {
+        completed.append(value)
+        try Task.checkCancellation()
+        await progress(completed.count)
+      }
+      _ = try await account.credentials(matchingUserID: identity.userID)
+      try Task.checkCancellation()
+      return completed.sorted { $0.0 < $1.0 }.map { $0.1 }
+    }
+  }
+  private static func illustrate(_ plan: AISkinProposal, prompt: String, client: BackendAccountClient,
+                                 account: BackendAccountSession, userID: String) async throws -> AISkinProposal {
+      let credential = try await account.credentials(matchingUserID: userID)
       try Task.checkCancellation()
       struct Body: Encodable { let prompt: String }
       struct Artwork: Decodable { let b64_json: String; let mime_type: String; let width: Int; let height: Int }
       let artwork: Artwork = try await client.json("POST", "/v1/skins/generate", token: credential.token,
         body: JSONEncoder().encode(Body(prompt: prompt + "。方案：" + plan.name + "。" + plan.description)),
         timeout: 180, maximumResponseBytes: 12 * 1024 * 1024)
-      _ = try await account.credentials(matchingUserID: identity.userID)
+      _ = try await account.credentials(matchingUserID: userID)
       try Task.checkCancellation()
       guard ["image/png", "image/jpeg"].contains(artwork.mime_type), (1...2048).contains(artwork.width),
             (1...2048).contains(artwork.height), let data = Data(base64Encoded:artwork.b64_json),
@@ -113,8 +138,6 @@ enum AISkinService {
       var design = plan.design
       design.photo = photo; design.photoShade = 0.08; design.photoPosition = 0.5
       design.keyOpacity = 0.92; design.pattern = 0
-      illustrated.append(.init(name:plan.name,description:plan.description,design:design))
-    }
-    return illustrated
+      return .init(name:plan.name,description:plan.description,design:design)
   }
 }

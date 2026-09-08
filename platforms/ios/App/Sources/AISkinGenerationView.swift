@@ -4,33 +4,32 @@ import SwiftUI
 struct AISkinGenerationView: View {
   let useDesign: (CustomKeyboardSkin) -> Void
   @Environment(\.dismiss) private var dismiss
-  @State private var prompt = ""
   @State private var proposals: [AISkinProposal] = []
   @State private var saved: [UUID: UUID] = [:]
   @State private var publishing: SavedKeyboardSkin?
   @State private var login = false
   @State private var busy = false
+  @State private var completed = 0
   @State private var message: String?
   @State private var request: Task<Void, Never>?
   var body: some View {
     NavigationView {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
-          Text("描述你想要的键盘，AI 为你绘制三套插画主题，搭配可编辑键帽。")
-          Text("例如：奶油白与鼠尾草绿，圆润、安静").font(.caption).foregroundStyle(.secondary)
-          TextEditor(text: $prompt).frame(minHeight: 90).overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3))).accessibilityIdentifier("aiSkinPrompt")
-            .onChange(of: prompt) { if $0.count > 500 { prompt = String($0.prefix(500)) } }
-          HStack {
-            ForEach(["清新森林", "深色赛博", "柔和樱花"], id: \.self) { style in
-              Button(style) { prompt = style + "，文字清晰，三种不同的设计" }.buttonStyle(.bordered)
-            }
-          }.disabled(busy)
-          Button(proposals.isEmpty ? "生成三套皮肤" : "再生成三套") { generate() }
-            .buttonStyle(.borderedProminent).disabled(busy || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          VStack(alignment: .leading, spacing: 8) {
+            Text("下一张，会是什么风格？").font(.title2.bold())
+            Text("一次抽出三张原创皮肤，遇到喜欢的就留下。")
+              .font(.subheadline).foregroundStyle(.secondary)
+          }
+          if proposals.isEmpty || busy { mysteryCards }
+          Button { generate() } label: {
+            Label(proposals.isEmpty ? "抽三张皮肤" : "再抽三张", systemImage: "sparkles")
+              .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+          }.buttonStyle(.borderedProminent).disabled(busy)
             .accessibilityIdentifier("generateAISkins")
-          Text("点击生成时仅发送这段风格描述。生成结果不会自动应用、保存或公开。")
+          Text("AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。")
             .font(.caption).foregroundStyle(.secondary)
-          if busy { HStack { ProgressView(); Text("正在绘制三套主题插画，可能需要几分钟…"); Button("取消") { request?.cancel() } } }
+          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { request?.cancel() } } }
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
@@ -46,7 +45,7 @@ struct AISkinGenerationView: View {
             }.padding().background(Color(uiColor:.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius:16))
           }
         }.padding()
-      }.navigationTitle("AI 设计皮肤").navigationBarTitleDisplayMode(.inline)
+      }.navigationTitle("AI 皮肤抽卡").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement:.cancellationAction) { Button("完成") { dismiss() } } }
     }
     .onDisappear { request?.cancel() }
@@ -55,9 +54,29 @@ struct AISkinGenerationView: View {
       ToolbarItem(placement:.cancellationAction) { Button("完成") { login = false } }
     } } }
   }
+  private var mysteryCards: some View {
+    HStack(spacing: 12) {
+      ForEach(0..<3) { index in
+        VStack(spacing: 12) {
+          Text("MSIME").font(.caption2.weight(.semibold)).tracking(2)
+          Spacer(minLength: 0)
+          Image(systemName: ["leaf.fill", "moon.stars.fill", "sparkles"][index])
+            .font(.system(size: 30, weight: .light))
+          Spacer(minLength: 0)
+          Text("等待揭晓").font(.caption)
+        }.foregroundStyle(.white.opacity(0.95)).padding(14)
+          .frame(maxWidth: .infinity).frame(height: 150)
+          .background(LinearGradient(colors: index == 1 ? [Color(red: 0.35, green: 0.30, blue: 0.56), Color(red: 0.17, green: 0.15, blue: 0.29)] :
+            [Color(red: 0.29, green: 0.52, blue: 0.44), Color(red: 0.10, green: 0.29, blue: 0.24)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 16))
+          .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.25), lineWidth: 1).padding(5))
+          .rotationEffect(.degrees(Double(index - 1) * 5))
+          .offset(y: index == 1 ? -5 : 5)
+      }
+    }.padding(.vertical, 12).accessibilityHidden(true)
+  }
   private func generate() {
-    guard !busy else { return }; busy = true; message = nil
-    let description = prompt
+    guard !busy else { return }; busy = true; message = nil; completed = 0
+    let description = AISkinService.drawPrompt()
     request = Task {
       defer { busy = false; request = nil }
       do {
@@ -67,14 +86,14 @@ struct AISkinGenerationView: View {
           values = CustomKeyboardSkin.templates.prefix(3).enumerated().map {
             AISkinProposal(name: "AI 测试 \($0.offset + 1)", description: "仅用于界面自动化的合成设计", design: $0.element.1)
           }
-        } else { values = try await AISkinService.generate(description) }
+        } else { values = try await AISkinService.generate(description) { completed = $0 } }
         #else
-        values = try await AISkinService.generate(description)
+        values = try await AISkinService.generate(description) { completed = $0 }
         #endif
         try Task.checkCancellation(); proposals = values
       } catch is CancellationError { }
       catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-        message = "请先登录，再点击生成。"; login = true
+        message = "请先登录，再来抽取皮肤。"; login = true
       } catch { if !Task.isCancelled { message = error.localizedDescription } }
     }
   }

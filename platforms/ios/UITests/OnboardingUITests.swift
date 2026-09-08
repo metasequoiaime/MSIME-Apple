@@ -61,8 +61,11 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["skinSettingsLink"].tap()
     app.buttons["customSkinEditorLink"].tap()
     app.buttons["openAISkinDesigner"].tap()
-    XCTAssertTrue(app.navigationBars["AI 设计皮肤"].waitForExistence(timeout: 5))
-    app.buttons["清新森林"].tap()
+    XCTAssertTrue(app.navigationBars["AI 皮肤抽卡"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.textViews["aiSkinPrompt"].exists)
+    XCTAssertTrue(app.buttons["generateAISkins"].isEnabled)
+    let deck = XCTAttachment(screenshot: app.screenshot())
+    deck.name = "AI 皮肤抽卡入口"; deck.lifetime = .keepAlways; add(deck)
     app.buttons["generateAISkins"].tap()
     let save = app.buttons["saveAISkin_AI 测试 1"]
     XCTAssertTrue(save.waitForExistence(timeout: 5))

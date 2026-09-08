@@ -298,7 +298,7 @@ if section == "我的" {
   var body: some View {
     GeometryReader { geometry in
       VStack(spacing: 0) {
-        Button { showAI = true } label: { Label("AI 设计皮肤", systemImage: "sparkles").frame(maxWidth: .infinity) }
+        Button { showAI = true } label: { Label("AI 皮肤抽卡", systemImage: "sparkles").frame(maxWidth: .infinity) }
           .buttonStyle(.bordered).padding(.horizontal).accessibilityIdentifier("openAISkinDesigner")
         categoryBar
         if geometry.size.width > geometry.size.height {

@@ -29,7 +29,7 @@ extension BackendAccountClient {
     else { throw Failure(status: 400) }
     let body = try JSONEncoder().encode(Body(messages: messages, model: model))
     guard body.count <= 65536 else { throw Failure(status: 400) }
-    let response: Response = try await json("POST", "/v1/chat/completions", token: token, body: body, timeout: 75)
+    let response: Response = try await json("POST", "/v1/chat/completions", token: token, body: body, timeout: 125)
     guard let reply = response.choices.first?.message, reply.role == "assistant",
           !reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
           reply.content.utf8.count <= 16384 else { throw Failure(status: 502) }
