@@ -128,7 +128,7 @@ struct BackendAccountClient: Sendable {
     try Task.checkCancellation()
     return data
   }
-  private func json<T: Decodable>(_ method: String, _ path: String, token: String? = nil,
+  func json<T: Decodable>(_ method: String, _ path: String, token: String? = nil,
                                   body: Data? = nil) async throws -> T {
     let data = try await request(method, path, token: token, body: body)
     do { return try JSONDecoder().decode(T.self, from: data) }

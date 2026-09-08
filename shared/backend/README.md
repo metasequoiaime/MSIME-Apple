@@ -5,3 +5,5 @@
 当前已提供渠道查询、登录挑战、登录、刷新、账号资料、修改名称、注销会话与删除账号的传输。iOS 设置页通过原生 Apple 登录按钮传递服务端 nonce/state，令牌存入仅当前设备可用的 Keychain；会话 actor 协调刷新并拒绝退出后迟到的响应。真实签名账号验收及其他平台 UI 仍待完成。
 
 验证：`swift test --package-path shared/backend`。iOS App 和 ServiceTests 的 XcodeGen 输入包含同一份实现。
+
+`BackendClipboardClient.swift` 提供云剪贴板操作，iOS 账号页连接这些操作；Swift 客户端已用临时账号完成生产 API 往返。大快照、设置和词库同步会使用各自的类型与大小限制，不复用普通 JSON 的 1 MiB 限额。

@@ -52,6 +52,7 @@ struct BackendKeychain: BackendSessionStorage {
 
 /// Serializes rotating refresh tokens. A late login/refresh may never undo logout.
 actor BackendAccountSession {
+  static let shared = BackendAccountSession()
   private let api: any BackendSessionAPI
   private let storage: any BackendSessionStorage
   private var saved: BackendSavedSession?
@@ -74,6 +75,7 @@ actor BackendAccountSession {
     refreshing?.cancel(); refreshing = nil
     let version = generation
     let tokens = try await api.login(challenge: challenge, credential: credential, linkToken: nil)
+    try Task.checkCancellation()
     guard version == generation else { throw CancellationError() }
     try install(tokens)
   }

@@ -17,6 +17,13 @@ private final class AccountProtocol: URLProtocol {
       body = #"{"challenge_id":"challenge","expires_in":300,"nonce":"server-nonce"}"#
     case ("PATCH", "/v1/users/me"), ("POST", "/v1/auth/logout"), ("DELETE", "/v1/users/me"):
       status = authenticated ? 204 : 401; body = ""
+    case ("GET", "/v1/users/me/clipboard"):
+      let search = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "q" })?.value ?? ""
+      let object: [String: Any] = ["enabled": true, "items": [["id": String(repeating: "a", count: 64), "text": search, "updated_at": "2026-09-08"]]]
+      body = String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+      if !authenticated { status = 401 }
+    case ("PUT", "/v1/users/me/clipboard/settings"), ("DELETE", "/v1/users/me/clipboard"):
+      status = authenticated ? 204 : 401; body = ""
     case ("POST", "/v1/auth/login"):
       // A compromised/misconfigured endpoint must not persist malformed tokens.
       body = #"{"access_token":"invalid","refresh_token":"invalid","token_type":"Bearer","expires_in":900,"user":{"id":"synthetic","display_name":"","created_at":"2026-09-08"}}"#
@@ -61,6 +68,20 @@ final class BackendAccountClientTests: XCTestCase {
   func testMalformedTokensAreRejected() async throws {
     do { _ = try await client().login(challenge: "challenge", credential: "synthetic"); XCTFail("must reject") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+  }
+  func testClipboardSearchIsEncodedAsOneQueryValue() async throws {
+    let search = "学习 & q=other + % #"
+    let page = try await client().clipboard(token: "session", search: search)
+    XCTAssertTrue(page.enabled)
+    XCTAssertEqual(page.items.first?.text, search)
+    try await client().setClipboardEnabled(false, token: "session")
+    try await client().deleteClipboard(token: "session")
+  }
+  func testClipboardRejectsOversizedUTF16AndUnsafeID() async throws {
+    do { _ = try await client().addClipboard(String(repeating: "😀", count: 2001), token: "session"); XCTFail("too long") }
+    catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
+    do { try await client().deleteClipboard(id: "../auth/logout", token: "session"); XCTFail("unsafe id") }
+    catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
   }
   func testCredentialsCannotGoToAnotherOrigin() async throws {
     for path in ["https://other.invalid/v1/users/me", "//other.invalid/v1/users/me", "/v1/\\other.invalid", "/v1/users/me#fragment"] {
