@@ -2,6 +2,15 @@ import XCTest
 import UIKit
 
 final class KeyboardSkinTests: XCTestCase {
+  func testCuratedDesignsRemainReadableAndRoundTrip() throws {
+    for (name, design) in CustomKeyboardSkin.templates {
+      XCTAssertTrue(design.hasReadableText, name)
+      XCTAssertEqual(design, design.normalized, name)
+      XCTAssertEqual(try JSONDecoder().decode(CustomKeyboardSkin.self, from: JSONEncoder().encode(design)), design)
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(CustomKeyboardSkin.readableText(on: design.actionBackground), design.actionBackground), 4.5, name)
+    }
+  }
+
   func testCustomSkinPersistenceValidationAndContrast() throws {
     let defaults = KeyboardFeedbackPreference.defaults
     let previous = defaults.object(forKey: CustomKeyboardSkinStore.key)

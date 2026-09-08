@@ -171,7 +171,7 @@ extension CustomKeyboardSkin {
     grid.background = 0x102438; grid.gradientEnd = nil; grid.keyBackground = 0x17354F
     grid.accent = 0xA2D8FA; grid.actionBackground = 0x285D84; grid.cornerRadius = 2
     grid.monospaced = true; grid.pattern = 2; grid.customBorderColor = 0x548CAA
-    return [("水杉留白", Self()), ("复古纸感", paper), ("紫夜星光", night), ("奶油桃桃", peach), ("海盐渐变", blue), ("工程蓝图", grid)]
+    return [("水杉留白", Self()), ("复古纸感", paper), ("紫夜星光", night), ("奶油桃桃", peach), ("海盐渐变", blue), ("工程蓝图", grid)] + curatedTemplates
   }
 }
 

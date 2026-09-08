@@ -475,6 +475,32 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testCuratedSkinCollectionShowsFullPreviewsAndUndo() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["customSkinEditorLink"].tap()
+    app.buttons["skinEditorTemplates"].tap()
+    let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
+    for (index, name) in ["苔庭晨雾", "竹影青瓷", "月下银砂", "黑金刻度", "樱雪糯米", "落日陶土", "冰川薄荷", "奶咖手账"].enumerated() {
+      let template = app.buttons["skinTemplate_" + name]
+      for _ in 0..<6 { if template.isHittable { break }; gallery.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.05, thenDragTo: gallery.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))) }
+      XCTAssertTrue(template.isHittable, name)
+      template.tap()
+      app.segmentedControls["skinEditorPreviewLayout"].buttons[index % 2 == 0 ? "26 键" : "9 键"].tap()
+      XCTAssertTrue(app.buttons["undoSkinDesign"].isEnabled)
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Curated skin " + name; shot.lifetime = .keepAlways; add(shot)
+    }
+    for _ in 0..<8 {
+      if !app.buttons["undoSkinDesign"].isEnabled { break }
+      app.buttons["undoSkinDesign"].tap()
+    }
+    XCTAssertFalse(app.buttons["undoSkinDesign"].isEnabled)
+  }
+
+  @MainActor
   func testCustomSkinDesignPersistsAndApplies() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

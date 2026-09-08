@@ -165,19 +165,12 @@ struct CustomSkinEditorView: View {
   Form {
     if section == "背景" { backgroundGallery }
     if section == "设计" {
-      Section("从一款设计开始") {
+      Section("水杉设计 · 14 款") {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-          ForEach(CustomKeyboardSkin.templates, id: \.0) { title, template in
+          ForEach(CustomKeyboardSkin.curatedTemplates + Array(CustomKeyboardSkin.templates.prefix(6)), id: \.0) { title, template in
             Button { apply(template) } label: {
               VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 5) {
-                  ForEach(["A", "S", "↵"], id: \.self) { key in
-                    Text(key).font(.system(.body, design: template.monospaced ? .monospaced : .default).weight(.medium))
-                      .frame(maxWidth: .infinity).frame(height: 34)
-                      .foregroundStyle(Color(uiColor: CustomKeyboardSkin.color(template.keyForeground)))
-                      .background(Color(uiColor: CustomKeyboardSkin.color(template.keyBackground)), in: RoundedRectangle(cornerRadius: template.cornerRadius * 0.6))
-                  }
-                }
+                CommunityDesignPreview(design: template, compact: true).frame(height: 96)
                 Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color(uiColor: CustomKeyboardSkin.color(template.accent)))
               }.padding(10).background(LinearGradient(colors: [Color(uiColor: CustomKeyboardSkin.color(template.background)), Color(uiColor: CustomKeyboardSkin.color(template.gradientEnd ?? template.background))], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).accessibilityIdentifier("skinTemplate_" + title)
