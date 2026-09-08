@@ -47,6 +47,9 @@ struct AccountSettingsView: View {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
             Label("设置同步", systemImage: "arrow.triangle.2.circlepath")
           }.accessibilityIdentifier("accountSettingsSync")
+          NavigationLink(destination: CommunityResourcesAccountView()) {
+            Label("词包与回复模板", systemImage: "books.vertical")
+          }.accessibilityIdentifier("accountCommunityResources")
           NavigationLink(destination: CloudDictionaryView()) {
             Label("云词库", systemImage: "character.book.closed")
           }.accessibilityIdentifier("accountCloudDictionary")

@@ -19,6 +19,7 @@ set(MSIME_ACCOUNT_SOURCES
     "${METASEQUOIA_MACOS_ROOT}/src/BackendLocalSnapshot.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/BackendInputModifiers.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CloudCandidatesView.swift"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CommunityResourcesView.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CloudDictionaryCatalogView.swift"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/backend-ui/CloudDictionaryEditor.swift"
     "${METASEQUOIA_MACOS_ROOT}/src/BackendDictionaryView.swift"

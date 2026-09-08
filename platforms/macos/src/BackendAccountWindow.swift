@@ -139,14 +139,17 @@ private struct MacAccountView: View {
   @State private var settings = false
   @State private var dictionary = false
   @State private var snapshot = false
+  @State private var resources = false
   var body: some View {
-    Form {
+    ScrollView {
+      Form {
       if let user = model.user {
         Text(user.preferredDisplayName).font(.title2)
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
         Button("云剪贴板…") { clipboard = true }
         Button("桌面设置同步…") { settings = true }
+        Button("词包与回复模板…") { resources = true }
         Button("云词库…") { dictionary = true }
         Button("云词库同步与备份…") { snapshot = true }
         Button("退出登录") { model.logout() }
@@ -174,7 +177,11 @@ private struct MacAccountView: View {
       if model.busy { ProgressView() }
       if let message = model.message { Text(message).foregroundStyle(.secondary) }
     }
+    }
     .padding(24).frame(width: 420, height: 440).disabled(model.busy || model.authorizing)
+    .sheet(isPresented: $resources) {
+      if let user = model.user { CommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
+    }
     .sheet(isPresented: $snapshot) {
       if let user = model.user { MacCloudSnapshotView(accountID: user.id) }
     }
