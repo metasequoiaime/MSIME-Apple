@@ -54,4 +54,5 @@ xcodebuild \
   -configuration Debug \
   -destination "platform=iOS Simulator,id=${test_device_id},arch=x86_64" \
   -derivedDataPath "${derived_data_path}" \
+  BREW_PREFIX="$(brew --prefix)" \
   test
