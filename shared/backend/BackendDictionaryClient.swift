@@ -78,6 +78,48 @@ extension BackendAccountClient {
     return try await download("/v1/users/me/dictionaries/" + kind.rawValue + "/export?format=" + format.rawValue,
       token: token, filename: "dictionary-" + kind.rawValue + ".tsv", maximumBytes: 384 * 1024 * 1024)
   }
+  struct CatalogEntry: Decodable, Identifiable, Sendable {
+    let kind: DictionaryKind
+    let code: String
+    let word: String
+    let weight: Int64
+    var id: String { "\(kind.rawValue):\(code.utf8.count):\(code)\(word)" }
+    var value: DictionaryValue { .init(code: code, word: word, weight: weight) }
+  }
+  struct DictionaryCatalog: Decodable, Sendable {
+    let entries: [CatalogEntry]
+    let offset: Int
+    let has_more: Bool
+    let revision: Int64
+    let normalized: String
+  }
+  func dictionaryCatalog(_ kind: DictionaryKind, code: String, offset: Int = 0, scheme: String = "pinyin", profile: String = "xiaohe", token: String) async throws -> DictionaryCatalog {
+    guard (0...1_000_000).contains(offset), code.utf8.count <= 256, !code.contains("\0") else { throw Failure(status: 400) }
+    var components = URLComponents()
+    components.path = "/v1/users/me/dictionaries/" + kind.rawValue + "/catalog"
+    components.queryItems = [.init(name: "q", value: code), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100"), .init(name: "scheme", value: scheme), .init(name: "profile", value: profile)]
+    guard let path = components.string else { throw Failure(status: 400) }
+    return try await json("GET", path, token: token)
+  }
+  func editCatalog(_ entry: CatalogEntry, revision: Int64, replacement: DictionaryValue?, token: String) async throws -> DictionaryChange {
+    guard revision >= 0 else { throw Failure(status: 400) }
+    struct Identity: Encodable { let code: String; let word: String }
+    struct Body: Encodable {
+      let revision: Int64
+      let previous: Identity
+      let replacement: DictionaryValue?
+      enum CodingKeys: String, CodingKey { case revision, previous, replacement }
+      func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(revision, forKey: .revision)
+        try values.encode(previous, forKey: .previous)
+        // Deletion is an explicit null, not an omitted replacement field.
+        try values.encode(replacement, forKey: .replacement)
+      }
+    }
+    return try await json("POST", "/v1/users/me/dictionaries/" + entry.kind.rawValue + "/edit", token: token,
+      body: JSONEncoder().encode(Body(revision: revision, previous: .init(code: entry.code, word: entry.word), replacement: replacement)))
+  }
   private func dictionaryEntryPath(_ entry: DictionaryEntry) throws -> String {
     guard entry.revision > 0, entry.id.utf8.count == 64,
           entry.id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw Failure(status: 400) }

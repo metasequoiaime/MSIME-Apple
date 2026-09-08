@@ -28,6 +28,8 @@ struct CloudDictionaryView: View {
       }
       if let userID {
         Section {
+          NavigationLink("查询与管理完整目录", destination: CloudDictionaryCatalogView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) }))
           NavigationLink("导入与导出文件", destination: CloudDictionaryFilesView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) }))
         }
@@ -71,7 +73,7 @@ struct CloudDictionaryView: View {
     .onChange(of: kind) { _ in page = nil; run { try await load(offset: 0) } }
     .onDisappear { pending?.cancel(); page = nil }
     .sheet(item: $editing) { edit in
-      CloudDictionaryEditor(kind: edit.kind, entry: edit.entry) { value in
+      CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
         let token = try await authorizedToken(matching: edit.userID)
         if let entry = edit.entry { _ = try await client.updateDictionary(entry, value: value, token: token) }
         else { _ = try await client.addDictionary(edit.kind, value: value, token: token) }
@@ -130,9 +132,9 @@ struct CloudDictionaryView: View {
   }
 }
 
-private struct CloudDictionaryEditor: View {
+struct CloudDictionaryEditor: View {
   let kind: BackendAccountClient.DictionaryKind
-  let entry: BackendAccountClient.DictionaryEntry?
+  let isEditing: Bool
   let save: (BackendAccountClient.DictionaryValue) async throws -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var code: String
@@ -141,11 +143,11 @@ private struct CloudDictionaryEditor: View {
   @State private var message: String?
   @State private var busy = false
   @State private var pending: Task<Void, Never>?
-  init(kind: BackendAccountClient.DictionaryKind, entry: BackendAccountClient.DictionaryEntry?, save: @escaping (BackendAccountClient.DictionaryValue) async throws -> Void) {
-    self.kind = kind; self.entry = entry; self.save = save
-    _code = State(initialValue: entry?.code ?? "")
-    _word = State(initialValue: entry?.word ?? "")
-    _weight = State(initialValue: String(entry?.weight ?? 100_000))
+  init(kind: BackendAccountClient.DictionaryKind, value: BackendAccountClient.DictionaryValue?, save: @escaping (BackendAccountClient.DictionaryValue) async throws -> Void) {
+    self.kind = kind; self.isEditing = value != nil; self.save = save
+    _code = State(initialValue: value?.code ?? "")
+    _word = State(initialValue: value?.word ?? "")
+    _weight = State(initialValue: String(value?.weight ?? 100_000))
   }
   var body: some View {
     NavigationView {
@@ -160,7 +162,7 @@ private struct CloudDictionaryEditor: View {
         if let message { Text(message).foregroundStyle(.red) }
         if busy { ProgressView() }
       }
-      .navigationTitle(entry == nil ? "添加云端词条" : "编辑云端词条")
+      .navigationTitle(isEditing ? "编辑云端词条" : "添加云端词条")
       .disabled(busy)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("取消") { pending?.cancel(); dismiss() } }
