@@ -26,6 +26,12 @@ struct CloudDictionaryView: View {
         Text("仅管理当前账号的云端个人词条。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。")
           .font(.footnote).foregroundStyle(.secondary)
       }
+      if let userID {
+        Section {
+          NavigationLink("导入与导出文件", destination: CloudDictionaryFilesView(kind: kind,
+            authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) }))
+        }
+      }
       if let page {
         Section("云端个人词条") {
           if page.entries.isEmpty { Text("没有匹配的云端词条。").foregroundStyle(.secondary) }

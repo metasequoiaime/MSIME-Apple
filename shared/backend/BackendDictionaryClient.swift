@@ -51,6 +51,33 @@ extension BackendAccountClient {
     struct Body: Encodable { let revision: Int64 }
     return try await json("DELETE", dictionaryEntryPath(entry), token: token, body: JSONEncoder().encode(Body(revision: entry.revision)))
   }
+  enum DictionaryFileFormat: String, CaseIterable, Identifiable, Sendable {
+    case standard, windows, hans
+    var id: String { rawValue }
+    var title: String {
+      switch self { case .standard: return "标准 TSV"; case .windows: return "Windows TSV"; case .hans: return "汉字自动注音" }
+    }
+  }
+  struct DictionaryImportResult: Decodable, Sendable { let imported: Int; let revision: Int64 }
+  func importDictionary(_ kind: DictionaryKind, text: String, format: DictionaryFileFormat, token: String) async throws -> DictionaryImportResult {
+    let body: Data
+    let suffix: String
+    if format == .hans {
+      guard kind == .pinyin else { throw Failure(status: 400) }
+      struct Body: Encodable { let text: String; let weight: Int64 }
+      body = try JSONEncoder().encode(Body(text: text, weight: 100000)); suffix = "/import-hans"
+    } else {
+      struct Body: Encodable { let text: String; let format: String }
+      body = try JSONEncoder().encode(Body(text: text, format: format.rawValue)); suffix = "/import"
+    }
+    guard !text.isEmpty, body.count <= 65536 else { throw Failure(status: 400) }
+    return try await json("POST", "/v1/users/me/dictionaries/" + kind.rawValue + suffix, token: token, body: body)
+  }
+  func exportDictionary(_ kind: DictionaryKind, format: DictionaryFileFormat, token: String) async throws -> URL {
+    guard format != .hans else { throw Failure(status: 400) }
+    return try await download("/v1/users/me/dictionaries/" + kind.rawValue + "/export?format=" + format.rawValue,
+      token: token, filename: "dictionary-" + kind.rawValue + ".tsv", maximumBytes: 384 * 1024 * 1024)
+  }
   private func dictionaryEntryPath(_ entry: DictionaryEntry) throws -> String {
     guard entry.revision > 0, entry.id.utf8.count == 64,
           entry.id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw Failure(status: 400) }
