@@ -19,9 +19,10 @@ enum KeyboardLayoutPreset: String, CaseIterable {
     case .doubao: "紧凑键距，中英靠右，顶部直达语音结果"
     }
   }
-  var keySpacing: Double { self == .sogou || self == .doubao ? 5 : 6 }
-  var rowSpacing: Double { self == .sogou || self == .doubao ? 6 : 7 }
-  var sidebarRatio: Double { self == .msime ? 0.14 : 0.12 }
+  var keySpacing: Double { switch self { case .msime, .sogou: 6; case .wechat: 4; case .doubao: 3 } }
+  var rowSpacing: Double { switch self { case .msime: 7; case .sogou: 10; case .wechat: 8; case .doubao: 4 } }
+  var sidebarRatio: Double { switch self { case .msime: 0.14; case .sogou: 0.17; case .wechat: 0.11; case .doubao: 0.13 } }
+  var letterInsetRatio: Double { switch self { case .msime: 0; case .sogou: 0.07; case .wechat: 0.05; case .doubao: 0.025 } }
   var centeredLetters: Bool { self != .msime }
   var showsBottomLanguage: Bool { true }
   var showsFullKeyboardSymbols: Bool { self == .sogou }

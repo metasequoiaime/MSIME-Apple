@@ -168,7 +168,7 @@ final class KeyboardSkinMiniature: UIView {
     let gap: CGFloat = layout?.keySpacing ?? 4
     let height = (canvas.height - gap * 3) / 4
     for (rowIndex, row) in rows.enumerated() {
-      let inset: CGFloat = !nineKey && rowIndex == 1 && (layout?.centeredLetters ?? true) ? canvas.width * 0.04 : 0
+      let inset: CGFloat = !nineKey && rowIndex == 1 && (layout?.centeredLetters ?? true) ? canvas.width * (layout?.letterInsetRatio ?? 0.04) : 0
       let width = (canvas.width - inset * 2 - gap * CGFloat(row.count - 1)) / CGFloat(row.count)
       for (index, title) in row.enumerated() {
         let key = CGRect(x: inset + CGFloat(index) * (width + gap), y: CGFloat(rowIndex) * (height + gap), width: width, height: height)

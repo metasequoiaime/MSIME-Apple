@@ -314,6 +314,29 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSelectingLayoutsChangesActualNineKeyGeometry() throws {
+    let previousLayout = KeyboardLayoutPreference.selected
+    let previousScheme = InputSchemePreference.scheme
+    defer { KeyboardLayoutPreference.selected = previousLayout; InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    var widths: [CGFloat] = []
+    for layout in KeyboardLayoutPreset.allCases {
+      try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("layoutCard-" + layout.rawValue, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let key = try button("nineKey2", in: controller)
+      widths.append(key.bounds.width)
+      let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) })
+      shot.name = "Applied layout " + layout.rawValue; shot.lifetime = .keepAlways; add(shot)
+    }
+    for i in widths.indices { for j in widths.indices where j > i {
+      XCTAssertGreaterThan(abs(widths[i] - widths[j]), 1)
+    } }
+  }
+
   func testKeyboardLayoutCardsPersistAndKeepHeight() throws {
     let previous = KeyboardLayoutPreference.selected
     defer { KeyboardLayoutPreference.selected = previous }

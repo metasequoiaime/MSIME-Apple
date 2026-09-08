@@ -51,7 +51,7 @@ struct KeyboardSkinPreview: View {
       } else {
         VStack(spacing: layout.rowSpacing) {
           row(Array("qwertyuiop").map(String.init))
-          row(Array("asdfghjkl").map(String.init)).padding(.horizontal, layout.centeredLetters ? 14 : 0)
+          row(Array("asdfghjkl").map(String.init)).padding(.horizontal, 376 * layout.letterInsetRatio)
           HStack(spacing: 5) {
             key("⇧").frame(width: 38)
             row(Array("zxcvbnm").map(String.init))
