@@ -292,7 +292,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       for skin in KeyboardSkin.allCases {
         let card = try button("skinCard-\(skin.rawValue)", in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
-        XCTAssertEqual(card.bounds.height, 100)
+        let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
+        XCTAssertGreaterThan(miniature.bounds.height, 75)
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertEqual(card.bounds.height, miniature.bounds.height + 36, accuracy: 0.1)
       }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -353,6 +356,19 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testWidePickerCardsPreservePreviewAspectRatio() throws {
+    for nineKey in [false, true] {
+      let picker = KeyboardSchemePickerView(selected: nineKey ? .nineKey : .quanpin, onSelect: { _ in }, onClose: {})
+      picker.frame = CGRect(x: 0, y: 0, width: 812, height: 216)
+      picker.layoutIfNeeded()
+      for miniature in descendants(picker).compactMap({ $0 as? KeyboardSkinMiniature }) {
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(miniature.bounds.width, 220)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(miniature.superview).bounds.height, 176)
+      }
+    }
+  }
+
   func testSchemeCardsSelectAndKeepKeyboardHeight() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -369,7 +385,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
-        XCTAssertEqual(card.bounds.height, 100)
+        let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
+        XCTAssertGreaterThan(miniature.bounds.height, 75)
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertEqual(card.bounds.height, miniature.bounds.height + 36, accuracy: 0.1)
       }
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in

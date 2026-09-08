@@ -694,6 +694,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["skinBackgroundPreset_0"].isHittable)
     XCTAssertTrue(app.buttons["saveCustomSkin"].isHittable)
     let frame = preview.frame
+    XCTAssertEqual(frame.height / frame.width, 260.0 / 390.0, accuracy: 0.01)
     XCTAssertGreaterThan(frame.width, app.frame.width * 0.9)
     XCTAssertGreaterThan(frame.minY, app.buttons["skinEditorTab_背景"].frame.maxY)
     app.buttons["skinBackgroundPreset_5"].tap()
@@ -710,6 +711,30 @@ final class OnboardingUITests: XCTestCase {
     app.segmentedControls["skinEditorPreviewLayout"].buttons["9 键"].tap()
     XCTAssertTrue(preview.label.contains("9 键"))
     XCTAssertEqual(preview.frame.height, frame.height, accuracy: 1)
+  }
+
+  @MainActor
+  func testSkinEditorLandscapePreservesFullKeyboardAspectRatio() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["skinSettingsLink"].tap()
+    app.buttons["customSkinEditorLink"].tap()
+    XCUIDevice.shared.orientation = .landscapeLeft
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      let frame = app.windows.firstMatch.frame
+      return frame.width > frame.height
+    }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 15), .completed)
+    let preview = app.otherElements["fullKeyboardSkinPreview"]
+    for title in ["26 键", "9 键"] {
+      app.segmentedControls["skinEditorPreviewLayout"].buttons[title].tap()
+      XCTAssertEqual(preview.frame.height / preview.frame.width, 260.0 / 390.0, accuracy: 0.01)
+      XCTAssertLessThanOrEqual(preview.frame.maxY, app.frame.maxY)
+      XCTAssertTrue(app.buttons["applyCustomSkin"].isHittable)
+    }
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Landscape proportional preview"; shot.lifetime = .keepAlways; add(shot)
   }
 
   @MainActor

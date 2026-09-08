@@ -76,13 +76,18 @@ final class KeyboardSkinPickerView: UIView {
           child.translatesAutoresizingMaskIntoConstraints = false
           card.addSubview(child)
         }
+        let preferredWidth = preview.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -14)
+        preferredWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-          card.heightAnchor.constraint(equalToConstant: 100),
+          preferredWidth,
+          preview.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+          preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: KeyboardSkinMiniature.heightToWidthRatio),
+          preview.centerXAnchor.constraint(equalTo: card.centerXAnchor),
           title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
           title.topAnchor.constraint(equalTo: card.topAnchor, constant: 7),
           title.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
-          preview.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 7),
-          preview.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -7),
+          preview.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor, constant: 7),
+          preview.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -7),
           preview.topAnchor.constraint(equalTo: card.topAnchor, constant: 29),
           preview.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -7),
         ])
@@ -122,6 +127,8 @@ final class KeyboardSkinPickerView: UIView {
 }
 
 final class KeyboardSkinMiniature: UIView {
+  // Scale the whole four-row keyboard together, including in landscape cards.
+  static let heightToWidthRatio: CGFloat = 0.6
   let skin: KeyboardSkin
   let nineKey: Bool
   init(skin: KeyboardSkin, nineKey: Bool = false) {
@@ -134,32 +141,37 @@ final class KeyboardSkinMiniature: UIView {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   override func draw(_ rect: CGRect) {
-    let backdrop = KeyboardSkinBackgroundView(frame: bounds)
+    guard let context = UIGraphicsGetCurrentContext() else { return }
+    let canvas = CGRect(x: 0, y: 0, width: 390, height: 390 * Self.heightToWidthRatio)
+    context.saveGState()
+    defer { context.restoreGState() }
+    context.scaleBy(x: bounds.width / canvas.width, y: bounds.height / canvas.height)
+    let backdrop = KeyboardSkinBackgroundView(frame: canvas)
     backdrop.skin = skin
     backdrop.overrideUserInterfaceStyle = traitCollection.userInterfaceStyle
-    backdrop.draw(bounds)
+    backdrop.draw(canvas)
     let top = "QWERTYUIOP".map { String($0) }
     let middle = "ASDFGHJKL".map { String($0) }
     let bottom = ["⇧"] + "ZXCVBNM".map { String($0) } + ["⌫"]
     let rows: [[String]] = nineKey
       ? [["1", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"], ["123", "空格", "↵"]]
       : [top, middle, bottom, ["123", "空格", "↵"]]
-    let gap: CGFloat = 2
-    let height = (bounds.height - gap * 3) / 4
+    let gap: CGFloat = 4
+    let height = (canvas.height - gap * 3) / 4
     for (rowIndex, row) in rows.enumerated() {
-      let inset: CGFloat = !nineKey && rowIndex == 1 ? bounds.width * 0.04 : 0
-      let width = (bounds.width - inset * 2 - gap * CGFloat(row.count - 1)) / CGFloat(row.count)
+      let inset: CGFloat = !nineKey && rowIndex == 1 ? canvas.width * 0.04 : 0
+      let width = (canvas.width - inset * 2 - gap * CGFloat(row.count - 1)) / CGFloat(row.count)
       for (index, title) in row.enumerated() {
         let key = CGRect(x: inset + CGFloat(index) * (width + gap), y: CGFloat(rowIndex) * (height + gap), width: width, height: height)
         let path = UIBezierPath(roundedRect: key, cornerRadius: min(skin.cornerRadius * 0.3, height * 0.4))
         if skin.shadowOpacity > 0 {
           UIColor.black.withAlphaComponent(CGFloat(skin.shadowOpacity)).setFill()
-          UIBezierPath(roundedRect: key.offsetBy(dx: 0, dy: 1), cornerRadius: 2).fill()
+          UIBezierPath(roundedRect: key.offsetBy(dx: 0, dy: 2), cornerRadius: 2).fill()
         }
         (title == "↵" ? skin.actionBackground : skin.keyBackground).setFill()
         path.fill()
-        if skin.borderWidth > 0 { skin.borderColor.setStroke(); path.lineWidth = 0.5; path.stroke() }
-        let font = skin.usesMonospacedFont ? UIFont.monospacedSystemFont(ofSize: 7, weight: .medium) : UIFont.systemFont(ofSize: 7, weight: .medium)
+        if skin.borderWidth > 0 { skin.borderColor.setStroke(); path.lineWidth = 1; path.stroke() }
+        let font = skin.usesMonospacedFont ? UIFont.monospacedSystemFont(ofSize: 14, weight: .medium) : UIFont.systemFont(ofSize: 14, weight: .medium)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: title == "↵" ? skin.actionForeground : skin.keyForeground]
         let size = (title as NSString).size(withAttributes: attributes)
         (title as NSString).draw(at: CGPoint(x: key.midX - size.width / 2, y: key.midY - size.height / 2), withAttributes: attributes)

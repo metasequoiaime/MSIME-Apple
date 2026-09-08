@@ -26,7 +26,7 @@ struct KeyboardLayoutSettingsView: View {
                   .foregroundStyle(selected == preset ? MetasequoiaTheme.accent : .secondary)
               }
               Text(preset.detail).font(.caption).foregroundStyle(.secondary)
-              KeyboardSkinPreview(skin: KeyboardSkinPreference.selected, nineKey: nineKey, compact: false, layout: preset)
+              KeyboardSkinPreview(skin: KeyboardSkinPreference.selected, nineKey: nineKey, layout: preset)
             }.padding(14)
               .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
               .overlay(RoundedRectangle(cornerRadius: 18).stroke(selected == preset ? MetasequoiaTheme.accent : .clear, lineWidth: 2))

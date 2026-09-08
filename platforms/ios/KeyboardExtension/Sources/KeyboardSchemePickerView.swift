@@ -45,13 +45,18 @@ final class KeyboardSchemePickerView: UIView {
           child.translatesAutoresizingMaskIntoConstraints = false
           card.addSubview(child)
         }
+        let preferredWidth = preview.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -14)
+        preferredWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-          card.heightAnchor.constraint(equalToConstant: 100),
+          preferredWidth,
+          preview.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+          preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: KeyboardSkinMiniature.heightToWidthRatio),
+          preview.centerXAnchor.constraint(equalTo: card.centerXAnchor),
           title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
           title.topAnchor.constraint(equalTo: card.topAnchor, constant: 7),
           title.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
-          preview.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 7),
-          preview.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -7),
+          preview.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor, constant: 7),
+          preview.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -7),
           preview.topAnchor.constraint(equalTo: card.topAnchor, constant: 29),
           preview.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -7),
         ])

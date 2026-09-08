@@ -83,7 +83,7 @@ struct CustomSkinEditorView: View {
     }.background(Color(uiColor: .systemBackground))
   }
 
-  private func previewDock(compact: Bool) -> some View {
+  private func previewDock() -> some View {
     VStack(spacing: 0) {
       Divider()
       HStack(spacing: 10) {
@@ -100,8 +100,8 @@ struct CustomSkinEditorView: View {
             .font(.caption.weight(.semibold))
         }.accessibilityIdentifier("applyCustomSkin")
       }.padding(.horizontal, 12).background(Color(uiColor: .systemBackground))
-      KeyboardSkinPreview(skin: .custom, nineKey: nineKey, compact: compact).id(design)
-        .frame(height: compact ? 160 : 250).accessibilityIdentifier("fullKeyboardSkinPreview")
+      KeyboardSkinPreview(skin: .custom, nineKey: nineKey).id(design)
+        .accessibilityIdentifier("fullKeyboardSkinPreview")
     }
   }
 
@@ -177,7 +177,7 @@ struct CustomSkinEditorView: View {
           ForEach(CustomKeyboardSkin.curatedTemplates + Array(CustomKeyboardSkin.templates.prefix(6)), id: \.0) { title, template in
             Button { apply(template) } label: {
               VStack(alignment: .leading, spacing: 10) {
-                CommunityDesignPreview(design: template, compact: true).frame(height: 96)
+                CommunityDesignPreview(design: template)
                 Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color(uiColor: CustomKeyboardSkin.color(template.accent)))
               }.padding(10).background(LinearGradient(colors: [Color(uiColor: CustomKeyboardSkin.color(template.background)), Color(uiColor: CustomKeyboardSkin.color(template.gradientEnd ?? template.background))], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain).accessibilityIdentifier("skinTemplate_" + title)
@@ -303,11 +303,11 @@ if section == "我的" {
         if geometry.size.width > geometry.size.height {
           HStack(spacing: 0) {
             editorControls
-            previewDock(compact: true).frame(width: geometry.size.width * 0.55)
+            previewDock().frame(width: geometry.size.width * 0.55)
           }
         } else {
           editorControls
-          previewDock(compact: geometry.size.height < 500)
+          previewDock()
         }
       }
       .background(Color(uiColor: .systemGroupedBackground))

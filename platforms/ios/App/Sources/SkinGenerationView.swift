@@ -75,7 +75,7 @@ struct SkinGenerationView: View {
       }
       Picker("预览布局", selection: $nineKey) { Text("26 键").tag(false); Text("9 键").tag(true) }
         .pickerStyle(.segmented).accessibilityIdentifier("generatedSkinLayout")
-      CommunityDesignPreview(design: result.design, nineKey: nineKey).frame(height: 220)
+      CommunityDesignPreview(design: result.design, nineKey: nineKey)
       HStack {
         Button(isSaved ? "已保存" : "保存到我的") { _ = persist() }.disabled(isSaved).accessibilityIdentifier("saveGeneratedSkin")
         Spacer()
