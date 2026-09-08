@@ -30,9 +30,27 @@ private final class ThemeProtocol: URLProtocol, @unchecked Sendable {
         body = Data(#"{"object":"list","data":[{"id":"fixture-model","object":"model"}],"default_model":"fixture-model"}"#.utf8)
       case "/v1/chat/completions":
         let fixture = try XCTUnwrap(Bundle(for: AISkinGenerationTests.self).url(forResource: "AIThemeReference", withExtension: "json"))
-        let content = try String(contentsOf: fixture, encoding: .utf8)
+        // Add synthetic scene prompts to the recorded legacy response to verify
+        // that keycap descriptions never enter the image request.
+        var recorded = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var plans = recorded["skins"] as! [[String: Any]]
+        for index in plans.indices { plans[index]["artworkPrompt"] = "原创背景场景 \(index)：竹林里的动物茶会" }
+        recorded["skins"] = plans
+        let content = String(data: try JSONSerialization.data(withJSONObject: recorded), encoding: .utf8)!
         body = try JSONSerialization.data(withJSONObject: ["choices": [["message": ["role": "assistant", "content": content]]]])
       case "/v1/skins/jobs":
+        var payload = request.httpBody ?? Data()
+        if payload.isEmpty, let stream = request.httpBodyStream {
+          stream.open(); defer { stream.close() }
+          var buffer = [UInt8](repeating: 0, count: 1024)
+          while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }; payload.append(contentsOf: buffer.prefix(count))
+          }
+        }
+        let input = try JSONSerialization.jsonObject(with: payload) as! [String: String]
+        XCTAssertTrue(input["prompt"]?.hasPrefix("原创背景场景 ") == true)
+        XCTAssertFalse(input["prompt"]?.contains("键帽") == true)
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() + String(repeating: "a", count: 16)
         body = try JSONSerialization.data(withJSONObject: ["id": id, "state": "running"])
       case let path where path.hasPrefix("/v1/skins/jobs/"):
