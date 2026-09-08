@@ -87,6 +87,9 @@ private struct CommunityResourceDetailView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
+  @State private var applying = false
+  @State private var applicationRevision: Int64?
+  @State private var applicationResource: BackendAccountClient.CommunityResource?
   @State private var deleting = false
   @State private var editing = false
   private let client = BackendAccountClient()
@@ -105,6 +108,16 @@ private struct CommunityResourceDetailView: View {
             }
           }
         }
+        if value.kind == .dictionary {
+          Button("导入我的云端词库") {
+            run(refresh: false) { token in
+              let snapshot = value
+              let catalog = try await client.dictionaryCatalog(.quick, code: "", token: token)
+              _ = try await authorize()
+              applicationResource = snapshot; applicationRevision = catalog.revision; applying = true
+            }
+          }.disabled(busy)
+        }
         Button(value.saved ? "取消收藏" : "收藏") { run { token in try await client.saveResource(value.id, saved: !value.saved, token: token) } }.disabled(busy)
         if value.saved && !value.owned {
           Section("评分") {
@@ -120,8 +133,23 @@ private struct CommunityResourceDetailView: View {
       }
     }
     .task { run { _ in } }
-    .onDisappear { pending?.cancel(); current = nil }
+    .onDisappear { pending?.cancel(); current = nil; applicationResource = nil; applicationRevision = nil; applying = false }
     .sheet(isPresented: $editing, onDismiss: { run { _ in } }) { CommunityResourceEditor(kind: value.kind, existing: value, authorize: authorize).communitySheetSize() }
+    .alert("导入这个词包？", isPresented: $applying) {
+      Button("取消", role: .cancel) { applicationResource = nil; applicationRevision = nil }
+      Button("确认导入") {
+        guard let resource = applicationResource, let revision = applicationRevision else { return }
+        applicationResource = nil; applicationRevision = nil
+        run(refresh: false) { token in
+          let result = try await client.applyResource(resource.id, resourceRevision: resource.revision,
+            dictionaryRevision: revision, token: token)
+          _ = try await authorize()
+          message = "已导入云端词库，新增或更新 \(result.imported) 个词条。请通过词库同步应用到本机。"
+        }
+      }
+    } message: {
+      Text("将导入所查看版本的全部词条。同编码、同文字的词条会更新权重，其他词条保留。词包或云端词库发生变化时，将停止导入，请重新查看后再试。")
+    }
     .alert("删除此资源？", isPresented: $deleting) {
       Button("取消", role: .cancel) { }
       Button("删除", role: .destructive) { run(refresh: false) { token in try await client.deleteResource(value.id, token: token); _ = try await authorize(); dismiss() } }

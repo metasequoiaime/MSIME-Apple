@@ -33,6 +33,10 @@ private final class ResourceProtocol: URLProtocol {
         result = ["items":[resource()],"has_more":false]
       }
     } else if request.httpMethod == "GET", path.hasSuffix(id) { result = resource() }
+    else if request.httpMethod == "POST", path.hasSuffix("/apply") {
+      if body["resource_revision"] as? Int != 1 || body["dictionary_revision"] as? Int != 7 { status = 409 }
+      result = ["revision":9,"imported":2,"resource_revision":1]
+    }
     else if request.httpMethod == "POST" {
       if body["revision"] as? Int != 0 { status = 409 }
       if body["id"] as? String != id || body["kind"] as? String != "reply" { status = 400 }
@@ -72,6 +76,16 @@ final class BackendCommunityResourceTests: XCTestCase {
     try await api.rateResource(id,stars:5,token:"session")
     try await api.saveResource(id,saved:false,token:"session")
     try await api.deleteResource(id,token:"session")
+  }
+  func testApplyResourceSendsBothVersionsAndPropagatesConflict() async throws {
+    let api = client()
+    let result = try await api.applyResource(ResourceProtocol.id, resourceRevision: 1, dictionaryRevision: 7, token: "session")
+    XCTAssertEqual(result.imported, 2)
+    XCTAssertEqual(result.revision, 9)
+    do {
+      _ = try await api.applyResource(ResourceProtocol.id, resourceRevision: 1, dictionaryRevision: 6, token: "session")
+      XCTFail("Stale dictionary was accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 409) }
   }
   func testLargeWordPackPageDoesNotRelaxOtherEndpointLimits() async throws {
     let api = client()

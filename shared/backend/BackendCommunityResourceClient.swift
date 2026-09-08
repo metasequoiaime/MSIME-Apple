@@ -85,6 +85,22 @@ extension BackendAccountClient {
     guard result.id == id, result.revision > 0 else { throw Failure(status: 502) }
     return result
   }
+  struct ResourceApplication: Decodable, Sendable {
+    let revision: Int64
+    let imported: Int
+    let resource_revision: Int
+  }
+  func applyResource(_ id: UUID, resourceRevision: Int, dictionaryRevision: Int64,
+                     token: String) async throws -> ResourceApplication {
+    guard resourceRevision > 0, dictionaryRevision >= 0 else { throw Failure(status: 400) }
+    struct Body: Encodable { let resource_revision: Int; let dictionary_revision: Int64 }
+    let result: ResourceApplication = try await json("POST", Self.resourcePath(id) + "/apply", token: token,
+      body: JSONEncoder().encode(Body(resource_revision: resourceRevision, dictionary_revision: dictionaryRevision)))
+    guard result.resource_revision == resourceRevision, (0...128).contains(result.imported),
+          result.revision >= dictionaryRevision,
+          result.revision - dictionaryRevision == Int64(result.imported) else { throw Failure(status: 502) }
+    return result
+  }
   func saveResource(_ id: UUID, saved: Bool, token: String) async throws {
     struct Body: Codable { let saved: Bool }
     let response: Body = try await json("PUT", Self.resourcePath(id) + "/save", token: token,
