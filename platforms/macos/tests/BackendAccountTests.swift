@@ -30,7 +30,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
     case ("GET", "/v1/users/me/preferences/schema"):
-      body = json(["fields": ["platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
+      body = json(["fields": ["platform.macos.candidate_skin": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
     case ("GET", "/v1/users/me/preferences"):
       body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
     case ("PUT", "/v1/users/me/preferences"):
@@ -132,12 +132,13 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
-    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false)]
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_skin": .string("wechat"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
-      guard values.count == 2 else { throw Failure() }
+      guard values.count == 3 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
+    try require(settings.preview?["platform.macos.candidate_skin"] == .string("wechat"))
     localSettings["platform.macos.candidate_font_size"] = .integer(20)
     settings.apply(); try await finished(settings)
     try require(settings.message != nil && localSettings["platform.macos.candidate_font_size"] == .integer(20))
@@ -148,6 +149,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let credentials = try await session.credentials()
     let savedPreferences = try await client.preferences(token: credentials.token)
     try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
+    try require(savedPreferences.settings["platform.macos.candidate_skin"] == .string("wechat"))
     _ = try await client.putPreferences(savedPreferences, token: credentials.token)
     settings.upload(); try await finished(settings)
     try require(settings.message != nil)

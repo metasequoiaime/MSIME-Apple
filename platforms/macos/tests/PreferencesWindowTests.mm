@@ -860,7 +860,23 @@ int main()
                 "Closing standalone settings did not finish or request application termination.");
         [[NSNotificationCenter defaultCenter] removeObserver:standaloneCloseObserver];
         NSDictionary *originalCloudSettings = [MetasequoiaPreferencesWindowController cloudSettingsSnapshot];
-        require(originalCloudSettings.count == 19, "The cloud snapshot missed a native setting.");
+        require(originalCloudSettings.count == 20, "The cloud snapshot missed a native setting.");
+        NSMutableDictionary *invalidSkinSettings = [originalCloudSettings mutableCopy];
+        invalidSkinSettings[@"platform.macos.candidate_skin"] = @"../private";
+        require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidSkinSettings] boolValue],
+                "An invalid skin identifier reached native settings.");
+        require([[MetasequoiaPreferencesWindowController cloudSettingsSnapshot] isEqual:originalCloudSettings],
+                "A rejected skin changed other settings.");
+        invalidSkinSettings[@"platform.macos.candidate_skin"] = @"wechat\0hidden";
+        require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidSkinSettings] boolValue],
+                "A truncated skin identifier was accepted.");
+        invalidSkinSettings[@"platform.macos.candidate_skin"] = @"wechat";
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidSkinSettings] boolValue],
+                "A valid skin could not be applied.");
+        require([[MetasequoiaPreferencesWindowController storedCandidateSkin] isEqualToString:@"wechat"],
+                "Cloud skin selection did not reach the native preference.");
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:originalCloudSettings] boolValue],
+                "Could not restore original skin settings.");
         NSMutableDictionary *invalidCloudSettings = [originalCloudSettings mutableCopy];
         invalidCloudSettings[@"platform.macos.input_scheme"] = @2;
         invalidCloudSettings[@"platform.macos.candidate_font_size"] = @17;

@@ -12,9 +12,9 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 @interface MetasequoiaPreferencesWindowController : NSWindowController <NSWindowDelegate>
 + (instancetype)sharedController;
 + (void)prepareInputSessionsForLearnedDataReset;
-+ (NSDictionary<NSString *, NSNumber *> *)cloudSettingsSnapshot;
-+ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values;
-+ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values;
++ (NSDictionary<NSString *, id> *)cloudSettingsSnapshot;
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
 + (NSInteger)storedScheme;
 + (void)setStoredScheme:(NSInteger)scheme;
 + (BOOL)storedAutocorrectEnabled;

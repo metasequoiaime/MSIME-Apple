@@ -265,9 +265,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [[NSNotificationCenter defaultCenter] postNotificationName:MetasequoiaWillResetLearnedDataNotification object:nil];
 }
 
-+ (NSDictionary<NSString *, NSNumber *> *)cloudSettingsSnapshot
++ (NSDictionary<NSString *, id> *)cloudSettingsSnapshot
 {
     return @{
+        @"platform.macos.candidate_skin" : [self storedCandidateSkin],
         @"platform.macos.input_scheme" : @([self storedScheme]),
         @"platform.macos.quanpin_helpcode_schema" : @([self storedQuanpinHelpcodeSchema]),
         @"platform.macos.shuangpin_helpcode_schema" : @([self storedShuangpinHelpcodeSchema]),
@@ -290,9 +291,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     };
 }
 
-+ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values
 {
-    if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 19)
+    if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 20)
+        return @NO;
+    NSString *skin = values[@"platform.macos.candidate_skin"];
+    if (![skin isKindOfClass:NSString.class] || skin.UTF8String == nullptr ||
+        !metasequoia::mac::IsSafeSkinId(
+            std::string_view(skin.UTF8String, [skin lengthOfBytesUsingEncoding:NSUTF8StringEncoding])))
         return @NO;
     {
         NSNumber *value = values[@"platform.macos.input_scheme"];
@@ -437,30 +443,31 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     return @YES;
 }
 
-+ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values
 {
     if (![[self validateCloudSettingsSnapshot:values] boolValue])
         return @NO;
     // Validate the complete snapshot before calling any mutating setter.
-    [self setStoredScheme:values[@"platform.macos.input_scheme"].integerValue];
-    [self setQuanpinHelpcodeSchema:values[@"platform.macos.quanpin_helpcode_schema"].integerValue];
-    [self setShuangpinHelpcodeSchema:values[@"platform.macos.shuangpin_helpcode_schema"].integerValue];
-    [self setCandidatePanelStyle:values[@"platform.macos.candidate_panel_style"].integerValue];
-    [self setCandidatePageSize:values[@"platform.macos.candidate_page_size"].integerValue];
-    [self setCandidateFontSize:values[@"platform.macos.candidate_font_size"].integerValue];
-    [self setCandidatePageShortcut:values[@"platform.macos.candidate_page_shortcut"].integerValue];
-    [self setAutocorrectEnabled:values[@"platform.macos.autocorrect"].boolValue];
-    [self setHelpcodeEnabled:values[@"platform.macos.helpcode"].boolValue];
-    [self setChinesePunctuationEnabled:values[@"platform.macos.chinese_punctuation"].boolValue];
-    [self setCandidateLearningEnabled:values[@"platform.macos.candidate_learning"].boolValue];
-    [self setEnglishInputMode:values[@"platform.macos.english_input_mode"].boolValue];
-    [self setInputModeShortcutEnabled:values[@"platform.macos.input_mode_shortcut"].boolValue];
-    [self setFullWidthInputEnabled:values[@"platform.macos.full_width_input"].boolValue];
-    [self setFloatingToolbarEnabled:values[@"platform.macos.floating_toolbar"].boolValue];
-    [self setTraditionalChineseOutputEnabled:values[@"platform.macos.traditional_chinese_output"].boolValue];
-    [self setWubiAutoCommitUniqueEnabled:values[@"platform.macos.wubi_auto_commit_unique"].boolValue];
-    [self setShuangpinKeymapEnabled:values[@"platform.macos.shuangpin_keymap"].boolValue];
-    [self setLocalInputModesEnabled:values[@"platform.macos.local_input_modes"].boolValue];
+    [self setStoredCandidateSkin:values[@"platform.macos.candidate_skin"]];
+    [self setStoredScheme:[values[@"platform.macos.input_scheme"] integerValue]];
+    [self setQuanpinHelpcodeSchema:[values[@"platform.macos.quanpin_helpcode_schema"] integerValue]];
+    [self setShuangpinHelpcodeSchema:[values[@"platform.macos.shuangpin_helpcode_schema"] integerValue]];
+    [self setCandidatePanelStyle:[values[@"platform.macos.candidate_panel_style"] integerValue]];
+    [self setCandidatePageSize:[values[@"platform.macos.candidate_page_size"] integerValue]];
+    [self setCandidateFontSize:[values[@"platform.macos.candidate_font_size"] integerValue]];
+    [self setCandidatePageShortcut:[values[@"platform.macos.candidate_page_shortcut"] integerValue]];
+    [self setAutocorrectEnabled:[values[@"platform.macos.autocorrect"] boolValue]];
+    [self setHelpcodeEnabled:[values[@"platform.macos.helpcode"] boolValue]];
+    [self setChinesePunctuationEnabled:[values[@"platform.macos.chinese_punctuation"] boolValue]];
+    [self setCandidateLearningEnabled:[values[@"platform.macos.candidate_learning"] boolValue]];
+    [self setEnglishInputMode:[values[@"platform.macos.english_input_mode"] boolValue]];
+    [self setInputModeShortcutEnabled:[values[@"platform.macos.input_mode_shortcut"] boolValue]];
+    [self setFullWidthInputEnabled:[values[@"platform.macos.full_width_input"] boolValue]];
+    [self setFloatingToolbarEnabled:[values[@"platform.macos.floating_toolbar"] boolValue]];
+    [self setTraditionalChineseOutputEnabled:[values[@"platform.macos.traditional_chinese_output"] boolValue]];
+    [self setWubiAutoCommitUniqueEnabled:[values[@"platform.macos.wubi_auto_commit_unique"] boolValue]];
+    [self setShuangpinKeymapEnabled:[values[@"platform.macos.shuangpin_keymap"] boolValue]];
+    [self setLocalInputModesEnabled:[values[@"platform.macos.local_input_modes"] boolValue]];
     return @YES;
 }
 
