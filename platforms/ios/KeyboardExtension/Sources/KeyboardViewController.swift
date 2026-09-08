@@ -11,6 +11,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private let session = MetasequoiaInputSessionBridge()
   private var servicePanel: UIViewController?
+  private var replyPanel: UIHostingController<ReplyKeyboardView>?
+  private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
@@ -152,6 +154,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: "", candidates: [])
     applyKeyboardSkin()
     synchronizeInputContext()
+    synchronizeReplyKeyboard()
   }
 
   override func viewDidAppear(_ animated: Bool) {
@@ -178,15 +181,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
     applyKeyboardSkin()
+    synchronizeReplyKeyboard()
   }
 
   override func selectionWillChange(_ textInput: UITextInput?) {
     super.selectionWillChange(textInput)
+    replyModel.invalidateContext()
     closeKeyboardService()
   }
 
   override func textWillChange(_ textInput: UITextInput?) {
     super.textWillChange(textInput)
+    replyModel.invalidateContext()
     closeKeyboardService()
     // Our own edit coming back to us: the composition it produced is still the live one.
     if pendingOwnEdits > 0 {
@@ -204,10 +210,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputContext()
     updateReturnKey()
     updateAutomaticCapitalization()
+    synchronizeReplyKeyboard()
   }
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    replyModel.setText("")
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -1110,7 +1118,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func selectInputScheme(_ scheme: ChineseInputScheme) {
     guard InputSchemePreference.enabledSchemes.contains(scheme) else { return }
     if scheme == inputScheme {
-      if scheme == .thoughtfulReply { showKeyboardAI() }
+      if scheme == .thoughtfulReply { synchronizeReplyKeyboard() }
       return
     }
     playInputClick()
@@ -1123,27 +1131,91 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLanguageModeButton()
     render(snapshot, source: source)
     updateShortcutButtons()
-    if scheme == .thoughtfulReply { showKeyboardAI() }
+    synchronizeReplyKeyboard()
+  }
+
+  private func synchronizeReplyKeyboard() {
+    guard inputScheme == .thoughtfulReply, isChineseMode else {
+      replyModel.resetResults()
+      if let panel = replyPanel {
+        panel.willMove(toParent: nil); panel.view.removeFromSuperview(); panel.removeFromParent()
+        replyPanel = nil
+      }
+      return
+    }
+    guard replyPanel == nil else { return }
+    let panel = UIHostingController(rootView: ReplyKeyboardView(model: replyModel,
+      paste: { [weak self] in
+        guard let self else { return }
+        guard hasFullAccess else { replyModel.status = "粘贴与 AI 需要允许完全访问"; return }
+        replyModel.setText(UIPasteboard.general.string ?? "")
+      }, generate: { [weak self] style in self?.generateReply(style: style) },
+      schemes: { [weak self] in self?.showSchemePicker() },
+      skins: { [weak self] in self?.showSkinPicker() },
+      dismiss: { [weak self] in self?.dismissKeyboard() }))
+    replyPanel = panel
+    addChild(panel)
+    panel.view.accessibilityIdentifier = "replyKeyboard"
+    panel.view.accessibilityViewIsModal = true
+    panel.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel.view)
+    NSLayoutConstraint.activate([
+      panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.view.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+    ])
+    panel.didMove(toParent: self)
+  }
+
+  private func generateReply(style: String) {
+    guard hasFullAccess else { replyModel.status = "请在系统键盘设置中允许完全访问"; return }
+    guard let configuration = KeyboardAIService.configuration() else {
+      replyModel.status = "请在水杉 App → AI 设置中保存键盘 AI 配置"; return
+    }
+    guard !hasComposition, let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+      replyModel.status = "请先完成输入，再选择回复方式"; return
+    }
+    let context = KeyboardDocumentContext(document: document,
+      before: textDocumentProxy.documentContextBeforeInput, selected: textDocumentProxy.selectedText,
+      after: textDocumentProxy.documentContextAfterInput)
+    let matches: () -> Bool = { [weak self] in
+      guard let self, hasFullAccess, inputScheme == .thoughtfulReply,
+            KeyboardAIService.configuration() == configuration else { return false }
+      return context.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
+        before: textDocumentProxy.documentContextBeforeInput, selected: textDocumentProxy.selectedText,
+        after: textDocumentProxy.documentContextAfterInput)
+    }
+    playInputClick()
+    replyModel.generate(style: style, request: { text, prompt in
+      guard matches() else { throw ServiceFailure(message: "输入位置已变化，请重试") }
+      var requestConfiguration = configuration
+      requestConfiguration.prompt = prompt
+      let result = try await CustomServiceClient.request(kind: .ai, configuration: requestConfiguration,
+        text: text, token: KeyboardAIService.token(for: configuration))
+      guard matches() else { throw ServiceFailure(message: "输入位置已变化，请重试") }
+      return result
+    }, insert: { [weak self] result in
+      guard let self, matches() else { return false }
+      insertOwnText(result, source: .reply)
+      return true
+    })
   }
 
   private func showKeyboardAI() {
+    if inputScheme == .thoughtfulReply { synchronizeReplyKeyboard(); return }
     guard hasFullAccess else { showDiagnostic("AI 需要开启键盘的“允许完全访问”。"); return }
     guard let configuration = KeyboardAIService.configuration() else {
       showDiagnostic("请在水杉 App 的 AI 设置中启用键盘 AI 并保存配置。"); return
     }
-    let isReply = inputScheme == .thoughtfulReply
-    let selectedText = textDocumentProxy.selectedText
-    let sourceText = selectedText.flatMap { $0.isEmpty ? nil : $0 }
-      ?? (isReply ? textDocumentProxy.documentContextBeforeInput : nil)
     guard !hasComposition, let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
-          let selected = sourceText, !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-          selected.count <= 10_000 else {
-      showDiagnostic(isReply ? "输入或粘贴对方的话，完成输入后点顶部回复按钮；也可以选中文字生成回复。" : "请先完成输入，再选中要润色的文字（最多一万字）。"); return
+          let selected = textDocumentProxy.selectedText, !selected.isEmpty, selected.count <= 10_000 else {
+      showDiagnostic("请先完成输入，再选中要润色的文字（最多一万字）。"); return
     }
     closeKeyboardPicker()
     closeKeyboardService()
     let selection = KeyboardDocumentContext(document: document, before: textDocumentProxy.documentContextBeforeInput,
-                                         selected: selectedText, after: textDocumentProxy.documentContextAfterInput)
+                                         selected: selected, after: textDocumentProxy.documentContextAfterInput)
     let matches: () -> Bool = { [weak self] in
       guard let self, hasFullAccess, servicePanel != nil else { return false }
       return selection.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
@@ -1153,10 +1225,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let panel = UIHostingController(rootView: KeyboardAIView(text: selected, configuration: configuration,
       canSend: matches, insert: { [weak self] result in
         guard let self, matches(), KeyboardAIService.configuration() == configuration else { return false }
-        insertOwnText(isReply && (selectedText ?? "").isEmpty ? " " + result : result, source: isReply ? .reply : .ai)
+        insertOwnText(result, source: .ai)
         return true
-      }, close: { [weak self] in self?.closeKeyboardService() },
-      thoughtfulReply: isReply, replacesSelection: !(selectedText ?? "").isEmpty))
+      }, close: { [weak self] in self?.closeKeyboardService() }))
     servicePanel = panel
     addChild(panel)
     panel.view.frame = view.bounds
@@ -1239,6 +1310,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSchemeButton()
     updateLanguageModeButton()
     render(snapshot, source: source)
+    synchronizeReplyKeyboard()
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
@@ -1908,6 +1980,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func applyKeyboardSkin() {
+    replyModel.objectWillChange.send()
     let skin = KeyboardSkinPreference.selected
     view.backgroundColor = skin.background
     skinBackdrop.skin = skin

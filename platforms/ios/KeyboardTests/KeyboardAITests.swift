@@ -2,6 +2,30 @@ import XCTest
 import Security
 
 final class KeyboardAITests: XCTestCase {
+  @MainActor
+  func testReplyClearDropsLateResultsAndNeverInsertsAutomatically() async throws {
+    let model = ReplyKeyboardModel()
+    var inserted = 0
+    model.setText("你睡了吗")
+    model.generate(style: "高情商", request: { _, _ in
+      try? await Task.sleep(nanoseconds: 30_000_000)
+      return "还没有"
+    }, insert: { _ in inserted += 1; return true })
+    model.setText("")
+    try await Task.sleep(nanoseconds: 80_000_000)
+    XCTAssertTrue(model.replies.isEmpty)
+    XCTAssertFalse(model.busy)
+    XCTAssertEqual(inserted, 0)
+    model.setText("你好")
+    model.generate(style: "高情商", request: { _, _ in "你好呀" }, insert: { _ in inserted += 1; return true })
+    while model.busy { await Task.yield() }
+    XCTAssertEqual(model.replies, ["你好呀"])
+    XCTAssertEqual(inserted, 0)
+    model.invalidateContext()
+    model.use("你好呀")
+    XCTAssertEqual(inserted, 0)
+  }
+
   func testAISelectionRejectsDocumentCaretAndTextChanges() {
     let id = UUID()
     let selection = KeyboardDocumentContext(document: id, before: "before", selected: "fixture", after: "after")

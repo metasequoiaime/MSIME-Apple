@@ -74,21 +74,28 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testReplyTonePreviewFitsCompactKeyboard() {
+  func testReplyKeyboardPastesChoosesStyleAndInserts() {
     let app = XCUIApplication()
-    app.launchArguments = ["-keyboardReplyPreview", "-keyboardCompactPreview"]
+    app.launchArguments = ["-keyboardReplyPreview"]
     app.launch()
-    let tones = app.segmentedControls["keyboardReplyTone"]
-    XCTAssertTrue(tones.waitForExistence(timeout: 5))
-    tones.buttons["委婉拒绝"].tap()
-    XCTAssertTrue(tones.buttons["委婉拒绝"].isSelected)
-    XCTAssertTrue(app.buttons["keyboardAISend"].isHittable)
-    XCTAssertTrue(app.buttons["keyboardServiceClose"].isHittable)
-    XCTAssertLessThanOrEqual(app.buttons["keyboardAISend"].frame.maxY - app.buttons["keyboardServiceClose"].frame.minY, 216.5)
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = "Thoughtful reply tone selection"
-    attachment.lifetime = .keepAlways
-    add(attachment)
+    XCTAssertTrue(app.buttons["replyPaste"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["replyStyle_8"].isHittable)
+    let grid = XCTAttachment(screenshot: app.screenshot())
+    grid.name = "Reply keyboard style grid"
+    grid.lifetime = .keepAlways
+    add(grid)
+    app.buttons["replyPaste"].tap()
+    XCTAssertTrue(app.buttons["replySource"].label.contains("你睡了吗"))
+    app.buttons["replyStyle_7"].tap()
+    let candidate = app.buttons["replyCandidate"]
+    XCTAssertTrue(candidate.waitForExistence(timeout: 5))
+    XCTAssertTrue(candidate.label.contains("还没呢"))
+    candidate.tap()
+    XCTAssertTrue(app.buttons["replyStyle_0"].exists)
+    XCTAssertTrue(app.staticTexts["replyStatus"].label.contains("已插入"))
+    app.segmentedControls["replyMode"].buttons["帮润色"].tap()
+    app.buttons["replyClear"].tap()
+    XCTAssertTrue(app.buttons["replySource"].label.contains("粘贴"))
   }
 
   @MainActor

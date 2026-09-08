@@ -18,11 +18,12 @@ struct MetasequoiaImeApp: App {
       #if DEBUG && targetEnvironment(simulator)
       if ProcessInfo.processInfo.arguments.contains("-launchScreenPreview") {
         LaunchScreenPreview().ignoresSafeArea()
-      } else if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") || ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
+      } else if ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
+        ReplyKeyboardPreview().frame(width: 390, height: 260)
+      } else if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") {
         KeyboardAIView(text: previewText,
           configuration: CustomServiceConfiguration(endpoint: "https://fixture.invalid/v1/chat/completions", model: "fixture"),
-          canSend: { false }, insert: { _ in false }, close: {},
-          thoughtfulReply: ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview"))
+          canSend: { false }, insert: { _ in false }, close: {})
           .frame(width: 320, height: previewHeight)
           .environment(\.sizeCategory, previewSizeCategory)
       } else if ProcessInfo.processInfo.arguments.contains("-keyboardVoicePreview") {
@@ -98,5 +99,16 @@ private struct LaunchScreenPreview: UIViewControllerRepresentable {
     UIStoryboard(name: "LaunchScreen", bundle: .main).instantiateInitialViewController()!
   }
   func updateUIViewController(_ controller: UIViewController, context: Context) {}
+}
+#endif
+
+#if DEBUG && targetEnvironment(simulator)
+private struct ReplyKeyboardPreview: View {
+  @StateObject private var model = ReplyKeyboardModel()
+  var body: some View {
+    ReplyKeyboardView(model: model, paste: { model.setText("你睡了吗") }, generate: { style in
+      model.generate(style: style, request: { _, _ in "还没呢，正好想和你聊聊。" }, insert: { _ in true })
+    }, schemes: {}, skins: {}, dismiss: {})
+  }
 }
 #endif

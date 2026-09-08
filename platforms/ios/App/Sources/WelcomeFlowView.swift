@@ -106,7 +106,7 @@ struct WelcomeFlowView: View {
   private var intelligence: some View {
     VStack(alignment: .leading, spacing: 22) {
       Text("输入之外，多一点灵感").font(.title.bold())
-      feature("sparkles", "高情商回复", "选中对方的话，选择自然、暖心、幽默或委婉拒绝语气，预览后再插入。")
+      feature("sparkles", "高情商回复", "复制对方的话，在回复键盘中粘贴并选择回复风格，点选结果插入。")
       feature("bubble.left.and.bubble.right", "边试键盘，边聊 AI", "在试用键盘里登录账号，选择 EveryAPI 模型，开始对话。")
       NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
         Label("配置键盘 AI", systemImage: "slider.horizontal.3")
