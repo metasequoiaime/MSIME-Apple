@@ -53,6 +53,11 @@ struct CloudDictionaryFilesView: View {
           .font(.footnote).foregroundStyle(.secondary)
         Button("导出文件") { run { try await export() } }.disabled(format == .hans)
       }
+      Section("完整云词库备份") {
+        Text("包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。")
+          .font(.footnote).foregroundStyle(.secondary)
+        Button("导出完整云词库快照") { run { try await exportSnapshot() } }
+      }
       if busy { ProgressView("正在传输…") }
       if let message { Text(message).foregroundStyle(.secondary) }
     }
@@ -91,6 +96,14 @@ struct CloudDictionaryFilesView: View {
       CloudDictionaryShareView(url: item.url)
         .onDisappear { try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent()) }
     }
+  }
+  @MainActor private func exportSnapshot() async throws {
+    let token = try await authorize()
+    let snapshot = try await client.dictionarySnapshot(token: token)
+    do { _ = try await authorize(); try Task.checkCancellation() }
+    catch { try? FileManager.default.removeItem(at: snapshot.url.deletingLastPathComponent()); throw error }
+    message = "备份文件摘要已校验：云端版本 \(snapshot.envelope.revision)，共 \(snapshot.envelope.records) 条记录。"
+    exported = Export(url: snapshot.url)
   }
   @MainActor private func export() async throws {
     let token = try await authorize()

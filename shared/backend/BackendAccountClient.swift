@@ -140,18 +140,19 @@ struct BackendAccountClient: Sendable {
 
   // Export directly to a private temporary file. Keep the ordinary JSON transport's
   // smaller bound; dictionary files may legitimately contain 100,000 entries.
-  func download(_ path: String, token: String, filename: String, maximumBytes: Int) async throws -> URL {
-    guard maximumBytes > 0, maximumBytes <= 384 * 1024 * 1024,
+  func download(_ path: String, token: String, filename: String, maximumBytes: Int, mediaType: String = "text/plain") async throws -> URL {
+    guard maximumBytes > 0, maximumBytes <= 512 * 1024 * 1024,
+          ["text/plain", "application/x-ndjson"].contains(mediaType),
           !filename.isEmpty, filename == URL(fileURLWithPath: filename).lastPathComponent else { throw Failure(status: 400) }
     var request = try makeRequest("GET", path, token: token, body: nil)
     request.timeoutInterval = 600
-    request.setValue("text/plain", forHTTPHeaderField: "Accept")
+    request.setValue(mediaType, forHTTPHeaderField: "Accept")
     request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
     guard response.statusCode == 200 else { throw Failure(status: response.statusCode) }
     guard response.expectedContentLength <= maximumBytes,
-          response.mimeType == "text/plain" else { throw Failure(status: 0) }
+          response.mimeType == mediaType else { throw Failure(status: 0) }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-export-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     var complete = false
