@@ -135,12 +135,14 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
 private struct MacAccountView: View {
   @ObservedObject var model: MacAccountModel
   @State private var deleting = false
+  @State private var clipboard = false
   var body: some View {
     Form {
       if let user = model.user {
         Text(user.preferredDisplayName).font(.title2)
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
+        Button("云剪贴板…") { clipboard = true }
         Button("退出登录") { model.logout() }
         Button("退出所有设备") { model.logout(all: true) }
         Button("注销账号", role: .destructive) { deleting = true }
@@ -167,6 +169,9 @@ private struct MacAccountView: View {
       if let message = model.message { Text(message).foregroundStyle(.secondary) }
     }
     .padding(24).frame(width: 420, height: 440).disabled(model.busy || model.authorizing)
+    .sheet(isPresented: $clipboard) {
+      if let user = model.user { MacCloudClipboardView(accountID: user.id) }
+    }
     .alert("注销账号？", isPresented: $deleting) {
       Button("取消", role: .cancel) { }
       Button("确认注销", role: .destructive) { model.logout(delete: true) }
