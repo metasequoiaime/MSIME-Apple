@@ -29,7 +29,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertEqual(controller.view.bounds.height, 260, accuracy: 0.5)
           XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width)
           let language = try button("bottomLanguageKey", in: controller)
-          XCTAssertEqual(language.isHidden, preset == .msime)
+          XCTAssertFalse(language.isHidden)
           if preset != .msime {
             XCTAssertGreaterThanOrEqual(language.convert(language.bounds, to: controller.view).minX,
               space.convert(space.bounds, to: controller.view).maxX)
@@ -162,7 +162,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         let field = UUID()
         controller.applyInputContext(keyboardType: type, documentIdentifier: field)
         controller.view.layoutIfNeeded()
-        XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "英文输入")
+        XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "英文输入")
         XCTAssertTrue(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
         XCTAssertFalse(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }).isHidden)
         let q = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
@@ -183,7 +183,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.applyInputContext(keyboardType: type, documentIdentifier: field)
         controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
         controller.view.layoutIfNeeded()
-        XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "中文输入")
+        XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入")
         XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
         XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 9 键")
         XCTAssertEqual(controller.view.bounds.height, 260)
@@ -245,7 +245,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     var last: UIImpactFeedbackGenerator?
     for strength in KeyboardHapticStrength.allCases {
       defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
-      try button("languageModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       let generators = controller.view.interactions.compactMap { $0 as? UIImpactFeedbackGenerator }
       XCTAssertEqual(generators.count, 1)
       let current = try XCTUnwrap(generators.first)
@@ -292,7 +292,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       for skin in KeyboardSkin.allCases {
         let card = try button("skinCard-\(skin.rawValue)", in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
-        XCTAssertEqual(card.bounds.height, 100)
+        let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
+        XCTAssertGreaterThan(miniature.bounds.height, 75)
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertEqual(card.bounds.height, miniature.bounds.height + 36, accuracy: 0.1)
       }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -311,6 +314,49 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSelectingLayoutsChangesActualNineKeyGeometry() throws {
+    let previousLayout = KeyboardLayoutPreference.selected
+    let previousScheme = InputSchemePreference.scheme
+    defer { KeyboardLayoutPreference.selected = previousLayout; InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    var widths: [CGFloat] = []
+    for layout in KeyboardLayoutPreset.allCases {
+      try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("layoutCard-" + layout.rawValue, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let key = try button("nineKey2", in: controller)
+      widths.append(key.bounds.width)
+      let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) })
+      shot.name = "Applied layout " + layout.rawValue; shot.lifetime = .keepAlways; add(shot)
+    }
+    for i in widths.indices { for j in widths.indices where j > i {
+      XCTAssertGreaterThan(abs(widths[i] - widths[j]), 1)
+    } }
+  }
+
+  func testKeyboardLayoutCardsPersistAndKeepHeight() throws {
+    let previous = KeyboardLayoutPreference.selected
+    defer { KeyboardLayoutPreference.selected = previous }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260)
+    for layout in KeyboardLayoutPreset.allCases {
+      try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+      XCTAssertEqual(panel.bounds.height, 260)
+      XCTAssertEqual(try button("layoutCard-" + KeyboardLayoutPreference.selected.rawValue, in: controller).accessibilityValue, "已选中")
+      try button("layoutCard-" + layout.rawValue, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(KeyboardLayoutPreference.selected, layout)
+      XCTAssertEqual(controller.view.bounds.height, 260)
+      XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+    }
+  }
+
   func testBrandOpensMoreCardsAndUpdatesFeedbackState() throws {
     let previous = KeyboardFeedbackPreference.soundEnabled
     defer { KeyboardFeedbackPreference.defaults.set(previous, forKey: KeyboardFeedbackPreference.soundKey) }
@@ -323,6 +369,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
+      let skinIndex = try XCTUnwrap(toolbar.arrangedSubviews.firstIndex(of: button("skinShortcut", in: controller)))
+      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("layoutShortcut", in: controller)))
+      for item in toolbar.arrangedSubviews {
+        XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
+        XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
+      }
       XCTAssertNil(more.menu)
       XCTAssertNotNil(descendants(more).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
       more.sendActions(for: .primaryActionTriggered)
@@ -353,6 +405,19 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testWidePickerCardsPreservePreviewAspectRatio() throws {
+    for nineKey in [false, true] {
+      let picker = KeyboardSchemePickerView(selected: nineKey ? .nineKey : .quanpin, onSelect: { _ in }, onClose: {})
+      picker.frame = CGRect(x: 0, y: 0, width: 812, height: 216)
+      picker.layoutIfNeeded()
+      for miniature in descendants(picker).compactMap({ $0 as? KeyboardSkinMiniature }) {
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(miniature.bounds.width, 220)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(miniature.superview).bounds.height, 176)
+      }
+    }
+  }
+
   func testSchemeCardsSelectAndKeepKeyboardHeight() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -369,7 +434,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
-        XCTAssertEqual(card.bounds.height, 100)
+        let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
+        XCTAssertGreaterThan(miniature.bounds.height, 75)
+        XCTAssertEqual(miniature.bounds.height / miniature.bounds.width, 0.6, accuracy: 0.01)
+        XCTAssertEqual(card.bounds.height, miniature.bounds.height + 36, accuracy: 0.1)
       }
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
@@ -424,7 +492,7 @@ final class NineKeyKeyboardTests: XCTestCase {
                    !controller.needsInputModeSwitchKey)
     shift.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(shift.accessibilityValue, "下一字母")
-    XCTAssertEqual(try button("languageModeButton", in: controller).accessibilityValue, "英文输入")
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "英文输入")
     shift.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(shift.accessibilityValue, "开启")
     shift.sendActions(for: .primaryActionTriggered)
@@ -494,8 +562,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(brand.frame.minX, 6)
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
-                        try button("languageModeButton", in: controller).convert(try button("languageModeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["languageModeButton", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+                        try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
+      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
@@ -596,7 +664,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertNil(selector.configuration?.title)
             XCTAssertNotNil(selector.configuration?.image)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["languageModeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["layoutShortcut", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }
             if width == 320 {
@@ -850,9 +918,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
-    try button("languageModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
-    try button("languageModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 9 键")
 

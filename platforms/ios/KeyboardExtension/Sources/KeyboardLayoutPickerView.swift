@@ -1,30 +1,30 @@
 import UIKit
 
-final class KeyboardSchemePickerView: UIView {
-  init(selected: ChineseInputScheme, onSelect: @escaping (ChineseInputScheme) -> Void, onClose: @escaping () -> Void) {
+final class KeyboardLayoutPickerView: UIView {
+  init(selected: KeyboardLayoutPreset, nineKey: Bool, onSelect: @escaping (KeyboardLayoutPreset) -> Void, onClose: @escaping () -> Void) {
     super.init(frame: .zero)
-    accessibilityIdentifier = "keyboardSchemePicker"
+    accessibilityIdentifier = "keyboardLayoutPicker"
     backgroundColor = .secondarySystemBackground
     let skin = KeyboardSkinPreference.selected
     let header = UILabel()
-    header.text = "选择输入方案"
+    header.text = "切换布局"
     header.font = .systemFont(ofSize: 17, weight: .semibold)
     let close = UIButton(type: .system)
     close.setTitle("完成", for: .normal)
-    close.accessibilityIdentifier = "closeSchemePicker"
+    close.accessibilityIdentifier = "closeLayoutPicker"
     close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
     let scroll = UIScrollView()
     let rows = UIStackView()
     rows.axis = .vertical
     rows.spacing = 10
-    let schemes = InputSchemePreference.enabledSchemes
+    let schemes = KeyboardLayoutPreset.allCases
     for index in stride(from: 0, to: schemes.count, by: 2) {
       let row = UIStackView()
       row.spacing = 10
       row.distribution = .fillEqually
       for scheme in schemes[index..<min(index + 2, schemes.count)] {
         let card = KeyboardKeyButton()
-        card.accessibilityIdentifier = "schemeCard-\(scheme.rawValue)"
+        card.accessibilityIdentifier = "layoutCard-\(scheme.rawValue)"
         card.accessibilityLabel = scheme.title
         card.accessibilityValue = scheme == selected ? "已选中" : ""
         if scheme == selected { card.accessibilityTraits.insert(.selected) }
@@ -39,7 +39,7 @@ final class KeyboardSchemePickerView: UIView {
         title.textColor = skin.keyForeground
         title.adjustsFontSizeToFitWidth = true
         title.minimumScaleFactor = 0.75
-        let preview = KeyboardSkinMiniature(skin: skin, nineKey: scheme == .nineKey)
+        let preview = KeyboardSkinMiniature(skin: skin, nineKey: nineKey, layout: scheme)
         for child in [title, preview] {
           child.isUserInteractionEnabled = false
           child.translatesAutoresizingMaskIntoConstraints = false

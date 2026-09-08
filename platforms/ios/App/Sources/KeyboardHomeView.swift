@@ -83,7 +83,7 @@ struct SettingsView: View {
         }
         Group {
           if scheme == .thoughtfulReply { replyPreview }
-          else { KeyboardSkinPreview(skin: skin, nineKey: scheme == .nineKey, compact: true, layout: layout).id(design) }
+          else { KeyboardSkinPreview(skin: skin, nineKey: scheme == .nineKey, layout: layout).id(design) }
         }.clipShape(RoundedRectangle(cornerRadius: 13)).allowsHitTesting(false).accessibilityHidden(true)
         HStack(spacing: 7) {
           Image(systemName: "keyboard")
@@ -96,17 +96,19 @@ struct SettingsView: View {
     }.buttonStyle(.plain).accessibilityIdentifier("keyboardTryoutLink")
   }
   private var replyPreview: some View {
+    KeyboardPreviewCanvas {
     VStack(spacing: 5) {
       Text("帮你回 · 帮润色").font(.caption.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading).padding(6)
       ForEach([["专属回复", "暖心关怀", "捧场王"], ["恋人", "幽默风趣", "成熟稳重"], ["土味情话", "高情商", "委婉拒绝"]], id: \.self) { row in
         HStack(spacing: 5) {
           ForEach(row, id: \.self) { text in
-            Text(text).font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity).frame(height: 30)
+            Text(text).font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity).frame(maxHeight: .infinity)
               .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 7))
           }
         }
       }
     }.padding(8).foregroundStyle(Color(uiColor: skin.keyForeground)).background(Color(uiColor: skin.background))
+    }
   }
   private func quickEntry(_ title: String, subtitle: String, symbol: String, color: Color) -> some View {
     VStack(alignment: .leading, spacing: 7) {

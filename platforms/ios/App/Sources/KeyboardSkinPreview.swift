@@ -4,7 +4,6 @@ import SwiftUI
 struct KeyboardSkinPreview: View {
   let skin: KeyboardSkin
   let nineKey: Bool
-  var compact = false
   var layout: KeyboardLayoutPreset = .msime
   @Environment(\.colorScheme) private var colorScheme
 
@@ -13,7 +12,16 @@ struct KeyboardSkinPreview: View {
   }
 
   var body: some View {
-    VStack(spacing: compact ? 4 : layout.rowSpacing) {
+    KeyboardPreviewCanvas { keyboard }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
+      .accessibilityIdentifier("fullKeyboardSkinPreview")
+  }
+  // Match the native nine-key sidebar proportions within the 390-point canvas.
+  private var nineKeySidebarWidth: CGFloat { (390 - 14) * layout.sidebarRatio }
+
+  private var keyboard: some View {
+    VStack(spacing: layout.rowSpacing) {
       HStack(spacing: 10) {
         Text("ni hao").font(.caption).foregroundStyle(color(skin.accent))
         Text("你好").font(.subheadline.weight(.medium))
@@ -21,56 +29,53 @@ struct KeyboardSkinPreview: View {
         Spacer(minLength: 0)
         if layout == .doubao { Image(systemName: "waveform").font(.caption) }
         Text(nineKey ? "九键" : "全拼").font(.caption)
-        Text("中").font(.caption.weight(.semibold)).padding(6)
-          .foregroundStyle(color(skin.actionForeground)).background(color(skin.actionBackground), in: RoundedRectangle(cornerRadius: 6))
-      }.padding(.horizontal, 6).frame(height: compact ? 24 : 32)
+
+      }.padding(.horizontal, 6).frame(height: 32)
         .background(color(skin.keyBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
       if nineKey {
         HStack(spacing: 6) {
           VStack(spacing: 5) {
             ForEach(["，", "。", "？", "！"], id: \.self) { value in key(value) }
-          }.frame(width: 38)
-          VStack(spacing: compact ? 4 : layout.rowSpacing) {
+          }.frame(width: nineKeySidebarWidth)
+          VStack(spacing: layout.rowSpacing) {
             row(["分词", "ABC", "DEF"])
             row(["GHI", "JKL", "MNO"])
             row(["PQRS", "TUV", "WXYZ"])
           }
-          VStack(spacing: compact ? 4 : layout.rowSpacing) {
+          VStack(spacing: layout.rowSpacing) {
             key("⌫")
             key("重输")
             key("0")
-          }.frame(width: 38)
-        }.frame(height: compact ? 75 : 137)
+          }.frame(width: nineKeySidebarWidth)
+        }.frame(maxHeight: .infinity)
       } else {
-        VStack(spacing: compact ? 4 : layout.rowSpacing) {
+        VStack(spacing: layout.rowSpacing) {
           row(Array("qwertyuiop").map(String.init))
-          row(Array("asdfghjkl").map(String.init)).padding(.horizontal, layout.centeredLetters ? 14 : 0)
+          row(Array("asdfghjkl").map(String.init)).padding(.horizontal, 376 * layout.letterInsetRatio)
           HStack(spacing: 5) {
             key("⇧").frame(width: 38)
             row(Array("zxcvbnm").map(String.init))
             key("⌫").frame(width: 38)
           }
-        }.frame(height: compact ? 75 : 137)
+        }.frame(maxHeight: .infinity)
       }
       HStack(spacing: 6) {
         if nineKey || layout.showsFullKeyboardSymbols { key("符").frame(width: 30) }
         key("123").frame(width: 38)
         if layout == .msime {
-          Image(systemName: "globe").frame(width: 34, height: compact ? 30 : 40)
+          Image(systemName: "globe").frame(width: 34, height: 44)
             .background(keySurface())
         }
         if !nineKey { key("，").frame(width: 38) }
         key("空格")
         if layout.showsBottomLanguage { key("中/英").frame(width: 30) }
         key("换行", emphasized: true).frame(width: 52)
-      }.frame(height: compact ? 30 : 40)
+      }.frame(height: 44)
     }
     .foregroundStyle(color(skin.keyForeground))
-    .padding(compact ? 5 : 7).background(KeyboardSkinBackdrop(skin: skin))
+    .padding(7).background(KeyboardSkinBackdrop(skin: skin))
     .clipShape(RoundedRectangle(cornerRadius: 12))
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
-    .accessibilityIdentifier("fullKeyboardSkinPreview")
+
   }
 
   private func row(_ titles: [String]) -> some View {
@@ -89,7 +94,7 @@ struct KeyboardSkinPreview: View {
   @ViewBuilder
   private func keySurface(emphasized: Bool = false) -> some View {
     if skin == .custom {
-      SkinKeySurface(design: CustomKeyboardSkinStore.current, action: emphasized, scale: compact ? 0.65 : 1)
+      SkinKeySurface(design: CustomKeyboardSkinStore.current, action: emphasized)
     } else {
     RoundedRectangle(cornerRadius: skin.cornerRadius)
       .fill(color(emphasized ? skin.actionBackground : skin.keyBackground))

@@ -87,7 +87,7 @@ private struct CommunitySkinCard: View {
   let skin: CommunitySkin
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
-      CommunityDesignPreview(design: skin.design, compact: true).frame(height: 124)
+      CommunityDesignPreview(design: skin.design)
       Text(skin.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
       CommunityAuthorLabel(name: skin.owned ? "我的作品" : skin.author)
       HStack(spacing: 3) {
@@ -113,7 +113,7 @@ struct CommunitySkinDetail: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
-        CommunityDesignPreview(design: skin.design).frame(height: 235)
+        CommunityDesignPreview(design: skin.design)
         Text(skin.name).font(.title2.bold())
         Text(skin.author).foregroundStyle(.secondary)
         Text(skin.description)
@@ -166,8 +166,8 @@ struct CommunitySkinDetail: View {
 }
 
 struct CommunityPublishView: View {
-  var initialSelection: UUID? = nil
   var onPublished: () -> Void
+  var selectedSkinID: UUID? = nil
   @Environment(\.dismiss) private var dismiss
   @State private var library = CustomSkinLibrary.designs
   @State private var selected = UUID()
@@ -185,7 +185,7 @@ struct CommunityPublishView: View {
           if library.isEmpty { Text("请先在「设计我的皮肤」保存一款设计。") }
           Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
             .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
-          if let design { CommunityDesignPreview(design: design).frame(height: 210) }
+          if let design { CommunityDesignPreview(design: design) }
         }
         Section("发布信息") {
           TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
@@ -208,7 +208,10 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear { if let first = library.first(where: { $0.id == initialSelection }) ?? library.first { selected = first.id; name = first.name } }
+        .onAppear {
+          library = CustomSkinLibrary.designs
+          if let first = library.first(where: { $0.id == selectedSkinID }) ?? library.first { selected = first.id; name = first.name }
+        }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
@@ -217,22 +220,35 @@ struct CommunityPublishView: View {
 // A value-based preview must not change the user's active custom skin while browsing.
 struct CommunityDesignPreview: View {
   let design: CustomKeyboardSkin
-  var compact = false
+  var nineKey = false
   private func color(_ rgb: UInt32) -> Color { Color(uiColor: CustomKeyboardSkin.color(rgb)) }
-  var body: some View {
-    VStack(spacing: compact ? 3 : 6) {
-      if !compact { HStack { Text("你好"); Text("你号"); Spacer(); Text("全拼") }.font(.caption).foregroundStyle(color(design.accent)).frame(height: 26) }
-      ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in
-        HStack(spacing: 3) { ForEach(Array(row).map(String.init), id: \.self) { key($0) } }
+  var body: some View { KeyboardPreviewCanvas { keyboard }.accessibilityHidden(true) }
+  private var keyboard: some View {
+    VStack(spacing: 6) {
+      HStack { Text("你好"); Text("你号"); Spacer(); Text(nineKey ? "九键" : "全拼") }.font(.caption).foregroundStyle(color(design.accent)).frame(height: 32)
+      if nineKey {
+        HStack(spacing: 4) {
+          VStack(spacing: 4) { key("，"); key("。"); key("？"); key("！") }.frame(width: 32)
+          VStack(spacing: 4) {
+            ForEach([["分词", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"]], id: \.self) { row in
+              HStack(spacing: 4) { ForEach(row, id: \.self) { key($0) } }
+            }
+          }
+          VStack(spacing: 4) { key("⌫"); key("重输"); key("0") }.frame(width: 36)
+        }.frame(maxHeight: .infinity)
+      } else {
+        ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in
+          HStack(spacing: 3) { ForEach(Array(row).map(String.init), id: \.self) { key($0) } }
+        }
       }
-      HStack(spacing: 3) { key("123"); key("，"); key("空格").frame(minWidth: compact ? 36 : 100); key("↵") }
-    }.padding(compact ? 6 : 10).background {
+      HStack(spacing: 3) { key("123"); key("，"); key("空格").frame(minWidth: 100); key("↵") }.frame(height: 44)
+    }.padding(10).background {
       KeyboardSkinBackdrop(skin: .custom, design: design)
     }.clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
   }
   private func key(_ text: String) -> some View {
-    Text(text).font(.system(size: compact ? 8 : 14, weight: .medium, design: design.monospaced ? .monospaced : .default))
+    Text(text).font(.system(size: 14, weight: .medium, design: design.monospaced ? .monospaced : .default))
       .foregroundStyle(color(text == "↵" ? CustomKeyboardSkin.readableText(on: design.actionBackground) : design.keyForeground)).frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background { SkinKeySurface(design: design, action: text == "↵", scale: compact ? 0.45 : 1) }
+      .background { SkinKeySurface(design: design, action: text == "↵") }
   }
 }
