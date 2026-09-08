@@ -15,6 +15,7 @@ private enum ClipboardConfirmation: String, Identifiable {
 struct CloudClipboardView: View {
   let session: BackendAccountSession
   let client: BackendAccountClient
+  @State private var accountID: String?
   @State private var enabled = false
   @State private var loaded = false
   @State private var items: [BackendAccountClient.ClipboardItem] = []
@@ -56,7 +57,7 @@ struct CloudClipboardView: View {
             VStack(alignment: .leading, spacing: 8) {
               Text(item.text).textSelection(.enabled)
               HStack {
-                Button("复制") { UIPasteboard.general.string = item.text }
+                Button("复制") { run { _ in UIPasteboard.general.string = item.text } }
                 Spacer()
                 Button("删除", role: .destructive) { run { token in try await client.deleteClipboard(id: item.id, token: token) } }
               }
@@ -73,7 +74,7 @@ struct CloudClipboardView: View {
     }
     .disabled(busy)
     .navigationTitle("云剪贴板")
-    .task { await execute { _ in } }
+    .task { run { _ in } }
     .onDisappear { pending?.cancel(); items = []; text = "" }
     .confirmationDialog(confirmation?.title ?? "", isPresented: Binding(
       get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })) {
@@ -88,21 +89,24 @@ struct CloudClipboardView: View {
       Button("取消", role: .cancel) { confirmation = nil }
     }
   }
-  private func run(_ action: @escaping (String) async throws -> Void) {
+  @MainActor private func run(_ action: @escaping (String) async throws -> Void) {
+    guard !busy else { return }
+    busy = true; message = nil
     pending = Task { await execute(action) }
   }
   @MainActor private func execute(_ action: (String) async throws -> Void) async {
-    guard !busy else { return }
-    busy = true; message = nil
     defer { busy = false }
     do {
-      let token = try await session.accessToken()
-      try await action(token)
-      let page = try await client.clipboard(token: token, search: search)
+      let identity = try await session.credentials(matchingUserID: accountID)
+      try Task.checkCancellation()
+      accountID = identity.userID
+      try await action(identity.token)
+      let page = try await client.clipboard(token: identity.token, search: search)
+      _ = try await session.credentials(matchingUserID: identity.userID)
       try Task.checkCancellation()
       enabled = page.enabled; items = page.items; loaded = true
-    } catch is CancellationError { }
-    catch let error as BackendAccountClient.Failure { message = error.localizedDescription }
-    catch { message = "连接未完成，请检查网络后重试。" }
+    } catch is CancellationError { items = []; text = ""; loaded = false }
+    catch let error as BackendAccountClient.Failure { items = []; loaded = false; message = error.localizedDescription }
+    catch { items = []; loaded = false; message = "连接未完成，请检查网络后重试。" }
   }
 }
