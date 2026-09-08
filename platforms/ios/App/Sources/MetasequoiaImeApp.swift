@@ -16,10 +16,11 @@ struct MetasequoiaImeApp: App {
   var body: some Scene {
     WindowGroup {
       #if DEBUG && targetEnvironment(simulator)
-      if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") {
+      if ProcessInfo.processInfo.arguments.contains("-keyboardAIPreview") || ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview") {
         KeyboardAIView(text: previewText,
           configuration: CustomServiceConfiguration(endpoint: "https://fixture.invalid/v1/chat/completions", model: "fixture"),
-          canSend: { false }, insert: { _ in false }, close: {})
+          canSend: { false }, insert: { _ in false }, close: {},
+          thoughtfulReply: ProcessInfo.processInfo.arguments.contains("-keyboardReplyPreview"))
           .frame(width: 320, height: previewHeight)
           .environment(\.sizeCategory, previewSizeCategory)
       } else if ProcessInfo.processInfo.arguments.contains("-keyboardVoicePreview") {

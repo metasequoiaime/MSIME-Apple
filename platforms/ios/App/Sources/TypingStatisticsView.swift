@@ -46,6 +46,7 @@ struct TypingStatisticsView: View {
       StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue),
       StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple),
       StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange),
+      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint),
       StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo),
       StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray),
     ]

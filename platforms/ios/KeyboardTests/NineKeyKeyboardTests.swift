@@ -22,6 +22,27 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(bridge.setFuzzyPinyinRules(0))
   }
 
+  func testThoughtfulReplySchemeUsesFullKeyboardAndCanBeDisabled() throws {
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier))
+    let previousEnabled = defaults.object(forKey: InputSchemePreference.enabledSchemesKey)
+    let previous = InputSchemePreference.scheme
+    defer {
+      defaults.set(previousEnabled, forKey: InputSchemePreference.enabledSchemesKey)
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .thoughtfulReply]
+    InputSchemePreference.scheme = .thoughtfulReply
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "高情商回复")
+    XCTAssertEqual(try button("replyShortcut", in: controller).accessibilityLabel, "生成高情商回复")
+    XCTAssertTrue(try XCTUnwrap(button("nineKey6", in: controller).superview).isHidden)
+    InputSchemePreference.enabledSchemes = [.quanpin]
+    controller.viewWillAppear(false)
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
+    XCTAssertEqual(try button("scriptShortcut", in: controller).accessibilityIdentifier, "scriptShortcut")
+  }
+
   func testDisabledSchemesAreHiddenAndCurrentSchemeFallsBack() throws {
     let defaults = try XCTUnwrap(UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier))
     let previousEnabled = defaults.object(forKey: InputSchemePreference.enabledSchemesKey)

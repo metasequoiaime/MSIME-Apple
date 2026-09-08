@@ -171,7 +171,7 @@ struct ServiceSettingsView: View {
               }
             }
         } footer: {
-          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”中使用。需要允许完全访问；每次发送前会预览文字。")
+          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”或“高情商回复”方案中使用。需要允许完全访问；每次发送前会预览文字。")
         }
         Section("AI 润色") {
           TextEditor(text: $input).frame(minHeight: 100)

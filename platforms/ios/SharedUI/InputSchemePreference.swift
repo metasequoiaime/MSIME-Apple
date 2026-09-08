@@ -1,7 +1,7 @@
 import Foundation
 
 enum ChineseInputScheme: String, CaseIterable {
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, thoughtfulReply
 
   var shuangpinProfile: String? {
     switch self {
@@ -20,6 +20,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .shoudao: "Shoudao 双拼"
     case .wubi: "86 五笔"
     case .japanese: "日语罗马字"
+    case .thoughtfulReply: "高情商回复"
     }
   }
 }

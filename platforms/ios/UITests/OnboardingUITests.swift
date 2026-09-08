@@ -33,6 +33,24 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testReplyTonePreviewFitsCompactKeyboard() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-keyboardReplyPreview", "-keyboardCompactPreview"]
+    app.launch()
+    let tones = app.segmentedControls["keyboardReplyTone"]
+    XCTAssertTrue(tones.waitForExistence(timeout: 5))
+    tones.buttons["委婉拒绝"].tap()
+    XCTAssertTrue(tones.buttons["委婉拒绝"].isSelected)
+    XCTAssertTrue(app.buttons["keyboardAISend"].isHittable)
+    XCTAssertTrue(app.buttons["keyboardServiceClose"].isHittable)
+    XCTAssertLessThanOrEqual(app.buttons["keyboardAISend"].frame.maxY - app.buttons["keyboardServiceClose"].frame.minY, 216.5)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "Thoughtful reply tone selection"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  @MainActor
   func testKeyboardAICompactLargeTextKeepsControlsReachable() {
     let app = XCUIApplication()
     app.launchArguments = ["-keyboardAIPreview", "-keyboardCompactPreview", "-keyboardLargeType", "-keyboardLongPreview"]

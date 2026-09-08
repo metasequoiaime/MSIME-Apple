@@ -501,6 +501,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
+      if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
       usesTraditionalOutput.toggle()
       ChineseOutputPreference.usesTraditional = usesTraditionalOutput
       renderCandidateStrip()
@@ -532,6 +533,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
     scriptShortcut.isEnabled = !(isChineseMode && inputScheme == .japanese)
     scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
+    if inputScheme == .thoughtfulReply {
+      configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
+        label: "生成高情商回复", id: "replyShortcut")
+      scriptShortcut.isEnabled = true
+      scriptShortcut.accessibilityValue = nil
+    }
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
@@ -1096,12 +1103,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
     case .wubi: session.switchToWubi()
     case .japanese: session.switchToJapanese()
-    case .quanpin, .shuangpin: session.switch(toShuangpin: usesShuangpin)
+    case .quanpin, .shuangpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
     }
   }
 
   private func selectInputScheme(_ scheme: ChineseInputScheme) {
-    guard InputSchemePreference.enabledSchemes.contains(scheme), scheme != inputScheme else { return }
+    guard InputSchemePreference.enabledSchemes.contains(scheme) else { return }
+    if scheme == inputScheme {
+      if scheme == .thoughtfulReply { showKeyboardAI() }
+      return
+    }
     playInputClick()
     let source = typingSource
     inputScheme = scheme
@@ -1111,6 +1122,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSchemeButton()
     updateLanguageModeButton()
     render(snapshot, source: source)
+    updateShortcutButtons()
+    if scheme == .thoughtfulReply { showKeyboardAI() }
   }
 
   private func showKeyboardAI() {
@@ -1118,14 +1131,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let configuration = KeyboardAIService.configuration() else {
       showDiagnostic("请在水杉 App 的 AI 设置中启用键盘 AI 并保存配置。"); return
     }
+    let isReply = inputScheme == .thoughtfulReply
+    let selectedText = textDocumentProxy.selectedText
+    let sourceText = selectedText.flatMap { $0.isEmpty ? nil : $0 }
+      ?? (isReply ? textDocumentProxy.documentContextBeforeInput : nil)
     guard !hasComposition, let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
-          let selected = textDocumentProxy.selectedText, !selected.isEmpty, selected.count <= 10_000 else {
-      showDiagnostic("请先完成输入，再选中要润色的文字（最多一万字）。"); return
+          let selected = sourceText, !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          selected.count <= 10_000 else {
+      showDiagnostic(isReply ? "输入或粘贴对方的话，完成输入后点顶部回复按钮；也可以选中文字生成回复。" : "请先完成输入，再选中要润色的文字（最多一万字）。"); return
     }
     closeKeyboardPicker()
     closeKeyboardService()
     let selection = KeyboardDocumentContext(document: document, before: textDocumentProxy.documentContextBeforeInput,
-                                         selected: selected, after: textDocumentProxy.documentContextAfterInput)
+                                         selected: selectedText, after: textDocumentProxy.documentContextAfterInput)
     let matches: () -> Bool = { [weak self] in
       guard let self, hasFullAccess, servicePanel != nil else { return false }
       return selection.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
@@ -1135,9 +1153,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let panel = UIHostingController(rootView: KeyboardAIView(text: selected, configuration: configuration,
       canSend: matches, insert: { [weak self] result in
         guard let self, matches(), KeyboardAIService.configuration() == configuration else { return false }
-        insertOwnText(result, source: .ai)
+        insertOwnText(isReply && (selectedText ?? "").isEmpty ? " " + result : result, source: isReply ? .reply : .ai)
         return true
-      }, close: { [weak self] in self?.closeKeyboardService() }))
+      }, close: { [weak self] in self?.closeKeyboardService() },
+      thoughtfulReply: isReply, replacesSelection: !(selectedText ?? "").isEmpty))
     servicePanel = panel
     addChild(panel)
     panel.view.frame = view.bounds
@@ -1338,6 +1357,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .shoudao: configuration.title = "SD"
     case .wubi: configuration.title = "五笔"
     case .japanese: configuration.title = "日语"
+    case .thoughtfulReply: configuration.title = "回复"
     }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
@@ -1551,6 +1571,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if localModeTrigger == "R" { return .japanese }
     if localModeTrigger != nil { return .local }
     if !isChineseMode { return .english }
+    if inputScheme == .thoughtfulReply { return .quanpin }
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 

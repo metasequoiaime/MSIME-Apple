@@ -130,6 +130,14 @@ struct InputSettingsView: View {
           Text("开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
         }
 
+        Section("高情商回复") {
+          Text("选中对方的话，或粘贴到输入框并完成输入，再点键盘顶部的回复按钮。可选自然、暖心、幽默或委婉拒绝语气，预览后手动插入。未选中文字时会追加回复。")
+            .font(.footnote).foregroundStyle(.secondary)
+          NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
+            Label("配置键盘 AI", systemImage: "sparkles")
+          }
+        }
+
         Section {
           NavigationLink(destination: FuzzyPinyinSettingsView()) {
             Label("模糊音", systemImage: "waveform.path")
