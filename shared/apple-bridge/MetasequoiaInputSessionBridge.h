@@ -39,6 +39,8 @@ typedef NS_ENUM(NSInteger, MetasequoiaCandidateAction) {
 - (MetasequoiaInputSnapshot *)cancel;
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index;
 - (BOOL)setLearningEnabled:(BOOL)enabled;
+- (BOOL)suspendDictionarySession;
+- (BOOL)resumeDictionarySessionWithError:(NSError **)error NS_SWIFT_NAME(resumeDictionarySession());
 // Call on the session-owning thread. This token describes the current logical
 // journal and generation, and is used to reject stale snapshot replacements.
 - (nullable NSString *)localDictionaryStateVersionWithError:(NSError **)error

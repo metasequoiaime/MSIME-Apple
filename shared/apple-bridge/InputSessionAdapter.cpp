@@ -169,6 +169,12 @@ bool InputSessionAdapter::learning_enabled() const
     return learning_enabled_;
 }
 
+bool InputSessionAdapter::idle() const
+{
+    const auto snapshot = impl_->session.snapshot();
+    return snapshot.preedit.empty() && snapshot.local_mode == LocalInputMode::None;
+}
+
 RuntimePaths InputSessionAdapter::runtime_paths() const
 {
     return impl_->paths;

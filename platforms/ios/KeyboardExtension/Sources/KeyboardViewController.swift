@@ -177,6 +177,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    do { try session.resumeDictionarySession() }
+    catch { showDiagnostic(error.localizedDescription) }
     // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
@@ -228,6 +230,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
     render(session.finishComposition())
+    _ = session.suspendDictionarySession()
     pendingOwnEdits = 0
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()

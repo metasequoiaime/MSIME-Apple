@@ -98,6 +98,8 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     std::unique_ptr<metasequoia::apple::DictionarySessionLease> _sessionLease;
     std::unique_ptr<metasequoia::apple::InputSessionAdapter> _adapter;
     std::optional<std::string> _installationDiagnostic;
+    bool _suspended;
+    bool _requestedLearning;
 }
 
 - (instancetype)init
@@ -112,6 +114,50 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         _installationDiagnostic = installation.diagnostic;
     }
     return self;
+}
+
+- (BOOL)suspendDictionarySession
+{
+    if (_suspended) return YES;
+    if (!_adapter->idle()) return NO;
+    try
+    {
+        if (!_adapter->set_learning_enabled(false)) return NO;
+        _suspended = true;
+        _sessionLease.reset();
+        return YES;
+    }
+    catch (const std::exception &) { return NO; }
+}
+
+- (BOOL)resumeDictionarySessionWithError:(NSError **)error
+{
+    if (_sessionLease && !_suspended) return YES;
+    try
+    {
+        if (!_sessionLease) _sessionLease = std::make_unique<metasequoia::apple::DictionarySessionLease>(UserDataRoot());
+        const auto installation = ConfigureDataDirectory(true);
+        if (!_adapter->activate_dictionary_generation(installation.paths, [] {}) ||
+            !_adapter->set_learning_enabled(_requestedLearning))
+            throw std::runtime_error("Cannot resume dictionary session");
+        _installationDiagnostic = installation.diagnostic;
+        _suspended = false;
+        return YES;
+    }
+    catch (const std::exception &)
+    {
+        _sessionLease.reset();
+        try { _suspended = !_adapter->set_learning_enabled(false); }
+        catch (const std::exception &) { _suspended = true; }
+        if (error) *error = [NSError errorWithDomain:@"app.msime.snapshot" code:2
+            userInfo:@{NSLocalizedDescriptionKey: @"词库会话恢复未完成，请重新打开键盘后重试。"}];
+        return NO;
+    }
+}
+
+- (MetasequoiaInputSnapshot *)suspendedSnapshot
+{
+    return [[MetasequoiaInputSnapshot alloc] initWithHandled:NO commitText:nil preedit:@"" candidates:@[] diagnosticText:nil];
 }
 
 - (NSString *)localDictionaryStateVersionWithError:(NSError **)error
@@ -229,6 +275,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)handleCharacter:(NSString *)character
 {
+    if (_suspended) return [self suspendedSnapshot];
     const char *utf8 = character.UTF8String;
     if (utf8 == nullptr || utf8[0] == '\0' || utf8[1] != '\0')
     {
@@ -239,6 +286,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)handleCandidateKey:(NSString *)character
 {
+    if (_suspended) return [self suspendedSnapshot];
     const char *utf8 = character.UTF8String;
     if (utf8 == nullptr || utf8[0] == '\0' || utf8[1] != '\0')
     {
@@ -249,6 +297,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)handlePunctuation:(NSString *)character
 {
+    if (_suspended) return [self suspendedSnapshot];
     const char *utf8 = character.UTF8String;
     if (utf8 == nullptr || utf8[0] == '\0' || utf8[1] != '\0')
     {
@@ -259,36 +308,43 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)handleBackspace
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->handle_backspace()];
 }
 
 - (MetasequoiaInputSnapshot *)commitCandidate
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->commit_candidate()];
 }
 
 - (MetasequoiaInputSnapshot *)finishComposition
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->finish_composition()];
 }
 
 - (MetasequoiaInputSnapshot *)commitRaw
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->commit_raw()];
 }
 
 - (MetasequoiaInputSnapshot *)cancel
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->cancel()];
 }
 
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->select_candidate(static_cast<std::size_t>(index))];
 }
 
 - (BOOL)setLearningEnabled:(BOOL)enabled
 {
+    _requestedLearning = enabled;
     if (enabled && !_sessionLease) return NO;
     return _adapter->set_learning_enabled(enabled);
 }
@@ -297,6 +353,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
                                       expectedWord:(NSString *)word
                                             action:(MetasequoiaCandidateAction)action
 {
+    if (_suspended) return [self suspendedSnapshot];
     if (!_sessionLease) return [self snapshotFrom:_adapter->handle_character('\0')];
     using metasequoia::apple::CandidateAction;
     CandidateAction operation;
@@ -322,29 +379,35 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)switchToShuangpin:(BOOL)usesShuangpin
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->switch_to_shuangpin(usesShuangpin)];
 }
 
 - (MetasequoiaInputSnapshot *)switchToShuangpinProfile:(NSString *)name
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->switch_to_shuangpin_profile(name.UTF8String ?: "")];
 }
 
 - (MetasequoiaInputSnapshot *)switchToWubi
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->switch_to_wubi()];
 }
 - (MetasequoiaInputSnapshot *)switchToJapanese
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->switch_to_japanese()];
 }
 
 - (MetasequoiaInputSnapshot *)switchToNineKey
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->switch_to_nine_key()];
 }
 - (MetasequoiaInputSnapshot *)chooseNineKeySpellingAtIndex:(NSUInteger)index
 {
+    if (_suspended) return [self suspendedSnapshot];
     return [self snapshotFrom:_adapter->choose_nine_key_spelling(index)];
 }
 - (NSArray<NSString *> *)nineKeySpellings
@@ -357,6 +420,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)openLocalMode:(NSString *)trigger
 {
+    if (_suspended) return [self suspendedSnapshot];
     const char *utf8 = trigger.UTF8String;
     if (utf8 == nullptr || utf8[0] == '\0' || utf8[1] != '\0')
     {
@@ -389,6 +453,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
 
 - (MetasequoiaInputSnapshot *)snapshotFrom:(metasequoia::apple::InputSnapshot)snapshot
 {
+    if (_suspended) return [self suspendedSnapshot];
     if (!_sessionLease) snapshot.diagnostic = "词库锁暂不可用，已暂停学习和词库修改。";
     NSMutableArray<NSString *> *candidates = [NSMutableArray arrayWithCapacity:snapshot.candidates.size()];
     for (const auto &candidate : snapshot.candidates)

@@ -67,6 +67,7 @@ class InputSessionAdapter
     bool set_learning_enabled(bool enabled);
     bool learning_enabled() const;
     RuntimePaths runtime_paths() const;
+    bool idle() const;
     PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
                                                     const std::optional<PersonalDictionaryEntry> &replacement,
                                                     const std::string &request_id);
