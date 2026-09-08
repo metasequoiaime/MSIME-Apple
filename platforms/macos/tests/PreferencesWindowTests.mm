@@ -859,6 +859,26 @@ int main()
                 }),
                 "Closing standalone settings did not finish or request application termination.");
         [[NSNotificationCenter defaultCenter] removeObserver:standaloneCloseObserver];
+        NSDictionary *originalCloudSettings = [MetasequoiaPreferencesWindowController cloudSettingsSnapshot];
+        require(originalCloudSettings.count == 19, "The cloud snapshot missed a native setting.");
+        NSMutableDictionary *invalidCloudSettings = [originalCloudSettings mutableCopy];
+        invalidCloudSettings[@"platform.macos.input_scheme"] = @2;
+        invalidCloudSettings[@"platform.macos.candidate_font_size"] = @17;
+        require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidCloudSettings] boolValue],
+                "Unsupported cloud font size was accepted.");
+        require([[MetasequoiaPreferencesWindowController cloudSettingsSnapshot] isEqual:originalCloudSettings],
+                "Invalid cloud settings partially changed local preferences.");
+        invalidCloudSettings[@"platform.macos.candidate_font_size"] = @18;
+        invalidCloudSettings[@"platform.macos.candidate_learning"] = @1;
+        require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidCloudSettings] boolValue],
+                "An integer was accepted for a boolean cloud setting.");
+        invalidCloudSettings[@"platform.macos.candidate_learning"] = @YES;
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidCloudSettings] boolValue],
+                "A valid full cloud settings snapshot was rejected.");
+        require([[MetasequoiaPreferencesWindowController cloudSettingsSnapshot] isEqual:invalidCloudSettings],
+                "Cloud settings did not roundtrip through native setters.");
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:originalCloudSettings] boolValue],
+                "The test settings could not be restored.");
     }
     return 0;
 }

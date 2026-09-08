@@ -265,6 +265,198 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [[NSNotificationCenter defaultCenter] postNotificationName:MetasequoiaWillResetLearnedDataNotification object:nil];
 }
 
++ (NSDictionary<NSString *, NSNumber *> *)cloudSettingsSnapshot
+{
+    return @{
+        @"platform.macos.input_scheme" : @([self storedScheme]),
+        @"platform.macos.quanpin_helpcode_schema" : @([self storedQuanpinHelpcodeSchema]),
+        @"platform.macos.shuangpin_helpcode_schema" : @([self storedShuangpinHelpcodeSchema]),
+        @"platform.macos.candidate_panel_style" : @([self storedCandidatePanelStyle]),
+        @"platform.macos.candidate_page_size" : @([self storedCandidatePageSize]),
+        @"platform.macos.candidate_font_size" : @([self storedCandidateFontSize]),
+        @"platform.macos.candidate_page_shortcut" : @([self storedCandidatePageShortcut]),
+        @"platform.macos.autocorrect" : @([self storedAutocorrectEnabled]),
+        @"platform.macos.helpcode" : @([self storedHelpcodeEnabled]),
+        @"platform.macos.chinese_punctuation" : @([self storedChinesePunctuationEnabled]),
+        @"platform.macos.candidate_learning" : @([self storedCandidateLearningEnabled]),
+        @"platform.macos.english_input_mode" : @([self storedEnglishInputMode]),
+        @"platform.macos.input_mode_shortcut" : @([self storedInputModeShortcutEnabled]),
+        @"platform.macos.full_width_input" : @([self storedFullWidthInputEnabled]),
+        @"platform.macos.floating_toolbar" : @([self storedFloatingToolbarEnabled]),
+        @"platform.macos.traditional_chinese_output" : @([self storedTraditionalChineseOutputEnabled]),
+        @"platform.macos.wubi_auto_commit_unique" : @([self storedWubiAutoCommitUniqueEnabled]),
+        @"platform.macos.shuangpin_keymap" : @([self storedShuangpinKeymapEnabled]),
+        @"platform.macos.local_input_modes" : @([self storedLocalInputModesEnabled]),
+    };
+}
+
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, NSNumber *> *)values
+{
+    if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 19)
+        return @NO;
+    {
+        NSNumber *value = values[@"platform.macos.input_scheme"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @0, @1, @2 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.quanpin_helpcode_schema"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @0, @1, @2, @3, @4 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.shuangpin_helpcode_schema"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @0, @1, @2, @3, @4 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.candidate_panel_style"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @0, @1 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.candidate_page_size"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @5, @7, @9 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.candidate_font_size"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @16, @18, @20 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.candidate_page_shortcut"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
+            ![@[ @0, @1, @2 ] containsObject:value])
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.autocorrect"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.helpcode"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.chinese_punctuation"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.candidate_learning"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.english_input_mode"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.input_mode_shortcut"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.full_width_input"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.floating_toolbar"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.traditional_chinese_output"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.wubi_auto_commit_unique"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.shuangpin_keymap"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    {
+        NSNumber *value = values[@"platform.macos.local_input_modes"];
+        if (![value isKindOfClass:[NSNumber class]])
+            return @NO;
+        if (CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID())
+            return @NO;
+    }
+    // Validate the complete snapshot before calling any mutating setter.
+    [self setStoredScheme:values[@"platform.macos.input_scheme"].integerValue];
+    [self setQuanpinHelpcodeSchema:values[@"platform.macos.quanpin_helpcode_schema"].integerValue];
+    [self setShuangpinHelpcodeSchema:values[@"platform.macos.shuangpin_helpcode_schema"].integerValue];
+    [self setCandidatePanelStyle:values[@"platform.macos.candidate_panel_style"].integerValue];
+    [self setCandidatePageSize:values[@"platform.macos.candidate_page_size"].integerValue];
+    [self setCandidateFontSize:values[@"platform.macos.candidate_font_size"].integerValue];
+    [self setCandidatePageShortcut:values[@"platform.macos.candidate_page_shortcut"].integerValue];
+    [self setAutocorrectEnabled:values[@"platform.macos.autocorrect"].boolValue];
+    [self setHelpcodeEnabled:values[@"platform.macos.helpcode"].boolValue];
+    [self setChinesePunctuationEnabled:values[@"platform.macos.chinese_punctuation"].boolValue];
+    [self setCandidateLearningEnabled:values[@"platform.macos.candidate_learning"].boolValue];
+    [self setEnglishInputMode:values[@"platform.macos.english_input_mode"].boolValue];
+    [self setInputModeShortcutEnabled:values[@"platform.macos.input_mode_shortcut"].boolValue];
+    [self setFullWidthInputEnabled:values[@"platform.macos.full_width_input"].boolValue];
+    [self setFloatingToolbarEnabled:values[@"platform.macos.floating_toolbar"].boolValue];
+    [self setTraditionalChineseOutputEnabled:values[@"platform.macos.traditional_chinese_output"].boolValue];
+    [self setWubiAutoCommitUniqueEnabled:values[@"platform.macos.wubi_auto_commit_unique"].boolValue];
+    [self setShuangpinKeymapEnabled:values[@"platform.macos.shuangpin_keymap"].boolValue];
+    [self setLocalInputModesEnabled:values[@"platform.macos.local_input_modes"].boolValue];
+    return @YES;
+}
+
 + (NSInteger)storedScheme
 {
     const NSInteger scheme = [[NSUserDefaults standardUserDefaults] integerForKey:kSchemePreferenceKey];
