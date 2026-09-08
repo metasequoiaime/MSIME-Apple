@@ -32,8 +32,11 @@ private final class ThemeProtocol: URLProtocol, @unchecked Sendable {
         let fixture = try XCTUnwrap(Bundle(for: AISkinGenerationTests.self).url(forResource: "AIThemeReference", withExtension: "json"))
         let content = try String(contentsOf: fixture, encoding: .utf8)
         body = try JSONSerialization.data(withJSONObject: ["choices": [["message": ["role": "assistant", "content": content]]]])
-      case "/v1/skins/generate":
-        body = try JSONSerialization.data(withJSONObject: ["b64_json": image.base64EncodedString(), "mime_type": "image/png", "width": 64, "height": 64])
+      case "/v1/skins/jobs":
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() + String(repeating: "a", count: 16)
+        body = try JSONSerialization.data(withJSONObject: ["id": id, "state": "running"])
+      case let path where path.hasPrefix("/v1/skins/jobs/"):
+        body = request.httpMethod == "DELETE" ? Data() : try JSONSerialization.data(withJSONObject: ["id": request.url!.lastPathComponent, "state": "succeeded", "artwork": ["b64_json": image.base64EncodedString(), "mime_type": "image/png", "width": 64, "height": 64]])
       default: throw URLError(.unsupportedURL)
       }
       client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
@@ -72,7 +75,9 @@ final class AISkinGenerationTests: XCTestCase {
       XCTAssertEqual(Array(data.prefix(2)), [0xFF, 0xD8], "Native storage uses sanitized JPEG")
       XCTAssertNotNil(UIImage(data: data))
     }
-    XCTAssertEqual(ThemeProtocol.paths, ["/v1/models", "/v1/chat/completions"] + Array(repeating: "/v1/skins/generate", count: 3))
+    XCTAssertEqual(Array(ThemeProtocol.paths.prefix(2)), ["/v1/models", "/v1/chat/completions"])
+    XCTAssertEqual(ThemeProtocol.paths.filter { $0 == "/v1/skins/jobs" }.count, 3)
+    XCTAssertEqual(ThemeProtocol.paths.filter { $0.hasPrefix("/v1/skins/jobs/") }.count, 6)
     XCTAssertEqual(CustomKeyboardSkinStore.current, current)
     XCTAssertEqual(CustomSkinLibrary.designs, saved)
   }
@@ -84,6 +89,6 @@ final class AISkinGenerationTests: XCTestCase {
         account: BackendAccountSession(api: api, storage: ThemeSessionStorage()))
       XCTFail("Corrupt artwork must fail generation")
     } catch { XCTAssertTrue(error.localizedDescription.contains("插画")) }
-    XCTAssertTrue((1...3).contains(ThemeProtocol.paths.filter { $0 == "/v1/skins/generate" }.count))
+    XCTAssertTrue((1...3).contains(ThemeProtocol.paths.filter { $0 == "/v1/skins/jobs" }.count))
   }
 }

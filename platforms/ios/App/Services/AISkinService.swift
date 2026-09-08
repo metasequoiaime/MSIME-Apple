@@ -115,13 +115,10 @@ enum AISkinService {
   }
   private static func illustrate(_ plan: AISkinProposal, prompt: String, client: BackendAccountClient,
                                  account: BackendAccountSession, userID: String) async throws -> AISkinProposal {
-      let credential = try await account.credentials(matchingUserID: userID)
+      _ = try await account.credentials(matchingUserID: userID)
       try Task.checkCancellation()
-      struct Body: Encodable { let prompt: String }
-      struct Artwork: Decodable { let b64_json: String; let mime_type: String; let width: Int; let height: Int }
-      let artwork: Artwork = try await client.json("POST", "/v1/skins/generate", token: credential.token,
-        body: JSONEncoder().encode(Body(prompt: prompt + "。方案：" + plan.name + "。" + plan.description)),
-        timeout: 180, maximumResponseBytes: 12 * 1024 * 1024)
+      let artwork = try await client.skinArtwork(prompt: "方案：" + plan.name + "。" + plan.description,
+        account: account, userID: userID)
       _ = try await account.credentials(matchingUserID: userID)
       try Task.checkCancellation()
       guard ["image/png", "image/jpeg"].contains(artwork.mime_type), (1...2048).contains(artwork.width),
