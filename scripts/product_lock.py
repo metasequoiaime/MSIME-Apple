@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Maintain and consume the reviewed Apple product dependency lock.
 
-This mirrors MSIME-Linux/scripts/product_lock.py deliberately, so the two can be diffed. The only intended difference is the asset set: the macOS bundle installs msime.db and nothing else, so others.db and english.db are not locked here. Add them here and to CMakeLists.txt together if the bundle ever ships them.
+macOS locks and bundles the main and English dictionaries from the same published desktop product. Both are required when Engine rebuilds a complete personal dictionary snapshot.
 
 Engine, helpcodes and the mobile builder share one Engine gitlink, and this lock does not copy that commit. Nothing here reads it: the manifest resolves gitlinks directly, and this repository has no release gate that refuses an engine commit nobody merged. MSIME-Windows does record it, because its packaging manifest and release gate both consume it, and `product_lock.py verify-contracts` keeps that copy honest against the gitlink. Either is fine with a checker; a second copy with no reader and no checker is not.
 
@@ -46,7 +46,7 @@ SUBMODULES = {
 
 # The database CMakeLists.txt installs into the bundle, plus the checksum file the release publishes
 # beside it. The checksum file is locked too so a rewritten one is caught rather than trusted.
-DATABASES = ("msime.db",)
+DATABASES = ("msime.db", "english.db")
 ASSETS = (*DATABASES, "SHA256SUMS.txt")
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")

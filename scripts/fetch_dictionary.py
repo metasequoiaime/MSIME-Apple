@@ -56,6 +56,12 @@ def verify_contents(destination: Path) -> None:
     ):
         raise SystemExit("Downloaded dictionary failed integrity or candidate verification.")
 
+    with sqlite3.connect(destination / "english.db") as database:
+        if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise SystemExit("英文词库完整性检查失败。")
+        if database.execute("SELECT word, display, weight FROM english_words LIMIT 1").fetchone() is None:
+            raise SystemExit("英文词库没有有效词条。")
+
     print(
         f"{main_db.name} ({main_db.stat().st_size} bytes), "
         f"ni'hao -> {candidate[0]}, yyds -> {quick_phrase[0]}, aaaa -> {wubi_candidate[0]}"

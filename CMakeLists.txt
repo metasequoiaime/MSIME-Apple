@@ -124,6 +124,16 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     endif()
 
     file(SHA256 "${METASEQUOIA_IME_DICTIONARY}" METASEQUOIA_IME_DICTIONARY_SHA256)
+    get_filename_component(dictionary_directory "${METASEQUOIA_IME_DICTIONARY}" DIRECTORY)
+    set(METASEQUOIA_IME_ENGLISH_DICTIONARY "${dictionary_directory}/english.db")
+    if(NOT EXISTS "${METASEQUOIA_IME_ENGLISH_DICTIONARY}")
+        message(FATAL_ERROR "英文词库缺失。请运行 scripts/fetch_dictionary.py，或重新生成测试词库。")
+    endif()
+    file(SHA256 "${METASEQUOIA_IME_ENGLISH_DICTIONARY}" METASEQUOIA_IME_ENGLISH_SHA256)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256" "${METASEQUOIA_IME_DICTIONARY_SHA256}\n")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/english.db.sha256" "${METASEQUOIA_IME_ENGLISH_SHA256}\n")
+
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(CARBON_FRAMEWORK Carbon REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
@@ -211,6 +221,12 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         set_source_files_properties("${dictionary_directory}/dictionary-manifest.json"
             PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     endif()
+    set(METASEQUOIA_IME_SNAPSHOT_RESOURCES
+        "${METASEQUOIA_IME_ENGLISH_DICTIONARY}"
+        "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256"
+        "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/english.db.sha256")
+    target_sources(MetasequoiaIME PRIVATE ${METASEQUOIA_IME_SNAPSHOT_RESOURCES})
+    set_source_files_properties(${METASEQUOIA_IME_SNAPSHOT_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_DICTIONARY} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_HELPCODES}

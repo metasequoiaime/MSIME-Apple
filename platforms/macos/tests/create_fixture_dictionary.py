@@ -14,6 +14,11 @@ def main() -> None:
     with sqlite3.connect(output) as database:
         database.execute("CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER)")
         database.execute("INSERT INTO tbl_2_n VALUES(?, ?, ?, ?)", ("ni'hao", "nh", "你好", 100))
+    english = output.with_name("english.db")
+    english.unlink(missing_ok=True)
+    with sqlite3.connect(english) as database:
+        database.execute("CREATE TABLE english_words(word TEXT, display TEXT, weight INTEGER)")
+        database.execute("INSERT INTO english_words VALUES(?, ?, ?)", ("hello", "hello", 100))
     print(output)
 
 
