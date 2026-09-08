@@ -240,6 +240,10 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/KeyboardTests
+        excludes:
+          - DictionarySnapshotActivationTests.mm
+      - path: platforms/ios/KeyboardTests/DictionarySnapshotActivationTests.mm
+        compilerFlags: -fobjc-arc
       - path: platforms/ios/App/Services/AISkinService.swift
       - path: platforms/ios/App/Services/SkinCommunityAPI.swift
       - path: platforms/ios/App/Services/CommunityPreviewFixtures.swift
