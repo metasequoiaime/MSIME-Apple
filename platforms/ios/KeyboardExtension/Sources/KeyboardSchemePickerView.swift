@@ -17,11 +17,12 @@ final class KeyboardSchemePickerView: UIView {
     let rows = UIStackView()
     rows.axis = .vertical
     rows.spacing = 10
-    for index in stride(from: 0, to: ChineseInputScheme.allCases.count, by: 2) {
+    let schemes = InputSchemePreference.enabledSchemes
+    for index in stride(from: 0, to: schemes.count, by: 2) {
       let row = UIStackView()
       row.spacing = 10
       row.distribution = .fillEqually
-      for scheme in ChineseInputScheme.allCases[index..<min(index + 2, ChineseInputScheme.allCases.count)] {
+      for scheme in schemes[index..<min(index + 2, schemes.count)] {
         let card = KeyboardKeyButton()
         card.accessibilityIdentifier = "schemeCard-\(scheme.rawValue)"
         card.accessibilityLabel = scheme.title

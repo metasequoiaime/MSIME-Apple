@@ -4,6 +4,33 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testDisabledSchemesAreHiddenAndCurrentSchemeFallsBack() throws {
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier))
+    let previousEnabled = defaults.object(forKey: InputSchemePreference.enabledSchemesKey)
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      defaults.set(previousEnabled, forKey: InputSchemePreference.enabledSchemesKey)
+      InputSchemePreference.scheme = previousScheme
+    }
+    defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
+    XCTAssertEqual(InputSchemePreference.enabledSchemes, ChineseInputScheme.allCases)
+    InputSchemePreference.scheme = .japanese
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    InputSchemePreference.enabledSchemes = [.nineKey, .wubi]
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    controller.viewWillAppear(false)
+    XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 9 键")
+    try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    let cards = descendants(controller.view).compactMap(\.accessibilityIdentifier).filter { $0.hasPrefix("schemeCard-") }
+    XCTAssertEqual(Set(cards), ["schemeCard-nineKey", "schemeCard-wubi"])
+    try button("schemeCard-wubi", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(InputSchemePreference.scheme, .wubi)
+    InputSchemePreference.enabledSchemes = []
+    XCTAssertEqual(InputSchemePreference.enabledSchemes, [.quanpin])
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
+  }
+
   func testFieldLanguagePreferenceIsTemporaryAndRespectsManualChoice() {
     var context = KeyboardInputContext()
     let ordinary = UUID(), code = UUID(), url = UUID()
