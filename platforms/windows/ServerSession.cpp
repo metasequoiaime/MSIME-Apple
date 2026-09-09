@@ -48,7 +48,7 @@ nlohmann::json ServerSession::activate(uint64_t epoch) {
     throw std::logic_error("Expired Windows activation");
   if (active_ && epoch != epoch_)
     response(msime_client_focus(session_, false));
-  auto result = response(msime_client_focus(session_, true));
+  auto result = response(msime_client_focus(session_, input_enabled_));
   epoch_ = epoch;
   active_ = true;
   return result;
@@ -58,6 +58,13 @@ nlohmann::json ServerSession::deactivate(uint64_t epoch) {
   auto result = response(msime_client_focus(session_, false));
   active_ = false;
   return result;
+}
+void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
+  check_active(epoch);
+  if (input_enabled_ != enabled) {
+    response(msime_client_focus(session_, enabled));
+    input_enabled_ = enabled;
+  }
 }
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
@@ -71,6 +78,16 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       packet.pinyin_length < 0 || packet.pinyin_length >= 128)
     throw std::invalid_argument("Invalid Windows key request");
   nlohmann::json result;
+  if (!input_enabled_) {
+    result = {{"handled", false},
+              {"commit", nullptr},
+              {"diagnostic", nullptr},
+              {"view", view()}};
+    return {client_, epoch_, packet.request_id,
+            action.kind != KeyKind::LocalReset &&
+                action.kind != KeyKind::Ignore,
+            std::move(result)};
+  }
   const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
   const auto digit_key = normalize_digit_key(packet.keycode);
   nlohmann::json current;
@@ -117,6 +134,8 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
       !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID ||
       packet.pinyin_length < 0 || packet.pinyin_length >= 128)
     throw std::invalid_argument("Invalid Windows navigation request");
+  if (!input_enabled_)
+    return std::nullopt;
   // Do not fetch a full snapshot for keys that cannot use these bindings.
   auto action = navigation_action(packet, bindings, false);
   if (!action)
@@ -141,6 +160,8 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
 nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
                                      size_t index) {
   check_active(epoch);
+  if (!input_enabled_)
+    throw std::logic_error("Candidate selection while input disabled");
   return response(msime_client_select(session_, generation, index));
 }
 nlohmann::json ServerSession::update_preferences(uint64_t epoch,

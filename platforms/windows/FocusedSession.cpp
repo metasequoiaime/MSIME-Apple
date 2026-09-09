@@ -83,6 +83,18 @@ std::optional<PendingReply> FocusedSession::pending(const FocusLease &lease) {
   });
   return result;
 }
+bool FocusedSession::set_input_enabled(const FocusLease &lease, bool enabled) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Input mode changed before reply delivery");
+    session_.set_input_enabled(lease.epoch, enabled);
+    if (!enabled)
+      composer_->cancel();
+  });
+}
 bool FocusedSession::cancel(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))

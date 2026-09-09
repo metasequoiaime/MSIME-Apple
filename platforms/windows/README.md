@@ -224,6 +224,12 @@ WindowsServerOptions::preferences_directory 显式启用共享配置轮询，空
 
 该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。已消费的导航键即使绑定关闭也返回 PendingReply：普通模式使用 NavigationIgnored，UILess 返回未变的候选页；不调用 Engine command，不改变组合、代次、页码或高亮，仍等待投递确认，禁止再回退旧 VK 映射。返回空只表示非导航键、快捷键、Unicode +、空组合或失效焦点等不适用情况。设置监听和产品 KeyHandler 尚未接入，本接口不证明默认产品行为已完成。
 
+### TSF 中文开关同步
+
+SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnapshot 与 FocusRestored，先同步 keycode 表示的中文开关，再调用外部事件回调。关闭时经共享宿主清空 Engine 组合与旧回复前缀；关闭期间迟到按键不再推进 Engine，重新开启从空组合输入。相同状态通知不重复改变 Engine 代次，每个客户端会话保留开关至再次通知；过期焦点不能修改状态，未确认回复阻止切换。外部事件回调仍在焦点锁内，不得重入 Engine/焦点门禁。
+
+这里只连接每客户端键盘开关，不实现上游全局模式作用域、全半角/标点状态同步或发往 TSF worker 的模式通知；完整产品按键分类与 Windows 原生验收仍未完成。
+
 ### Engine 模式与 Unicode 数字选词
 
 数字候选判定前将 VK_NUMPAD0..9 归一化为 0..9，与固定上游 Server 边界一致；不修改原始请求包。Unicode 模式的 Shift+小键盘 1..9 因此与主键盘一致，越界选择保持原组合；无 Shift 的小键盘数字（包括 0）仍用于 Unicode 编码输入，Ctrl/Alt 快捷键不会被误当作选词。
