@@ -395,3 +395,9 @@ WindowsServer/SessionController 增加携带焦点 lease 的六种模式请求�
 将固定 Engine 已有的 Session::select_edge 接入 CXX、共享运行时和 ABI 1 附加接口 msime_client_select_edge。选择携带候选会话、代次及全局 index，沿用当前页身份校验；方向严格限定首／尾汉字。提取与成功后清理组合仍归 Engine，不在 Rust 或 Windows 复制 Unicode 算法。无汉字候选未处理且保留组合；有效调用返回新代次，宿主须刷新身份后再执行回退。
 
 34 项 Rust 单元测试、fmt/clippy、本机 C 消费程序、八项本机 CTest、重新校验的固定词库“你好 → 你／好”回归、Windows x64 完整交叉链接和运行时导入图检查通过；C 消费程序也链接到新 Windows DLL，未在 Windows 执行。覆盖扩展平面汉字、无汉字、非法方向、失效/跨页/跨会话候选、错线程和销毁句柄。Windows 以词定字配置与 TSF 回复/无汉字回退尚待接线，本阶段不宣称产品快捷键可用。CI 保持禁用。
+
+### 第六十四条功能：Windows 以词定字分流
+
+configured_key 增加默认关闭的 WordCharacterBinding，按方括号或减号/等号及实际字符匹配无修饰键，以词定字优先于翻页与标点。依据共享高亮候选 ID 调用 Engine 首／尾字接口；成功发送 CommitExactText，无汉字或空候选时清理组合并返回 Normal 高亮文本，留给 TSF 补智能标点，不在 Server 重复转换或完成剩余分段。两种回复都保留已有已选前缀并等待投递确认。
+
+16 种绑定/方向/汉字与非汉字/UILess 会话泵组合、按键布局和修饰键拒绝、空回退、前缀保留及真实词库首尾字/待回复回归通过；八项本机 CTest、锁定词库集成、x64 完整链接与运行时依赖检查通过。本轮未改 Rust，未运行 Windows 二进制或 TSF 实机测试。配置持久化接线、特殊双拼、完整产品 KeyHandler 与原生窗口仍待继续，CI 保持禁用。

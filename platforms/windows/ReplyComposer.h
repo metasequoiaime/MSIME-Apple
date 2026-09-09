@@ -11,6 +11,7 @@ enum class ReplyPath {
   Composition,
   Selection,
   Punctuation,
+  CandidatePunctuationFallback,
   LocalCommit,
   LocalCancel,
   NoReply,
@@ -42,12 +43,12 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
-  // Resolve word-to-character and other native-only shortcuts first.
-  std::optional<PendingReply>
-  configured_key(ServerSession &session, const FanyImeNamedpipeData &packet,
-                 uint64_t epoch, TsfPreeditStyle style,
-                 const NavigationBindings &bindings,
-                 std::optional<std::string> local_text = std::nullopt);
+  // Resolve special-profile and other native-only shortcuts first.
+  std::optional<PendingReply> configured_key(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch, TsfPreeditStyle style, const NavigationBindings &bindings,
+      std::optional<std::string> local_text = std::nullopt,
+      WordCharacterBinding word_binding = WordCharacterBinding::Disabled);
   // Native configuration-specific priority routes must run first. Null leaves
   // Engine untouched and means this key needs another native route.
   std::optional<PendingReply> basic_key(ServerSession &session,

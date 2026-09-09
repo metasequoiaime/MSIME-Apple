@@ -713,6 +713,36 @@ int main(int argc, char **argv) {
     session.activate(++epoch);
     rejected([&] { session.deactivate(epoch - 1); });
     if (argc == 2) {
+      for (bool last : {false, true}) {
+        using namespace msime::windows;
+        ReplyComposer composer(42, epoch);
+        for (char c : std::string("nihao"))
+          key(c - 'a' + 'A', c);
+        FanyImeNamedpipeData packet{};
+        packet.client_id = 42;
+        packet.event_type = FanyImePipeEventType::KeyEvent;
+        packet.request_id = request++;
+        packet.keycode = last ? 0xDD : 0xDB;
+        packet.wch = last ? ']' : '[';
+        const auto result = composer.configured_key(
+            session, packet, epoch, TsfPreeditStyle::Local, {}, std::nullopt,
+            WordCharacterBinding::Brackets);
+        require(result &&
+                    result->source.transition.at("commit") ==
+                        (last ? "好" : "你") &&
+                    result->encoded->packet.msg_type ==
+                        FanyImeReplyType::CommitExactText,
+                "Word-to-character did not select the Engine Han edge");
+        const auto pending_view = session.view();
+        rejected([&] {
+          composer.configured_key(session, packet, epoch,
+                                  TsfPreeditStyle::Local, {}, std::nullopt,
+                                  WordCharacterBinding::Brackets);
+        });
+        require(session.view() == pending_view,
+                "Word-to-character replay changed pending state");
+        composer.confirm_delivery(42, epoch, packet.request_id);
+      }
       {
         using namespace msime::windows;
         ReplyComposer basic(42, epoch);

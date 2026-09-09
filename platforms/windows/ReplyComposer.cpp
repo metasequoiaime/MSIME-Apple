@@ -104,6 +104,14 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.next_prefix.clear();
     }
     break;
+  case ReplyPath::CandidatePunctuationFallback:
+    if (!result.reply_expected || !raw.empty()) {
+      invalid();
+      break;
+    }
+    next.encoded = candidate_commit(result.request_id, prefix_ + delta);
+    next.next_prefix.clear();
+    break;
   case ReplyPath::IgnoredNavigation:
   case ReplyPath::PreviousCandidate:
   case ReplyPath::NextCandidate:
@@ -289,7 +297,15 @@ void ReplyComposer::cancel() {
 std::optional<PendingReply> ReplyComposer::configured_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
     TsfPreeditStyle style, const NavigationBindings &bindings,
-    std::optional<std::string> local_text) {
+    std::optional<std::string> local_text, WordCharacterBinding word_binding) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_)
+    throw std::logic_error("Pending or expired Windows reply route");
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+    throw std::invalid_argument("Invalid TSF preedit style");
+  if (auto word = session.word_character(packet, epoch, word_binding))
+    return stage(word->key, word->exact
+                                ? ReplyPath::Punctuation
+                                : ReplyPath::CandidatePunctuationFallback);
   if (auto basic =
           basic_key(session, packet, epoch, style, std::move(local_text)))
     return basic;

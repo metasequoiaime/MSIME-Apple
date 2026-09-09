@@ -1,5 +1,6 @@
 #pragma once
 #include "NavigationPolicy.h"
+#include "WordCharacterPolicy.h"
 #include "windows_ipc.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -16,6 +17,10 @@ struct KeyResult {
 struct NavigationResult {
   KeyResult key;
   NavigationReply direction;
+};
+struct WordCharacterResult {
+  KeyResult key;
+  bool exact;
 };
 
 // Lives on the Server input queue, never inside the injected TSF DLL. The pipe
@@ -38,6 +43,9 @@ public:
   }
   KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
   KeyResult punctuation(const FanyImeNamedpipeData &packet, uint64_t epoch);
+  std::optional<WordCharacterResult>
+  word_character(const FanyImeNamedpipeData &packet, uint64_t epoch,
+                 WordCharacterBinding binding);
   std::optional<NavigationResult> navigate(const FanyImeNamedpipeData &packet,
                                            uint64_t epoch,
                                            const NavigationBindings &bindings);

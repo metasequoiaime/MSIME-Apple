@@ -234,7 +234,9 @@ SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnap
 
 ### 配置相关按键分流
 
-InputState::configured_key 先执行 basic_key，再在已开启输入且 Engine 模式已知、组合非空时处理候选标点与导航。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；OEM 和数字键盘加减键不走候选标点。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方必须先完成以词定字、Microsoft 双拼分号和配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+InputState::configured_key 接受末尾可选 WordCharacterBinding（默认 Disabled，另有 Brackets/MinusEqual），先处理以词定字，再执行 basic_key 和候选标点／导航。仅无修饰键（UILess 除外）且 VK 与实际字符匹配时命中；以词定字优先于同键翻页配置。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；数字键盘加减键不属于以词定字。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方仍须先完成 Microsoft 双拼分号和配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+
+以词定字依据共享视图中的高亮候选 ID 调用 Engine 首／尾汉字选择，成功发送 CommitExactText；无汉字或没有候选时清理组合并发送 Normal 高亮文本（可为空），交给 TSF 补本地智能标点，不在 Server 再转换一次，也不完成剩余分段。两条路径都带已有已选前缀，保留焦点、待回复及投递确认门禁。配置持久化监听和产品 TSF KeyHandler 接线仍未完成。
 
 新增 ABI 1 附加符号 msime_client_punctuation，适配器与宿主库必须成套更新。它显式复用共享运行时的高亮候选完成与 Engine 标点转换，避免 Unicode 等局部模式把普通 character 调用标记为已处理却未完成标点提交。非 ASCII 标点参数在状态推进前拒绝；普通/UILess 标点完成均发送 CommitExactText，保留已有焦点、待回复与投递确认门禁。
 

@@ -48,6 +48,47 @@ void confirm(ReplyComposer &composer) {
 } // namespace
 int main() {
   try {
+    FanyImeNamedpipeData edge_packet{};
+    edge_packet.event_type = FanyImePipeEventType::KeyEvent;
+    edge_packet.keycode = 0xDB;
+    edge_packet.wch = '[';
+    require(word_character_edge(edge_packet, WordCharacterBinding::Brackets) == MSIME_FIRST_HAN);
+    require(!word_character_edge(edge_packet, WordCharacterBinding::Disabled));
+    require(!word_character_edge(edge_packet, WordCharacterBinding::MinusEqual));
+    for (uint32_t modifiers : {1u, 2u, 4u, 8u}) {
+      edge_packet.modifiers_down = modifiers;
+      require(!word_character_edge(edge_packet, WordCharacterBinding::Brackets));
+    }
+    edge_packet.modifiers_down = FanyImePipeFlags::UiLess;
+    require(word_character_edge(edge_packet, WordCharacterBinding::Brackets) == MSIME_FIRST_HAN);
+    edge_packet.wch = '{';
+    require(!word_character_edge(edge_packet, WordCharacterBinding::Brackets));
+    edge_packet.keycode = 0x6D;
+    edge_packet.wch = '-';
+    require(!word_character_edge(edge_packet, WordCharacterBinding::MinusEqual));
+    rejected([&] { word_character_edge(edge_packet, static_cast<WordCharacterBinding>(99)); });
+    ReplyComposer empty_fallback(42, 7);
+    require(payload(empty_fallback.stage(result(1, "", "", ""),
+        ReplyPath::CandidatePunctuationFallback)).empty());
+    confirm(empty_fallback);
+    for (bool fallback : {false, true}) {
+      ReplyComposer prefixed(42, 7);
+      prefixed.stage(result(1, "hao", "hao", "你"), ReplyPath::Selection);
+      confirm(prefixed);
+      const auto &reply =
+          prefixed.stage(result(2, "", "", fallback ? "A" : "好"),
+                         fallback ? ReplyPath::CandidatePunctuationFallback
+                                  : ReplyPath::Punctuation);
+      require(reply.encoded && static_cast<bool>(*reply.encoded));
+      require(reply.encoded->packet.msg_type ==
+              (fallback ? FanyImeReplyType::Normal
+                        : FanyImeReplyType::CommitExactText));
+      require(reply.source.transition.at("commit") == (fallback ? "A" : "好"));
+      require(reply.next_prefix.empty() && prefixed.selected_prefix() == "你");
+      require(payload(reply) == (fallback ? u"你A" : u"你好"));
+      confirm(prefixed);
+      require(prefixed.selected_prefix().empty());
+    }
     ReplyComposer composer(42, 7);
     auto first = result(1, "haoma", "hao ma", "你");
     require(payload(composer.stage(first, ReplyPath::Selection)) ==

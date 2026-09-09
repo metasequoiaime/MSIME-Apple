@@ -199,4 +199,47 @@ KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
       msime_client_punctuation(session_, static_cast<uint8_t>(action.value)));
   return {client_, epoch_, packet.request_id, true, std::move(result)};
 }
+std::optional<WordCharacterResult>
+ServerSession::word_character(const FanyImeNamedpipeData &packet,
+                              uint64_t epoch, WordCharacterBinding binding) {
+  check_active(epoch);
+  const auto edge = word_character_edge(packet, binding);
+  if (!edge)
+    return std::nullopt;
+  if (packet.client_id != client_ || !packet.request_id ||
+      packet.request_id == FANY_IME_NO_REQUEST_ID || packet.pinyin_length < 0 ||
+      packet.pinyin_length >= 128)
+    throw std::invalid_argument("Invalid word-to-character request");
+  if (!input_enabled_)
+    return std::nullopt;
+  const auto current = view();
+  if (current.at("local_mode") == "unknown" ||
+      current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
+  std::string fallback;
+  for (const auto &candidate : current.at("candidates")) {
+    if (!candidate.at("highlighted").get<bool>())
+      continue;
+    fallback = candidate.at("text").get<std::string>();
+    const auto &id = candidate.at("id");
+    auto selected = response(
+        msime_client_select_edge(session_, id.at("generation").get<uint64_t>(),
+                                 id.at("index").get<size_t>(), *edge));
+    if (selected.at("handled").get<bool>())
+      return WordCharacterResult{
+          {client_, epoch_, packet.request_id, true, std::move(selected)},
+          true};
+    break;
+  }
+  // Legacy Normal delegates smart punctuation to TSF. Do not finish remaining
+  // segments or translate punctuation here; only the highlighted text is sent.
+  auto cancelled = response(msime_client_command(session_, MSIME_CANCEL));
+  if (!cancelled.at("commit").is_null() ||
+      !cancelled.at("view").at("editing_text").get<std::string>().empty())
+    throw std::logic_error("Engine did not cancel word-to-character fallback");
+  cancelled["handled"] = true;
+  cancelled["commit"] = fallback;
+  return WordCharacterResult{
+      {client_, epoch_, packet.request_id, true, std::move(cancelled)}, false};
+}
 } // namespace msime::windows
