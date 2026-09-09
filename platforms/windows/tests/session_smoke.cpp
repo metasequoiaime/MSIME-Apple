@@ -1,4 +1,5 @@
 #include "FocusedSession.h"
+#include "FocusRouter.h"
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
@@ -199,6 +200,49 @@ int main(int argc, char **argv) {
       require(focused.cancel(second.pending), "Previous owner cleanup failed");
       require(gate.with_pending(other.pending, [] {}),
               "Old owner cleanup invalidated new focus");
+    }
+    {
+      using namespace msime::windows;
+      FocusGate gate;
+      FocusRouter router(gate, 2);
+      FocusedSession first(gate, 42, options.dump());
+      FocusedSession second(gate, 43, options.dump());
+      PipeTicket a{42, {1, 2, 3}}, b{43, {4, 5, 6}};
+      require(router.connected(a).accepted && router.connected(b).accepted,
+              "Queue router registration failed");
+      FanyImeNamedpipeData packet{};
+      packet.client_id = 42;
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 77;
+      auto activation = router.dispatch(a, packet);
+      require(activation.route && first.prepare(*activation.route),
+              "Routed activation did not prepare Engine");
+      require(gate.acknowledge(*activation.route, [] { return true; }) &&
+                  router.confirmed(*activation.route),
+              "Synthetic routed fence failed");
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.request_id = 2;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      auto key_route = router.dispatch(a, packet);
+      require(key_route.route &&
+                  first.key(*key_route.route, packet, ReplyPath::Composition) &&
+                  first.view().at("editing_text") == "U",
+              "Routed key did not reach shared Engine");
+      packet.client_id = 43;
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 88;
+      auto takeover = router.dispatch(b, packet);
+      require(takeover.cleanup && first.cancel(*takeover.cleanup) &&
+                  first.view().at("editing_text") == "" &&
+                  takeover.route && second.prepare(*takeover.route),
+              "Focus takeover failed to clean old Engine before preparation");
+      require(!first.confirm(*key_route.route, 2),
+              "Displaced pending reply was acknowledged");
+      require(router.disconnected(b).accepted &&
+                  second.cancel(*takeover.route),
+              "Disconnected queue session cleanup failed");
     }
     ServerSession session(42, options.dump());
     uint64_t request = 2;

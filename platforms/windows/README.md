@@ -141,3 +141,13 @@ FocusedSession 的 update_preferences 同样检查完整 lease 与队列线程�
 PipeRegistry::read_main 在返回完整帧前复核 packet.client_id 与登记客户端一致，并通过 MainFrame 校验已知 Main 事件、pinyin 长度及终止符、状态快照字段和非零激活 token。Aux 专用事件和未知 opcode 不进入分发；key 同时拒绝零与 NO_REQUEST_ID，激活 token 则允许完整 uint64 范围。失败返回 MalformedFrame 且不携带原始帧，注销匹配主注册，旧票据不可继续发送。重复 ClientHello 保留为后续控制器忽略的兼容事件，不重协商；这一校验不证明前台焦点，也不取代 lease 检查。
 
 字段规则依据 MSIME-Windows develop 固定提交 6e03f5774777e40c921930fd90a76e5425c66d89 的 Main 接收路径，key 的 NO_REQUEST_ID 限制与本仓 ServerSession 一致。纯测试可本机执行；真实管道测试另覆盖同进程伪造 client_id、越界长度与 Aux 事件导致连接弃用，仍需 Windows 执行验收。
+
+### 生命周期路由策略
+
+FocusRouter 在单一控制/输入队列上管理有界登记表，并作为 FocusGate 唯一的激活策略写入方。connected 只接收 Registry 已协商且仍有效的完整 ticket；消费登记通知时仍须复核 Registry，不能重新加入已注销后迟到的登记。重复登记无操作，旧代次不能覆盖现存新链。disconnected/failed 返回精确 cleanup lease，旧连接或旧激活不能清掉新链；关闭时先断开登记、处理清理，再销毁队列和会话。
+
+dispatch 按各 Main 流原始顺序处理消息。显式激活引入非零 token；同一当前 token 不重置 Engine，新 token 或其他客户端激活产生新 epoch。被挤走客户端只有已完成 worker 确认的 token 可用于 KeyEvent/FocusRestored 恢复；key request_id 从不冒充 token。StatusSnapshot 和候选窗/模式消息不抢焦点。当前客户端挂起清除恢复 token，之后必须显式激活；终止事件可获取挂起时的精确清理身份。后台挂起不改变前台归属，后台终止清理也不是隐藏新客户端工具栏的授权。策略依据固定上游 6e03f5774777e40c921930fd90a76e5425c66d89 的激活与失活路径。
+
+FocusRoute.activation 表示新激活：先将 cleanup 交给旧 FocusedSession.cancel，再 prepare 新会话，I/O worker 经 gate.acknowledge 写焦点 fence；成功通知回到控制队列后调用 confirmed，再执行输入。fence 表示上游要求确认标记：pending 路由等待已安排的确认，不重复 acknowledge；ready 路由重发标记通过 gate.with_active 和 Registry 票据检查。准备、确认或发送失败调用 failed 并处理 cleanup，不能重放不确定写入。gate 切换时原子记录 previous_ready，避免遗漏已成功确认但通知尚未处理的 token。route 可能仍为 pending，不是立即执行 Engine 的授权，实际执行与发送仍复核 gate。
+
+本机测试覆盖策略状态和真实 FocusedSession 跨客户端组合清理；Windows 管道测试已串入路由、worker 确认与回复发送，但未原生运行。仍缺负责上述调度的有界输入队列及可执行控制器，未接管系统焦点或注册 TSF。

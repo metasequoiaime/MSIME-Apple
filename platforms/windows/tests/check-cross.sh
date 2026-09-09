@@ -10,6 +10,8 @@ for arch in x86_64 i686; do
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
+    platforms/windows/tests/focus_router.cpp -o "$output/focus-router.exe"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/tests/main_frame.cpp -o "$output/main-frame.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"
