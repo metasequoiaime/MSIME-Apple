@@ -150,6 +150,17 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::cancel_composition(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Composition cancelled before reply delivery");
+    session_.cancel_composition(lease.epoch);
+    composer_->cancel();
+  });
+}
 bool FocusedSession::cancel(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))

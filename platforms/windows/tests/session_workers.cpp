@@ -191,16 +191,18 @@ void session_worker_tests(const std::string &options) {
     transport.push(packet);
     transport.wait_started(7);
     const auto restored = controller.candidate_view();
-    require(restored && restored->visible && restored->y == 380 &&
+    require(restored && !restored->visible && restored->preedit.empty() &&
+            restored->candidates.empty() && restored->y == 380 &&
             restored->generation == second->generation);
     packet.event_type = FanyImePipeEventType::KeyEvent;
-    for (char c : std::string("e2d")) {
+    for (char c : std::string("U4e2d")) {
       ++packet.request_id;
       packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
       packet.wch = c;
+      packet.modifiers_down = c == 'U' ? 1 : 0;
       transport.push(packet);
     }
-    transport.wait_started(10);
+    transport.wait_started(12);
     const auto shown = controller.candidate_view();
     require(shown && shown->candidates.at(0).text == "中");
     const auto candidate = shown->candidates.at(0);
@@ -229,7 +231,7 @@ void session_worker_tests(const std::string &options) {
     if (write_failure) {
       transport.write_failure = write_failure;
       require(controller.request_selection(shown->lease, candidate.session, candidate.generation, candidate.index) == SelectionRequestResult::Failed);
-      require(observed == 5 && !transport.current(ticket) && !controller.candidate_view());
+      require(observed == 7 && !transport.current(ticket) && !controller.candidate_view());
       controller.stop();
       require(controller.failure() != ControllerFailure::None);
       continue;
@@ -260,8 +262,8 @@ void session_worker_tests(const std::string &options) {
     require(read_ready && !during_delivery);
     require(busy == SelectionRequestResult::Busy &&
             selection.get() == SelectionRequestResult::Sent);
-    transport.wait_started(11);
-    require(controller.failure() == ControllerFailure::None && observed == 7);
+    transport.wait_started(13);
+    require(controller.failure() == ControllerFailure::None && observed == 9);
     const auto after_click = controller.candidate_view();
     require(after_click && after_click->visible &&
             after_click->generation > shown->generation);

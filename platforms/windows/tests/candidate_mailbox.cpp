@@ -165,7 +165,7 @@ void candidate_mailbox_tests() {
   require(!mailbox.snapshot(gate)->visible &&
           mailbox.snapshot(gate)->x == -200);
   require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
-  require(mailbox.snapshot(gate)->visible &&
+  require(!mailbox.snapshot(gate)->visible &&
           mailbox.snapshot(gate)->generation == 1);
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
   require(publish(first, 2));

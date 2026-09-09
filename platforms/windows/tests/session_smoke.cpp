@@ -139,6 +139,7 @@ int main(int argc, char **argv) {
       require(focused.view() == pending_view,
               "Pending reply allowed another Engine action");
       rejected([&] { focused.set_input_enabled(first.pending, false); });
+      rejected([&] { focused.cancel_composition(first.pending); });
       rejected([&] { focused.set_chinese_punctuation(first.pending, false); });
       require(focused.view() == pending_view,
               "Input mode bypassed pending delivery gate");

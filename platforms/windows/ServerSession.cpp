@@ -66,6 +66,14 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
     input_enabled_ = enabled;
   }
 }
+void ServerSession::cancel_composition(uint64_t epoch) {
+  check_active(epoch);
+  auto result = response(msime_client_command(session_, MSIME_CANCEL));
+  if (!result.at("commit").is_null() ||
+      !result.at("view").at("editing_text").get<std::string>().empty() ||
+      !result.at("view").at("candidates").empty())
+    throw std::logic_error("Shared host did not cancel composition");
+}
 void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));

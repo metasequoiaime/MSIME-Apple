@@ -16,8 +16,8 @@ public:
       suppressed_ = false;
     }
   }
-  // Input queue under the active focus gate, like delivered(). These visual
-  // events never replay packet text into Engine or manufacture a composition.
+  // Input queue under the active focus gate, like delivered(). Hide follows
+  // successful Engine cancellation; show/move never manufacture composition.
   void event(const FocusLease &lease, const FanyImeNamedpipeData &packet) {
     std::lock_guard lock(mutex_);
     if (stopped_ || !latest_ || packet.client_id != lease.transport.client ||
@@ -28,6 +28,9 @@ public:
     switch (packet.event_type) {
     case FanyImePipeEventType::HideCandidateWnd:
       suppressed_ = true;
+      latest_->visible = false;
+      latest_->preedit.clear();
+      latest_->candidates.clear();
       break;
     case FanyImePipeEventType::ShowCandidateWnd:
       suppressed_ = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;

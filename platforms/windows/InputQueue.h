@@ -30,6 +30,7 @@ public:
       ReplyPath path, bool uiless = false,
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
+  bool cancel_composition(const FocusLease &lease);
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
       uint64_t session, uint64_t generation, size_t index);
   bool ui_delivered(const FocusLease &lease, uint64_t generation);

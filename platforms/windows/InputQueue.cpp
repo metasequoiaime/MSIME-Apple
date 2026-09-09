@@ -175,6 +175,11 @@ bool InputState::delivered(const FocusLease &lease, uint64_t request) {
   auto *owner = session(lease.transport);
   return owner && owner->confirm(lease, request);
 }
+bool InputState::cancel_composition(const FocusLease &lease) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner && owner->cancel_composition(lease);
+}
 std::optional<nlohmann::json>
 InputState::update_preferences(const FocusLease &lease,
                                const std::string &snapshot) {

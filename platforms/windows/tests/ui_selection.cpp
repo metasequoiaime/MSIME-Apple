@@ -79,7 +79,7 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
     require(focused.confirm_ui(lease, previous_receipt));
     require(!focused.pending(lease));
   }
-  if (dictionary) {
+  for (size_t round = 0; dictionary && round < 2; ++round) {
     for (char c : std::string("nihao"))
       send(c - 'a' + 'A', c);
     std::optional<nlohmann::json> id;
@@ -100,8 +100,31 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
         lease, id->at("session"), id->at("generation"), id->at("index"));
     require(partial && partial->ui_selection->before_trigger &&
             partial->next_prefix == "你");
+    rejected([&] { focused.cancel_composition(lease); });
     require(focused.confirm_ui(
         lease, partial->source.transition.at("view").at("generation")));
+    if (round == 0) {
+      auto stale = lease;
+      ++stale.epoch;
+      const auto before = focused.view();
+      require(!focused.cancel_composition(stale) && focused.view() == before);
+      require(focused.cancel_composition(lease));
+      require(gate.with_active(lease, [] {}) &&
+              focused.view().at("editing_text") == "" &&
+              focused.view().at("candidates").empty());
+      require(!focused.select_candidate(lease, id->at("session"),
+                                        id->at("generation"), id->at("index")));
+      for (char c : std::string("U4e2d"))
+        send(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c, c);
+      const auto fresh = focused.view().at("candidates").at(0).at("id");
+      const auto selected = focused.select_candidate(
+          lease, fresh.at("session"), fresh.at("generation"), fresh.at("index"));
+      require(selected && selected->ui_selection->worker ==
+                              ui_complete_selection("中")->worker);
+      require(focused.confirm_ui(
+          lease, selected->source.transition.at("view").at("generation")));
+      continue;
+    }
     const auto next = focused.view().at("candidates").at(0).at("id");
     const auto final = focused.select_candidate(
         lease, next.at("session"), next.at("generation"), next.at("index"));

@@ -42,6 +42,8 @@ public:
   std::optional<nlohmann::json> update_preferences(const FocusLease &lease,
                                                    const std::string &snapshot);
   bool cancel(const FocusLease &lease);
+  // Explicit host composition termination, preserving the active focus lease.
+  bool cancel_composition(const FocusLease &lease);
   bool set_input_enabled(const FocusLease &lease, bool enabled);
   bool set_chinese_punctuation(const FocusLease &lease, bool enabled);
   // Retain at most one latest snapshot while a reply is pending. True means
