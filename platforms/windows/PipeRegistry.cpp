@@ -206,9 +206,13 @@ IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
   IoResult result;
   {
     std::lock_guard io_lock(endpoint->read_mutex);
-    result =
-        read_frame(endpoint->connection->handle(), sizeof(FanyImeNamedpipeData),
-                   timeout, endpoint->cancel);
+    result = timeout == INFINITE
+                 ? read_frame_until_cancel(endpoint->connection->handle(),
+                                           sizeof(FanyImeNamedpipeData),
+                                           endpoint->cancel)
+                 : read_frame(endpoint->connection->handle(),
+                              sizeof(FanyImeNamedpipeData), timeout,
+                              endpoint->cancel);
   }
   {
     std::lock_guard lock(client->mutex);
