@@ -9,9 +9,6 @@ case "$arch" in
   x86) triple=i686-pc-windows-gnu; compiler=i686-w64-mingw32; linker_var=CARGO_TARGET_I686_PC_WINDOWS_GNU_LINKER ;;
   *) echo "Expected x64 or x86" >&2; exit 2 ;;
 esac
-vcpkg_root=${MSIME_VCPKG_ROOT:-$repo_root/target/tooling/vcpkg}
-[[ "$vcpkg_root" = /* && -x "$vcpkg_root/vcpkg" ]] || { echo "Provide an absolute bootstrapped MSIME_VCPKG_ROOT" >&2; exit 1; }
-[[ $(git -C "$vcpkg_root" rev-parse HEAD) = ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0 ]] || { echo "vcpkg must match the manifest baseline" >&2; exit 1; }
 command -v "$compiler-g++" >/dev/null
 command -v "$compiler-gcc" >/dev/null
 if [[ "$arch" = x86 ]]; then
@@ -21,13 +18,21 @@ if [[ "$arch" = x86 ]]; then
       exit 1 ;;
   esac
 fi
-rustup target add "$triple"
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host_triplet=arm64-osx ;;
   Darwin-x86_64) host_triplet=x64-osx ;;
   Linux-x86_64) host_triplet=x64-linux ;;
   *) echo "Set up dependencies manually on this host" >&2; exit 1 ;;
 esac
+# Check compiler/host compatibility before any network preparation.
+rustup target add "$triple"
+if [[ -z ${MSIME_VCPKG_ROOT:-} ]]; then
+  bash "$repo_root/platforms/windows/bootstrap-vcpkg.sh"
+fi
+vcpkg_root=${MSIME_VCPKG_ROOT:-$repo_root/target/tooling/vcpkg}
+[[ "$vcpkg_root" = /* && -x "$vcpkg_root/vcpkg" ]] || { echo "Provide an absolute bootstrapped MSIME_VCPKG_ROOT" >&2; exit 1; }
+[[ $(git -C "$vcpkg_root" rev-parse HEAD) = ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0 ]] || { echo "vcpkg must match the manifest baseline" >&2; exit 1; }
+git -C "$vcpkg_root" diff --quiet HEAD -- || { echo "vcpkg has tracked changes" >&2; exit 1; }
 # Separate manifest install roots: vcpkg removes other target triplets when a
 # manifest is reinstalled in the same root. Do not run this script concurrently
 # against the same vcpkg checkout (it holds a filesystem lock).
