@@ -1,0 +1,18 @@
+[package]
+name = "msime-host-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+msime-client-core = { path = "../client-core" }
+msime-engine-bridge = { path = "../engine-bridge" }
+msime-input-runtime = { path = "../input-runtime" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

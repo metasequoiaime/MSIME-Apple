@@ -1,0 +1,13 @@
+[package]
+name = "msime-input-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+msime-engine-bridge = { path = "../engine-bridge" }
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

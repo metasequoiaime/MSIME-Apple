@@ -37,5 +37,37 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @msime/desktop test
       - run: pnpm build
-      - run: cargo test --workspace --locked
+      - run: cargo test -p msime-client-core -p msime-desktop --locked
       - run: pnpm tauri build --debug --no-bundle
+  engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
+      - if: runner.os == 'macOS'
+        run: brew install boost fmt spdlog
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install boost-headers fmt spdlog sqlite3 --triplet x64-windows-static-md --classic
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+          "VCPKG_TARGET_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+      - if: runner.os == 'macOS'
+        run: echo "CMAKE_PREFIX_PATH=$(brew --prefix)" >> "$GITHUB_ENV"
+      - run: cargo test -p msime-engine-bridge -p msime-input-runtime -p msime-host-api --locked
+      - run: cargo build -p msime-host-api --locked
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror crates/host-api/tests/native_smoke.c -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/native-smoke
+          native_test_dir=$(mktemp -d)
+          mkdir "$native_test_dir/resources" "$native_test_dir/user" "$native_test_dir/cache" "$native_test_dir/dictionaries"
+          target/debug/native-smoke "$native_test_dir"
