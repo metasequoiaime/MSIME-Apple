@@ -186,7 +186,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         # converting before selection would break the engine index the candidate chips carry.
         self.assertIn("insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)", controller)
         self.assertIn("let display = chineseOutput(candidate)", controller)
-        self.assertIn('configuration.title = "\\(number)  \\(display)"', controller)
+        self.assertIn("configuration.title = display", controller)
         self.assertIn("self.render(self.session.selectCandidate(at: UInt(index)))", controller)
 
         preedit = controller.split("private func updatePreeditButton", 1)[1].split("\n  }", 1)[0]
@@ -495,12 +495,16 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("handleCandidateKey", bridge_header)
         self.assertIn("handlePunctuation", bridge_header)
 
-    def test_candidate_surface_exposes_numbered_native_chips(self):
+    def test_candidate_surface_exposes_native_chips_numbered_only_for_voiceover(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
         self.assertIn("candidate: candidate, number: offset + 1, index: offset", controller)
-        self.assertIn('configuration.title = "\\(number)  \\(display)"', controller)
         self.assertIn("configuration.background.cornerRadius", controller)
+
+        # A touch keyboard has no number row for the ordinal to answer to, so it is spoken rather
+        # than drawn: the chip shows the candidate alone and VoiceOver still hears the position.
+        self.assertIn("configuration.title = display", controller)
+        self.assertNotIn('configuration.title = "\\(number)', controller)
         self.assertIn('button.accessibilityLabel = "候选词 \\(number)：\\(display)"', controller)
 
     def test_apostrophe_reaches_the_engine_before_punctuation_conversion(self):
