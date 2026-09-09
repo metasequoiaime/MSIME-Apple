@@ -1,5 +1,5 @@
-#include "FocusedSession.h"
 #include "FocusRouter.h"
+#include "FocusedSession.h"
 #include "InputQueue.h"
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
@@ -8,6 +8,7 @@
 #include "ipc_negotiation.h"
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <memory>
@@ -393,6 +394,24 @@ int main(int argc, char **argv) {
                                {"revision", 2},
                                {"preferences", latest_preferences}}
                               .dump();
+      const auto preference_directory = directory("preferences-source");
+      auto load_snapshot = [&](const std::string &contents) {
+        std::ofstream file(std::filesystem::path(preference_directory) /
+                           "preferences.json");
+        file << contents;
+        file.close();
+        require(static_cast<bool>(file), "Synthetic preference write failed");
+        return PreferenceSnapshot::load(preference_directory);
+      };
+      const auto first_snapshot = load_snapshot(first);
+      const auto latest_snapshot = load_snapshot(latest);
+      auto conflicting = Json::parse(latest);
+      conflicting["preferences"] = first_preferences;
+      const auto conflicting_snapshot = load_snapshot(conflicting.dump());
+      rejected([&] { load_snapshot("broken"); });
+      auto invalid = Json::parse(latest);
+      invalid["preferences"]["candidate_page_size"] = 0;
+      rejected([&] { load_snapshot(invalid.dump()); });
       run([&](InputState &state) {
         require(state.confirmed(lease), "Preference focus receipt failed");
         packet.event_type = FanyImePipeEventType::KeyEvent;
@@ -402,10 +421,11 @@ int main(int argc, char **argv) {
         packet.modifiers_down = 1;
         auto pending = state.key(lease, packet, ReplyPath::Composition);
         require(pending.has_value(), "Preference pending key missing");
-        require(state.queue_preferences(lease, first) &&
-                    state.queue_preferences(lease, latest) &&
-                    state.queue_preferences(lease, latest),
-                "Latest preferences not queued");
+        state.publish_preferences(first_snapshot);
+        state.publish_preferences(latest_snapshot);
+        state.publish_preferences(latest_snapshot);
+        rejected([&] { state.publish_preferences(first_snapshot); });
+        rejected([&] { state.publish_preferences(conflicting_snapshot); });
         rejected([&] { state.queue_preferences(lease, first); });
         auto conflict = Json::parse(latest);
         conflict["preferences"] = first_preferences;
@@ -457,6 +477,25 @@ int main(int argc, char **argv) {
                 "Replacement preference receipt failed");
         require(state.queue_preferences(lease, latest),
                 "Old focus leaked a newer pending snapshot");
+        require(state.disconnected(ticket).accepted,
+                "Preference disconnect failed");
+        ticket.generations = {31, 32, 33};
+        require(state.connected(ticket).accepted,
+                "Fresh preference client failed");
+        packet.request_id = 99;
+        lease = *state.dispatch(ticket, packet).route;
+        // Publication during pending activation is retained for confirmation,
+        // without granting input authorization before the fence.
+        state.publish_preferences(latest_snapshot);
+      });
+      require(gate.acknowledge(lease, [] { return true; }),
+              "Fresh preference fence failed");
+      run([&](InputState &state) {
+        require(state.confirmed(lease), "Fresh preference confirmation failed");
+        rejected([&] { state.update_preferences(lease, first); });
+        auto applied = state.update_preferences(lease, latest);
+        require(applied && applied->at("deferred") == false,
+                "Fresh session did not inherit latest published preferences");
       });
       queue.stop();
     }

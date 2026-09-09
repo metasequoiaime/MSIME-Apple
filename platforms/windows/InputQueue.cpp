@@ -88,7 +88,13 @@ FocusRoute InputState::dispatch(const PipeTicket &ticket,
 }
 bool InputState::confirmed(const FocusLease &lease) {
   check_thread();
-  return router_.confirmed(lease);
+  if (!router_.confirmed(lease))
+    return false;
+  if (preferences_) {
+    auto *owner = session(lease.transport);
+    return owner && owner->queue_preferences(lease, preferences_->serialized());
+  }
+  return true;
 }
 FocusRoute InputState::failed(const FocusLease &lease) {
   check_thread();
@@ -124,6 +130,18 @@ InputState::update_preferences(const FocusLease &lease,
   check_thread();
   auto *owner = session(lease.transport);
   return owner ? owner->update_preferences(lease, snapshot) : std::nullopt;
+}
+void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
+  check_thread();
+  if (preferences_ && (snapshot.revision() < preferences_->revision() ||
+                       (snapshot.revision() == preferences_->revision() &&
+                        snapshot.serialized() != preferences_->serialized())))
+    throw std::invalid_argument("Stale or conflicting published preferences");
+  preferences_ = snapshot;
+  for (auto &[id, client] : clients_) {
+    (void)id;
+    client.session->queue_current_preferences(snapshot.serialized());
+  }
 }
 bool InputState::queue_preferences(const FocusLease &lease,
                                    const std::string &snapshot) {

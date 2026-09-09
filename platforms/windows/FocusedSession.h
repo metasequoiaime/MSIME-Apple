@@ -32,6 +32,8 @@ public:
   // Retain at most one latest snapshot while a reply is pending. True means
   // accepted for delivery, not necessarily applied to an active composition.
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
+  // Queue-owned settings broadcast, not an external focus authorization API.
+  bool queue_current_preferences(const std::string &snapshot);
   nlohmann::json view() const { return session_.view(); }
 
 private:

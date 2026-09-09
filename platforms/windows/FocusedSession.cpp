@@ -109,6 +109,10 @@ FocusedSession::update_preferences(const FocusLease &lease,
   });
   return result;
 }
+bool FocusedSession::queue_current_preferences(const std::string &snapshot) {
+  check_thread();
+  return lease_ && queue_preferences(*lease_, snapshot);
+}
 bool FocusedSession::queue_preferences(const FocusLease &lease,
                                        const std::string &snapshot) {
   check_thread();
