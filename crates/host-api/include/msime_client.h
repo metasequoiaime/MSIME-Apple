@@ -35,6 +35,10 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
+/* Same validation as load_preferences; ok:true,value:null means lock busy.
+ * Does not wait for the writer lock. Disk I/O may still block: use a worker.
+ * Busy is not missing/corrupt and must not reset preferences to defaults. */
+char *msime_client_try_load_preferences(const uint8_t *directory, size_t length);
 /* Call on the session thread with a PreferencesSnapshot JSON buffer (<=16384):
  * {format_version:1, revision, preferences:{...}}. Revision order is per session;
  * identical retries are allowed, older/conflicting snapshots are rejected.

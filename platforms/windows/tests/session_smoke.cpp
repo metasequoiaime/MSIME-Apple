@@ -405,6 +405,9 @@ int main(int argc, char **argv) {
       };
       const auto first_snapshot = load_snapshot(first);
       const auto latest_snapshot = load_snapshot(latest);
+      const auto attempted = PreferenceSnapshot::try_load(preference_directory);
+      require(attempted && attempted->serialized() == latest_snapshot.serialized(),
+              "Try-load did not return shared validated snapshot");
       auto conflicting = Json::parse(latest);
       conflicting["preferences"] = first_preferences;
       const auto conflicting_snapshot = load_snapshot(conflicting.dump());

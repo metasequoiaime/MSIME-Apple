@@ -317,3 +317,9 @@ InputState::queue_preferences 在真实输入队列内提交配置通知；Focus
 PreferenceSnapshot 在设置线程通过已有共享 C ABI 读取并完整校验 PreferencesStore，封装为可复制发布值；InputState 保留全局最新快照，拒绝旧值及同版本冲突，向活动焦点交付并复用待回复重试。新焦点确认后、首个按键前自动收到当前快照，断开重连创建的新会话不再只使用旧启动 options。未确认的焦点不会因设置发布得到输入授权。
 
 回归通过共享存储实际加载合成快照，覆盖坏文件/非法设置拒绝、发布版本顺序、当前组合延迟、新激活及完整会话重建后的继承。八项本机 CTest、锁定词库回归及 x86/x64 交叉编译检查通过，未执行 Windows 原生运行或完整 Windows Rust 链接；设置文件监听和工作线程生命周期尚未装配，完整 Windows 原生产品仍待验证，CI 保持禁用。
+
+### 第五十一条功能：共享配置锁竞争无等待读取
+
+为 Windows 设置监听准备 PreferencesStore::try_load 和新增 C ABI msime_client_try_load_preferences；同一稳定锁文件被占用时返回忙状态，不等待写者、不旁路校验、不恢复默认值。Windows PreferenceSnapshot::try_load 映射为空值并保留加载错误语义。文件缺失仍返回共享默认快照，坏文件仍报错且不覆盖。磁盘操作本身可能阻塞，仍须设置线程调用，不能宣称任意存储故障下停机有界。
+
+锁竞争/释放恢复、缺失/坏文件区分及 C ABI 忙状态回归通过；30 项 Rust 单元测试、fmt/clippy、八项本机 CTest、锁定词库回归与 x86/x64 交叉编译检查通过。新符号要求宿主库与适配器成套更新，未执行 Windows 原生运行或完整 Windows Rust 链接。设置监听线程仍待装配，继续 Windows 优先，CI 保持禁用。

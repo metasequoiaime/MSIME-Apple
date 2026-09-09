@@ -202,6 +202,8 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 文件监听及设置工作线程生命周期尚未装配；发布值可由后续监听器捕获到有界输入任务，任务入队失败不得静默丢弃。对配置应用失败继续采用既有队列失败清理，不重放输入。
 
+后续监听器使用 `PreferenceSnapshot::try_load`：调用新增共享 C ABI msime_client_try_load_preferences，锁竞争返回空值（ok:true,value:null），成功返回完整已校验快照，坏文件/权限错误仍报错。空值只表示忙，保留之前发布值并稍后重试，不能恢复默认配置。底层仍使用同一稳定锁文件及共享验证，没有旁路读 JSON；不会等待写者释放锁，但磁盘 I/O 仍可能阻塞，因此不能在输入队列调用，也不能据此宣称任意存储故障下停机都有时限。宿主库与 Windows 适配器需成套更新到含新符号的版本。
+
 ### 显式导航绑定入口
 
 `InputState::navigate(lease, packet, bindings)` 在同一个输入队列/焦点门禁下贯通 FocusedSession、ReplyComposer 和 ServerSession。NavigationBindings 是调用方提供的值快照，分别启用减号等号、逗号句号、方括号、Tab、PageUp/PageDown、上下候选；全部默认关闭，不暗设产品偏好。Tab 根据 Shift 判定方向，UiLess 从原始包读取；Unicode 的 + 仍交给共享字符输入。回复未确认时禁止再导航或输入，失效焦点不会推进 Engine。
