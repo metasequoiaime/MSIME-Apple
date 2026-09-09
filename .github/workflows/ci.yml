@@ -75,6 +75,13 @@ jobs:
         run: |
           clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation platforms/apple/MSIMEClientSession.mm platforms/apple/tests/session_smoke.mm -Iplatforms/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
           target/debug/apple-session-smoke
+      - if: runner.os == 'macOS'
+        run: |
+          MACOSX_DEPLOYMENT_TARGET=13.0 cargo build -p msime-host-api --locked
+          cmake -S platforms/macos -B target/macos
+          cmake --build target/macos --parallel
+          ctest --test-dir target/macos --output-on-failure
+          plutil -lint target/macos/MSIMEClientInputMethod.app/Contents/Info.plist
       - if: runner.os != 'Windows'
         shell: bash
         run: |

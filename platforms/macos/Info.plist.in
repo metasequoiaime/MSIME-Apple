@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>app.msime.client.preview.inputmethod</string>
+<key>CFBundleExecutable</key><string>MSIMEClientInputMethod</string>
+<key>CFBundleName</key><string>水杉共享客户端预览</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>LSBackgroundOnly</key><true/>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>InputMethodConnectionName</key><string>MSIMEClientPreviewConnection</string>
+<key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
+<key>tsInputMethodCharacterRepertoireKey</key><array><string>Hans</string></array>
+<key>TISIntendedLanguage</key><string>zh-Hans</string>
+<key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod</string>
+</dict></plist>

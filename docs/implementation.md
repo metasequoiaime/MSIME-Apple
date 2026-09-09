@@ -71,3 +71,9 @@ ResourceStore 读取受信任产品锁，通过宿主注入的传输流安装平
 ### 第十条功能：宿主准备与结束组合
 
 `prepare_host_configuration` 验证固定资源并调用 Engine 准备工作目录，再读取共享偏好生成 ABI 1 配置。`prepare_host` 开发工具原子写入运行配置，不安装输入法。新增 Finish 动作直接调用 Engine 的 finish(highlighted_index)，保留剩余分段完成逻辑；运行时增加对应回归，4 项测试通过，host-api 2 项测试及 clippy 通过。
+
+### 第十一条功能：macOS IMK 预览宿主
+
+新增真实 IMKServer / IMKInputController 与开发 bundle，静态链接 Rust/C++ 库。平台只负责按键映射、预编辑、上屏与不激活候选面板；共享层负责分页、高亮和候选代次。文本适配以 ASCII 编辑串保证源光标偏移与 UTF-16 对齐。Rust 和 CMake 统一使用 macOS 13 最低目标。
+
+本机构建成功，文本适配 CTest 通过，使用已校验词库生成隔离状态与开发配置。未安装输入源或切换用户当前输入法；系统焦点、真实候选位置、数字选词、标点路由、设置热更新与正式安装仍未完成。配置文件含本机路径，仅存放在忽略的 target 目录，不可对外分发。
