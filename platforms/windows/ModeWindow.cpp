@@ -80,10 +80,13 @@ void ModeWindow::refresh() {
     painted_.reset();
     shown_ = value;
     dpi_ = dpi;
+    POINT cursor{};
+    const HMONITOR target = GetCursorPos(&cursor)
+                                ? MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY)
+                                : MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
-    if (!GetMonitorInfoW(MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY),
-                         &monitor))
+    if (!GetMonitorInfoW(target, &monitor))
       throw std::runtime_error("Mode monitor unavailable");
     layout_ = mode_layout(monitor.rcWork.left, monitor.rcWork.top,
                           monitor.rcWork.right, monitor.rcWork.bottom, dpi);
