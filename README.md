@@ -38,6 +38,8 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 
 Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
 
+当前优先推进 [Windows Server 适配](platforms/windows/README.md)，已完成键包到共享会话的边界；Named Pipe 与 TSF 系统消费仍在后续阶段。平台顺序按 Windows → macOS → iOS → Linux，暂停追加 Android/Linux 功能。
+
 ## Engine 桥接
 
 ```sh
