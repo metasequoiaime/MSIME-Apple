@@ -442,14 +442,15 @@ int main(int argc, char **argv) {
       session.activate(++epoch);
       msime::windows::ReplyComposer composer(42, epoch);
       auto send = [&](uint32_t vk, uint32_t text,
-                      msime::windows::ReplyPath path) {
+                      msime::windows::ReplyPath path, bool uiless = false) {
         FanyImeNamedpipeData packet{};
         packet.event_type = FanyImePipeEventType::KeyEvent;
         packet.client_id = 42;
         packet.request_id = request++;
         packet.keycode = vk;
         packet.wch = static_cast<FanyImeWireChar>(text);
-        const auto &pending = composer.dispatch(session, packet, epoch, path);
+        const auto &pending =
+            composer.dispatch(session, packet, epoch, path, uiless);
         auto copy = pending;
         auto unchanged = session.view();
         rejected([&] { composer.dispatch(session, packet, epoch, path); });
@@ -462,6 +463,40 @@ int main(int argc, char **argv) {
       };
       for (char c : std::string("nihao"))
         send(c - 'a' + 'A', c, msime::windows::ReplyPath::Composition);
+      for (bool uiless : {false, true}) {
+        const auto original = session.view();
+        auto navigate = [&](uint32_t vk, msime::windows::ReplyPath path,
+                            uint32_t type) {
+          auto reply = send(vk, 0, path, uiless);
+          require(reply.encoded->packet.msg_type ==
+                      (uiless ? FanyImeReplyType::UiLessComposition : type),
+                  "Real navigation used wrong reply type");
+          require(session.view().at("editing_text") ==
+                      original.at("editing_text"),
+                  "Navigation changed Engine composition");
+          if (!uiless)
+            require(reply.encoded->packet.candidate_string[0] == 0,
+                    "Normal navigation included text");
+        };
+        navigate(0x21, msime::windows::ReplyPath::PreviousPage,
+                 FanyImeReplyType::MovePagePrevious);
+        require(session.view().at("page") == 0,
+                "Previous page crossed first-page boundary");
+        navigate(0x22, msime::windows::ReplyPath::NextPage,
+                 FanyImeReplyType::MovePageNext);
+        require(session.view().at("page") == 1,
+                "Navigation reply did not use shared paging");
+        navigate(0x21, msime::windows::ReplyPath::PreviousPage,
+                 FanyImeReplyType::MovePagePrevious);
+        navigate(0x28, msime::windows::ReplyPath::NextCandidate,
+                 FanyImeReplyType::MoveSelectionNext);
+        require(session.view().at("candidates").at(1).at("highlighted") == true,
+                "Navigation reply did not use shared highlight");
+        navigate(0x26, msime::windows::ReplyPath::PreviousCandidate,
+                 FanyImeReplyType::MoveSelectionPrevious);
+        require(session.view().at("candidates").at(0).at("highlighted") == true,
+                "Previous navigation did not restore shared highlight");
+      }
       bool found = false;
       size_t slot = 0;
       for (size_t attempts = 0; attempts < 100; ++attempts) {
@@ -476,7 +511,7 @@ int main(int argc, char **argv) {
         if (found || current.at("page").get<size_t>() + 1 >=
                          current.at("page_count").get<size_t>())
           break;
-        send(0x22, 0, msime::windows::ReplyPath::Composition);
+        send(0x22, 0, msime::windows::ReplyPath::NextPage);
       }
       require(found, "No real partial candidate in fixed dictionary");
       auto partial = send(static_cast<uint32_t>(0x61 + slot), 0,

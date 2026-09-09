@@ -61,6 +61,39 @@ int main() {
     rejected([&] { composer.confirm_delivery(42, 6, 1); });
     confirm(composer);
     require(composer.selected_prefix() == "你");
+    for (auto [path, type] : std::vector<std::pair<ReplyPath, uint32_t>>{
+             {ReplyPath::PreviousCandidate,
+              FanyImeReplyType::MoveSelectionPrevious},
+             {ReplyPath::NextCandidate, FanyImeReplyType::MoveSelectionNext},
+             {ReplyPath::PreviousPage, FanyImeReplyType::MovePagePrevious},
+             {ReplyPath::NextPage, FanyImeReplyType::MovePageNext}}) {
+      const auto &navigation =
+          composer.stage(result(91, "haoma", "hao ma"), path);
+      require(navigation.encoded->packet.msg_type == type &&
+              payload(navigation).empty());
+      rejected([&, navigation_path = path] {
+        composer.stage(result(92, "haoma", "hao ma"), navigation_path);
+      });
+      confirm(composer);
+      require(composer.selected_prefix() == "你");
+      auto page = result(93, "haoma", "hao ma");
+      page.transition["view"]["candidates"] =
+          Json::array({{{"text", "好"}, {"highlighted", false}},
+                       {{"text", "号"}, {"highlighted", true}}});
+      const auto &uiless = composer.stage(page, path, true);
+      require(uiless.encoded->packet.msg_type ==
+              FanyImeReplyType::UiLessComposition);
+      require(payload(uiless).find(u"你hao ma\t") == 0);
+      confirm(composer);
+      require(composer.selected_prefix() == "你");
+      const auto &invalid =
+          composer.stage(result(94, "haoma", "hao ma", "x"), path);
+      require(invalid.encoded && !*invalid.encoded);
+      rejected([&] { confirm(composer); });
+      composer.cancel();
+      composer.stage(first, ReplyPath::Selection);
+      confirm(composer);
+    }
     require(payload(composer.stage(result(2, "haoma", "hao ma"),
                                    ReplyPath::Composition)) == u"你hao ma");
     confirm(composer);

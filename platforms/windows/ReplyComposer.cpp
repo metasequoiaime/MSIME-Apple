@@ -2,6 +2,22 @@
 #include <stdexcept>
 
 namespace msime::windows {
+namespace {
+std::optional<NavigationReply> navigation_for(ReplyPath path) {
+  switch (path) {
+  case ReplyPath::PreviousCandidate:
+    return NavigationReply::PreviousCandidate;
+  case ReplyPath::NextCandidate:
+    return NavigationReply::NextCandidate;
+  case ReplyPath::PreviousPage:
+    return NavigationReply::PreviousPage;
+  case ReplyPath::NextPage:
+    return NavigationReply::NextPage;
+  default:
+    return std::nullopt;
+  }
+}
+} // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
     : client_(client), epoch_(epoch) {
   if (!client || !epoch)
@@ -85,14 +101,21 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.next_prefix.clear();
     }
     break;
+  case ReplyPath::PreviousCandidate:
+  case ReplyPath::NextCandidate:
+  case ReplyPath::PreviousPage:
+  case ReplyPath::NextPage:
   case ReplyPath::Composition:
     if (!delta.empty() || !result.reply_expected) {
       invalid();
       break;
     }
-    if (!uiless)
-      next.encoded = preedit_reply(result.request_id, prefix_ + display);
-    else {
+    if (!uiless) {
+      const auto navigation = navigation_for(path);
+      next.encoded = navigation
+                         ? navigation_reply(result.request_id, *navigation)
+                         : preedit_reply(result.request_id, prefix_ + display);
+    } else {
       std::vector<std::string> candidates;
       size_t highlighted = 0;
       bool found_highlight = false;
