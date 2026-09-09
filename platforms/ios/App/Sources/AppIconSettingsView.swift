@@ -81,7 +81,11 @@ final class AppIconSettingsModel: ObservableObject {
     do {
       try await client.setIcon(icon.iconName)
     } catch {
-      errorMessage = "图标未能更换，请稍后重试。\n\(error.localizedDescription)"
+      // The Simulator reports an I/O error even when the icon was applied. Report the failure
+      // only when the system still holds a different icon.
+      if client.alternateIconName != icon.iconName {
+        errorMessage = "图标未能更换，请稍后重试。\n\(error.localizedDescription)"
+      }
     }
     pending = nil
     refresh()

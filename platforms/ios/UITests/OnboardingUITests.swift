@@ -237,6 +237,13 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  private func wait(_ element: XCUIElement, until predicate: String, timeout: TimeInterval = 5) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: predicate), object: element)
+    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  @MainActor
   private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
     let settings = app.buttons["keyboardSettingsLink"]
     guard settings.exists else { return }
@@ -1192,7 +1199,9 @@ final class OnboardingUITests: XCTestCase {
     if nine.value as? String == "0" { nine.tap() }
     app.buttons["inputScheme_nineKey"].tap()
     nine.tap()
-    XCTAssertEqual(nine.value as? String, "0")
+    // Toggling visibility rebuilds the scheme list, so wait for the switch to report its new
+    // state instead of reading it while SwiftUI is still applying the change.
+    XCTAssertTrue(wait(nine, until: "value == '0'"))
     XCTAssertEqual(app.buttons["inputScheme_quanpin"].value as? String, "已选择")
     app.terminate()
     app.launch()
@@ -1204,7 +1213,7 @@ final class OnboardingUITests: XCTestCase {
     screenshot.lifetime = .keepAlways
     add(screenshot)
     nine.tap()
-    XCTAssertTrue(app.buttons["inputScheme_nineKey"].isEnabled)
+    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == true"))
   }
 
   @MainActor
