@@ -329,3 +329,9 @@ PreferenceSnapshot 在设置线程通过已有共享 C ABI 读取并完整校验
 PreferenceMonitor 以单个设置线程定期调用共享 try_load，最多保留一个待完成的输入队列发布任务，已发布的相同快照不重复入队。坏文件/锁忙/过期版本/队列满保留旧配置并重试，输入不可用或发布失败成为终止故障。WindowsServer 通过显式 preferences_directory 启用，SessionController 管理状态与停机；设置任务只捕获快照值，不借用监听器，停机唤醒轮询且不等待发布 future。
 
 测试覆盖队列满恢复、去重、坏文件与旧版本保护、恢复新值、输入停止、重复停机及输入线程 join 拒绝；带监听器的真实控制器测试覆盖服务/输入故障和回调请求停机。八项本机 CTest、锁定词库回归、x86/x64 交叉编译检查通过，未执行 Windows 原生运行或完整 Windows Rust 链接。初次读取异步，启动仍使用共享准备的 options；磁盘 I/O 故障可能延迟 join，不宣称任意存储故障下停机有界。完整 TSF 分发、候选 UI/模式输出和产品验收仍待完成，继续 Windows 优先，CI 保持禁用。
+
+### 第五十三条功能：Windows x64 完整宿主交叉链接
+
+新增固定 vcpkg 清单及完整 GNU 构建脚本，架构独立依赖安装根；Rust 桥接为 Windows GNU 限定同架构库搜索前缀并静态链接 SQLite。完整链接发现已知文件夹标识缺少 UUID 库，确认符号后补链。x64 Rust/C++ 宿主 DLL、会话测试及 WindowsServer 原生集成测试均完成 PE32+ 链接，不再仅为对象编译。
+
+30 项 Rust 单元测试、fmt/clippy、八项本机 CTest 与锁定词库回归通过；x86 完整链接实际尝试失败，本机 MinGW 的 SJLJ 展开与 Rust 展开符号不兼容，脚本已添加提前拒绝，未用 panic=abort 绕过。运行时 DLL 未打包，Windows 原生执行、MSVC 和 TSF 系统验收均未完成。继续 Windows 优先，CI 保持禁用。
