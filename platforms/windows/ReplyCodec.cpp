@@ -168,6 +168,35 @@ std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t token) {
         static_cast<uint8_t>(decimal[i]);
   return bytes;
 }
+std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode) {
+  uint32_t type;
+  switch (mode) {
+  case WorkerMode::English:
+    type = FanyImeWorkerReplyType::SwitchToEnglish;
+    break;
+  case WorkerMode::Chinese:
+    type = FanyImeWorkerReplyType::SwitchToChinese;
+    break;
+  case WorkerMode::AsciiPunctuation:
+    type = FanyImeWorkerReplyType::SwitchToPuncEn;
+    break;
+  case WorkerMode::ChinesePunctuation:
+    type = FanyImeWorkerReplyType::SwitchToPuncCn;
+    break;
+  case WorkerMode::Fullwidth:
+    type = FanyImeWorkerReplyType::SwitchToFullwidth;
+    break;
+  case WorkerMode::Halfwidth:
+    type = FanyImeWorkerReplyType::SwitchToHalfwidth;
+    break;
+  default:
+    return std::nullopt;
+  }
+  std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+  for (size_t i = 0; i < sizeof(type); ++i)
+    bytes[i] = static_cast<uint8_t>(type >> (8 * i));
+  return bytes;
+}
 EncodedReply partial_selection(uint64_t request, std::string_view raw,
                                std::string_view prefix,
                                std::string_view display) {

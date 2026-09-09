@@ -47,6 +47,16 @@ std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role);
 // epoch. Caller must check current client/activation/transport ownership and
 // order this before subsequent worker output. Encoding is not authorization.
 std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t focus_token);
+enum class WorkerMode {
+  English,
+  Chinese,
+  AsciiPunctuation,
+  ChinesePunctuation,
+  Fullwidth,
+  Halfwidth
+};
+// Only six mode commands, never arbitrary opcodes or unsolicited text.
+std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
 std::optional<ReplyBytes>
 protocol_reply_bytes(const FanyImeNamedpipeDataToTsf &packet);
 // Existing DLL expects remaining raw input, the ENTIRE selected prefix and the

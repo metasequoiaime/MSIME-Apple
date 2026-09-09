@@ -353,3 +353,9 @@ PreferenceMonitor 以单个设置线程定期调用共享 try_load，最多保�
 Engine PR #87 先合入 main，再固定到 e637e3db59669caf29e257f0c21bfd6c35413a03，暴露内部已有的无损标点开关。共享桥接、运行时和 C ABI 透传；Windows PuncSwitch/StatusSnapshot/FocusRestored 自动同步每客户端临时标点状态，保留组合与候选代次，受待回复及焦点门禁保护。临时覆盖不写配置，并在偏好替换 Engine 时保留。
 
 31 项 Rust 单元测试、fmt/clippy、八项本机 CTest、重新校验的锁定词库回归与 Windows x86/x64 对象编译通过。上游新接口已有 21 项 Engine CTest 通过的证据。Windows 原生执行与 TSF 验收仍未完成；本轮完整交叉构建入口因本地固定 vcpkg 缓存缺失而未运行成功，不沿用旧完整链接结果。全半角、全局作用域及出站模式通知仍待接入，继续 Windows 优先，客户端 CI 保持禁用。
+
+### 第五十七条功能：Windows 出站模式请求
+
+WindowsServer/SessionController 增加携带焦点 lease 的六种模式请求，复用固定 worker opcode 与 404 字节零填充编码；不能发送任意命令或文本。外部调用在焦点锁内核对当前连接后执行有限时写入，回调重入拒绝，失效/停机请求丢弃；不确定写入撤销焦点并关闭连接，不重放。完整投递与 TSF 实际应用严格区分，Engine 只接受后续状态回报，不提前切换。
+
+上游全角字符转换由 TSF 编辑会话执行，Server 不重复转换。八项本机 CTest、锁定词库回归及 Windows x86/x64 对象编译通过；覆盖六种线格式、过期焦点/连接代次、停机、非法命令、回调重入以及写入失败/异常。未改 Rust；没有 Windows 原生执行或本轮完整交叉链接。工具栏接线、全半角 UI 状态及全局模式作用域仍待实现，继续 Windows 优先且 CI 保持禁用。

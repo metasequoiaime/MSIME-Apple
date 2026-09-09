@@ -5,6 +5,7 @@
 #include <atomic>
 
 namespace msime::windows {
+enum class ModeRequestResult { Rejected, Sent, WriteFailed };
 enum class ControllerFailure {
   None,
   Service,
@@ -33,6 +34,9 @@ public:
   void
   stop(); // External thread, waits for ordered service/worker/queue shutdown.
   ControllerFailure failure() const { return failure_.load(); }
+  // External thread only; finite transport write may block. Sent means bytes
+  // delivered, not that TSF applied the mode. Never call from input/event callbacks.
+  ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode);
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())
@@ -42,6 +46,7 @@ public:
 private:
   void run();
   RegistrationInbox &inbox_;
+  MainTransport &transport_;
   std::function<bool()> healthy_;
   std::function<void()> stop_service_;
   std::chrono::milliseconds interval_;

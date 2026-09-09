@@ -10,7 +10,7 @@ SessionController::SessionController(
     SessionPump::EventHandler event, std::function<bool()> healthy,
     std::function<void()> stop_service, std::chrono::milliseconds interval,
     std::string preferences_directory)
-    : inbox_(inbox), healthy_(std::move(healthy)),
+    : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
       input_(focus_, clients, input_capacity, std::move(options)),
       workers_(transport, input_, focus_, clients, std::move(key),
@@ -24,6 +24,35 @@ SessionController::SessionController(
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }
+ModeRequestResult SessionController::request_mode(const FocusLease &lease,
+                                                 WorkerMode mode) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Mode request cannot reenter controller callbacks");
+  const auto bytes = worker_mode_bytes(mode);
+  if (!bytes || stopping_)
+    return ModeRequestResult::Rejected;
+  bool attempted = false;
+  bool sent = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (stopping_ || !transport_.current(lease.transport))
+        return;
+      attempted = true;
+      sent = transport_.send(lease.transport,
+                             FanyImePipeRole::ToTsfWorkerThread, *bytes);
+    });
+  } catch (...) {
+    // A throwing transport is also uncertain; never retry the mode command.
+    attempted = true;
+  }
+  if (!attempted)
+    return ModeRequestResult::Rejected;
+  if (sent)
+    return ModeRequestResult::Sent;
+  focus_.invalidate(lease.transport);
+  transport_.close(lease.transport);
+  return ModeRequestResult::WriteFailed;
+}
 void SessionController::request_stop() {
   stopping_ = true;
   inbox_.close();
