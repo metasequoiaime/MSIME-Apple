@@ -66,7 +66,8 @@ struct Painting {
   ~Painting() { EndPaint(window, &state); }
 };
 } // namespace
-CandidateWindow::CandidateWindow(Reader reader, Click click) : reader_(std::move(reader)), click_(std::move(click)) {
+CandidateWindow::CandidateWindow(Reader reader, Click click)
+    : reader_(std::move(reader)), click_(std::move(click)) {
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;
@@ -214,6 +215,10 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
       case WM_LBUTTONDOWN:
         self->pressed_ = self->hit(static_cast<short>(LOWORD(lparam)),
                                    static_cast<short>(HIWORD(lparam)));
+        if (self->pressed_) {
+          TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+          TrackMouseEvent(&track);
+        }
         return 0;
       case WM_LBUTTONUP: {
         const auto pressed = self->pressed_;
@@ -230,6 +235,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       }
       case WM_CANCELMODE:
+      case WM_MOUSELEAVE:
         self->pressed_.reset();
         return 0;
       case WM_ERASEBKGND:

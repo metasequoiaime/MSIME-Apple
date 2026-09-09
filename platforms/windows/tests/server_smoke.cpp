@@ -1,11 +1,11 @@
-#include "WindowsServer.h"
-#include "CandidateWindow.h"
-#include "ModeWindow.h"
 #include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
+#include "CandidateWindow.h"
+#include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
+#include "WindowsServer.h"
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -47,29 +47,36 @@ int main() {
     {
       std::optional<ModePresentation> state;
       size_t commands = 0;
-      const WorkerMode expected[] = {WorkerMode::Chinese, WorkerMode::English,
-          WorkerMode::ChinesePunctuation, WorkerMode::AsciiPunctuation,
-          WorkerMode::Fullwidth, WorkerMode::Halfwidth};
-      ModeWindow modes([&] { return state; }, [&](const ModeClick &click) {
-        require(commands < 6 && click.mode == expected[commands] &&
-                click.lease.token == 77);
-        ++commands;
-      });
+      const WorkerMode expected[] = {WorkerMode::Chinese,
+                                     WorkerMode::English,
+                                     WorkerMode::ChinesePunctuation,
+                                     WorkerMode::AsciiPunctuation,
+                                     WorkerMode::Fullwidth,
+                                     WorkerMode::Halfwidth};
+      ModeWindow modes([&] { return state; },
+                       [&](const ModeClick &click) {
+                         require(commands < 6 &&
+                                 click.mode == expected[commands] &&
+                                 click.lease.token == 77);
+                         ++commands;
+                       });
       require(!IsWindowVisible(modes.handle()));
       const auto foreground = GetForegroundWindow();
       state = ModePresentation{{{42, {1, 2, 3}}, 1, 77}, {}, {}, {}};
       modes.refresh();
       UpdateWindow(modes.handle());
       require(IsWindowVisible(modes.handle()) && !modes.failed());
-      require(SendMessageW(modes.handle(), WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE);
+      require(SendMessageW(modes.handle(), WM_MOUSEACTIVATE, 0, 0) ==
+              MA_NOACTIVATE);
       const auto point = MAKELPARAM(5, 5);
       SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      SendMessageW(modes.handle(), WM_MOUSELEAVE, 0, 0);
       SendMessageW(modes.handle(), WM_LBUTTONUP, 0, point);
       require(commands == 1 && GetForegroundWindow() == foreground);
       const auto dpi = GetDpiForWindow(modes.handle());
       for (int i = 1; i < 6; ++i) {
         const auto cell = MAKELPARAM((i % 2) * MulDiv(112, dpi, 96) + 5,
-                                    (i / 2) * MulDiv(34, dpi, 96) + 5);
+                                     (i / 2) * MulDiv(34, dpi, 96) + 5);
         SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, cell);
         SendMessageW(modes.handle(), WM_LBUTTONUP, 0, cell);
       }
@@ -151,6 +158,7 @@ int main() {
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
       require(clicks == 1 && !clickable.failed());
       SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      SendMessageW(clickable.handle(), WM_MOUSELEAVE, 0, 0);
       ++value->generation;
       ++value->candidates[0].generation;
       clickable.refresh();
@@ -173,10 +181,16 @@ int main() {
     {
       StateRootLease lease(root);
       bool rejected = false;
-      try { StateRootLease second(root); } catch (...) { rejected = true; }
+      try {
+        StateRootLease second(root);
+      } catch (...) {
+        rejected = true;
+      }
       require(rejected);
     }
-    { StateRootLease reacquired(root); }
+    {
+      StateRootLease reacquired(root);
+    }
     require(std::filesystem::exists(root / L".msime-client-server.lock"));
     auto host = test_host_options(root);
     WindowsServerOptions options;
@@ -187,9 +201,11 @@ int main() {
     for (size_t role = 0; role < 3; ++role)
       options.pipes.names[role] = L"\\\\.\\pipe\\msime-server-fixture-" +
                                   suffix + L"-" + std::to_wstring(role);
-    const nlohmann::json launch{{"format_version", 1}, {"resources", host.at("resources")},
-        {"state_root", root.u8string()}, {"pipe_namespace", "server-fixture"},
-        {"preedit_style", "pinyin"}};
+    const nlohmann::json launch{{"format_version", 1},
+                                {"resources", host.at("resources")},
+                                {"state_root", root.u8string()},
+                                {"pipe_namespace", "server-fixture"},
+                                {"preedit_style", "pinyin"}};
     // Same key-handler factory and background click path as the executable.
     WindowsServer server(
         options, host.dump(),
@@ -252,10 +268,11 @@ int main() {
       }
       ++packet.request_id;
     }
-    std::atomic<SelectionRequestResult> selected{SelectionRequestResult::Rejected};
+    std::atomic<SelectionRequestResult> selected{
+        SelectionRequestResult::Rejected};
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       selected = server.request_selection(click.lease, click.session,
-                                           click.generation, click.index);
+                                          click.generation, click.index);
     });
     struct ClickShutdown {
       WindowsServer &server;
@@ -271,8 +288,8 @@ int main() {
         [&](const CandidateClick &click) { require(clicks.submit(click)); });
     // Pipe receipt precedes queue confirmation. Wait for the confirmed value,
     // not a guessed delay or an independently fabricated window snapshot.
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds(2);
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
     bool painted = false;
     while (std::chrono::steady_clock::now() < deadline) {
       const auto value = server.candidate_view();
@@ -288,7 +305,8 @@ int main() {
     }
     require(painted);
     const auto foreground = GetForegroundWindow();
-    const auto metrics = candidate_metrics(GetDpiForWindow(candidates.handle()));
+    const auto metrics =
+        candidate_metrics(GetDpiForWindow(candidates.handle()));
     const auto point =
         MAKELPARAM(metrics.padding + 1, metrics.padding + metrics.row + 1);
     SendMessageW(candidates.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
@@ -299,12 +317,13 @@ int main() {
             committed.frame == ui_complete_selection("中")->worker);
     // Wait for controller confirmation before stopping; the received frame
     // alone is not proof that the background selection transaction completed.
-    const auto confirmed_deadline = std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(2);
+    const auto confirmed_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (selected.load() == SelectionRequestResult::Rejected &&
            std::chrono::steady_clock::now() < confirmed_deadline)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    require(selected.load() == SelectionRequestResult::Sent && !clicks.failed());
+    require(selected.load() == SelectionRequestResult::Sent &&
+            !clicks.failed());
     candidates.refresh();
     require(!IsWindowVisible(candidates.handle()) && !candidates.failed() &&
             GetForegroundWindow() == foreground);

@@ -187,6 +187,10 @@ LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
       return 0;
     case WM_LBUTTONDOWN:
       self->pressed_ = self->hit(GET_X_LPARAM(l), GET_Y_LPARAM(l));
+      if (self->pressed_) {
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+        TrackMouseEvent(&track);
+      }
       return 0;
     case WM_LBUTTONUP: {
       const auto down = self->pressed_;
@@ -198,6 +202,7 @@ LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
     }
     case WM_CANCELMODE:
     case WM_CAPTURECHANGED:
+    case WM_MOUSELEAVE:
       self->pressed_.reset();
       return 0;
     case WM_DPICHANGED:
