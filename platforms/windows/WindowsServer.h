@@ -27,6 +27,9 @@ public:
   void request_stop() { controller_->request_stop(); }
   void stop() { controller_->stop(); }
   ControllerFailure failure() const { return controller_->failure(); }
+  std::optional<CandidatePresentation> candidate_view() {
+    return controller_->candidate_view();
+  }
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode) {
     return controller_->request_mode(lease, mode);
   }

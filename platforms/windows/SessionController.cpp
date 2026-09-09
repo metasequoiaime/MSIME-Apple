@@ -14,7 +14,20 @@ SessionController::SessionController(
       stop_service_(std::move(stop_service)), interval_(interval),
       input_(focus_, clients, input_capacity, std::move(options)),
       workers_(transport, input_, focus_, clients, std::move(key),
-               std::move(event), std::move(presentation)) {
+               std::move(event),
+               {[this, observer = std::move(presentation.delivered)](
+                    const FocusLease &lease, const PendingReply &reply,
+                    const FanyImeNamedpipeData &packet) {
+                  candidates_.delivered(lease, reply, packet);
+                  if (observer)
+                    observer(lease, reply, packet);
+                },
+                [this, observer = std::move(presentation.disconnected)](
+                    const PipeTicket &ticket) {
+                  candidates_.disconnected(ticket);
+                  if (observer)
+                    observer(ticket);
+                }}) {
   if (!healthy_ || !stop_service_ || interval.count() < 1 ||
       interval.count() > 1000)
     throw std::invalid_argument("Invalid session supervision configuration");
@@ -24,6 +37,17 @@ SessionController::SessionController(
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }
+std::optional<CandidatePresentation> SessionController::candidate_view() {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Candidate read cannot reenter controller callbacks");
+  if (stopping_ || !input_.stats().accepting)
+    return std::nullopt;
+  auto value = candidates_.snapshot(focus_);
+  if (stopping_ || !input_.stats().accepting ||
+      (value && !transport_.current(value->lease.transport)))
+    return std::nullopt;
+  return value;
+}
 ModeRequestResult SessionController::request_mode(const FocusLease &lease,
                                                  WorkerMode mode) {
   if (input_.on_worker_thread() || active_controller == this)
@@ -55,6 +79,7 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
 }
 void SessionController::request_stop() {
   stopping_ = true;
+  candidates_.stop();
   inbox_.close();
 }
 void SessionController::stop() {

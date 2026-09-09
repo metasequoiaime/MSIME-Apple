@@ -77,6 +77,7 @@ int main() {
         options, host.dump(),
         preview_key_handler(PreviewConfig::parse(launch.dump())),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(!server.candidate_view());
     const uint64_t client =
         (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 42u;
     ClientPipe replies(options.pipes.names[1]);
@@ -134,6 +135,7 @@ int main() {
     }
     server.stop(); // Must cancel the now-idle Main reader before joining it.
     server.stop();
+    require(!server.candidate_view());
     require(server.failure() == ControllerFailure::None);
     std::cout << "Native isolated Windows server pipeline passed\n";
   } catch (...) {

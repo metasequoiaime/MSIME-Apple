@@ -98,6 +98,66 @@ private:
 };
 } // namespace
 void session_worker_tests(const std::string &options) {
+  {
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    SessionController *owner = nullptr;
+    std::atomic<size_t> observed{0};
+    SessionPump::Presentation presentation;
+    presentation.delivered = [&](const FocusLease &, const PendingReply &,
+                                 const FanyImeNamedpipeData &) {
+      bool rejected = false;
+      try {
+        (void)owner->candidate_view();
+      } catch (const std::logic_error &) {
+        rejected = true;
+      }
+      require(rejected);
+      ++observed;
+    };
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [](InputState &state, const FocusLease &lease,
+           const FanyImeNamedpipeData &packet) {
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local,
+                                      {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); },
+        std::chrono::milliseconds(10), {}, presentation);
+    owner = &controller;
+    require(!controller.candidate_view());
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 2;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet);
+    transport.wait_started(3);
+    const auto first = controller.candidate_view();
+    require(first && first->visible && observed == 1);
+    packet.request_id = 3;
+    packet.keycode = '4';
+    packet.wch = '4';
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(4);
+    const auto second = controller.candidate_view();
+    require(second && second->visible && observed == 2);
+    require(second->generation > first->generation);
+    transport.close(ticket);
+    require(!controller.candidate_view());
+    controller.stop();
+    require(!controller.candidate_view());
+  }
   FocusGate gate;
   InputQueue queue(gate, 2, 16, options);
   IdleTransport transport;

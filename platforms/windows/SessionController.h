@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateMailbox.h"
 #include "PreferenceMonitor.h"
 #include "RegistrationInbox.h"
 #include "SessionWorkers.h"
@@ -38,6 +39,9 @@ public:
   // External thread only; finite transport write may block. Sent means bytes
   // delivered, not that TSF applied the mode. Never call from input/event callbacks.
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode);
+  // External/UI thread, value copy only. Empty means hide. Re-read on paint;
+  // selection still requires an independently validated candidate command.
+  std::optional<CandidatePresentation> candidate_view();
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())
@@ -52,6 +56,7 @@ private:
   std::function<void()> stop_service_;
   std::chrono::milliseconds interval_;
   FocusGate focus_;
+  CandidateMailbox candidates_;
   InputQueue input_;
   SessionWorkers workers_;
   std::unique_ptr<PreferenceMonitor> preferences_;
