@@ -1,10 +1,22 @@
 #include "CandidateMailbox.h"
 #include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
+#include "ModeMailbox.h"
 #include <future>
 
 using namespace msime::windows;
 namespace {
+class ModeTransport final : public MainTransport {
+public:
+  bool current(const PipeTicket &) override { return open; }
+  bool try_current(const PipeTicket &) override { return open; }
+  std::optional<FanyImeNamedpipeData>
+  read(const PipeTicket &) override { return std::nullopt; }
+  bool send(const PipeTicket &, uint32_t,
+            const std::vector<uint8_t> &) override { return open; }
+  void close(const PipeTicket &) noexcept override { open = false; }
+  bool open = true;
+};
 void require(bool condition) {
   if (!condition)
     throw std::runtime_error("Candidate mailbox test failed");
@@ -118,6 +130,41 @@ void candidate_mailbox_tests() {
     return gate.with_active(lease,
                             [&] { mailbox.delivered(lease, reply, packet); });
   };
+  {
+    ModeMailbox modes;
+    ModeTransport transport;
+    require(!modes.snapshot(gate, transport));
+    const auto lease = activate(a, 9);
+    FanyImeNamedpipeData packet{};
+    packet.client_id = a.client;
+    packet.event_type = FanyImePipeEventType::StatusSnapshot;
+    packet.keycode = 1;
+    packet.modifiers_down = 1;
+    packet.pinyin_length = 1;
+    gate.with_active(lease, [&] { modes.event(lease, packet); });
+    auto value = modes.snapshot(gate, transport);
+    require(value && value->chinese == true && value->fullwidth == true &&
+            value->chinese_punctuation == true);
+    modes.disconnected(a);
+    require(!modes.snapshot(gate, transport));
+    auto replacement = a;
+    ++replacement.generations[0];
+    const auto next = activate(replacement, 10);
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    gate.with_active(next, [&] { modes.event(next, packet); });
+    modes.disconnected(a); // Late old-stream cleanup cannot erase replacement.
+    value = modes.snapshot(gate, transport);
+    require(value && same_ticket(value->lease.transport, replacement) &&
+            !value->chinese && !value->chinese_punctuation && !value->fullwidth);
+    transport.open = false;
+    require(!modes.snapshot(gate, transport));
+    transport.open = true;
+    require(modes.snapshot(gate, transport).has_value());
+    modes.stop();
+    packet.event_type = FanyImePipeEventType::StatusSnapshot;
+    gate.with_active(next, [&] { modes.event(next, packet); });
+    require(!modes.snapshot(gate, transport));
+  }
   require(!mailbox.snapshot(gate));
   const auto first = activate(a, 1);
   require(publish(first, 1));
