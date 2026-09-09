@@ -26,6 +26,10 @@ public:
         !same_ticket(latest_->lease.transport, lease.transport))
       return;
     switch (packet.event_type) {
+    case FanyImePipeEventType::ClientActivated:
+      if (packet.keycode != 0)
+        suppressed_ = true;
+      break;
     case FanyImePipeEventType::IMESwitch:
     case FanyImePipeEventType::StatusSnapshot:
     case FanyImePipeEventType::FocusRestored:

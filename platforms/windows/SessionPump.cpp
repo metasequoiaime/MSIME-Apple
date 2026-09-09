@@ -48,6 +48,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       return PumpResult::QueueUnavailable;
     if (!connected)
       return PumpResult::Disconnected;
+    bool activation_uiless = false;
     while (auto packet = transport_.read(ticket)) {
       // Never hold this while waiting for client input. Serialize the whole
       // prepare/send/confirm transaction with externally requested selections.
@@ -62,6 +63,18 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
         return PumpResult::QueueUnavailable;
       if (!route.accepted)
         continue;
+      // Bound to this registered Main stream, not shared between clients.
+      // Rejected/background notifications cannot alter its activation mode.
+      if (packet->event_type == FanyImePipeEventType::ClientActivated)
+        activation_uiless = packet->keycode != 0;
+      else if (FanyImePipeEventType::IsRouteDeactivation(packet->event_type))
+        activation_uiless = false;
+      if (activation_uiless &&
+          (packet->event_type == FanyImePipeEventType::KeyEvent ||
+           packet->event_type == FanyImePipeEventType::ShowCandidateWnd ||
+           packet->event_type == FanyImePipeEventType::MoveCandidateWnd ||
+           packet->event_type == FanyImePipeEventType::HideCandidateWnd))
+        packet->modifiers_down |= FanyImePipeFlags::UiLess;
       if (packet->event_type == FanyImePipeEventType::ClientHello)
         continue;
       if (route.route && route.fence) {

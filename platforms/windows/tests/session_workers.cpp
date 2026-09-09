@@ -381,6 +381,79 @@ void session_worker_tests(const std::string &options) {
             controller.failure() == ControllerFailure::None);
     controller.stop();
   }
+  {
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [](InputState &state, const FocusLease &lease,
+           const FanyImeNamedpipeData &packet) {
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); });
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    packet.keycode = 1; // Activation owns rendering even without per-key flags.
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 2;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet);
+    transport.wait_started(3);
+    const auto hidden = controller.candidate_view();
+    require(hidden && !hidden->visible && hidden->preedit.empty());
+    // UILess editing replies to TSF instead of taking the local-only path.
+    bool replied = false;
+    for (const auto &write : transport.writes())
+      replied |= write.first == FanyImePipeRole::ToTsf;
+    require(replied);
+    packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(4);
+    require(!controller.candidate_view()->visible);
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    packet.keycode = 0;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 3;
+    packet.keycode = '4';
+    packet.wch = '4';
+    transport.push(packet);
+    transport.wait_started(6);
+    require(controller.candidate_view()->visible);
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    packet.keycode = 1;
+    transport.push(packet);
+    transport.wait_started(7);
+    require(!controller.candidate_view()->visible);
+    require(controller.failure() == ControllerFailure::None);
+    packet.event_type = FanyImePipeEventType::ClientSuspended;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 78;
+    packet.keycode = 0;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 4;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet);
+    transport.wait_started(10);
+    require(controller.candidate_view()->visible);
+    controller.stop();
+  }
   FocusGate gate;
   InputQueue queue(gate, 2, 16, options);
   IdleTransport transport;
