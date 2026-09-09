@@ -22,6 +22,7 @@ static_assert(VK_NUMPAD0 == 0x60 && VK_NUMPAD9 == 0x69 && VK_LSHIFT == 0xA0);
 using Json = nlohmann::json;
 using msime::windows::ServerSession;
 void session_pump_tests(const std::string &options);
+void session_worker_tests(const std::string &options);
 namespace {
 void require(bool condition, const char *message) {
   if (!condition)
@@ -330,6 +331,7 @@ int main(int argc, char **argv) {
       failing.stop();
     }
     session_pump_tests(options.dump());
+    session_worker_tests(options.dump());
     ServerSession session(42, options.dump());
     uint64_t request = 2;
     uint64_t epoch = 1;
