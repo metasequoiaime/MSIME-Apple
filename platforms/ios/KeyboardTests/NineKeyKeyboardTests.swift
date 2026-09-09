@@ -4,6 +4,13 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
+  // whatever the app group was left holding. See InputSchemeTestSupport.
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+  }
+
   func testLayoutPresetsKeepKeysInBoundsAcrossBothKeyboards() throws {
     let previousLayout = KeyboardLayoutPreference.selected
     let previousScheme = InputSchemePreference.scheme

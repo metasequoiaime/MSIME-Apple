@@ -3,6 +3,13 @@ import UIKit
 
 @MainActor
 final class HandwritingTests: XCTestCase {
+  // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
+  // whatever the app group was left holding. See InputSchemeTestSupport.
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+  }
+
   // Pen trajectories for 中国, not text rendered using a font.
   private var chineseInk: [[CGPoint]] {
     let points: [[(Double, Double)]] = [

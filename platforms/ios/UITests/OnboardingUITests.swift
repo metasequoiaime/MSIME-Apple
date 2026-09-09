@@ -239,6 +239,17 @@ final class OnboardingUITests: XCTestCase {
     return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
   }
 
+  // Driving the switches back on would need the app to still be on a screen this test can reach,
+  // which a failure part way through does not promise. A relaunch clears the stored set instead,
+  // and an absent set means every scheme is visible.
+  @MainActor
+  private func restoreSchemeVisibility(in app: XCUIApplication) {
+    app.terminate()
+    app.launchArguments = ["--reset-input-schemes-for-ui-tests"]
+    app.launch()
+    app.terminate()
+  }
+
   @MainActor
   private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
     let settings = app.buttons["keyboardSettingsLink"]
@@ -1081,6 +1092,9 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
+    // This one ends with handwriting hidden on purpose, which is still a scheme later tests cannot
+    // select until the stored set is cleared.
+    defer { restoreSchemeVisibility(in: app) }
     app.buttons["inputSettingsLink"].tap()
     let enabled = app.switches["enabledInputScheme_handwriting"]
     for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
@@ -1102,6 +1116,10 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
+    // Hidden schemes live in the app group and outlive this bundle, and a scheme this test leaves
+    // hidden makes InputSchemePreference downgrade every later assignment of it. Restore visibility
+    // even when an assertion below fails, or the keyboard unit tests inherit a crippled scheme list.
+    defer { restoreSchemeVisibility(in: app) }
     app.buttons["inputSettingsLink"].tap()
     let full = app.switches["enabledInputScheme_quanpin"]
     let nine = app.switches["enabledInputScheme_nineKey"]
@@ -1117,7 +1135,9 @@ final class OnboardingUITests: XCTestCase {
     app.launch()
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(nine.value as? String, "0")
-    XCTAssertFalse(app.buttons["inputScheme_nineKey"].isEnabled)
+    // The switch reports its stored value before SwiftUI has rebuilt the scheme list below it, so
+    // the button is briefly still enabled after a relaunch.
+    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == false"))
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Input scheme visibility settings"
     screenshot.lifetime = .deleteOnSuccess

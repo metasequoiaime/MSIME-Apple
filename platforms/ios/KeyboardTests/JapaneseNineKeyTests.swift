@@ -3,6 +3,13 @@ import UIKit
 
 @MainActor
 final class JapaneseNineKeyTests: XCTestCase {
+  // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
+  // whatever the app group was left holding. See InputSchemeTestSupport.
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+  }
+
   func testKanaKeysFeedJapaneseEngineCandidates() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes

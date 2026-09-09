@@ -8,10 +8,15 @@ struct MetasequoiaImeApp: App {
   init() {
     try? KeyboardSkinTrialStore().restorePending()
     #if DEBUG
-    if ProcessInfo.processInfo.arguments.contains("--reset-onboarding-for-ui-tests") {
+    let arguments = ProcessInfo.processInfo.arguments
+    if arguments.contains("--reset-onboarding-for-ui-tests") {
       UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
-      // Scheme visibility lives in the app group and outlives the app, so a test that hides a
-      // scheme would otherwise decide what later tests can select.
+    }
+    // Scheme visibility lives in the app group and outlives the app, so a test that hides a scheme
+    // would otherwise decide what later tests -- in this bundle and in the keyboard unit tests that
+    // share the group -- can select. Restorable on its own so a test can undo the damage it did
+    // without also throwing away onboarding state it still needs.
+    if arguments.contains("--reset-onboarding-for-ui-tests") || arguments.contains("--reset-input-schemes-for-ui-tests") {
       UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)?
         .removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     }

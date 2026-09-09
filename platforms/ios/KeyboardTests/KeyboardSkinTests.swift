@@ -2,6 +2,13 @@ import XCTest
 import UIKit
 
 final class KeyboardSkinTests: XCTestCase {
+  // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
+  // whatever the app group was left holding. See InputSchemeTestSupport.
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+  }
+
   func testCuratedDesignsRemainReadableAndRoundTrip() throws {
     for (name, design) in CustomKeyboardSkin.templates {
       XCTAssertTrue(design.hasReadableText, name)
