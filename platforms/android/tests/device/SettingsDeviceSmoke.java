@@ -1,0 +1,107 @@
+package app.msime.client.test;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
+import android.util.AtomicFile;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebView;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONObject;
+
+/** Drive the actual React DOM and Tauri IPC, then observe a separate system editor. */
+public final class SettingsDeviceSmoke extends DeviceSmoke {
+    private WebView web;
+    @Override protected String successDescription() { return "React save, shared revision persistence, reload and cross-process IME application"; }
+    @Override protected void runChecks() throws Exception {
+        File root = getTargetContext().getFilesDir();
+        JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
+        File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
+        if (!directory.toPath().startsWith(root.getCanonicalFile().toPath())) throw new AssertionError("Preferences escaped the preview sandbox");
+        File preferences = new File(directory, "preferences.json");
+        byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
+        Activity activity = null;
+        try {
+            stage = "React settings load";
+            Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.client.preview.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity = startActivitySync(intent);
+            Activity owner = activity;
+            long deadline = SystemClock.uptimeMillis() + 15000;
+            do {
+                runOnMainSync(() -> web = findWebView(owner.getWindow().getDecorView()));
+                if (web != null) break;
+                SystemClock.sleep(100);
+            } while (SystemClock.uptimeMillis() < deadline);
+            if (web == null) throw new AssertionError("Tauri WebView not created");
+            awaitJs("document.querySelectorAll('input[type=checkbox]').length === 2");
+            boolean before = "true".equals(js("document.querySelectorAll('input[type=checkbox]')[1].checked"));
+            stage = "React save through Tauri";
+            js("document.querySelectorAll('input[type=checkbox]')[1].click(); true");
+            awaitJs("!document.querySelector('button[type=submit]').disabled");
+            js("document.querySelector('button[type=submit]').click(); true");
+            awaitJs("document.querySelector('[role=status]')?.textContent === '设置已保存。'");
+            JSONObject saved = new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8));
+            if (saved.getLong("revision") != revision + 1 || saved.getJSONObject("preferences").getBoolean("chinese_punctuation") == before) throw new AssertionError("React save did not reach shared storage");
+            stage = "React reload";
+            js("document.querySelector('button.secondary').click(); true");
+            awaitJs("!document.querySelector('button.secondary').disabled && document.querySelectorAll('input[type=checkbox]')[1].checked === " + !before);
+            stage = "cross-process system input uses saved preferences";
+            shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+            tap(field("msime-test-plain"));
+            for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
+            tap(key(","));
+            String expected = before ? "你好," : "你好，";
+            await(field("msime-test-plain").and(node -> equalsText(expected, node.getText())));
+        } finally {
+            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
+        }
+    }
+    private WebView findWebView(View view) {
+        if (view instanceof WebView) return (WebView) view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int index = 0; index < group.getChildCount(); index++) {
+                WebView found = findWebView(group.getChildAt(index));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+    private String js(String expression) throws Exception {
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>();
+        runOnMainSync(() -> web.evaluateJavascript(expression, value -> { result.set(value); completed.countDown(); }));
+        if (!completed.await(5, TimeUnit.SECONDS)) throw new AssertionError("WebView response timed out");
+        return result.get();
+    }
+    private void awaitJs(String condition) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do { if ("true".equals(js(condition))) return; SystemClock.sleep(100); } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Expected React state was not observed");
+    }
+    private void shell(String command) throws Exception {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
+            byte[] buffer = new byte[1024];
+            while (input.read(buffer) != -1) { }
+        }
+    }
+    private void publish(File file, byte[] contents) throws Exception {
+        AtomicFile target = new AtomicFile(file);
+        FileOutputStream output = target.startWrite();
+        try { output.write(contents); target.finishWrite(output); }
+        catch (Exception error) { target.failWrite(output); throw error; }
+    }
+}

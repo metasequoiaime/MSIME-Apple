@@ -1,0 +1,3 @@
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" android:supportsSwitchingToNextInputMethod="true" android:settingsActivity="app.msime.client.preview.MainActivity">
+    <subtype android:imeSubtypeLocale="zh_CN" android:imeSubtypeMode="keyboard" />
+</input-method>

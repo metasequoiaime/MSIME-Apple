@@ -63,7 +63,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   return <main className="settings">
     <header><span className="brand">水杉输入法</span><h1>输入设置</h1>
       <p>设置你的输入习惯。</p></header>
-    <aside>预览版：这些设置目前仅保存在新客户端，尚未应用到已安装的输入法。</aside>
+    <aside>预览版：设置供 MSIME Client 宿主使用，已接入的宿主会在组词结束后应用；不影响旧版输入法。</aside>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}

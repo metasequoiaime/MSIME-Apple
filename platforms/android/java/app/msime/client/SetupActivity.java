@@ -58,6 +58,13 @@ public final class SetupActivity extends Activity {
         picker.setText("选择输入法");
         picker.setOnClickListener(ignored -> ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showInputMethodPicker());
         layout.addView(picker);
+        Intent sharedSettings = new Intent().setClassName(getPackageName(), getPackageName() + ".MainActivity");
+        if (sharedSettings.resolveActivity(getPackageManager()) != null) {
+            Button settingsPage = new Button(this);
+            settingsPage.setText("打开共享设置");
+            settingsPage.setOnClickListener(ignored -> { startActivity(sharedSettings); finish(); });
+            layout.addView(settingsPage);
+        }
         setContentView(layout);
     }
 }
