@@ -544,10 +544,19 @@ int main(int argc, char **argv) {
                   (uiless ? FanyImePipeFlags::UiLess : 0) |
                   (previous && packet.keycode == 0x09 ? 1u : 0u);
               const auto before_navigation = session.view();
-              require(!composer.navigate(session, packet, epoch, {}),
-                      "Disabled binding consumed a key");
+              const auto disabled =
+                  composer.navigate(session, packet, epoch, {});
+              require(disabled && disabled->encoded && *disabled->encoded &&
+                          disabled->encoded->packet.msg_type ==
+                              (uiless ? FanyImeReplyType::UiLessComposition
+                                      : FanyImeReplyType::NavigationIgnored),
+                      "Disabled navigation failed to reply");
               require(session.view() == before_navigation,
                       "Disabled binding mutated Engine");
+              rejected(
+                  [&] { composer.navigate(session, packet, epoch, bindings); });
+              composer.confirm_delivery(42, epoch, packet.request_id);
+              packet.request_id = request++;
               auto shortcut = packet;
               shortcut.modifiers_down |= 2;
               require(!composer.navigate(session, shortcut, epoch, bindings),

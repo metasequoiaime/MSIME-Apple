@@ -62,6 +62,8 @@ int main() {
     confirm(composer);
     require(composer.selected_prefix() == "你");
     for (auto [path, type] : std::vector<std::pair<ReplyPath, uint32_t>>{
+             {ReplyPath::IgnoredNavigation,
+              FanyImeReplyType::NavigationIgnored},
              {ReplyPath::PreviousCandidate,
               FanyImeReplyType::MoveSelectionPrevious},
              {ReplyPath::NextCandidate, FanyImeReplyType::MoveSelectionNext},

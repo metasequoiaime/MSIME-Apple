@@ -16,7 +16,7 @@ struct NavigationBindings {
   bool arrows = false;
 };
 struct NavigationAction {
-  uint32_t command;
+  std::optional<uint32_t> command;
   NavigationReply reply;
 };
 inline std::optional<NavigationAction>
@@ -42,8 +42,26 @@ navigation_action(const FanyImeNamedpipeData &packet,
                                         : MSIME_NEXT_CANDIDATE,
                             key == 0x26 ? NavigationReply::PreviousCandidate
                                         : NavigationReply::NextCandidate};
-  else
-    return std::nullopt;
+  else {
+    switch (key) {
+    case 0xBD:
+    case 0xBB:
+    case 0xBC:
+    case 0xBE:
+    case 0xDB:
+    case 0xDD:
+    case 0x09:
+    case 0x21:
+    case 0x22:
+    case 0x26:
+    case 0x28:
+      // TSF already consumed this navigation request. Disabled is a reply,
+      // not permission to reinterpret the key as text or another command.
+      return NavigationAction{std::nullopt, NavigationReply::Ignored};
+    default:
+      return std::nullopt;
+    }
+  }
   return NavigationAction{previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE,
                           previous ? NavigationReply::PreviousPage
                                    : NavigationReply::NextPage};
