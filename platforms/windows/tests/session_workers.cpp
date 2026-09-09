@@ -1,3 +1,4 @@
+#include "SessionController.h"
 #include "SessionWorkers.h"
 #include <algorithm>
 #include <chrono>
@@ -14,6 +15,7 @@ public:
   void add(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
     current_[ticket.client] = ticket;
+    packets_[ticket.client].clear();
     ready_.notify_all();
   }
   bool current(const PipeTicket &ticket) override {
@@ -28,13 +30,24 @@ public:
     ++reading_;
     peak_ = std::max(peak_, reading_);
     ready_.notify_all();
-    ready_.wait(lock, [&] { return !matches(ticket); });
+    ready_.wait(lock, [&] {
+      return !matches(ticket) || !packets_[ticket.client].empty();
+    });
     --reading_;
-    return std::nullopt;
+    if (!matches(ticket))
+      return std::nullopt;
+    auto packet = packets_[ticket.client].front();
+    packets_[ticket.client].pop_front();
+    return packet;
   }
-  bool send(const PipeTicket &, uint32_t,
+  bool send(const PipeTicket &ticket, uint32_t,
             const std::vector<uint8_t> &) override {
-    return false; // No input in this lifecycle-only fixture.
+    return current(ticket);
+  }
+  void push(FanyImeNamedpipeData packet) {
+    std::lock_guard lock(mutex_);
+    packets_[packet.client_id].push_back(packet);
+    ready_.notify_all();
   }
   void close(const PipeTicket &ticket) noexcept override {
     std::lock_guard lock(mutex_);
@@ -67,6 +80,7 @@ private:
   std::mutex mutex_;
   std::condition_variable ready_;
   std::map<uint64_t, PipeTicket> current_;
+  std::map<uint64_t, std::deque<FanyImeNamedpipeData>> packets_;
   std::vector<std::pair<PipeTicket, std::thread::id>> started_;
   size_t reading_ = 0;
   size_t peak_ = 0;
@@ -153,4 +167,57 @@ void session_worker_tests(const std::string &options) {
   transport.add(c);
   require(!workers.submit(c) && !transport.current(c));
   queue.stop();
+  for (int mode = 0; mode < 3; ++mode) {
+    IdleTransport supervised;
+    RegistrationInbox inbox(2);
+    std::atomic<bool> healthy{true};
+    std::promise<void> stopped;
+    auto stopped_future = stopped.get_future();
+    SessionController *owner = nullptr;
+    SessionController controller(
+        supervised, inbox, 2, 16, options,
+        [](InputState &, const FocusLease &,
+           const FanyImeNamedpipeData &) -> std::optional<PendingReply> {
+          throw std::runtime_error("Synthetic supervised input failure");
+        },
+        [&](const FocusRoute &, const FanyImeNamedpipeData &) {
+          if (mode == 2)
+            owner->request_stop();
+          return true;
+        },
+        [&] { return healthy.load(); },
+        [&] {
+          supervised.close(a);
+          supervised.close(b);
+          stopped.set_value();
+        },
+        std::chrono::milliseconds(10));
+    owner = &controller;
+    supervised.add(a);
+    supervised.add(b);
+    require(inbox.push(a) && inbox.push(b));
+    supervised.wait_started(2);
+    if (mode != 0) {
+      FanyImeNamedpipeData packet{};
+      packet.client_id = a.client;
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 77;
+      supervised.push(packet);
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.request_id = 2;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      if (mode == 1)
+        supervised.push(packet);
+    } else {
+      healthy = false;
+    }
+    require(stopped_future.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    controller.stop();
+    require(inbox.closed() && !supervised.current(a) && !supervised.current(b));
+    require(controller.failure() == (mode == 1   ? ControllerFailure::InputQueue
+                                     : mode == 0 ? ControllerFailure::Service
+                                                 : ControllerFailure::None));
+  }
 }

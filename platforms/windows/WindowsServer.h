@@ -1,0 +1,34 @@
+#pragma once
+#include "PipeMainTransport.h"
+#include "PipeService.h"
+#include "SessionController.h"
+
+namespace msime::windows {
+struct WindowsServerOptions {
+  PipeServiceOptions pipes; // Explicit names/capabilities, no product defaults.
+  size_t registration_capacity = 64;
+  size_t input_capacity = 256;
+  DWORD write_timeout = 250;
+};
+// Starts an actual native service when constructed. The caller must explicitly
+// choose names and implement native key/UI behavior; this never registers TSF.
+// Callbacks may run before construction returns; captured dependencies must
+// already exist, and must not access this server until construction completes.
+class WindowsServer final {
+public:
+  WindowsServer(WindowsServerOptions options, std::string host_options,
+                SessionPump::KeyHandler key, SessionPump::EventHandler event);
+  ~WindowsServer();
+  WindowsServer(const WindowsServer &) = delete;
+  WindowsServer &operator=(const WindowsServer &) = delete;
+  void request_stop() { controller_->request_stop(); }
+  void stop() { controller_->stop(); }
+  ControllerFailure failure() const { return controller_->failure(); }
+
+private:
+  RegistrationInbox inbox_;
+  std::unique_ptr<PipeService> service_;
+  std::unique_ptr<PipeMainTransport> transport_;
+  std::unique_ptr<SessionController> controller_;
+};
+} // namespace msime::windows
