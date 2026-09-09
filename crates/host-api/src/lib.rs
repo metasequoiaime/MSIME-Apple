@@ -1,10 +1,11 @@
 //! Versioned, thread-confined C interface for native IME hosts.
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
-use msime_client_core::preferences::{InputScheme, Preferences};
+use msime_client_core::preferences::{InputScheme, Preferences, PreferencesStore};
+use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{Command, EngineOptions, Session};
 use msime_input_runtime::{Action, CandidateId, Runtime};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -15,7 +16,7 @@ thread_local! {
     static SESSIONS: RefCell<HashMap<u64, Runtime>> = RefCell::new(HashMap::new());
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct HostOptions {
     api_version: u32,
@@ -24,6 +25,41 @@ struct HostOptions {
     cache: String,
     dictionaries: String,
     preferences: Preferences,
+}
+
+/// Bootstrap a new host using the reviewed desktop data and Engine-owned replay.
+/// Call only while all sessions using state_root are stopped. Does not activate it.
+pub fn prepare_host_configuration(
+    resources: &std::path::Path,
+    state_root: &std::path::Path,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let resources = std::fs::canonicalize(resources)?;
+    let specification: ResourceSet = serde_json::from_str(include_str!(
+        "../../../resources/desktop-dictionary.lock.json"
+    ))?;
+    ResourceStore::new(&resources).verify(&resources, &specification)?;
+    let state_root = std::path::absolute(state_root)?;
+    let prepared = msime_engine_bridge::prepare_options(
+        resources.to_str().ok_or("non-UTF-8 resource path")?,
+        state_root
+            .join("user")
+            .to_str()
+            .ok_or("non-UTF-8 state path")?,
+        state_root
+            .join("cache")
+            .to_str()
+            .ok_or("non-UTF-8 cache path")?,
+        &specification.generation()?,
+    )?;
+    let preferences = PreferencesStore::new(&state_root).load()?.preferences;
+    Ok(serde_json::to_string_pretty(&HostOptions {
+        api_version: 1,
+        resources: prepared.resources,
+        user_data: prepared.user_data,
+        cache: prepared.cache,
+        dictionaries: prepared.dictionaries,
+        preferences,
+    })?)
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
@@ -140,6 +176,7 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         6 => Action::Command(Command::MoveHome),
         7 => Action::Command(Command::MoveEnd),
         8 => Action::Command(Command::DeleteForward),
+        9 => Action::Finish,
         100 => Action::NextPage,
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,

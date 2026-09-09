@@ -14,6 +14,7 @@ public:
     EngineResult character(std::uint8_t value, bool shift);
     EngineResult command(std::uint8_t value);
     EngineResult select(std::size_t index);
+    EngineResult finish(std::size_t index);
 private:
     metasequoia::Session session_;
 };

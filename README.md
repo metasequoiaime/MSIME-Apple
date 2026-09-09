@@ -11,7 +11,7 @@
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
 - `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，已接入真实本地配置。
-- 后续 `platforms/`：系统入口；Windows 保留 TSF DLL / Server 隔离。
+- `platforms/`：Apple/JNI 消费边界与可编译 macOS IMK 预览宿主；Windows/Linux 系统入口和移动扩展仍待实现。
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
@@ -66,3 +66,5 @@ cargo run -p msime-client-core --example install_resources -- target/resources
 ```sh
 cargo run -p msime-engine-bridge --example query_dictionary -- <上一步返回的资源目录>
 ```
+
+macOS 原生 IMK bundle 的开发构建、隔离状态目录与验证边界见 [macOS 宿主](platforms/macos/README.md)。目前不提供自动安装，也未完成系统输入源切换后的编辑器验收。

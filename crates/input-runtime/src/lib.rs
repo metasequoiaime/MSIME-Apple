@@ -24,6 +24,7 @@ pub trait InputEngine {
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
 }
 
 impl InputEngine for Session {
@@ -39,6 +40,9 @@ impl InputEngine for Session {
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+    fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
 }
 
@@ -83,6 +87,7 @@ pub enum Action {
     Command(Command),
     Select(CandidateId),
     SelectHighlighted,
+    Finish,
     NextPage,
     PreviousPage,
     NextCandidate,
@@ -225,6 +230,7 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(self.transition(empty_result(true)));
         }
         let result = match action {
+            Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => self.engine.character(value, shift),
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
@@ -259,6 +265,11 @@ mod tests {
         text: String,
     }
     impl InputEngine for Fixture {
+        fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+            let mut result = self.select(index)?;
+            result.commit.push_str("-remaining-segments");
+            Ok(result)
+        }
         fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
             Ok(EngineSnapshot {
                 preedit: self.text.clone(),
@@ -321,6 +332,20 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn finish_preserves_engine_completion_of_remaining_segments() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        let result = runtime.dispatch(Action::Finish).unwrap();
+        assert_eq!(
+            result.commit.as_deref(),
+            Some("candidate-5-remaining-segments")
+        );
+        assert!(result.view.preedit.is_empty());
     }
     #[test]
     fn stale_views_and_other_sessions_cannot_select() {

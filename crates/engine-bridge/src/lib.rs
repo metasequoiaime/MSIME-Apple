@@ -41,6 +41,7 @@ mod ffi {
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn finish(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
     }
 }
 
@@ -94,6 +95,9 @@ impl Session {
     }
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
+    }
+    pub fn finish(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().finish(index)
     }
 }
 
