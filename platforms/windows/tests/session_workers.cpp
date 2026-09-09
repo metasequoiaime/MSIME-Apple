@@ -12,6 +12,11 @@ void require(bool value) {
 }
 class IdleTransport final : public MainTransport {
 public:
+  std::atomic<int> write_failure{0};
+  std::vector<std::pair<uint32_t, std::vector<uint8_t>>> writes() {
+    std::lock_guard lock(mutex_);
+    return writes_;
+  }
   void add(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
     current_[ticket.client] = ticket;
@@ -40,9 +45,14 @@ public:
     packets_[ticket.client].pop_front();
     return packet;
   }
-  bool send(const PipeTicket &ticket, uint32_t,
-            const std::vector<uint8_t> &) override {
-    return current(ticket);
+  bool send(const PipeTicket &ticket, uint32_t role,
+            const std::vector<uint8_t> &bytes) override {
+    std::lock_guard lock(mutex_);
+    if (!matches(ticket)) return false;
+    writes_.emplace_back(role, bytes);
+    if (write_failure == 2)
+      throw std::runtime_error("Synthetic write failure");
+    return write_failure == 0;
   }
   void push(FanyImeNamedpipeData packet) {
     std::lock_guard lock(mutex_);
@@ -78,6 +88,7 @@ private:
     return found != current_.end() && same_ticket(found->second, ticket);
   }
   std::mutex mutex_;
+  std::vector<std::pair<uint32_t, std::vector<uint8_t>>> writes_;
   std::condition_variable ready_;
   std::map<uint64_t, PipeTicket> current_;
   std::map<uint64_t, std::deque<FanyImeNamedpipeData>> packets_;
@@ -167,6 +178,80 @@ void session_worker_tests(const std::string &options) {
   transport.add(c);
   require(!workers.submit(c) && !transport.current(c));
   queue.stop();
+  for (int mode = 0; mode < 3; ++mode) {
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    std::promise<FocusLease> activated;
+    auto activation = activated.get_future();
+    SessionController *owner = nullptr;
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [](InputState &, const FocusLease &, const FanyImeNamedpipeData &)
+            -> std::optional<PendingReply> { return std::nullopt; },
+        [&](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
+          if (packet.event_type == FanyImePipeEventType::ClientActivated) {
+            bool rejected = false;
+            try {
+              owner->request_mode(*route.route, WorkerMode::Fullwidth);
+            } catch (const std::logic_error &) {
+              rejected = true;
+            }
+            require(rejected); // No recursive focus lock from event callback.
+            activated.set_value(*route.route);
+          }
+          return true;
+        },
+        [] { return true; }, [&] { transport.close(a); });
+    owner = &controller;
+    require(controller.request_mode({}, WorkerMode::Fullwidth) ==
+            ModeRequestResult::Rejected);
+    transport.add(a);
+    require(inbox.push(a));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = a.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    require(activation.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    const auto lease = activation.get();
+    auto stale = lease;
+    ++stale.epoch;
+    require(controller.request_mode(stale, WorkerMode::Fullwidth) ==
+            ModeRequestResult::Rejected);
+    stale = lease;
+    ++stale.transport.generations[0];
+    require(controller.request_mode(stale, WorkerMode::Fullwidth) ==
+            ModeRequestResult::Rejected);
+    require(controller.request_mode(lease, static_cast<WorkerMode>(99)) ==
+            ModeRequestResult::Rejected);
+    require(transport.writes().size() == 1); // Only the initial focus fence.
+    transport.write_failure = mode;
+    if (mode == 0) {
+      for (auto command :
+           {WorkerMode::English, WorkerMode::Chinese,
+            WorkerMode::AsciiPunctuation, WorkerMode::ChinesePunctuation,
+            WorkerMode::Fullwidth, WorkerMode::Halfwidth}) {
+        require(controller.request_mode(lease, command) ==
+                ModeRequestResult::Sent);
+        const auto writes = transport.writes();
+        require(writes.back().first == FanyImePipeRole::ToTsfWorkerThread &&
+                writes.back().second == *worker_mode_bytes(command));
+      }
+      require(transport.writes().size() == 7);
+    } else {
+      require(controller.request_mode(lease, WorkerMode::Fullwidth) ==
+              ModeRequestResult::WriteFailed);
+      require(!transport.current(a));
+      require(controller.request_mode(lease, WorkerMode::Fullwidth) ==
+              ModeRequestResult::Rejected);
+      require(transport.writes().size() ==
+              2); // No replay after uncertain write.
+    }
+    controller.stop();
+    require(controller.request_mode(lease, WorkerMode::Chinese) ==
+            ModeRequestResult::Rejected);
+  }
   for (int mode = 0; mode < 3; ++mode) {
     IdleTransport supervised;
     RegistrationInbox inbox(2);

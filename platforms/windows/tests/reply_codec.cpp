@@ -51,6 +51,23 @@ int main() {
     error(navigation_reply(77, static_cast<NavigationReply>(99)),
           ReplyError::InvalidFields);
     require(!focus_ready_bytes(0));
+    for (const auto &[mode, opcode] :
+         std::vector<std::pair<WorkerMode, uint32_t>>{
+             {WorkerMode::English, FanyImeWorkerReplyType::SwitchToEnglish},
+             {WorkerMode::Chinese, FanyImeWorkerReplyType::SwitchToChinese},
+             {WorkerMode::AsciiPunctuation,
+              FanyImeWorkerReplyType::SwitchToPuncEn},
+             {WorkerMode::ChinesePunctuation,
+              FanyImeWorkerReplyType::SwitchToPuncCn},
+             {WorkerMode::Fullwidth, FanyImeWorkerReplyType::SwitchToFullwidth},
+             {WorkerMode::Halfwidth,
+              FanyImeWorkerReplyType::SwitchToHalfwidth}}) {
+      const auto bytes = worker_mode_bytes(mode);
+      require(bytes && bytes->size() == 404 && bytes->at(0) == opcode);
+      for (size_t i = 1; i < bytes->size(); ++i)
+        require(bytes->at(i) == 0);
+    }
+    require(!worker_mode_bytes(static_cast<WorkerMode>(99)));
     for (const auto &example : std::vector<std::pair<uint64_t, std::string>>{
              {1, "1"},
              {77, "77"},
