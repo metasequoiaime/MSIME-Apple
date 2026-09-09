@@ -76,6 +76,7 @@ public:
   void request_stop(); // May be called from a task; does not join.
   void stop();         // External control thread only; idempotent, joins.
   InputQueueStats stats() const;
+  bool on_worker_thread() const noexcept;
 
 private:
   struct Job {
