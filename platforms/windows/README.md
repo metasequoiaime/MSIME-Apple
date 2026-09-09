@@ -113,3 +113,13 @@ stop 幂等地停止监听、等待握手池、shutdown Registry 并释放监听
 `focus_ready_bytes` 生成固定上游 FocusSessionReady worker 帧，将 TSF 激活请求的非零 focus token 以无区域设置影响的十进制 UTF-16 编码；支持完整 uint64 范围，拒绝零标记，保留终止符并清零全部剩余字节。这个字段不是 Server 的 activation epoch，也不是传输注册代次。调用者仍须确认当前焦点、client/activation/注册所有权，并保证确认先于后续 worker 输出；编码函数不授予焦点，也不自动激活 Engine。
 
 本机编码测试验证零拒绝、跨 32 位值和 uint64 最大值的精确字节；原生注册器测试增加真实 worker 路由发送与完整帧读取，但仅交叉编译，未 Windows 实测。焦点激活状态机仍是下一步接入工作。
+
+## 激活确认门禁
+
+`FocusGate` 保存一个当前 FocusLease，分别携带完整传输票据、Server 单调 activation epoch 和 TSF focus token。begin 返回旧 lease 与新 pending lease，供输入队列取消旧组合并激活新会话；它本身不操作 Engine。只有 acknowledge 的 worker 写入回调完整成功才进入 ready，失败或异常清除该激活；过期确认和重复确认不会执行写入回调。
+
+with_active 在同一焦点锁内验证并执行动作，避免检查后焦点已切换却继续发送；动作须短或有界，不得递归调用该门禁。涉及管道时锁顺序固定为 FocusGate → PipeRegistry，注册器仍在写入时核对传输代次；不能只凭 focus lease 绕过注册验证。旧 lease 的 deactivate 和旧票据的 invalidate 不影响新激活。已确认激活仍不证明应用实际插入了文本，ReplyComposer 投递确认保持独立。
+
+这只是状态与同步机制，不会从任意状态通知推断系统焦点。可信 ClientActivated、KeyEvent、FocusRestored、挂起与停用的事件路由策略，以及旧/新 ServerSession 的输入队列切换仍由后续分发器接入。系统焦点事件未接入前，不能仅调用 begin 就宣称完成焦点授权。
+
+本机新增 windows-focus-gate 测试，验证 pending/ready、坏票据、旧确认、失败/异常、失焦失效与并发动作互斥；连同原有三项 CTest 共四项通过。原生管道测试把门禁组合到 worker 焦点确认和回复发送，并在重连后失效旧 lease；x86/x64 编译链接通过，未 Windows 实测。

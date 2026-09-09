@@ -9,6 +9,8 @@ for arch in x86_64 i686; do
   output="$repo_root/target/windows-cross/$arch"
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
+    platforms/windows/tests/focus_gate.cpp -o "$output/focus-gate.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/PipeIo.cpp platforms/windows/PipePeer.cpp platforms/windows/PipeHandshake.cpp \
     platforms/windows/PipeListener.cpp platforms/windows/PipeRegistry.cpp platforms/windows/PipeIntake.cpp platforms/windows/PipeService.cpp platforms/windows/ReplyCodec.cpp platforms/windows/tests/pipe_io.cpp -ladvapi32 -o "$output/pipe-io.exe"

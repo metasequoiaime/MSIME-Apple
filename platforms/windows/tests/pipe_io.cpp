@@ -1,3 +1,4 @@
+#include "FocusGate.h"
 #include "PipeHandshake.h"
 #include "PipeIntake.h"
 #include "PipeIo.h"
@@ -315,9 +316,16 @@ void registries() {
   auto registered = handshake.get();
   require(registered.status == RegistryStatus::Ready);
   const auto fence = *focus_ready_bytes(90);
+  FocusGate focus;
+  const auto activation = *focus.begin(registered.ticket, 90);
   auto fencing = std::async(std::launch::async, [&] {
-    return registry.send(registered.ticket, FanyImePipeRole::ToTsfWorkerThread,
-                         fence, 2000);
+    IoResult result;
+    require(focus.acknowledge(activation.pending, [&] {
+      result = registry.send(registered.ticket,
+                             FanyImePipeRole::ToTsfWorkerThread, fence, 2000);
+      return result.complete();
+    }));
+    return result;
   });
   auto focus_ack = read_frame(
       worker.client.value, sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 2000);
@@ -327,8 +335,12 @@ void registries() {
   ++wrong_ticket.generations[0];
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());
   auto sending = std::async(std::launch::async, [&] {
-    return registry.send(registered.ticket, FanyImePipeRole::ToTsf, frame,
-                         2000);
+    IoResult result;
+    require(focus.with_active(activation.pending, [&] {
+      result =
+          registry.send(registered.ticket, FanyImePipeRole::ToTsf, frame, 2000);
+    }));
+    return result;
   });
   auto response =
       read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000);
@@ -357,6 +369,8 @@ void registries() {
   auto replaced = register_reverse(replacement, FanyImePipeRole::ToTsf, id);
   require(replaced.status == RegistryStatus::Ready);
   require(pending.get().status == IoStatus::Cancelled);
+  require(focus.invalidate(registered.ticket));
+  require(!focus.with_active(activation.pending, [] {}));
   require(!registry.send(registered.ticket, 1, frame, 2000).complete());
   require(!registry.remove(registered.ticket, 1));
   require(!registry.remove(registered.ticket, 0));
