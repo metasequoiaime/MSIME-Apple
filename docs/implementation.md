@@ -229,3 +229,9 @@ x86/x64 MinGW、pipe-only CMake 构建与本机三项既有 CTest 通过；新�
 新增可本机执行的 FocusGate，分离传输票据、Server activation epoch 与 TSF token。新激活先 pending，worker 确认回调完整成功后才 ready；失败/异常保持关闭，旧确认/旧失焦不能改变新激活。授权动作与激活切换共用焦点锁，发送仍同时受 Registry 代次检查；输入组合与旧会话取消不移入门禁。
 
 新增本机状态与并发测试，四项 CTest 全部通过；Windows 原生测试组合门禁、实际 worker 确认和回复发送，x86/x64 交叉链接通过，但未 Windows 执行。ClientActivated/FocusRestored 等真实事件策略和 ServerSession 输入队列切换仍待接入，不宣称完成系统焦点授权。继续 Windows，CI 保持禁用。
+
+### 第三十六条功能：Windows 焦点会话与 Engine 队列适配
+
+FocusedSession 在输入队列组合 FocusGate、真实 ServerSession 和 ReplyComposer。pending lease 才可 prepare，确认完成后 key 才进入 Engine；过期输入/确认在调用共享层前拒绝，待回复仍阻止重跑。暂存结果可读出而不重执输入，新激活清空旧组合，旧取消不会清掉新准备的会话。管道写入留在 I/O 线程，确认回到输入队列，仍需控制器按序调度旧客户端取消和新激活。
+
+四项本机 CTest 及真实锁定词库回归通过，新增用例执行真实 Rust/C++ Unicode 提交与回复编码，覆盖准备/确认门禁、暂存结果、过期任务和线程约束；焦点确认使用测试回调。x86/x64 适配器对象编译通过，未链接 Windows Rust 库或执行 TSF 系统验收。生命周期策略、实际输入队列调度与完整端到端链路仍待接入，继续 Windows 优先，CI 保持禁用。
