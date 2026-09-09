@@ -6,11 +6,16 @@ private final class FakeAppIconClient: AppIconClient {
   var alternateIconName: String?
   var requests: [String?] = []
   var fails = false
+  var failsAfterApplying = false
   var beforeCompletion: (() async -> Void)?
 
   func setIcon(_ name: String?) async throws {
     requests.append(name)
     await beforeCompletion?()
+    if failsAfterApplying {
+      alternateIconName = name
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+    }
     if fails { throw NSError(domain: "IconTest", code: 1) }
     alternateIconName = name
   }
@@ -43,6 +48,18 @@ final class AppIconSettingsTests: XCTestCase {
     await model.select(.forest)
     XCTAssertEqual(model.selected, .forest)
     XCTAssertNil(model.errorMessage)
+  }
+
+  // The Simulator reports an I/O error from setAlternateIconName even when it applied the icon.
+  @MainActor
+  func testKeepsAnAppliedIconWhenTheSystemStillReportsAFailure() async {
+    let client = FakeAppIconClient()
+    let model = AppIconSettingsModel(client: client)
+    client.failsAfterApplying = true
+    await model.select(.sky)
+    XCTAssertEqual(model.selected, .sky)
+    XCTAssertNil(model.errorMessage)
+    XCTAssertNil(model.pending)
   }
 
   @MainActor

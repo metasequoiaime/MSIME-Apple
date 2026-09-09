@@ -10,6 +10,10 @@ struct MetasequoiaImeApp: App {
     #if DEBUG
     if ProcessInfo.processInfo.arguments.contains("--reset-onboarding-for-ui-tests") {
       UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+      // Scheme visibility lives in the app group and outlives the app, so a test that hides a
+      // scheme would otherwise decide what later tests can select.
+      UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)?
+        .removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     }
     #endif
     _hasCompletedOnboarding = AppStorage(wrappedValue: false, "hasCompletedOnboarding")
