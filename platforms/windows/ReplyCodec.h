@@ -31,6 +31,10 @@ EncodedReply ignored_reply(uint64_t request);
 // padding.
 using ReplyBytes = std::array<uint8_t, sizeof(FanyImeNamedpipeDataToTsf)>;
 std::optional<ReplyBytes> wire_bytes(const EncodedReply &reply);
+// Registration-only frames. These must never enter the candidate reply queue.
+std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role);
+std::optional<ReplyBytes>
+protocol_reply_bytes(const FanyImeNamedpipeDataToTsf &packet);
 // Existing DLL expects remaining raw input, the ENTIRE selected prefix and the
 // display preedit. Do not pass only the latest incremental Engine commit here.
 EncodedReply partial_selection(uint64_t request, std::string_view remaining_raw,

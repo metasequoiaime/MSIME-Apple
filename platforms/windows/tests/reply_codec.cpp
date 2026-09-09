@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "ipc_negotiation.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -27,6 +28,46 @@ void error(const EncodedReply &reply, ReplyError expected) {
 } // namespace
 int main() {
   try {
+    for (auto role :
+         {FanyImePipeRole::ToTsf, FanyImePipeRole::ToTsfWorkerThread}) {
+      auto ready = pipe_ready_bytes(role);
+      require(ready &&
+              ready->size() ==
+                  (role == FanyImePipeRole::ToTsf
+                       ? sizeof(FanyImeNamedpipeDataToTsf)
+                       : sizeof(FanyImeNamedpipeDataToTsfWorkerThread)));
+      require(ready->at(0) == 9);
+      for (size_t i = 1; i < ready->size(); ++i)
+        require(ready->at(i) == 0);
+    }
+    require(!pipe_ready_bytes(FanyImePipeRole::Main));
+    require(!pipe_ready_bytes(99));
+    auto hello = FanyImeProtocol::Hello(9, 0x0102030405060708ULL);
+    auto protocol = FanyImeProtocol::Negotiate(
+        hello, FanyImeProtocol::RequiredCapabilities);
+    auto packet = FanyImeProtocol::Reply(hello, protocol);
+    auto ack = protocol_reply_bytes(packet);
+    require(ack && ack->at(0) == FanyImeReplyType::ProtocolReady &&
+            ack->at(8) == 8 && ack->at(15) == 1 && ack->at(20) == 3);
+    require(ack->at(24) == 0x50 && ack->at(25) == 0x49 && ack->at(26) == 0x53 &&
+            ack->at(27) == 0x4d);
+    for (size_t i = 4; i < 8; ++i)
+      require(ack->at(i) == 0);
+    for (size_t i = 28; i < ack->size(); ++i)
+      require(ack->at(i) == 0);
+    hello.point[1] |= FanyImeProtocol::FramedVoice;
+    protocol = FanyImeProtocol::Negotiate(
+        hello, FanyImeProtocol::RequiredCapabilities);
+    require(!protocol.accepted);
+    ack = protocol_reply_bytes(FanyImeProtocol::Reply(hello, protocol));
+    require(ack && ack->at(0) == FanyImeReplyType::ProtocolMismatch);
+    packet.request_id = 0;
+    require(!protocol_reply_bytes(packet));
+    packet.request_id = FANY_IME_NO_REQUEST_ID;
+    require(!protocol_reply_bytes(packet));
+    packet.request_id = 1;
+    packet.msg_type = FanyImeReplyType::Normal;
+    require(!protocol_reply_bytes(packet));
     auto full = candidate_commit(23, "你好😀");
     require(full.packet.msg_type == FanyImeReplyType::Normal &&
             full.packet.request_id == 23);

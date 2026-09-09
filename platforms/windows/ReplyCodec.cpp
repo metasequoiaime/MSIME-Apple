@@ -81,22 +81,49 @@ EncodedReply preedit_reply(uint64_t request, std::string_view text) {
 EncodedReply ignored_reply(uint64_t request) {
   return text_reply(request, FanyImeReplyType::NavigationIgnored, {});
 }
-std::optional<ReplyBytes> wire_bytes(const EncodedReply &reply) {
-  if (!reply || !reply.packet.request_id ||
-      reply.packet.request_id == FANY_IME_NO_REQUEST_ID)
-    return std::nullopt;
+namespace {
+ReplyBytes packet_bytes(const FanyImeNamedpipeDataToTsf &packet) {
   ReplyBytes bytes{};
   const auto put = [&](size_t offset, uint64_t value, size_t width) {
     for (size_t index = 0; index < width; ++index)
       bytes[offset + index] = static_cast<uint8_t>(value >> (8 * index));
   };
-  put(offsetof(FanyImeNamedpipeDataToTsf, msg_type), reply.packet.msg_type, 4);
-  put(offsetof(FanyImeNamedpipeDataToTsf, request_id), reply.packet.request_id,
-      8);
+  put(offsetof(FanyImeNamedpipeDataToTsf, msg_type), packet.msg_type, 4);
+  put(offsetof(FanyImeNamedpipeDataToTsf, request_id), packet.request_id, 8);
   for (size_t index = 0; index < FanyImePipeLimits::CandidateTextCapacity;
        ++index)
     put(offsetof(FanyImeNamedpipeDataToTsf, candidate_string) + 2 * index,
-        static_cast<uint16_t>(reply.packet.candidate_string[index]), 2);
+        static_cast<uint16_t>(packet.candidate_string[index]), 2);
+  return bytes;
+}
+} // namespace
+std::optional<ReplyBytes> wire_bytes(const EncodedReply &reply) {
+  if (!reply || !reply.packet.request_id ||
+      reply.packet.request_id == FANY_IME_NO_REQUEST_ID)
+    return std::nullopt;
+  return packet_bytes(reply.packet);
+}
+std::optional<ReplyBytes>
+protocol_reply_bytes(const FanyImeNamedpipeDataToTsf &packet) {
+  if ((packet.msg_type != FanyImeReplyType::ProtocolReady &&
+       packet.msg_type != FanyImeReplyType::ProtocolMismatch) ||
+      !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID)
+    return std::nullopt;
+  return packet_bytes(packet);
+}
+std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role) {
+  if (role == FanyImePipeRole::ToTsf) {
+    FanyImeNamedpipeDataToTsf packet{};
+    packet.msg_type = FanyImeReplyType::PipeReady;
+    const auto bytes = packet_bytes(packet);
+    return std::vector<uint8_t>(bytes.begin(), bytes.end());
+  }
+  if (role != FanyImePipeRole::ToTsfWorkerThread)
+    return std::nullopt;
+  std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+  for (size_t i = 0; i < sizeof(uint32_t); ++i)
+    bytes[i] =
+        static_cast<uint8_t>(FanyImeWorkerReplyType::PipeReady >> (8 * i));
   return bytes;
 }
 EncodedReply partial_selection(uint64_t request, std::string_view raw,

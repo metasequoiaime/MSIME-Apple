@@ -1,6 +1,8 @@
+#include "PipeHandshake.h"
 #include "PipeIo.h"
 #include "PipePeer.h"
 #include "windows_ipc.h"
+#include <cstring>
 #include <future>
 #include <iostream>
 #include <sddl.h>
@@ -69,9 +71,118 @@ struct Pair {
     require(ready || error == ERROR_PIPE_CONNECTED);
   }
 };
+template <typename Packet>
+std::vector<uint8_t> fixture_bytes(const Packet &packet) {
+  // Test-only synthetic packets; production serializers never expose padding.
+  std::vector<uint8_t> bytes(sizeof(Packet));
+  std::memcpy(bytes.data(), &packet, sizeof(Packet));
+  return bytes;
+}
+void handshakes() {
+  const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 11u;
+  for (auto role :
+       {FanyImePipeRole::ToTsf, FanyImePipeRole::ToTsfWorkerThread}) {
+    Pair reverse;
+    auto accept = std::async(std::launch::async, [&] {
+      return accept_reverse(reverse.server.value, role, 2000);
+    });
+    FanyImePipeHello hello{};
+    hello.client_id = id;
+    hello.pipe_role = role;
+    require(write_frame(reverse.client.value, fixture_bytes(hello), 2000)
+                .complete());
+    const DWORD size = role == FanyImePipeRole::ToTsf
+                           ? sizeof(FanyImeNamedpipeDataToTsf)
+                           : sizeof(FanyImeNamedpipeDataToTsfWorkerThread);
+    auto ready = read_frame(reverse.client.value, size, 2000);
+    auto registered = accept.get();
+    require(registered.status == HandshakeStatus::Ready && registered.peer &&
+            registered.client_id == id && ready.complete());
+    require(ready.frame[0] == 9);
+    for (size_t i = 1; i < ready.frame.size(); ++i)
+      require(ready.frame[i] == 0);
+    if (role != FanyImePipeRole::ToTsf)
+      continue;
+    require(accept_main(reverse.server.value, reverse.server.value,
+                        *registered.peer, id,
+                        FanyImeProtocol::RequiredCapabilities, 2000)
+                .status == HandshakeStatus::InvalidArgument);
+    for (int mode : {0, 1, 2, 3}) {
+      Pair main;
+      auto packet = FanyImeProtocol::Hello(id, 71);
+      if (mode == 1) // Required but not implemented optional capability.
+        packet.point[1] |= FanyImeProtocol::FramedVoice;
+      if (mode == 2) {
+        packet = {};
+        packet.event_type = FanyImePipeEventType::ClientHello;
+        packet.client_id = id;
+      }
+      if (mode == 3)
+        packet.client_id = id + 1;
+      auto negotiate = std::async(std::launch::async, [&] {
+        return accept_main(main.server.value, reverse.server.value,
+                           *registered.peer, id,
+                           FanyImeProtocol::RequiredCapabilities, 2000);
+      });
+      require(write_frame(main.client.value, fixture_bytes(packet), 2000)
+                  .complete());
+      if (mode < 2) {
+        auto ack = read_frame(reverse.client.value,
+                              sizeof(FanyImeNamedpipeDataToTsf), 2000);
+        require(ack.complete());
+        FanyImeNamedpipeDataToTsf response{};
+        std::memcpy(&response, ack.frame.data(), sizeof(response));
+        require(response.request_id == 71);
+        require((mode == 0 && FanyImeProtocol::AcceptReply(response, 71)) ||
+                (mode == 1 &&
+                 response.msg_type == FanyImeReplyType::ProtocolMismatch));
+        require(!(FanyImeProtocol::ReplyCapabilities(response) &
+                  FanyImeProtocol::FramedVoice));
+      }
+      auto result = negotiate.get();
+      require(result.status == ((mode == 0 || mode == 2)
+                                    ? HandshakeStatus::Ready
+                                    : HandshakeStatus::ProtocolRejected));
+      require(result.protocol.legacy == (mode == 2));
+      if (mode >= 2) {
+        DWORD available = 0;
+        require(PeekNamedPipe(reverse.client.value, nullptr, 0, nullptr,
+                              &available, nullptr));
+        require(available == 0); // No legacy ACK or spoofed-client response.
+      }
+    }
+  }
+  {
+    Pair pipe;
+    FanyImePipeHello hello{};
+    hello.client_id = id;
+    hello.pipe_role = FanyImePipeRole::ToTsfWorkerThread;
+    auto accept = std::async(std::launch::async, [&] {
+      return accept_reverse(pipe.server.value, FanyImePipeRole::ToTsf, 2000);
+    });
+    require(
+        write_frame(pipe.client.value, fixture_bytes(hello), 2000).complete());
+    auto result = accept.get();
+    require(result.status == HandshakeStatus::ProtocolRejected && !result.peer);
+    require(
+        accept_reverse(pipe.server.value, FanyImePipeRole::Main, 2000).status ==
+        HandshakeStatus::InvalidArgument);
+  }
+  {
+    Pair pipe;
+    Handle cancel;
+    cancel.value = CreateEventW(nullptr, TRUE, TRUE, nullptr);
+    require(cancel.value != nullptr);
+    auto result = accept_reverse(pipe.server.value, FanyImePipeRole::ToTsf,
+                                 2000, cancel.value);
+    require(result.status == HandshakeStatus::TransportError &&
+            result.io.status == IoStatus::Cancelled && !result.peer);
+  }
+}
 } // namespace
 int main() {
   try {
+    handshakes();
     {
       Pair main, reverse;
       const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 7u;
