@@ -186,4 +186,18 @@ bool FocusedSession::queue_preferences(const FocusLease &lease,
     }
   });
 }
+std::optional<PendingReply> FocusedSession::configured_key(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet,
+    TsfPreeditStyle style, const NavigationBindings &bindings,
+    std::optional<std::string> local_text) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<PendingReply> result;
+  gate_.with_active(lease, [&] {
+    result = composer_->configured_key(session_, packet, lease.epoch, style,
+                                       bindings, std::move(local_text));
+  });
+  return result;
+}
 } // namespace msime::windows

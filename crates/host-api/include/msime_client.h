@@ -54,6 +54,9 @@ char *msime_client_focus(uint64_t session, bool focused);
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
+// Explicit native punctuation: finish the highlighted composition, then translate.
+// Invalid non-punctuation bytes fail without modifying the session.
+char *msime_client_punctuation(uint64_t session, uint8_t ascii);
 enum MsimeCommand {
     MSIME_BACKSPACE = 0, MSIME_COMMIT_CANDIDATE = 1, MSIME_COMMIT_RAW = 2,
     MSIME_CANCEL = 3, MSIME_MOVE_LEFT = 4, MSIME_MOVE_RIGHT = 5,

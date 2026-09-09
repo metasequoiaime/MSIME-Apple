@@ -143,6 +143,12 @@ int main(int argc, char **argv) {
       rejected([&] { focused.edit(first.pending, packet, TsfPreeditStyle::Pinyin); });
       require(focused.view() == pending_view, "Editing bypassed pending reply gate");
       rejected([&] { focused.basic_key(first.pending, packet, TsfPreeditStyle::Pinyin); });
+      rejected([&] {
+        focused.configured_key(first.pending, packet, TsfPreeditStyle::Pinyin,
+                               {});
+      });
+      require(focused.view() == pending_view,
+              "Configured key bypassed pending reply gate");
       require(focused.pending(first.pending)->source.request_id ==
                   initial->source.request_id,
               "Staged reply could not be recovered without Engine replay");
@@ -207,6 +213,10 @@ int main(int argc, char **argv) {
       require(!focused.basic_key(first.pending, packet, TsfPreeditStyle::Pinyin) &&
                   focused.view() == old_view,
               "Old basic key changed Engine state");
+      require(!focused.configured_key(first.pending, packet,
+                                      TsfPreeditStyle::Pinyin, {}) &&
+                  focused.view() == old_view,
+              "Old configured key changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");

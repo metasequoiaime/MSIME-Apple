@@ -232,6 +232,12 @@ SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnap
 
 这里只连接每客户端键盘开关，不实现上游全局模式作用域或全半角 UI 状态同步；完整产品按键分类与 Windows 原生验收仍未完成。出站模式请求见下文。
 
+### 配置相关按键分流
+
+InputState::configured_key 先执行 basic_key，再在已开启输入且 Engine 模式已知、组合非空时处理候选标点与导航。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；OEM 和数字键盘加减键不走候选标点。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方必须先完成以词定字、Microsoft 双拼分号和配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+
+新增 ABI 1 附加符号 msime_client_punctuation，适配器与宿主库必须成套更新。它显式复用共享运行时的高亮候选完成与 Engine 标点转换，避免 Unicode 等局部模式把普通 character 调用标记为已处理却未完成标点提交。非 ASCII 标点参数在状态推进前拒绝；普通/UILess 标点完成均发送 CommitExactText，保留已有焦点、待回复与投递确认门禁。
+
 ### TSF 标点开关同步
 
 PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步到当前会话的中文标点开关。经共享 C ABI 调用固定 Engine 的运行时 setter，不重建会话，不改变组合、光标、候选代次或引号配对。待回复和过期焦点仍不能修改状态。TSF 开关是每会话临时覆盖，不写入配置文件，并在共享偏好替换 Engine 时重新应用；未收到覆盖的会话继续使用持久化偏好默认值。

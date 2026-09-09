@@ -387,6 +387,12 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
     dispatch(handle, action)
 }
 
+/// Explicit native punctuation route, even when a local mode consumes characters.
+#[no_mangle]
+pub extern "C" fn msime_client_punctuation(handle: u64, ascii: u8) -> *mut c_char {
+    dispatch(handle, Action::Punctuation(ascii))
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize) -> *mut c_char {
     dispatch(
@@ -525,6 +531,44 @@ mod tests {
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
     }
+    #[test]
+    fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
+        for enabled in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let handle = test_host(dir.path());
+            assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+            read(msime_client_set_chinese_punctuation(handle, enabled));
+            read(msime_client_character(handle, b'U', true));
+            for byte in b"4e2d" {
+                read(msime_client_character(handle, *byte, false));
+            }
+            let before = read(msime_client_view(handle));
+            for invalid in [b'a', b' ', 0, 128, 255] {
+                assert_eq!(read(msime_client_punctuation(handle, invalid))["ok"], false);
+                assert_eq!(read(msime_client_view(handle)), before);
+            }
+            assert_eq!(
+                std::thread::spawn(
+                    move || read(msime_client_punctuation(handle, b','))["ok"].clone()
+                )
+                .join()
+                .unwrap(),
+                false
+            );
+            assert_eq!(read(msime_client_view(handle)), before);
+            let result = read(msime_client_punctuation(handle, b','));
+            assert_eq!(result["ok"], true);
+            assert_eq!(result["value"]["handled"], true);
+            assert_eq!(
+                result["value"]["commit"],
+                if enabled { "中，" } else { "中," }
+            );
+            assert_eq!(result["value"]["view"]["editing_text"], "");
+            read(msime_client_destroy(handle));
+            assert_eq!(read(msime_client_punctuation(handle, b','))["ok"], false);
+        }
+    }
+
     #[test]
     fn live_punctuation_preserves_composition_and_survives_preferences() {
         let dir = tempfile::tempdir().unwrap();

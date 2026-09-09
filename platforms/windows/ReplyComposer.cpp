@@ -1,4 +1,5 @@
 #include "ReplyComposer.h"
+#include "PunctuationPolicy.h"
 #include <stdexcept>
 
 namespace msime::windows {
@@ -164,7 +165,9 @@ const PendingReply &ReplyComposer::dispatch(
         !local_text || *local_text != prefix_ + raw)
       throw std::invalid_argument("Invalid local commit observation");
   }
-  auto result = session.key(packet, epoch);
+  auto result = path == ReplyPath::Punctuation
+                    ? session.punctuation(packet, epoch)
+                    : session.key(packet, epoch);
   if (!session.input_enabled())
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
                                  : ReplyPath::NoReply;
@@ -282,5 +285,22 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 void ReplyComposer::cancel() {
   pending_.reset();
   prefix_.clear();
+}
+std::optional<PendingReply> ReplyComposer::configured_key(
+    ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
+    TsfPreeditStyle style, const NavigationBindings &bindings,
+    std::optional<std::string> local_text) {
+  if (auto basic =
+          basic_key(session, packet, epoch, style, std::move(local_text)))
+    return basic;
+  // basic_key checked pending/route/style and left unsupported keys untouched.
+  const auto current = session.view();
+  if (!session.input_enabled() || current.at("local_mode") == "unknown" ||
+      current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
+  if (candidate_punctuation(packet, bindings))
+    return dispatch(session, packet, epoch, ReplyPath::Punctuation,
+                    (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+  return navigate(session, packet, epoch, bindings);
 }
 } // namespace msime::windows

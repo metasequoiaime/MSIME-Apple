@@ -17,6 +17,8 @@ pub enum RuntimeError {
     IdentityExhausted,
     #[error("cannot replace an engine while composition is active")]
     CompositionActive,
+    #[error("punctuation action requires an ASCII punctuation character")]
+    InvalidPunctuation,
     #[error("engine action failed: {0}")]
     Engine(String),
 }
@@ -92,6 +94,7 @@ pub struct Transition {
 
 pub enum Action {
     Character { value: u8, shift: bool },
+    Punctuation(u8),
     Command(Command),
     Select(CandidateId),
     SelectHighlighted,
@@ -294,6 +297,9 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
+        if matches!(&action, Action::Punctuation(value) if !value.is_ascii_punctuation()) {
+            return Err(RuntimeError::InvalidPunctuation);
+        }
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
@@ -326,6 +332,7 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(self.transition(empty_result(true)));
         }
         let result = match action {
+            Action::Punctuation(value) => self.punctuation(value),
             Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {

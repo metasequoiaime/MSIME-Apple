@@ -30,6 +30,10 @@ public:
       ReplyPath path, bool uiless = false,
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
+  std::optional<PendingReply>
+  configured_key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
+                 TsfPreeditStyle style, const NavigationBindings &bindings,
+                 std::optional<std::string> local_text = std::nullopt);
   std::optional<PendingReply> basic_key(const FocusLease &lease,
       const FanyImeNamedpipeData &packet, TsfPreeditStyle style,
       std::optional<std::string> local_text = std::nullopt);

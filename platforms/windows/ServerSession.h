@@ -37,6 +37,7 @@ public:
     return input_enabled_;
   }
   KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
+  KeyResult punctuation(const FanyImeNamedpipeData &packet, uint64_t epoch);
   std::optional<NavigationResult> navigate(const FanyImeNamedpipeData &packet,
                                            uint64_t epoch,
                                            const NavigationBindings &bindings);

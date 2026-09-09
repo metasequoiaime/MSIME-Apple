@@ -1,5 +1,6 @@
 #include "SessionPump.h"
 #include <atomic>
+#include <exception>
 
 using namespace msime::windows;
 namespace {
@@ -61,6 +62,68 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (bool brackets : {false, true}) {
+    for (bool paging : {false, true}) {
+      for (bool uiless : {false, true}) {
+        FocusGate gate;
+        InputQueue queue(gate, 2, 8, options);
+        FixtureTransport transport;
+        auto &last = transport.packets.back();
+        last.keycode = brackets ? 0xDD : 0xBC;
+        last.wch = brackets ? ']' : ',';
+        if (uiless)
+          for (size_t i = 1; i < transport.packets.size(); ++i)
+            transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
+        NavigationBindings bindings;
+        bindings.brackets = brackets && paging;
+        bindings.comma_period = !brackets && paging;
+        size_t keys = 0;
+        std::exception_ptr failure;
+        SessionPump pump(
+            transport, queue, gate,
+            [&](InputState &state, const FocusLease &lease,
+                const FanyImeNamedpipeData &packet) {
+              try {
+                auto result = state.configured_key(
+                    lease, packet, TsfPreeditStyle::Pinyin, bindings);
+                require(result && result->encoded &&
+                        static_cast<bool>(*result->encoded));
+                if (++keys == 6) {
+                  const auto &transition = result->source.transition;
+                  if (paging) {
+                    require(transition.at("commit").is_null() &&
+                            transition.at("view").at("editing_text") ==
+                                "U4e2d");
+                    require(result->encoded->packet.msg_type ==
+                            (uiless     ? FanyImeReplyType::UiLessComposition
+                             : brackets ? FanyImeReplyType::MovePageNext
+                                        : FanyImeReplyType::MovePagePrevious));
+                  } else {
+                    require(transition.at("commit") ==
+                                (brackets ? "中】" : "中，") &&
+                            transition.at("view").at("editing_text") == "");
+                    require(result->encoded->packet.msg_type ==
+                            FanyImeReplyType::CommitExactText);
+                  }
+                }
+                return result;
+              } catch (...) {
+                failure = std::current_exception();
+                throw;
+              }
+            },
+            [](const FocusRoute &, const FanyImeNamedpipeData &) {
+              return true;
+            });
+        const auto completed = pump.run(transport.ticket);
+        if (failure)
+          std::rethrow_exception(failure);
+        require(completed == PumpResult::Disconnected && keys == 6);
+        require(transport.writes.size() == 13);
+        queue.stop();
+      }
+    }
+  }
   {
     FocusGate gate;
     InputQueue queue(gate, 2, 8, options);

@@ -183,4 +183,20 @@ nlohmann::json ServerSession::view() const {
   check_thread();
   return response(msime_client_view(session_));
 }
+KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
+                                     uint64_t epoch) {
+  check_active(epoch);
+  const auto action = translate_key(packet);
+  if (packet.client_id != client_ ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID ||
+      packet.pinyin_length < 0 || packet.pinyin_length >= 128 ||
+      action.kind != KeyKind::Character)
+    throw std::invalid_argument("Invalid Windows punctuation request");
+  if (!input_enabled_)
+    return key(packet, epoch);
+  auto result = response(
+      msime_client_punctuation(session_, static_cast<uint8_t>(action.value)));
+  return {client_, epoch_, packet.request_id, true, std::move(result)};
+}
 } // namespace msime::windows

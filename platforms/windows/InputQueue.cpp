@@ -308,4 +308,14 @@ void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
     ready_.notify_all();
   }
 }
+std::optional<PendingReply> InputState::configured_key(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet,
+    TsfPreeditStyle style, const NavigationBindings &bindings,
+    std::optional<std::string> local_text) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->configured_key(lease, packet, style, bindings,
+                                       std::move(local_text))
+               : std::nullopt;
+}
 } // namespace msime::windows
