@@ -1,0 +1,21 @@
+#pragma once
+#include "rust/cxx.h"
+#include <memory>
+#include <metasequoia/session.h>
+
+namespace msime {
+struct EngineOptions;
+struct EngineSnapshot;
+struct EngineResult;
+class EngineSession {
+public:
+    explicit EngineSession(const EngineOptions& options);
+    EngineSnapshot snapshot() const;
+    EngineResult character(std::uint8_t value, bool shift);
+    EngineResult command(std::uint8_t value);
+    EngineResult select(std::size_t index);
+private:
+    metasequoia::Session session_;
+};
+std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
+}

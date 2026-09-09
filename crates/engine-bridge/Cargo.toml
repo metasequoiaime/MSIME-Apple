@@ -1,0 +1,16 @@
+[package]
+name = "msime-engine-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cxx = "1"
+thiserror.workspace = true
+
+[build-dependencies]
+cxx-build = "1"
+cmake = "0.1"
+
+[dev-dependencies]
+tempfile.workspace = true

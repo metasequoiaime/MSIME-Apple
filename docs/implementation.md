@@ -33,3 +33,9 @@ macOS 本地：4 项测试通过，覆盖持久化、过期保存、非法值、
 React 组件只依赖 `SettingsClient` 接口。Tauri commands 注入应用数据目录，在 blocking pool 中调用 client-core，文件锁不会阻塞主界面线程。读取失败不构造可保存的虚假默认值；冲突保留用户编辑，显式重新读取会提示放弃未保存修改。
 
 本地前端类型检查、Vite 构建和 3 项组件测试通过，覆盖保存 revision、冲突保护和初始读取失败。macOS Tauri Rust 检查通过。原生窗口交互、Windows/Linux 二进制与五端输入宿主接入仍需独立验证。
+
+### 第三条功能：真实 Engine 桥接
+
+固定 Engine main 的 f53e030542f4bc7d2cd311a7d6f23d6b6109596f，通过 CXX 建立拥有型 Session。C++ 异常转 Result，值快照复制到 Rust，不传出借用候选指针。Rust 明确禁止会话跨线程共享。macOS 上非法路径/方案异常测试和真实 Engine Unicode 输入到提交测试均通过；此测试无需生产词库，因此不冒充拼音质量回归。
+
+用户授权本地验证后先合并，CI 后台执行。配置与设置页已由 PR #1 合入 develop；不因 CI 排队暂停后续模块。
