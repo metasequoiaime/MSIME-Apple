@@ -26,6 +26,15 @@ public:
         !same_ticket(latest_->lease.transport, lease.transport))
       return;
     switch (packet.event_type) {
+    case FanyImePipeEventType::IMESwitch:
+    case FanyImePipeEventType::StatusSnapshot:
+    case FanyImePipeEventType::FocusRestored:
+      // Input mode has already been synchronized on the input queue. An
+      // English notification cancels composition; re-enabling must not revive
+      // the old projection. A mode request alone is not a notification.
+      if (packet.keycode != 0)
+        break;
+      [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
       suppressed_ = true;
       latest_->visible = false;

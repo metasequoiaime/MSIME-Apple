@@ -6,10 +6,12 @@
 
 using namespace msime::windows;
 namespace {
-void require(bool value) {
+void require_at(bool value, int line) {
   if (!value)
-    throw std::runtime_error("Session worker test failed");
+    throw std::runtime_error("Session worker test failed at line " +
+                             std::to_string(line));
 }
+#define require(...) require_at((__VA_ARGS__), __LINE__)
 class IdleTransport final : public MainTransport {
 public:
   std::atomic<int> write_failure{0};
@@ -278,6 +280,84 @@ void session_worker_tests(const std::string &options) {
     require(!controller.candidate_view());
     controller.stop();
     require(!controller.candidate_view());
+  }
+  for (auto notification : {FanyImePipeEventType::IMESwitch,
+                            FanyImePipeEventType::StatusSnapshot,
+                            FanyImePipeEventType::FocusRestored}) {
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [](InputState &state, const FocusLease &lease,
+           const FanyImeNamedpipeData &packet) {
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); });
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 2;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet);
+    transport.wait_started(3);
+    packet.request_id = 3;
+    packet.keycode = '4';
+    packet.wch = '4';
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(4);
+    const auto before = controller.candidate_view();
+    require(before && before->visible && !before->candidates.empty());
+    const auto candidate = before->candidates.at(0);
+    packet.event_type = notification;
+    packet.request_id = 77;
+    packet.keycode = 0;
+    packet.wch = 0;
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(5);
+    const auto disabled = controller.candidate_view();
+    require(disabled && !disabled->visible && disabled->preedit.empty() &&
+            disabled->candidates.empty());
+    require(controller.request_selection(before->lease, candidate.session,
+                candidate.generation, candidate.index) ==
+            SelectionRequestResult::Rejected);
+    packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
+    transport.push(packet);
+    transport.wait_started(6);
+    require(!controller.candidate_view()->visible);
+    packet.event_type = notification;
+    packet.keycode = 1;
+    transport.push(packet);
+    transport.wait_started(7);
+    require(!controller.candidate_view()->visible);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 4;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet);
+    packet.request_id = 5;
+    packet.keycode = '4';
+    packet.wch = '4';
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(9);
+    const auto fresh = controller.candidate_view();
+    require(fresh && fresh->visible && fresh->generation > before->generation &&
+            fresh->preedit == before->preedit);
+    require(transport.current(ticket) &&
+            controller.failure() == ControllerFailure::None);
+    controller.stop();
   }
   FocusGate gate;
   InputQueue queue(gate, 2, 16, options);

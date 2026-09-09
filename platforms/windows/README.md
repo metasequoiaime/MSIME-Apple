@@ -4,6 +4,8 @@
 
 ## 已确认候选展示接口
 
+收到当前焦点的 IMESwitch / StatusSnapshot / FocusRestored 英文模式通知后，输入队列先同步 Engine 模式，候选缓冲随即清空并隐藏。切回中文或显示事件不能恢复旧组合，必须等待新输入结果；标点模式通知不清空候选。request_mode 发出请求本身不等于宿主已应用模式，不据此提前改写展示。
+
 窗口读取候选时尝试获取焦点锁和候选缓冲锁；忙碌即返回空值，暂时隐藏并在下一次刷新重新读取，不复用旧焦点内容、不等待持有焦点锁的慢管道写入。连接校验保留在焦点锁内，使用专用 try_current 同时尝试获取注册表和连接锁，避免等待不经过焦点锁的握手 I/O。该接口的 false 也可能只是忙碌，只供展示使用，不据此断线或拒绝输入事务；正常输入仍使用 current。这不是整个 UI 无锁或实时延迟保证，仍需 Windows 实测。
 
 当前 lease 的 HideCandidateWnd 在输入队列取消 Engine 组合并清除已选前缀，然后将候选缓冲变为无文本、不可见；保留焦点及连接，不发送伪造提交或从 TSF 包重放输入。ShowCandidateWnd / MoveCandidateWnd 更新锚点，但不能复活已取消的候选；新确认键回复才能发布新组合。显示仍尊重 UILess，移动不解除隐藏。取消拒绝过期 lease，也不能越过待确认回复；Main/UI 事务锁保证事件按序处理。该语义对齐固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 HideCandidate → ClearState 路径，实际 TSF 生命周期仍待 Windows 验收。

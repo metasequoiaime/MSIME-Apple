@@ -148,11 +148,12 @@ void candidate_mailbox_tests() {
                               [](const FocusLease &) { return false; }));
   }
   auto visual_event = [&](const FocusLease &lease, uint32_t type,
-                          uint32_t modifiers = 0) {
+                          uint32_t modifiers = 0, uint32_t keycode = 0) {
     FanyImeNamedpipeData packet{};
     packet.client_id = lease.transport.client;
     packet.event_type = type;
     packet.modifiers_down = modifiers;
+    packet.keycode = keycode;
     packet.point[0] = -200;
     packet.point[1] = 300;
     return gate.with_active(lease, [&] { mailbox.event(lease, packet); });
@@ -172,6 +173,25 @@ void candidate_mailbox_tests() {
   require(mailbox.snapshot(gate)->visible); // A new confirmed key refreshes UI.
   require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd, FanyImePipeFlags::UiLess));
   require(!mailbox.snapshot(gate)->visible);
+  for (auto mode_event : {FanyImePipeEventType::IMESwitch,
+                          FanyImePipeEventType::StatusSnapshot,
+                          FanyImePipeEventType::FocusRestored}) {
+    require(publish(first, 2));
+    require(visual_event(first, mode_event, 0, 1));
+    require(mailbox.snapshot(gate)->visible);
+    require(visual_event(first, FanyImePipeEventType::PuncSwitch));
+    require(mailbox.snapshot(gate)->visible);
+    auto stale = first;
+    ++stale.token;
+    require(!visual_event(stale, mode_event));
+    require(mailbox.snapshot(gate)->visible);
+    require(visual_event(first, mode_event));
+    require(!mailbox.snapshot(gate)->visible &&
+            mailbox.snapshot(gate)->candidates.empty());
+    require(visual_event(first, mode_event, 0, 1));
+    require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
+    require(!mailbox.snapshot(gate)->visible);
+  }
   const auto pending = gate.begin(b, 2);
   require(pending.has_value() && !mailbox.snapshot(gate));
   require(gate.acknowledge(pending->pending, [] { return true; }));
