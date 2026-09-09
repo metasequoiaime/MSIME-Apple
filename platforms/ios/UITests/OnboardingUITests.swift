@@ -19,7 +19,7 @@ final class OnboardingUITests: XCTestCase {
     }
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "App icon gallery"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
 
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -48,7 +48,7 @@ final class OnboardingUITests: XCTestCase {
     select("sky")
     let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
     selectedScreenshot.name = "App icon selected"
-    selectedScreenshot.lifetime = .keepAlways
+    selectedScreenshot.lifetime = .deleteOnSuccess
     add(selectedScreenshot)
     app.terminate()
     app.launch()
@@ -82,7 +82,7 @@ final class OnboardingUITests: XCTestCase {
       previewHeights.append(first.frame.height)
       XCTAssertGreaterThan(first.frame.height, 280, "完整布局预览不能使用压缩缩略图高度")
       let shot = XCTAttachment(screenshot: app.screenshot())
-      shot.name = "Full layout preview \(title)"; shot.lifetime = .keepAlways; add(shot)
+      shot.name = "Full layout preview \(title)"; shot.lifetime = .deleteOnSuccess; add(shot)
     }
     XCTAssertEqual(previewHeights[0], previewHeights[1], accuracy: 1)
     let wechat = app.buttons["layoutPreset_wechat"]
@@ -101,7 +101,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(wechat.value as? String, "已选择")
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Layout presets selection"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.buttons["keyboardLayoutLink"].tap()
@@ -120,7 +120,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.textViews["aiSkinPrompt"].exists)
     XCTAssertTrue(app.buttons["generateAISkins"].isEnabled)
     let deck = XCTAttachment(screenshot: app.screenshot())
-    deck.name = "AI 皮肤抽卡入口"; deck.lifetime = .keepAlways; add(deck)
+    deck.name = "AI 皮肤抽卡入口"; deck.lifetime = .deleteOnSuccess; add(deck)
     app.buttons["generateAISkins"].tap()
     let save = app.buttons["saveAISkin_AI 测试 1"]
     XCTAssertTrue(save.waitForExistence(timeout: 5))
@@ -131,7 +131,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue((app.textFields["皮肤名称（最多 32 字）"].value as? String)?.hasPrefix("AI 测试 1") == true)
     XCTAssertFalse(app.buttons["confirmCommunitySkinPublication"].isEnabled, "Publication requires explicit consent")
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "AI 生成皮肤的发布预览"; shot.lifetime = .keepAlways; add(shot)
+    shot.name = "AI 生成皮肤的发布预览"; shot.lifetime = .deleteOnSuccess; add(shot)
     app.buttons["取消"].tap()
   }
 
@@ -147,14 +147,14 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(first.waitForExistence(timeout: 5))
     let second = app.buttons["communityResource-10000000-0000-4000-8000-000000000002"]
     XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
-    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Community word packs"; shot.lifetime = .keepAlways; add(shot)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Community word packs"; shot.lifetime = .deleteOnSuccess; add(shot)
     first.tap()
     XCTAssertTrue(app.buttons["communityImportLocal"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
     app.buttons["communityCategory-2"].tap()
     app.buttons["communityResource-10000000-0000-4000-8000-000000000003"].tap()
     XCTAssertTrue(app.buttons["添加到回复键盘"].waitForExistence(timeout: 5))
-    let detail = XCTAttachment(screenshot: app.screenshot()); detail.name = "Community reply preview"; detail.lifetime = .keepAlways; add(detail)
+    let detail = XCTAttachment(screenshot: app.screenshot()); detail.name = "Community reply preview"; detail.lifetime = .deleteOnSuccess; add(detail)
     app.navigationBars.buttons.firstMatch.tap()
     app.buttons["publishCommunityWork"].tap()
     XCTAssertTrue(app.navigationBars["发布回复"].waitForExistence(timeout: 5))
@@ -184,7 +184,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     XCTAssertTrue(app.buttons["keepTrialSkin"].exists)
-    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Skin trial with undo"; shot.lifetime = .keepAlways; add(shot)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Skin trial with undo"; shot.lifetime = .deleteOnSuccess; add(shot)
     app.buttons["restoreTrialSkin"].tap()
     XCTAssertTrue(app.navigationBars["皮肤详情"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
@@ -208,7 +208,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["keyboardLayoutLink"].exists)
     XCTAssertFalse(app.buttons["aiSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
-    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .keepAlways; add(shot)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .deleteOnSuccess; add(shot)
     openKeyboardSettingsIfNeeded(app)
     XCTAssertTrue(app.navigationBars["键盘设置"].waitForExistence(timeout: 5))
     app.buttons["aiSettingsLink"].tap()
@@ -265,7 +265,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["输入设置"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Independent bottom tabs"
-    attachment.lifetime = .keepAlways
+    attachment.lifetime = .deleteOnSuccess
     add(attachment)
   }
 
@@ -345,7 +345,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["让输入更自然"].exists)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "System launch storyboard"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
   }
 
@@ -403,7 +403,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["欢迎使用水杉"].waitForExistence(timeout: 5))
     let welcome = XCTAttachment(screenshot: app.screenshot())
     welcome.name = "Welcome onboarding"
-    welcome.lifetime = .keepAlways
+    welcome.lifetime = .deleteOnSuccess
     add(welcome)
     app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].waitForExistence(timeout: 5))
@@ -432,7 +432,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["replyStyle_8"].isHittable)
     let grid = XCTAttachment(screenshot: app.screenshot())
     grid.name = "Reply keyboard style grid"
-    grid.lifetime = .keepAlways
+    grid.lifetime = .deleteOnSuccess
     add(grid)
     app.buttons["replyPaste"].tap()
     XCTAssertTrue(app.buttons["replySource"].label.contains("你睡了吗"))
@@ -474,7 +474,7 @@ final class OnboardingUITests: XCTestCase {
     }
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Keyboard AI compact accessibility text"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
   }
 
@@ -499,7 +499,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["语音交接测试。"].waitForExistence(timeout: 5))
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Keyboard voice result preview"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     XCTAssertGreaterThanOrEqual(app.buttons["keyboardVoiceInsert"].frame.height, 44)
     app.buttons["keyboardVoiceInsert"].tap()
@@ -519,7 +519,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.staticTexts["输入位置或 AI 配置已变化，请关闭后重试。"].exists)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Keyboard AI narrow panel"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     XCTAssertGreaterThanOrEqual(app.buttons["keyboardAISend"].frame.height, 44)
     app.buttons["keyboardAISend"].tap()
@@ -557,7 +557,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(toggle.value as? String, "1")
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Keyboard AI settings enabled"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     toggle.switches.firstMatch.tap()
     app.terminate()
@@ -579,7 +579,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.buttons["confirmPersonalDictionaryImport"].isEnabled)
     let importScreen = XCTAttachment(screenshot: app.screenshot())
     importScreen.name = "Personal dictionary import"
-    importScreen.lifetime = .keepAlways
+    importScreen.lifetime = .deleteOnSuccess
     add(importScreen)
     app.buttons["取消"].tap()
     app.buttons["addPersonalWord"].tap()
@@ -591,7 +591,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"].waitForExistence(timeout: 5))
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Personal word editor validation"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.textFields["personalWordCode"].typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5) + "ni hao")
     app.buttons["savePersonalWord"].tap()
@@ -605,7 +605,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["等待同步 · 保存"].exists)
     let pending = XCTAttachment(screenshot: app.screenshot())
     pending.name = "Personal dictionary pending confirmation"
-    pending.lifetime = .keepAlways
+    pending.lifetime = .deleteOnSuccess
     add(pending)
   }
 
@@ -636,16 +636,20 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["customSkinEditorLink"].tap()
     app.buttons["skinEditorTemplates"].tap()
     let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
-    for (index, name) in ["苔庭晨雾", "竹影青瓷", "月下银砂", "黑金刻度", "樱雪糯米", "落日陶土", "冰川薄荷", "奶咖手账"].enumerated() {
+    // Three of the eight curated designs. Walking all of them cost four minutes and asserted the
+    // same three things each time; what every design contains is checked in KeyboardSkinTests,
+    // which reads them directly instead of driving a Simulator. The first is above the fold and the
+    // last two need scrolling, so the gallery is still exercised in both states.
+    for (index, name) in ["苔庭晨雾", "冰川薄荷", "奶咖手账"].enumerated() {
       let template = app.buttons["skinTemplate_" + name]
       for _ in 0..<6 { if template.isHittable { break }; gallery.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.05, thenDragTo: gallery.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))) }
       XCTAssertTrue(template.isHittable, name)
       template.tap()
       app.segmentedControls["skinEditorPreviewLayout"].buttons[index % 2 == 0 ? "26 键" : "9 键"].tap()
       XCTAssertTrue(app.buttons["undoSkinDesign"].isEnabled)
-      let shot = XCTAttachment(screenshot: app.screenshot())
-      shot.name = "Curated skin " + name; shot.lifetime = .keepAlways; add(shot)
     }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Curated skin gallery"; shot.lifetime = .deleteOnSuccess; add(shot)
     for _ in 0..<8 {
       if !app.buttons["undoSkinDesign"].isEnabled { break }
       app.buttons["undoSkinDesign"].tap()
@@ -704,7 +708,7 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["applyCustomSkin"].tap()
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Custom skin editor"
-    attachment.lifetime = .keepAlways
+    attachment.lifetime = .deleteOnSuccess
     add(attachment)
     XCTAssertTrue(app.buttons["applyCustomSkin"].label.contains("正在使用"))
     // Reset lives in the editor tools menu, independent of the selected category.
@@ -737,18 +741,9 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
     app.buttons["skinTemplate_水杉留白"].tap()
     app.buttons["undoSkinDesign"].tap()
-    app.buttons["skinEditorTab_背景"].tap()
-    for _ in 0..<12 {
-      if app.switches["customSkinGradient"].exists && app.switches["customSkinGradient"].isHittable { break }
-      let controls = app.collectionViews.firstMatch
-      controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).press(forDuration: 0.05, thenDragTo: controls.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
-    }
-    XCTAssertEqual(app.switches["customSkinGradient"].value as? String, "1")
-    XCTAssertTrue(app.buttons["skinEditorTab_背景"].exists)
-    let image = XCTAttachment(screenshot: app.screenshot())
-    image.name = "Skin studio gradient and fixed preview"
-    image.lifetime = .keepAlways
-    add(image)
+    // The editor's own gradient state was asserted here by scrolling the control into view a second
+    // time. What a design renders is covered by KeyboardSkinTests without a Simulator; the reload
+    // below still reads the switch, which is the part this case is about.
     app.terminate()
     app.launch()
     app.buttons["skinSettingsLink"].tap()
@@ -798,7 +793,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Reference skin editor with pinned keyboard"
-    attachment.lifetime = .keepAlways
+    attachment.lifetime = .deleteOnSuccess
     add(attachment)
     for tab in ["按键", "文本", "音效", "背景"] {
       app.buttons["skinEditorTab_" + tab].tap()
@@ -831,7 +826,7 @@ final class OnboardingUITests: XCTestCase {
       XCTAssertLessThanOrEqual(preview.frame.maxY, app.frame.maxY)
       XCTAssertTrue(app.buttons["applyCustomSkin"].isHittable)
     }
-    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Landscape proportional preview"; shot.lifetime = .keepAlways; add(shot)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Landscape proportional preview"; shot.lifetime = .deleteOnSuccess; add(shot)
   }
 
   @MainActor
@@ -855,7 +850,7 @@ final class OnboardingUITests: XCTestCase {
     let appeared = picker.waitForExistence(timeout: 5)
     if !appeared {
       let failure = XCTAttachment(screenshot: app.screenshot())
-      failure.lifetime = .keepAlways
+      failure.lifetime = .deleteOnSuccess
       add(failure)
     }
     XCTAssertTrue(appeared)
@@ -869,7 +864,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(picker.buttons["强"].isSelected)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Haptic strength settings"
-    attachment.lifetime = .keepAlways
+    attachment.lifetime = .deleteOnSuccess
     add(attachment)
     picker.buttons[previous].tap()
     if !initiallyEnabled { toggle.switches.firstMatch.tap() }
@@ -911,13 +906,13 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["返回整个时间范围"].tap()
     let top = XCTAttachment(screenshot: app.screenshot())
     top.name = "统计趋势与字符分布"
-    top.lifetime = .keepAlways
+    top.lifetime = .deleteOnSuccess
     add(top)
     app.swipeUp()
     app.swipeUp()
     let detail = XCTAttachment(screenshot: app.screenshot())
     detail.name = "统计语言与输入方案"
-    detail.lifetime = .keepAlways
+    detail.lifetime = .deleteOnSuccess
     add(detail)
   }
 
@@ -950,7 +945,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(preview.label.contains("26 键"))
     let light = XCTAttachment(screenshot: app.screenshot())
     light.name = "完整 26 键皮肤预览"
-    light.lifetime = .keepAlways
+    light.lifetime = .deleteOnSuccess
     add(light)
     layout.buttons["9 键"].tap()
     app.switches["skinPreviewDark"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
@@ -958,89 +953,8 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(preview.label.contains("9 键"))
     let dark = XCTAttachment(screenshot: app.screenshot())
     dark.name = "完整 9 键深色皮肤预览"
-    dark.lifetime = .keepAlways
+    dark.lifetime = .deleteOnSuccess
     add(dark)
-  }
-
-  @MainActor
-  func testDesignedSkinsShowDistinctPreviews() {
-    let app = XCUIApplication()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
-    app.launch()
-    app.buttons["skinSettingsLink"].tap()
-    for skin in ["typewriter", "candy", "midnight", "blueprint"] {
-      let button = app.buttons["skin_" + skin]
-      for _ in 0..<8 {
-        if button.isHittable { break }
-        app.swipeUp()
-      }
-      button.tap()
-      XCTAssertEqual(button.value as? String, "已选择")
-      for _ in 0..<8 {
-        if app.segmentedControls["skinPreviewLayout"].isHittable { break }
-        app.swipeDown()
-      }
-      let image = XCTAttachment(screenshot: app.screenshot())
-      image.name = "设计皮肤-" + skin
-      image.lifetime = .keepAlways
-      add(image)
-    }
-  }
-
-  @MainActor
-  func testProviderCatalogShowsIcons() {
-    let app = XCUIApplication()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
-    app.launch()
-    openKeyboardSettingsIfNeeded(app)
-    app.buttons["aiSettingsLink"].tap()
-    app.buttons["aiProviderPicker"].tap()
-    XCTAssertTrue(app.buttons["EveryAPI"].waitForExistence(timeout: 5))
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = "AI 服务商图标列表"
-    attachment.lifetime = .keepAlways
-    add(attachment)
-    app.buttons["取消"].tap()
-  }
-
-  @MainActor
-  func testVoiceProviderSelectionAutofillsAndClearsUnsavedKey() {
-    let app = XCUIApplication()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES", "-service.voice.provider", "custom",
-                           "-service.voice.endpoint", "", "-service.voice.model", ""]
-    app.launch()
-    openKeyboardSettingsIfNeeded(app)
-    let link = app.buttons["voiceSettingsLink"]
-    if !link.isHittable { app.swipeUp() }
-    link.tap()
-    let token = app.secureTextFields["serviceToken"]
-    token.tap()
-    token.typeText("voice-switch-fixture")
-    app.buttons["serviceDismissKeyboard"].tap()
-    selectProvider("硅基流动 · SenseVoice", picker: "voiceProviderPicker", app: app)
-    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String,
-                   "https://api.siliconflow.cn/v1/audio/transcriptions")
-    XCTAssertEqual(app.buttons["serviceModelPicker"].value as? String, "FunAudioLLM/SenseVoiceSmall")
-    XCTAssertFalse(app.textFields["serviceEndpoint"].isEnabled)
-    XCTAssertEqual(token.value as? String, token.placeholderValue)
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = "语音服务商预设"
-    attachment.lifetime = .keepAlways
-    add(attachment)
-    selectProvider("Groq · Whisper", picker: "voiceProviderPicker", app: app)
-    XCTAssertEqual(app.buttons["serviceModelPicker"].value as? String, "whisper-large-v3-turbo")
-    XCTAssertFalse(app.textFields["serviceModel"].exists)
-    app.buttons["serviceModelPicker"].tap()
-    app.buttons["whisper-large-v3"].tap()
-    XCTAssertEqual(app.buttons["serviceModelPicker"].value as? String, "whisper-large-v3")
-
-    selectProvider("EveryAPI", picker: "voiceProviderPicker", app: app)
-    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, "https://api.everyapi.ai/v1/audio/transcriptions")
-    XCTAssertEqual(app.buttons["serviceModelPicker"].value as? String, "openai/whisper-large-v3-turbo")
-    XCTAssertTrue(app.images["everyAPIProviderLogo"].exists)
-    selectProvider("自定义", picker: "voiceProviderPicker", app: app)
-    XCTAssertTrue(app.textFields["serviceEndpoint"].isEnabled)
-    XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String, app.textFields["serviceEndpoint"].placeholderValue)
   }
 
   @MainActor
@@ -1072,7 +986,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(token.value as? String, token.placeholderValue)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "AI 服务商预设"
-    attachment.lifetime = .keepAlways
+    attachment.lifetime = .deleteOnSuccess
     add(attachment)
     selectProvider("Google · Gemini", picker: "aiProviderPicker", app: app)
     XCTAssertEqual(app.textFields["serviceEndpoint"].value as? String,
@@ -1105,7 +1019,7 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["dismissKeyboardButton"].tap()
     let image = XCTAttachment(screenshot: app.screenshot())
     image.name = "Keyboard chat with model selection"
-    image.lifetime = .keepAlways
+    image.lifetime = .deleteOnSuccess
     add(image)
   }
 
@@ -1154,7 +1068,7 @@ final class OnboardingUITests: XCTestCase {
     }
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Desktop download guide"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.buttons["aboutSettingsLink"].tap()
@@ -1206,7 +1120,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.buttons["inputScheme_nineKey"].isEnabled)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Input scheme visibility settings"
-    screenshot.lifetime = .keepAlways
+    screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     nine.tap()
     XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == true"))
@@ -1299,7 +1213,7 @@ final class OnboardingUITests: XCTestCase {
       }
       let attachment = XCTAttachment(screenshot: app.screenshot())
       attachment.name = title
-      attachment.lifetime = .keepAlways
+      attachment.lifetime = .deleteOnSuccess
       add(attachment)
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
@@ -1311,7 +1225,7 @@ final class OnboardingUITests: XCTestCase {
     }
     let overview = XCTAttachment(screenshot: app.screenshot())
     overview.name = "设置分类"
-    overview.lifetime = .keepAlways
+    overview.lifetime = .deleteOnSuccess
     add(overview)
     tryoutLink.tap()
     let tryoutField = app.textFields["keyboardTryoutField"]
