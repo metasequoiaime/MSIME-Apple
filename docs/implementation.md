@@ -305,3 +305,9 @@ ReplyCodec 显式映射共享契约的导航 opcode；ReplyComposer 新增上下
 补齐上一阶段关闭绑定时的消费结果：已进入 TSF 导航路径的键返回 NavigationIgnored，UILess 返回原候选页，而不是空结果交回调用方。NavigationAction 使用可空 command 表达不执行 Engine 操作，ReplyComposer 新增 IgnoredNavigation 并保留已选前缀及投递门禁。Unicode +、快捷键和非导航键仍不进入该路径。
 
 真实词库回归逐组验证关闭绑定时整个视图不变、两种回包及确认前禁止继续；组合器回归覆盖部分选词前缀、UILess 页和非法 commit。八项本机 CTest、锁定词库回归及 x86/x64 交叉编译检查通过，未执行 Windows 原生运行或完整 Windows Rust 链接。设置监听、完整产品分发和 Windows 原生验收仍待完成，不扩展其他端，CI 保持禁用。
+
+### 第四十九条功能：Windows 配置投递自动重试
+
+InputState::queue_preferences 在真实输入队列内提交配置通知；FocusedSession 为待回复的活动焦点保留一份有界最新快照，合并较新 revision、接受相同内容、拒绝旧值和冲突。成功投递确认后自动交给共享宿主，继续使用共享偏好完整校验及组合期间延迟应用。焦点取消/重新准备清理尚未交付的快照，旧焦点不能影响新会话。
+
+真实队列回归覆盖最新快照合并、错误确认不触发交付、旧版本/冲突/大小/失效焦点拒绝、共享延迟应用及焦点清理。八项本机 CTest、锁定词库回归与 x86/x64 交叉编译检查通过；没有 Rust 源码改动，未执行 Windows 原生运行或完整 Windows Rust 链接。文件监听与新焦点快照发布仍待接入，继续 Windows 优先且 CI 保持禁用。

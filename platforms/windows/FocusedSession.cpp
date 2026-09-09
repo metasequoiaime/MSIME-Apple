@@ -21,6 +21,7 @@ bool FocusedSession::prepare(const FocusLease &lease) {
         return;
       if (composer_)
         composer_->cancel();
+      preferences_retry_.reset();
       session_.activate(lease.epoch);
       composer_.emplace(client_, lease.epoch);
       lease_ = lease;
@@ -65,6 +66,10 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
     return false;
   return gate_.with_active(lease, [&] {
     composer_->confirm_delivery(client_, lease.epoch, request);
+    if (preferences_retry_) {
+      session_.update_preferences(lease.epoch, preferences_retry_->dump());
+      preferences_retry_.reset();
+    }
   });
 }
 std::optional<PendingReply> FocusedSession::pending(const FocusLease &lease) {
@@ -85,6 +90,7 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   // This can be cleanup for a previous owner; don't invalidate a new lease.
   gate_.deactivate(lease);
   composer_->cancel();
+  preferences_retry_.reset();
   session_.deactivate(lease.epoch);
   composer_.reset();
   lease_.reset();
@@ -102,5 +108,35 @@ FocusedSession::update_preferences(const FocusLease &lease,
       result = session_.update_preferences(lease.epoch, snapshot);
   });
   return result;
+}
+bool FocusedSession::queue_preferences(const FocusLease &lease,
+                                       const std::string &snapshot) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (snapshot.empty() || snapshot.size() > 16384)
+      throw std::invalid_argument("Invalid preferences snapshot size");
+    auto document = nlohmann::json::parse(snapshot);
+    if (!document.is_object() || !document.contains("revision") ||
+        !document.at("revision").is_number_unsigned() ||
+        document.value("format_version", 0) != 1 ||
+        !document.contains("preferences") ||
+        !document.at("preferences").is_object())
+      throw std::invalid_argument("Invalid preferences snapshot envelope");
+    if (preferences_retry_) {
+      const auto revision = document.at("revision").get<uint64_t>();
+      const auto previous = preferences_retry_->at("revision").get<uint64_t>();
+      if (revision < previous ||
+          (revision == previous && document != *preferences_retry_))
+        throw std::invalid_argument("Stale or conflicting queued preferences");
+    }
+    if (composer_->has_pending())
+      preferences_retry_ = std::move(document);
+    else {
+      session_.update_preferences(lease.epoch, snapshot);
+      preferences_retry_.reset();
+    }
+  });
 }
 } // namespace msime::windows

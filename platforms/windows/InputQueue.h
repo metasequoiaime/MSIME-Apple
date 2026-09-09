@@ -29,6 +29,7 @@ public:
       ReplyPath path, bool uiless = false,
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
+  bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);

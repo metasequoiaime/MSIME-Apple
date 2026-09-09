@@ -125,6 +125,12 @@ InputState::update_preferences(const FocusLease &lease,
   auto *owner = session(lease.transport);
   return owner ? owner->update_preferences(lease, snapshot) : std::nullopt;
 }
+bool InputState::queue_preferences(const FocusLease &lease,
+                                   const std::string &snapshot) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner && owner->queue_preferences(lease, snapshot);
+}
 
 InputQueue::InputQueue(FocusGate &gate, size_t clients, size_t capacity,
                        std::string options)

@@ -29,6 +29,9 @@ public:
   std::optional<nlohmann::json> update_preferences(const FocusLease &lease,
                                                    const std::string &snapshot);
   bool cancel(const FocusLease &lease);
+  // Retain at most one latest snapshot while a reply is pending. True means
+  // accepted for delivery, not necessarily applied to an active composition.
+  bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
   nlohmann::json view() const { return session_.view(); }
 
 private:
@@ -40,5 +43,6 @@ private:
   ServerSession session_;
   std::optional<FocusLease> lease_;
   std::optional<ReplyComposer> composer_;
+  std::optional<nlohmann::json> preferences_retry_;
 };
 } // namespace msime::windows
