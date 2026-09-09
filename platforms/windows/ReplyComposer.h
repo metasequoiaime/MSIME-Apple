@@ -38,6 +38,12 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
+  // Null means this binding did not consume the key; Engine is unchanged.
+  // Caller may then run its ordinary TSF path. UiLess is read from the packet.
+  std::optional<PendingReply> navigate(ServerSession &session,
+                                       const FanyImeNamedpipeData &packet,
+                                       uint64_t epoch,
+                                       const NavigationBindings &bindings);
   bool has_pending() const { return pending_.has_value(); }
   // Call only after a complete frame write or successful local-only handling.
   // A failed/uncertain write leaves pending unchanged; never rerun Engine

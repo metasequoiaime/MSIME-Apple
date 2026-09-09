@@ -154,6 +154,37 @@ const PendingReply &ReplyComposer::dispatch(
   auto result = session.key(packet, epoch);
   return stage(result, path, uiless, std::move(local_text));
 }
+std::optional<PendingReply>
+ReplyComposer::navigate(ServerSession &session,
+                        const FanyImeNamedpipeData &packet, uint64_t epoch,
+                        const NavigationBindings &bindings) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_)
+    throw std::logic_error("Pending or expired Windows reply route");
+  if (session_ && session.view().at("session").get<uint64_t>() != session_)
+    throw std::logic_error("Reply changed host session");
+  auto result = session.navigate(packet, epoch, bindings);
+  if (!result)
+    return std::nullopt;
+  ReplyPath path;
+  switch (result->direction) {
+  case NavigationReply::PreviousCandidate:
+    path = ReplyPath::PreviousCandidate;
+    break;
+  case NavigationReply::NextCandidate:
+    path = ReplyPath::NextCandidate;
+    break;
+  case NavigationReply::PreviousPage:
+    path = ReplyPath::PreviousPage;
+    break;
+  case NavigationReply::NextPage:
+    path = ReplyPath::NextPage;
+    break;
+  default:
+    throw std::logic_error("Invalid shared navigation result");
+  }
+  return stage(result->key, path,
+               (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+}
 void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
                                      uint64_t request) {
   const auto &current = pending();

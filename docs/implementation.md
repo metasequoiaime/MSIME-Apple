@@ -293,3 +293,9 @@ ReplyCodec 显式映射共享契约的导航 opcode；ReplyComposer 新增上下
 真实共享会话回归复现 Shift+小键盘越界选词反而改写 Unicode 组合的问题。按固定上游 Server 的 NormalizeNumpadDigitKey 规则，在候选判定前统一数字键身份，保留原始请求与共享选词代次校验。普通和 UILess 路径均覆盖小键盘输入、越界不变、Shift 选中及模式清理，另验证 0 仍可输入和 Ctrl+Shift 不误选词。
 
 修复前回归失败，修复后八项本机 CTest、真实锁定词库回归及 x86/x64 交叉编译检查通过；不涉及 Rust 源码。Windows 原生运行和完整生产按键分发仍未完成，继续 Windows 优先，CI 保持禁用。
+
+### 第四十七条功能：Windows 显式导航绑定贯通
+
+新增 NavigationBindings 值快照，按固定上游键规则表达减号等号、逗号句号、方括号、Tab/Shift+Tab、PageUp/PageDown 和上下候选。InputState::navigate 经焦点校验及投递门禁调用共享导航命令，再自动选择普通导航 opcode 或 UILess 候选页；不要求调用方另外猜回复类型。Unicode +、快捷键、空组合和关闭绑定不被此入口消费，原始请求不改写。
+
+每组绑定独立启用的真实词库回归覆盖前后翻页、高亮、禁用不变、快捷键排除和两种回包；真实输入队列覆盖 Unicode + 排除、边界导航、失效焦点和待回复门禁。八项本机 CTest、锁定词库回归及 x86/x64 交叉编译检查通过，未执行 Windows 原生运行。此入口仍需完整 TSF 上下文判定排除标点/以词定字优先路径，关闭绑定后的忽略/转发不能无条件回退旧 VK 映射；设置监听和产品 KeyHandler 尚未接入。继续 Windows → macOS → iOS → Linux，CI 保持禁用。

@@ -192,6 +192,12 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 本机测试增加有界登记队列、空闲时服务故障、输入异常全局停机，以及持有焦点锁的事件回调请求退出。原生 windows-server-smoke 使用唯一测试名称运行实际 WindowsServer，发送反向握手、Main 协商、激活及 Unicode 输入，并验证完整提交和空闲停机；测试源码已提供，尚未在 Windows 执行。Windows 上需完整同架构 Rust 导入库构建（不能用 MSIME_WINDOWS_PIPE_ONLY），再运行 `ctest --test-dir target/windows-boundary -C Debug -R windows-server --output-on-failure`。固定 Unicode 测试处理器不代表真实 TSF 模式/候选 UI 已实现，产品分发、设置/模式同步、原生链接与 TSF 编辑控件验收仍待完成。
 
+### 显式导航绑定入口
+
+`InputState::navigate(lease, packet, bindings)` 在同一个输入队列/焦点门禁下贯通 FocusedSession、ReplyComposer 和 ServerSession。NavigationBindings 是调用方提供的值快照，分别启用减号等号、逗号句号、方括号、Tab、PageUp/PageDown、上下候选；全部默认关闭，不暗设产品偏好。Tab 根据 Shift 判定方向，UiLess 从原始包读取；Unicode 的 + 仍交给共享字符输入。回复未确认时禁止再导航或输入，失效焦点不会推进 Engine。
+
+该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。返回空表示本入口没有消费键且未修改 Engine，可能是绑定关闭、非导航键、快捷键、空组合或失效焦点；不是要求调用方无条件回退到旧 VK 映射。尤其禁用的 PageUp/PageDown、上下键不能再经旧 key 路径执行导航，最终忽略/转发/回复策略仍须由完整原生分发判定。设置监听和产品 KeyHandler 尚未接入，本接口不证明默认产品行为已完成。
+
 ### Engine 模式与 Unicode 数字选词
 
 数字候选判定前将 VK_NUMPAD0..9 归一化为 0..9，与固定上游 Server 边界一致；不修改原始请求包。Unicode 模式的 Shift+小键盘 1..9 因此与主键盘一致，越界选择保持原组合；无 Shift 的小键盘数字（包括 0）仍用于 Unicode 编码输入，Ctrl/Alt 快捷键不会被误当作选词。

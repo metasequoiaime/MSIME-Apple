@@ -1,4 +1,5 @@
 #pragma once
+#include "NavigationPolicy.h"
 #include "windows_ipc.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -11,6 +12,10 @@ struct KeyResult {
   uint64_t request_id;
   bool reply_expected;
   nlohmann::json transition;
+};
+struct NavigationResult {
+  KeyResult key;
+  NavigationReply direction;
 };
 
 // Lives on the Server input queue, never inside the injected TSF DLL. The pipe
@@ -26,6 +31,9 @@ public:
   nlohmann::json activate(uint64_t epoch);
   nlohmann::json deactivate(uint64_t epoch);
   KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
+  std::optional<NavigationResult> navigate(const FanyImeNamedpipeData &packet,
+                                           uint64_t epoch,
+                                           const NavigationBindings &bindings);
   nlohmann::json select(uint64_t epoch, uint64_t generation, size_t index);
   nlohmann::json update_preferences(uint64_t epoch,
                                     const std::string &snapshot);

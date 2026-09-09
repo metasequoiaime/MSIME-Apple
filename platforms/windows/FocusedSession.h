@@ -18,6 +18,9 @@ public:
   // Only queue this after successful I/O or verified local-only completion.
   // A false return means the receipt is obsolete; never replay the key.
   bool confirm(const FocusLease &lease, uint64_t request);
+  std::optional<PendingReply> navigate(const FocusLease &lease,
+                                       const FanyImeNamedpipeData &packet,
+                                       const NavigationBindings &bindings);
   // Recover the staged result without rerunning Engine. This does NOT permit
   // blindly resending a frame whose previous delivery is uncertain.
   std::optional<PendingReply> pending(const FocusLease &lease);
