@@ -1,4 +1,5 @@
 #include "PipeHandshake.h"
+#include "PipeIntake.h"
 #include "PipeIo.h"
 #include "PipeListener.h"
 #include "PipePeer.h"
@@ -6,6 +7,7 @@
 #include "ReplyCodec.h"
 #include "windows_ipc.h"
 #include <aclapi.h>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <future>
@@ -346,9 +348,112 @@ void registries() {
   registry.shutdown();
   require(!registry.send(registered.ticket, 1, frame, 2000).complete());
 }
+template <typename Predicate> void eventually(Predicate predicate) {
+  const auto until = GetTickCount64() + 2000;
+  while (!predicate()) {
+    require(GetTickCount64() < until);
+    Sleep(1);
+  }
+}
+void intake_pools() {
+  const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 44u;
+  {
+    PipeRegistry registry(2);
+    std::atomic<unsigned> callbacks{0};
+    PipeIntake intake(registry, 1, 1, FanyImeProtocol::RequiredCapabilities,
+                      2000, [&](uint32_t, const PipeRegistration &) {
+                        ++callbacks;
+                        return true;
+                      });
+    Pair silent, queued, excess;
+    require(intake.submit(std::move(silent.server.owner), 1));
+    eventually([&] { return intake.stats().active == 1; });
+    require(intake.submit(std::move(queued.server.owner), 1));
+    require(!intake.submit(std::move(excess.server.owner), 1));
+    require(intake.stats().queued == 1 && intake.stats().rejected == 1);
+    intake.stop();
+    require(intake.stats().active == 0 && intake.stats().queued == 0 &&
+            callbacks == 0);
+    Pair after_stop;
+    require(!intake.submit(std::move(after_stop.server.owner), 1));
+    registry.shutdown();
+  }
+  {
+    PipeRegistry registry(1);
+    std::array<std::promise<PipeRegistration>, 3> completions;
+    PipeIntake intake(registry, 2, 3, FanyImeProtocol::RequiredCapabilities,
+                      2000, [&](uint32_t role, const PipeRegistration &result) {
+                        completions[role].set_value(result);
+                        return true;
+                      });
+    Pair reply, worker, main;
+    const auto reverse = [&](Pair &pipe, uint32_t role) {
+      auto completion = completions[role].get_future();
+      require(intake.submit(std::move(pipe.server.owner), role));
+      FanyImePipeHello hello{};
+      hello.client_id = id;
+      hello.pipe_role = role;
+      require(write_frame(pipe.client.value, fixture_bytes(hello), 2000)
+                  .complete());
+      require(read_frame(pipe.client.value,
+                         role == 1
+                             ? sizeof(FanyImeNamedpipeDataToTsf)
+                             : sizeof(FanyImeNamedpipeDataToTsfWorkerThread),
+                         2000)
+                  .complete());
+      require(completion.wait_for(std::chrono::seconds(2)) ==
+              std::future_status::ready);
+      require(completion.get().status == RegistryStatus::Ready);
+    };
+    reverse(reply, 1);
+    reverse(worker, 2);
+    auto completion = completions[0].get_future();
+    require(intake.submit(std::move(main.server.owner), 0));
+    require(write_frame(main.client.value,
+                        fixture_bytes(FanyImeProtocol::Hello(id, 92)), 2000)
+                .complete());
+    require(
+        read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000)
+            .complete());
+    require(completion.wait_for(std::chrono::seconds(2)) ==
+            std::future_status::ready);
+    require(completion.get().status == RegistryStatus::Ready);
+    intake.stop();
+    require(intake.stats().failed == 0);
+    registry.shutdown();
+  }
+  for (bool throwing : {false, true}) {
+    PipeRegistry registry(1);
+    PipeIntake intake(registry, 1, 1, FanyImeProtocol::RequiredCapabilities,
+                      2000,
+                      [throwing](uint32_t, const PipeRegistration &) -> bool {
+                        if (throwing)
+                          throw std::runtime_error("Synthetic rejection");
+                        return false;
+                      });
+    Pair pipe;
+    require(intake.submit(std::move(pipe.server.owner), 1));
+    FanyImePipeHello hello{};
+    hello.client_id = id;
+    hello.pipe_role = 1;
+    require(
+        write_frame(pipe.client.value, fixture_bytes(hello), 2000).complete());
+    require(
+        read_frame(pipe.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000)
+            .complete());
+    eventually([&] { return intake.stats().failed == 1; });
+    // The callback did not take responsibility for the registration.
+    const auto closed =
+        read_frame(pipe.client.value, sizeof(FanyImeNamedpipeDataToTsf), 100);
+    require(!closed.complete() && closed.status != IoStatus::Timeout);
+    intake.stop();
+    registry.shutdown();
+  }
+}
 } // namespace
 int main() {
   try {
+    intake_pools();
     registries();
     listeners();
     handshakes();
