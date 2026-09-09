@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross compilation: links the pure codec test, but does not run Windows code.
+# Cross compilation: links codec and pipe tests, but does not run Windows code.
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$repo_root"
@@ -9,6 +9,8 @@ for arch in x86_64 i686; do
   output="$repo_root/target/windows-cross/$arch"
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
+    platforms/windows/PipeIo.cpp platforms/windows/tests/pipe_io.cpp -ladvapi32 -o "$output/pipe-io.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/ReplyCodec.cpp platforms/windows/tests/reply_codec.cpp -o "$output/reply-codec.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
@@ -21,4 +23,4 @@ for arch in x86_64 i686; do
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/tests/session_smoke.cpp -o "$output/session_smoke.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -c vendor/MSIME-Engine/contracts/tests/windows_ipc_contract.cpp -o "$output/windows_ipc_contract.o"
 done
-echo "Windows x86/x64 adapter and contract compiled, codec test linked; no Windows runtime verified"
+echo "Windows x86/x64 adapter and contract compiled, codec and pipe tests linked; no Windows runtime verified"

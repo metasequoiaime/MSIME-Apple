@@ -169,3 +169,9 @@ macOS 链接真实 Rust/C++ 库运行边界测试通过，覆盖 Unicode 上屏�
 ReplyComposer 为已认证的单次客户端激活保存旧协议尚未上屏的选词前缀，剩余输入与选词仍由 Engine 负责；分段、最终候选、标点、预编辑和 UILess 使用各自回复语义。LocalCommit 只有提供的本地完成文本与前缀加共享结果一致时才允许无帧确认，取消不重复上屏。待发送结果在确认前保留，dispatch 在调用 Engine 前阻止新按键越过待确认回复；编码失败保留原始结果，不能被确认成成功。
 
 本机三项 CTest 及真实固定词库回归通过：nihao 实际选“你”后剩余输入仍活跃，再选“好”生成唯一完整回复“你好”；待确认期间再次 dispatch 不改变 Engine 视图。编排测试覆盖多段、标点、UILess、本地完成文本不匹配、取消、旧确认和超长保留；Windows x86/x64 编排对象交叉编译通过。原生 ReplyPath 选择、完整 Pipe 写入确认、发送前路由复核及实际 Windows 系统输入仍待接入，不据此宣称 Windows 已完成，CI 保持禁用。
+
+### 第二十六条功能：Windows 原生管道帧 I/O
+
+新增仅用于独占 overlapped 消息管道的工作线程读写层，校验固定帧长、拒绝短帧和超长帧；超时或取消后等待实际 I/O 结束才释放缓冲区，超时不是硬性返回时限。未成功完成的已提交写入标记 delivery_uncertain，不自动重发或确认 Engine 回复；失败后由后续路由层关闭连接，避免读取残余消息。此层不创建生产管道、不认证客户端、不注册 TSF。
+
+新增使用独立测试管道的 Windows 测试，覆盖上游协议结构体帧长、畸形消息、取消、超时和断连。Windows 可运行 `cmake -S platforms/windows -B target/windows-pipe -DMSIME_WINDOWS_PIPE_ONLY=ON`、`cmake --build target/windows-pipe --config Debug`、`ctest --test-dir target/windows-pipe -C Debug --output-on-failure`，无需先构建 Rust 宿主库。本机三项既有 CTest 和真实词库回归通过，x86/x64 测试 PE 交叉链接通过；新增管道测试未在 Windows 执行，不宣称运行验证通过。后续仍优先 Windows 的认证、路由复核、原生分发与 TSF 系统验收，再推进 macOS、iOS、Linux；CI 保持禁用。
