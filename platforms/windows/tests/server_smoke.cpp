@@ -69,8 +69,14 @@ int main() {
       require(SendMessageW(modes.handle(), WM_MOUSEACTIVATE, 0, 0) ==
               MA_NOACTIVATE);
       const auto point = MAKELPARAM(5, 5);
+      for (const UINT cancellation : {WM_MOUSELEAVE, WM_CANCELMODE,
+                                       WM_CAPTURECHANGED}) {
+        SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+        SendMessageW(modes.handle(), cancellation, 0, 0);
+        SendMessageW(modes.handle(), WM_LBUTTONUP, 0, point);
+        require(commands == 0 && !modes.failed());
+      }
       SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
-      SendMessageW(modes.handle(), WM_MOUSELEAVE, 0, 0);
       SendMessageW(modes.handle(), WM_LBUTTONUP, 0, point);
       require(commands == 1 && GetForegroundWindow() == foreground);
       const auto dpi = GetDpiForWindow(modes.handle());
@@ -157,14 +163,24 @@ int main() {
       SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
       require(clicks == 1 && !clickable.failed());
+      // Cancellation must reject the release even with an unchanged frame.
+      for (const UINT cancellation : {WM_MOUSELEAVE, WM_CANCELMODE,
+                                       WM_CAPTURECHANGED}) {
+        SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+        SendMessageW(clickable.handle(), cancellation, 0, 0);
+        SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
+        require(clicks == 1 && !clickable.failed());
+      }
       SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
-      SendMessageW(clickable.handle(), WM_MOUSELEAVE, 0, 0);
+      SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
+      require(clicks == 2 && !clickable.failed());
+      SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
       ++value->generation;
       ++value->candidates[0].generation;
       clickable.refresh();
       UpdateWindow(clickable.handle());
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
-      require(clicks == 1 && !clickable.failed());
+      require(clicks == 2 && !clickable.failed());
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +
                         std::to_wstring(GetTickCount64());

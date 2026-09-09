@@ -189,7 +189,8 @@ LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
       self->pressed_ = self->hit(GET_X_LPARAM(l), GET_Y_LPARAM(l));
       if (self->pressed_) {
         TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
-        TrackMouseEvent(&track);
+        if (!TrackMouseEvent(&track))
+          self->pressed_.reset();
       }
       return 0;
     case WM_LBUTTONUP: {

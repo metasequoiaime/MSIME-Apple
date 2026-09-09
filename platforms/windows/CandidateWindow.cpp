@@ -217,7 +217,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                    static_cast<short>(HIWORD(lparam)));
         if (self->pressed_) {
           TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
-          TrackMouseEvent(&track);
+          if (!TrackMouseEvent(&track))
+            self->pressed_.reset();
         }
         return 0;
       case WM_LBUTTONUP: {
@@ -235,6 +236,7 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       }
       case WM_CANCELMODE:
+      case WM_CAPTURECHANGED:
       case WM_MOUSELEAVE:
         self->pressed_.reset();
         return 0;
