@@ -42,6 +42,7 @@ mod ffi {
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn finish(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn punctuation(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
     }
 }
 
@@ -98,6 +99,9 @@ impl Session {
     }
     pub fn finish(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().finish(index)
+    }
+    pub fn punctuation(&mut self, value: u8) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().punctuation(value)
     }
 }
 

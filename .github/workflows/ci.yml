@@ -102,5 +102,5 @@ jobs:
           resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)
           python3 -c 'import sys; sys.path.insert(0, "vendor/MSIME-Engine"); from contracts.dictionary.product import verify_product; verify_product(sys.argv[1])' "$resource_dir"
           cargo run -p msime-engine-bridge --example query_dictionary -- "$resource_dir"
-          cargo run -p msime-input-runtime --example query_dictionary -- "$resource_dir"
+          cargo run -p msime-input-runtime --example runtime_dictionary -- "$resource_dir"
           cargo run -p msime-client-core --example install_resources -- target/resources

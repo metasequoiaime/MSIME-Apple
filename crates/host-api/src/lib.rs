@@ -265,6 +265,10 @@ mod tests {
         }
         let result = read(msime_client_command(handle, 1));
         assert_eq!(result["value"]["commit"], "中");
+        let punctuation = read(msime_client_character(handle, b',', false));
+        assert_eq!(punctuation["ok"], true);
+        assert_eq!(punctuation["value"]["handled"], true);
+        assert_eq!(punctuation["value"]["commit"], "，");
         assert_eq!(read(msime_client_destroy(handle))["ok"], true);
         assert_eq!(read(msime_client_view(handle))["ok"], false);
         assert_eq!(read(msime_client_destroy(handle))["ok"], false);
