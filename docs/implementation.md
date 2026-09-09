@@ -217,3 +217,9 @@ PipeService 统一拥有三条监听、有界握手池和注册器，按显式�
 修正主管道只能有限超时读取、空闲超时会注销主注册的接口限制。新增必须携带取消事件的长期读取入口，注册器默认使用它；重连/移除/shutdown 可取消待读取，握手和写入仍强制有限超时。原生用例覆盖空闲后读取、重连取消及参数限制，断言失败清理会先取消长期读取。
 
 x86/x64 MinGW、pipe-only CMake 构建与本机三项既有 CTest 通过；新增原生测试未 Windows 执行。仍需接入焦点/activation 与 Engine 输入链路，不宣称 Windows 端完成，CI 保持禁用。
+
+### 第三十四条功能：Windows Worker 焦点确认编码
+
+依据固定上游 TSF/Server 消费路径，FocusSessionReady 回显 TSF 激活请求的 focus token，而非 Server epoch。新增纯编码器，拒绝零，完整支持 uint64 十进制 UTF-16，并清零帧尾和终止符。焦点授权、注册代次和发送顺序仍由后续路由状态机负责。
+
+本机三项 CTest 通过，编码新增精确字节与 32/64 位边界测试；原生注册器测试增加 worker 确认帧发送/读取，x86/x64 交叉链接通过，未 Windows 执行。继续 Windows 焦点状态与 Engine 输入链路，CI 保持禁用。
