@@ -9,6 +9,10 @@ for arch in x86_64 i686; do
   output="$repo_root/target/windows-cross/$arch"
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
+  for source in InputQueue.cpp tests/input_queue.cpp; do
+    "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
+      -Ivendor/MSIME-Engine/contracts -I"$json_include" -c "platforms/windows/$source" -o "$output/$(basename "$source").o"
+  done
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/tests/focus_router.cpp -o "$output/focus-router.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
