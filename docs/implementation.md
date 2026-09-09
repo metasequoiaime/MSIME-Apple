@@ -157,3 +157,9 @@ Debian bookworm arm64 容器构建真实共享 Rust/C++ 动态库和 IBus 1.5.27
 按新优先级转入 Windows。ServerSession 消费固定上游 TSF 键包并调用共享 C API，限定 Server 输入队列线程、客户端和 activation epoch；不在注入的 TSF DLL 加载引擎。候选选择和偏好延迟仍归共享层；忽略包中复制的拼音状态，采用布局转换后的 wch，数字小键盘规范化后走共享选词，既有 TSF 的本地 Shift/Escape 取消不回按键回复。
 
 macOS 链接真实 Rust/C++ 库运行边界测试通过，覆盖 Unicode 上屏、真实固定词库的第二页数字选词、配置延迟应用和线程/客户端/焦点拒绝；Windows x86/x64 MinGW 对象交叉编译验证适配器、测试与上游线格式断言。本机没有已配置的 Windows 虚拟机，未执行 Windows Rust 链接、TSF 注册或系统编辑器验收。Named Pipe、回复编码、路由发送前复核和原生候选窗仍是后续 Windows 工作，不将本阶段当作 Windows 端已完成。CI 继续禁用。
+
+### 第二十四条功能：Windows 旧协议回复编码
+
+依据现有 TSF 的候选、标点、分段与 UILess 消费路径，新增显式回复编码器，不更改固定上游 opcode。UTF-8 严格转 UTF-16，容量按 199 个 UTF-16 单元计数；超长、坏编码、NUL 和无法无歧义表示的分隔字段明确失败，不截断文本。发送字节逐字段以小端生成，零填充协议空隙，不直接发送结构体填充区。
+
+本机两项 CTest（会话与编码）及真实固定词库会话回归通过；编码测试覆盖两种完整提交类型、分段字段、UILess 页、高亮、字节序、代理对和容量边界。x86/x64 MinGW 编译上游契约和适配器，并成功链接纯编码测试 PE；未执行 Windows 二进制，不代表实际 TSF 验收。回复路径选择、增量提交到旧 DLL 完整前缀的编排和 Named Pipe 收发仍待实现，继续优先 Windows，CI 保持禁用。
