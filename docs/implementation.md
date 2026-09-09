@@ -103,3 +103,9 @@ C API 接收版本化 PreferencesSnapshot，Apple 与 JNI 桥接同步暴露。�
 无会话句柄的 C 文件读取接口复用 PreferencesStore；Apple 桥接后台读文件/锁，主线程应用快照。macOS 活跃期间每秒轮询且不重叠，失活停止；bootstrap 显式记录偏好目录。Tauri 支持绝对路径 MSIME_CLIENT_STATE_DIR，开发时可与宿主共享隔离配置，无需复制字段或依赖 Tauri 常驻。
 
 宿主接口 6 项测试、Foundation 异步读取和损坏文件保护测试、macOS 构建与文本适配测试通过。真实词库 preferences_latency 探针验证新页大小和 ASCII 标点，本次本机 debug 单次创建 2.58 ms、重建 1.57 ms；非统计基准或跨平台性能保证。尚未安装系统输入源验收设置窗口到编辑器的完整交互，移动平台文件分发与其他系统宿主仍待接入。CI 继续禁用。
+
+### 第十六条功能：Android 系统服务源码
+
+新增 InputMethodService、BIND_INPUT_METHOD manifest、软键盘和共享候选/翻页入口；InputConnection 只负责提交和预编辑，EditorBridge 维持写入顺序与失败短路。密码/无建议/非文本字段不创建 Engine，禁用个性化学习的编辑器关闭学习。外部选区变化结束标记并取消引擎组合，避免空组合覆盖编辑器新选区。
+
+本机 Android API 35 全部 Java 编译、aapt2 manifest/resource 检查通过；JVM 文本适配测试验证分段提交、取消、失败、外部选区与敏感字段策略。没有本机 NDK，不提供 Android 原生库或可安装 APK；桌面 JNI 不作为设备证明。资源准备、各 ABI 原生构建、APK 与设备生命周期/编辑器验收继续待办，CI 未启用。
