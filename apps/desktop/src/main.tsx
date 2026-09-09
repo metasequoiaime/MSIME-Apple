@@ -6,7 +6,7 @@ import "@msime/ui/styles.css";
 
 const client: SettingsClient = {
   load: () => {
-    if (!isTauri()) return Promise.reject(new Error("请通过桌面应用打开设置。浏览器预览不会写入本地配置。"));
+    if (!isTauri()) return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
     return invoke<Snapshot>("load_preferences");
   },
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),

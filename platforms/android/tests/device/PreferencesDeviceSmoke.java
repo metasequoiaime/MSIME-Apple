@@ -25,6 +25,9 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
         try {
             stage = "baseline preferences";
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            // Clear the previous editor's focus before the instrumentation-driven
+            // rebind; otherwise its delayed hide request can hide the new keyboard.
+            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
             // Instrumenting the IME package restarts its process. Rebind the system
             // service before opening the editor; this fixture runs only on the guarded AVD.
             shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
@@ -73,13 +76,19 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             await(key("MSIME Preview"));
             tap(key(","));
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
+        } catch (Exception | AssertionError error) {
+            shell("screencap -p /data/local/tmp/msime-preferences-failure.png");
+            throw error;
         } finally {
             // Stop editor first; the next session starts with the restored configuration.
             shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }
-    private void typePhrase() throws Exception { for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key)); }
+    private void typePhrase() throws Exception {
+        String prefix = stage;
+        for (String key : new String[] {"n", "i", "h", "a", "o"}) { stage = prefix + ": " + key; tap(key(key)); }
+    }
     private void shell(String command) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
             byte[] buffer = new byte[1024];

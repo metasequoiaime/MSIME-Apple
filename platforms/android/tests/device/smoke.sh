@@ -5,13 +5,14 @@ cd "$repo_root"
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 adb="$android_sdk/platform-tools/adb"
 serial=${1:-emulator-5580}
+[[ $# -le 2 && ( -z ${2:-} || ${2:-} == --settings ) ]] || { echo "usage: smoke.sh [emulator-5580] [--settings]" >&2; exit 1; }
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
 avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
 [[ $("$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { echo "Test AVD has not booted" >&2; exit 1; }
 bash platforms/android/tests/device/build-editor.sh
-"$adb" -s "$serial" install -r target/android/msime-client-preview.apk
-"$adb" -s "$serial" install -r target/android/editor-test.apk
+"$adb" -s "$serial" install --no-incremental -r target/android/msime-client-preview.apk
+"$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"
 dump() {
@@ -43,4 +44,11 @@ printf '%s\n' "$result"
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.PreferencesDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Preferences acceptance failed" >&2; exit 1; }
+if [[ ${2:-} == --settings ]]; then
+  for suite in SettingsDeviceSmoke SettingsLifecycleSmoke; do
+    result=$("$adb" -s "$serial" shell am instrument -w "app.msime.client.test/app.msime.client.test.$suite")
+    printf '%s\n' "$result"
+    [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared settings acceptance failed" >&2; exit 1; }
+  done
+fi
 echo "Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"

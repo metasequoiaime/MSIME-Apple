@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.msime_desktop" parent="Theme.MaterialComponents.Light.NoActionBar" />
+</resources>

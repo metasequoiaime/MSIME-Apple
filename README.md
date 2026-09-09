@@ -10,9 +10,9 @@
 - `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
-- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，已接入真实本地配置。
+- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
-- `platforms/`：JNI 消费边界、macOS IMK 预览宿主、Android InputMethodService 与含 arm64/x86_64 原生库的开发 APK 构建；Android 设备验收、Windows/Linux 系统入口和 iOS 扩展仍待实现。
+- `platforms/`：JNI 消费边界、macOS IMK 预览宿主、Android InputMethodService 与开发 APK 构建；Android 15 arm64 模拟器已验证系统输入和共享设置，真机、Windows/Linux 系统入口及 iOS 扩展仍待实现。
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
@@ -30,7 +30,9 @@ pnpm tauri dev
 
 桌面构建需要 [Tauri 平台依赖](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 构建开发二进制；暂不签名、安装或发布。普通浏览器中只显示无法访问本地配置的提示，不模拟保存成功。
 
-设置默认通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存，也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。新 macOS 预览宿主可后台读取同一目录，输入中延迟应用；这不修改旧产品的已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
+桌面设置默认通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存，也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。新 macOS 预览宿主可后台读取同一目录，输入中延迟应用；这不修改旧产品的已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
+
+Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 尚未完成对应应用与键盘扩展接入。
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。
 
