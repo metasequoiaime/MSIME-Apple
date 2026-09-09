@@ -1,10 +1,45 @@
 #include "CandidateWindow.h"
+#include "CandidateLayout.h"
 #include <algorithm>
 
 namespace msime::windows {
 namespace {
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates";
-constexpr int row_height = 28;
+// Affect only this UI operation; restore the caller's thread context even on
+// failure. The created HWND retains PMv2 awareness for its entire lifetime.
+struct DpiScope {
+  DPI_AWARENESS_CONTEXT previous;
+  DpiScope()
+      : previous(SetThreadDpiAwarenessContext(
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+    if (!previous)
+      throw std::runtime_error("Per-monitor DPI unavailable");
+  }
+  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
+};
+struct Font {
+  HDC dc;
+  HFONT font;
+  HGDIOBJ previous;
+  Font(HDC target, int height)
+      : dc(target), font(CreateFontW(-height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+                                     FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                     CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                     DEFAULT_PITCH, L"Segoe UI")),
+        previous(nullptr) {
+    if (!font)
+      throw std::runtime_error("Candidate font unavailable");
+    previous = SelectObject(dc, font);
+    if (!previous || previous == HGDI_ERROR) {
+      DeleteObject(font);
+      throw std::runtime_error("Candidate font selection failed");
+    }
+  }
+  ~Font() {
+    SelectObject(dc, previous);
+    DeleteObject(font);
+  }
+};
 std::wstring wide(const std::string &text) {
   if (text.size() > 4096)
     throw std::invalid_argument("Oversized window text");
@@ -34,6 +69,7 @@ struct Painting {
 CandidateWindow::CandidateWindow(Reader reader) : reader_(std::move(reader)) {
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
+  DpiScope dpi_scope;
   WNDCLASSEXW descriptor{};
   descriptor.cbSize = sizeof(descriptor);
   descriptor.lpfnWndProc = procedure;
@@ -59,6 +95,7 @@ void CandidateWindow::hide() {
   ShowWindow(window_, SW_HIDE);
 }
 void CandidateWindow::refresh() {
+  DpiScope dpi_scope;
   if (failed_) {
     hide();
     return;
@@ -70,7 +107,8 @@ void CandidateWindow::refresh() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  if (shown_ && shown_->session == value->session &&
+  if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&
+      shown_->session == value->session &&
       shown_->generation == value->generation && shown_->x == value->x &&
       shown_->y == value->y && shown_->lease.epoch == value->lease.epoch &&
       shown_->lease.token == value->lease.token &&
@@ -83,24 +121,28 @@ void CandidateWindow::refresh() {
           &monitor))
     throw std::runtime_error("Candidate monitor unavailable");
   const auto &work = monitor.rcWork;
-  const int width = static_cast<int>((std::min)(420L, work.right - work.left));
-  const int height = static_cast<int>(
-      (std::min)(static_cast<LONG>((value->candidates.size() + 1) * row_height +
-                                   8),
-                 work.bottom - work.top));
-  if (width <= 0 || height <= 0)
-    throw std::runtime_error("Invalid monitor bounds");
-  const int x = (std::clamp)(value->x, static_cast<int>(work.left),
-                             static_cast<int>(work.right) - width);
-  const int y = (std::clamp)(value->y, static_cast<int>(work.top),
-                             static_cast<int>(work.bottom) - height);
-  if (!SetWindowPos(window_, HWND_TOPMOST, x, y, width, height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW))
+  // Move a hidden one-pixel window onto the target monitor first. Its own DPI,
+  // rather than process-global or previous-monitor DPI, determines the layout.
+  if (MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST) !=
+      MonitorFromPoint({value->x, value->y}, MONITOR_DEFAULTTONEAREST)) {
+    hide();
+    if (!SetWindowPos(window_, nullptr, work.left, work.top, 1, 1,
+                      SWP_NOACTIVATE | SWP_NOZORDER))
+      throw std::runtime_error("Candidate monitor move failed");
+  }
+  const auto dpi = GetDpiForWindow(window_);
+  const auto bounds =
+      candidate_bounds(value->x, value->y, work.left, work.top, work.right,
+                       work.bottom, dpi, value->candidates.size());
+  if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
+                    bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
   shown_ = value;
+  shown_dpi_ = dpi;
   InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::paint() {
+  DpiScope dpi_scope;
   Painting painting(window_);
   if (!painting.dc)
     throw std::runtime_error("Candidate painting unavailable");
@@ -114,17 +156,19 @@ void CandidateWindow::paint() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  const auto previous =
-      SelectObject(painting.dc, GetStockObject(DEFAULT_GUI_FONT));
+  const auto metrics = candidate_metrics(GetDpiForWindow(window_));
+  Font font(painting.dc, metrics.font);
   SetBkMode(painting.dc, TRANSPARENT);
   auto line = [&](const std::wstring &text, size_t row, bool highlighted) {
-    RECT rect{4, static_cast<LONG>(4 + row * row_height), bounds.right - 4,
-              static_cast<LONG>(4 + (row + 1) * row_height)};
+    RECT rect{metrics.padding,
+              static_cast<LONG>(metrics.padding + row * metrics.row),
+              bounds.right - metrics.padding,
+              static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
     if (highlighted)
       FillRect(painting.dc, &rect, GetSysColorBrush(COLOR_HIGHLIGHT));
     SetTextColor(painting.dc, GetSysColor(highlighted ? COLOR_HIGHLIGHTTEXT
                                                       : COLOR_WINDOWTEXT));
-    rect.left += 4;
+    rect.left += metrics.padding;
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
   };
@@ -132,7 +176,6 @@ void CandidateWindow::paint() {
   for (size_t i = 0; i < value->candidates.size(); ++i)
     line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
          i + 1, value->candidates[i].highlighted);
-  SelectObject(painting.dc, previous);
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
@@ -154,6 +197,9 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 1;
       case WM_DISPLAYCHANGE:
       case WM_SETTINGCHANGE:
+      case WM_DPICHANGED:
+        // The next refresh recomputes from the authenticated caret anchor;
+        // do not recursively reposition from inside SetWindowPos's callback.
         self->shown_.reset();
         return 0;
       case WM_PAINT:

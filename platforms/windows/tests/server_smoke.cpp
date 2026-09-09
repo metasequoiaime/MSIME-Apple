@@ -43,7 +43,13 @@ int main() {
   try {
     {
       std::optional<CandidatePresentation> value;
+      const auto original_dpi = GetThreadDpiAwarenessContext();
       CandidateWindow window([&] { return value; });
+      require(AreDpiAwarenessContextsEqual(original_dpi,
+                                           GetThreadDpiAwarenessContext()));
+      require(AreDpiAwarenessContextsEqual(
+          GetWindowDpiAwarenessContext(window.handle()),
+          DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
       require(!IsWindowVisible(window.handle()));
       require((GetWindowLongPtrW(window.handle(), GWL_EXSTYLE) &
                WS_EX_NOACTIVATE) != 0);
@@ -64,6 +70,12 @@ int main() {
       require(GetForegroundWindow() == foreground);
       window.refresh();
       require(!GetUpdateRect(window.handle(), nullptr, FALSE));
+      require(AreDpiAwarenessContextsEqual(original_dpi,
+                                           GetThreadDpiAwarenessContext()));
+      SendMessageW(window.handle(), WM_DPICHANGED, MAKELONG(192, 192), 0);
+      window.refresh();
+      require(GetUpdateRect(window.handle(), nullptr, FALSE));
+      UpdateWindow(window.handle());
       value.reset();
       InvalidateRect(window.handle(), nullptr, FALSE);
       UpdateWindow(window.handle());

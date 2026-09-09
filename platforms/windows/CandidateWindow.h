@@ -25,6 +25,7 @@ private:
   Reader reader_;
   HWND window_ = nullptr;
   std::optional<CandidatePresentation> shown_;
+  unsigned shown_dpi_ = 0;
   bool failed_ = false;
 };
 } // namespace msime::windows
