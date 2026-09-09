@@ -57,7 +57,7 @@ jobs:
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install boost-headers fmt spdlog sqlite3 --triplet x64-windows-static-md --classic
+          vcpkg install boost-algorithm fmt spdlog sqlite3 --triplet x64-windows-static-md --classic
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
           "VCPKG_TARGET_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
       - if: runner.os == 'macOS'
