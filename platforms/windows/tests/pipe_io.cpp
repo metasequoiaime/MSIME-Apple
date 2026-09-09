@@ -2,6 +2,8 @@
 #include "PipeIo.h"
 #include "PipeListener.h"
 #include "PipePeer.h"
+#include "PipeRegistry.h"
+#include "ReplyCodec.h"
 #include "windows_ipc.h"
 #include <aclapi.h>
 #include <chrono>
@@ -213,6 +215,8 @@ void handshakes() {
                                     ? HandshakeStatus::Ready
                                     : HandshakeStatus::ProtocolRejected));
       require(result.protocol.legacy == (mode == 2));
+      if (result.status == HandshakeStatus::Ready)
+        require(result.io.complete());
       if (mode >= 2) {
         DWORD available = 0;
         require(PeekNamedPipe(reverse.client.value, nullptr, 0, nullptr,
@@ -248,9 +252,104 @@ void handshakes() {
             result.io.status == IoStatus::Cancelled && !result.peer);
   }
 }
+void registries() {
+  PipeRegistry registry(1);
+  const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 33u;
+  const auto register_reverse = [&](Pair &pipe, uint32_t role,
+                                    uint64_t client) {
+    auto task = std::async(std::launch::async, [&] {
+      return registry.register_reverse(std::move(pipe.server.owner), role,
+                                       2000);
+    });
+    FanyImePipeHello hello{};
+    hello.client_id = client;
+    hello.pipe_role = role;
+    require(
+        write_frame(pipe.client.value, fixture_bytes(hello), 2000).complete());
+    auto ack =
+        read_frame(pipe.client.value,
+                   role == 1 ? sizeof(FanyImeNamedpipeDataToTsf)
+                             : sizeof(FanyImeNamedpipeDataToTsfWorkerThread),
+                   2000);
+    auto result = task.get();
+    require((result.status == RegistryStatus::Ready) == ack.complete());
+    return result;
+  };
+  Pair reply, worker, main;
+  auto reply_registration = register_reverse(reply, FanyImePipeRole::ToTsf, id);
+  require(reply_registration.status == RegistryStatus::Ready);
+  auto worker_registration =
+      register_reverse(worker, FanyImePipeRole::ToTsfWorkerThread, id);
+  require(worker_registration.status == RegistryStatus::Ready);
+  const auto bytes = *wire_bytes(preedit_reply(91, "test"));
+  const std::vector<uint8_t> frame(bytes.begin(), bytes.end());
+  require(
+      !registry.send(worker_registration.ticket, 1, frame, 2000).complete());
+  auto handshake = std::async(std::launch::async, [&] {
+    const auto input =
+        read_frame(main.server.value, sizeof(FanyImeNamedpipeData), 2000);
+    require(input.complete());
+    FanyImeNamedpipeData hello{};
+    std::memcpy(&hello, input.frame.data(), sizeof(hello));
+    return registry.register_main(std::move(main.server.owner), hello,
+                                  FanyImeProtocol::RequiredCapabilities, 2000);
+  });
+  const auto hello = FanyImeProtocol::Hello(id, 90);
+  require(
+      write_frame(main.client.value, fixture_bytes(hello), 2000).complete());
+  auto ack =
+      read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000);
+  require(ack.complete() && ack.frame[0] == FanyImeReplyType::ProtocolReady);
+  auto registered = handshake.get();
+  require(registered.status == RegistryStatus::Ready);
+  auto wrong_ticket = registered.ticket;
+  ++wrong_ticket.generations[0];
+  require(!registry.send(wrong_ticket, 1, frame, 2000).complete());
+  auto sending = std::async(std::launch::async, [&] {
+    return registry.send(registered.ticket, FanyImePipeRole::ToTsf, frame,
+                         2000);
+  });
+  auto response =
+      read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000);
+  require(sending.get().complete() && response.complete() &&
+          response.frame == frame);
+  auto reading = std::async(std::launch::async, [&] {
+    return registry.read_main(registered.ticket, 2000);
+  });
+  FanyImeNamedpipeData key{};
+  key.event_type = FanyImePipeEventType::KeyEvent;
+  key.client_id = id;
+  key.request_id = 91;
+  key.wch = L'a';
+  require(write_frame(main.client.value, fixture_bytes(key), 2000).complete());
+  require(reading.get().frame == fixture_bytes(key));
+  auto pending = std::async(std::launch::async, [&] {
+    return registry.read_main(registered.ticket, 2000);
+  });
+  require(pending.wait_for(std::chrono::milliseconds(30)) ==
+          std::future_status::timeout);
+  Pair replacement;
+  auto replaced = register_reverse(replacement, FanyImePipeRole::ToTsf, id);
+  require(replaced.status == RegistryStatus::Ready);
+  require(pending.get().status == IoStatus::Cancelled);
+  require(!registry.send(registered.ticket, 1, frame, 2000).complete());
+  require(!registry.remove(registered.ticket, 1));
+  require(!registry.remove(registered.ticket, 0));
+  Pair excess;
+  require(register_reverse(excess, 1, id + 1).status ==
+          RegistryStatus::Capacity);
+  require(registry.remove(replaced.ticket, 1));
+  require(registry.remove(worker_registration.ticket, 2));
+  Pair reclaimed;
+  require(register_reverse(reclaimed, 1, id + 1).status ==
+          RegistryStatus::Ready);
+  registry.shutdown();
+  require(!registry.send(registered.ticket, 1, frame, 2000).complete());
+}
 } // namespace
 int main() {
   try {
+    registries();
     listeners();
     handshakes();
     {

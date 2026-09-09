@@ -5,6 +5,7 @@
 
 namespace msime::windows {
 enum class HandshakeStatus {
+  Verified,
   Ready,
   InvalidArgument,
   TransportError,
@@ -32,6 +33,11 @@ struct MainHandshake {
 // with uncertain delivery on the same registration.
 ReverseHandshake accept_reverse(HANDLE pipe, uint32_t expected_role,
                                 DWORD timeout_ms, HANDLE cancel = nullptr);
+// Reads and authenticates only; returns Verified, never Ready, and sends no
+// ACK. The registry uses this to reserve capacity and serialize
+// ACK/publication.
+ReverseHandshake verify_reverse(HANDLE pipe, uint32_t expected_role,
+                                DWORD timeout_ms, HANDLE cancel = nullptr);
 // reply_pipe MUST be a Ready ToTsf endpoint, not the worker endpoint, belonging
 // to reverse_peer/client_id. Hold its registration/lifetime guard throughout.
 // Capabilities are supplied by the actual dispatcher; no optional feature is
@@ -40,4 +46,11 @@ MainHandshake accept_main(HANDLE main_pipe, HANDLE reply_pipe,
                           const PipePeer &reverse_peer, uint64_t client_id,
                           uint32_t implemented_capabilities, DWORD timeout_ms,
                           HANDLE cancel = nullptr);
+// Same checks/ACK as accept_main, for a hello already read as one exact frame
+// by an intake worker. Caller keeps the same connection exclusively owned.
+MainHandshake negotiate_main(HANDLE main_pipe, HANDLE reply_pipe,
+                             const PipePeer &reverse_peer, uint64_t client_id,
+                             const FanyImeNamedpipeData &hello,
+                             uint32_t implemented_capabilities,
+                             DWORD timeout_ms, HANDLE cancel = nullptr);
 } // namespace msime::windows
