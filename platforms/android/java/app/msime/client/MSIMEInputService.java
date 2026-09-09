@@ -1,6 +1,8 @@
 package app.msime.client;
 
 import android.inputmethodservice.InputMethodService;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.KeyEvent;
 import android.view.inputmethod.EditorInfo;
@@ -12,6 +14,8 @@ import android.widget.HorizontalScrollView;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -26,6 +30,12 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
+    private boolean allowLearning;
+    private String preferencesNotice = "";
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
+    private final PreferencesReloader preferencesReloader = new PreferencesReloader(
+        (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
 
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
@@ -50,17 +60,21 @@ public final class MSIMEInputService extends InputMethodService {
         connection = getCurrentInputConnection();
         bridge = new EditorBridge();
         shift = false;
+        allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
+        preferencesNotice = "";
         message = "直接输入";
         if (info != null && connection != null && EditorPolicy.useEngine(info.inputType)) {
             try {
                 File file = new File(getFilesDir(), "runtime-options.json");
                 if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
                 JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
-                if (!EditorPolicy.allowLearning(info.imeOptions)) options.getJSONObject("preferences").put("learning", false);
+                if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
                 apply(NativeClient.focus(session, true));
                 message = "MSIME Preview";
+                String directory = options.optString("preferences_directory", "");
+                if (!directory.isEmpty() && new File(directory).isAbsolute()) preferencesReloader.start(directory, this::reloadPreferences);
             } catch (Exception | LinkageError error) {
                 stop(false);
                 message = "共享运行时未就绪：仅直接输入";
@@ -70,10 +84,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() { stop(true); connection = null; super.onFinishInput(); }
-    @Override public void onDestroy() { stop(false); connection = null; super.onDestroy(); }
+    @Override public void onDestroy() { stop(false); preferencesWorker.shutdown(); connection = null; super.onDestroy(); }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     private void stop(boolean finish) {
+        preferencesReloader.stop();
         if (session != 0) {
             try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
@@ -82,6 +97,25 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (connection != null) bridge.abandon(sink());
         view = null;
+    }
+
+    private void reloadPreferences(String response) {
+        if (session == 0) return;
+        String previousView = view == null ? "" : view.toString();
+        String previousNotice = preferencesNotice;
+        try {
+            if (response == null) throw new JSONException("Preferences unavailable");
+            JSONObject snapshot = value(response);
+            // Editor privacy restrictions apply to every update, not only creation.
+            if (!allowLearning) snapshot.getJSONObject("preferences").put("learning", false);
+            JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
+            view = result.getJSONObject("view");
+            preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
+        } catch (JSONException | LinkageError error) {
+            // Never replace the working session or log preferences/native responses.
+            preferencesNotice = " · 设置读取或应用失败，保留当前设置";
+        }
+        if (!previousNotice.equals(preferencesNotice) || !previousView.equals(view == null ? "" : view.toString())) render();
     }
 
     private boolean apply(String response) throws JSONException {
@@ -195,7 +229,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void render() {
-        if (status != null) status.setText(message + (shift ? " · Shift" : ""));
+        if (status != null) status.setText(message + preferencesNotice + (shift ? " · Shift" : ""));
         if (candidates == null) return;
         candidates.removeAllViews();
         if (view == null) return;

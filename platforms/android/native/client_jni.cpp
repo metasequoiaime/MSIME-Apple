@@ -20,6 +20,15 @@ static jbyteArray response(JNIEnv *env, char *value) {
 }
 
 extern "C" {
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_loadPreferencesRaw(JNIEnv *env, jclass, jbyteArray directory) {
+    if (!directory) return response(env, msime_client_load_preferences(nullptr, 0));
+    jsize length = env->GetArrayLength(directory);
+    jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_load_preferences(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_prepareHostRaw(JNIEnv *env, jclass, jbyteArray options) {
     if (!options) return response(env, msime_client_prepare_host(nullptr, 0));
     jsize length = env->GetArrayLength(options);

@@ -40,4 +40,7 @@ done
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
-echo "Dedicated Android AVD: install, resource setup, nihao phrase commit, deletion and password direct mode passed"
+result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.PreferencesDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Preferences acceptance failed" >&2; exit 1; }
+echo "Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"

@@ -12,6 +12,14 @@ public final class NativeSmoke {
         }
         Path root = Files.createTempDirectory("msime-jni-");
         try {
+            Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));
+            success(NativeClient.loadPreferences(preferences.toString()));
+            Path saved = preferences.resolve("preferences.json");
+            Files.writeString(saved, "broken");
+            if (!NativeClient.loadPreferences(preferences.toString()).contains("\"ok\":false") || !Files.readString(saved).equals("broken")) {
+                throw new AssertionError("malformed preferences were accepted or overwritten");
+            }
+            if (!NativeClient.loadPreferences("relative").contains("\"ok\":false")) throw new AssertionError("relative preferences directory accepted");
             StringBuilder options = new StringBuilder("{\"api_version\":1,");
             for (String name : new String[] { "resources", "user_data", "cache", "dictionaries" }) {
                 Path directory = Files.createDirectory(root.resolve(name + "-🌲"));
@@ -28,6 +36,13 @@ public final class NativeSmoke {
             success(NativeClient.character(handle, 'U', true));
             for (char value : "1f332".toCharArray()) success(NativeClient.character(handle, value, false));
             String snapshot = "{\"format_version\":1,\"revision\":1,\"preferences\":{\"scheme\":\"quanpin\",\"candidate_page_size\":2,\"learning\":false,\"chinese_punctuation\":false}}";
+            Files.writeString(saved, snapshot);
+            var loaded = new java.util.concurrent.atomic.AtomicReference<String>();
+            Thread reader = new Thread(() -> loaded.set(NativeClient.loadPreferences(preferences.toString())));
+            reader.start();
+            reader.join();
+            success(loaded.get());
+            if (!loaded.get().contains("\"revision\":1")) throw new AssertionError("background reader lost revision");
             String queued = NativeClient.updatePreferences(handle, snapshot);
             success(queued);
             if (!queued.contains("\"deferred\":true")) throw new AssertionError(queued);
