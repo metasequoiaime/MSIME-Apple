@@ -1,4 +1,5 @@
 #include "FocusGate.h"
+#include "FocusRouter.h"
 #include "PipeHandshake.h"
 #include "PipeIntake.h"
 #include "PipeIo.h"
@@ -317,7 +318,15 @@ void registries(int malformed = 0) {
   require(registered.status == RegistryStatus::Ready);
   const auto fence = *focus_ready_bytes(90);
   FocusGate focus;
-  const auto activation = *focus.begin(registered.ticket, 90);
+  FocusRouter router(focus, 1);
+  require(router.connected(registered.ticket).accepted);
+  FanyImeNamedpipeData activated{};
+  activated.client_id = id;
+  activated.event_type = FanyImePipeEventType::ClientActivated;
+  activated.request_id = 90;
+  auto routed = router.dispatch(registered.ticket, activated);
+  require(routed.activation.has_value());
+  const auto activation = *routed.activation;
   auto fencing = std::async(std::launch::async, [&] {
     IoResult result;
     require(focus.acknowledge(activation.pending, [&] {
@@ -331,6 +340,7 @@ void registries(int malformed = 0) {
       worker.client.value, sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 2000);
   require(fencing.get().complete() && focus_ack.complete() &&
           focus_ack.frame == fence);
+  require(router.confirmed(activation.pending));
   auto wrong_ticket = registered.ticket;
   ++wrong_ticket.generations[0];
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());

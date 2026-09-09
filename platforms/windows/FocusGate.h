@@ -14,6 +14,7 @@ struct FocusLease {
 struct FocusChange {
   std::optional<FocusLease> previous;
   FocusLease pending;
+  bool previous_ready = false;
 };
 // Mechanism only: caller authenticates lifecycle events and chooses when an
 // activation changes. Engine composition still belongs to ServerSession.
@@ -31,7 +32,7 @@ public:
       ready_ = false;
       return std::nullopt;
     }
-    FocusChange change{current_, {ticket, ++next_epoch_, token}};
+    FocusChange change{current_, {ticket, ++next_epoch_, token}, ready_};
     current_ = change.pending;
     ready_ = false;
     return change;
