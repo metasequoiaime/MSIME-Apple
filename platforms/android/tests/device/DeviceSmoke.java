@@ -15,9 +15,9 @@ import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.function.Predicate;
 
 /** Device-only synthetic acceptance; reads both editor and IME accessibility windows. */
-public final class DeviceSmoke extends Instrumentation {
-    private UiAutomation automation;
-    private String stage = "launch";
+public class DeviceSmoke extends Instrumentation {
+    protected UiAutomation automation;
+    protected String stage = "launch";
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
@@ -26,6 +26,17 @@ public final class DeviceSmoke extends Instrumentation {
             AccessibilityServiceInfo info = automation.getServiceInfo();
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
+            runChecks();
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + successDescription() + "\n");
+            finish(Activity.RESULT_OK, result);
+        } catch (Exception | AssertionError error) {
+            // Only fixed test-stage messages, never serialize editor contents.
+            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + error.getClass().getSimpleName() + ")" + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
+            finish(Activity.RESULT_CANCELED, result);
+        }
+    }
+    protected String successDescription() { return "phrase commit, deletion, password direct input"; }
+    protected void runChecks() throws Exception {
             Intent intent = new Intent(getTargetContext(), EditorActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivitySync(intent);
@@ -45,22 +56,15 @@ public final class DeviceSmoke extends Instrumentation {
             stage = "password direct input";
             tap(key("n"));
             await(field("msime-test-password").and(node -> node.getText() != null && node.getText().length() == 1));
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: phrase commit, deletion, password direct input\n");
-            finish(Activity.RESULT_OK, result);
-        } catch (Exception | AssertionError error) {
-            // Only fixed test-stage messages, never serialize editor contents.
-            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + error.getClass().getSimpleName() + ")" + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
-            finish(Activity.RESULT_CANCELED, result);
-        }
     }
-    private Predicate<AccessibilityNodeInfo> field(String description) {
+    protected Predicate<AccessibilityNodeInfo> field(String description) {
         return node -> equalsText("app.msime.client.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
     }
-    private Predicate<AccessibilityNodeInfo> key(String text) {
+    protected Predicate<AccessibilityNodeInfo> key(String text) {
         return node -> equalsText("app.msime.client.preview", node.getPackageName()) && equalsText(text, node.getText());
     }
-    private static boolean equalsText(String expected, CharSequence actual) { return actual != null && expected.contentEquals(actual); }
-    private AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
+    protected static boolean equalsText(String expected, CharSequence actual) { return actual != null && expected.contentEquals(actual); }
+    protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
         if (node == null) return null;
         if (node.isVisibleToUser() && match.test(node)) return node;
         for (int index = 0; index < node.getChildCount(); index++) {
@@ -69,7 +73,7 @@ public final class DeviceSmoke extends Instrumentation {
         }
         return null;
     }
-    private AccessibilityNodeInfo await(Predicate<AccessibilityNodeInfo> match) {
+    protected AccessibilityNodeInfo await(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             for (AccessibilityWindowInfo window : automation.getWindows()) {
@@ -80,7 +84,7 @@ public final class DeviceSmoke extends Instrumentation {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Expected synthetic UI state was not observed");
     }
-    private void tap(Predicate<AccessibilityNodeInfo> match) throws java.util.concurrent.TimeoutException {
+    protected void tap(Predicate<AccessibilityNodeInfo> match) throws java.util.concurrent.TimeoutException {
         await(match);
         automation.waitForIdle(500, 5000);
         Rect bounds = new Rect();

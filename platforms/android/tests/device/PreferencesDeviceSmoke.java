@@ -1,0 +1,95 @@
+package app.msime.client.test;
+
+import android.os.ParcelFileDescriptor;
+import android.util.AtomicFile;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import org.json.JSONObject;
+
+/** Signed fixture targets the preview UID only; no exported preference-writing API. */
+public final class PreferencesDeviceSmoke extends DeviceSmoke {
+    @Override protected String successDescription() { return "live preferences deferral, page size, punctuation, malformed-file preservation and recovery"; }
+    @Override protected void runChecks() throws Exception {
+        File root = getTargetContext().getFilesDir();
+        JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
+        File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
+        if (!directory.toPath().startsWith(root.getCanonicalFile().toPath())) throw new AssertionError("Preferences escaped the preview sandbox");
+        File preferences = new File(directory, "preferences.json");
+        byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
+        JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
+            .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
+                .put("candidate_page_size", 5).put("chinese_punctuation", true).put("learning", false));
+        try {
+            stage = "baseline preferences";
+            publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            // Instrumenting the IME package restarts its process. Rebind the system
+            // service before opening the editor; this fixture runs only on the guarded AVD.
+            shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+            stage = "baseline editor focus";
+            tap(field("msime-test-plain"));
+            stage = "baseline typing";
+            typePhrase();
+            stage = "baseline five candidates";
+            await(node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("5. "));
+            stage = "active composition defers preferences";
+            snapshot.put("revision", revision + 2);
+            snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
+            publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            await(key("MSIME Preview · 设置将在组词结束后应用"));
+            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            stage = "commit preserves composition";
+            tap(key("空格"));
+            await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
+            await(key("MSIME Preview"));
+            stage = "updated punctuation";
+            tap(key(","));
+            await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
+            stage = "updated page size";
+            typePhrase();
+            await(node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("2. "));
+            for (var window : automation.getWindows()) {
+                if (find(window.getRoot(), node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("3. ")) != null) throw new AssertionError("Old page size remains active");
+            }
+            tap(key("2")); // Shared runtime's page-relative numeric selection, not raw input.
+            await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
+            stage = "malformed preferences preserve working input";
+            byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
+            publish(preferences, broken);
+            await(key("MSIME Preview · 设置读取或应用失败，保留当前设置"));
+            typePhrase();
+            tap(key("空格"));
+            await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好")));
+            if (!java.util.Arrays.equals(broken, Files.readAllBytes(preferences.toPath()))) throw new AssertionError("Malformed file overwritten");
+            stage = "valid preferences recover after read failure";
+            snapshot.put("revision", revision + 3);
+            snapshot.getJSONObject("preferences").put("chinese_punctuation", true);
+            publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            await(key("MSIME Preview"));
+            tap(key(","));
+            await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
+        } finally {
+            // Stop editor first; the next session starts with the restored configuration.
+            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
+        }
+    }
+    private void typePhrase() throws Exception { for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key)); }
+    private void shell(String command) throws Exception {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
+            byte[] buffer = new byte[1024];
+            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
+        }
+    }
+    private void publish(File file, byte[] contents) throws Exception {
+        AtomicFile target = new AtomicFile(file);
+        FileOutputStream output = target.startWrite();
+        try { output.write(contents); target.finishWrite(output); }
+        catch (Exception error) { target.failWrite(output); throw error; }
+    }
+}
