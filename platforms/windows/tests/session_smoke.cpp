@@ -113,6 +113,16 @@ int main(int argc, char **argv) {
       require(initial && focused.view().at("editing_text") == "U",
               "Focused key did not reach Engine");
       const auto pending_view = focused.view();
+      auto updated_preferences = preferences;
+      updated_preferences["candidate_page_size"] = 3;
+      const auto focused_snapshot = Json{
+          {"format_version", 1},
+          {"revision", 1},
+          {"preferences",
+           updated_preferences}}.dump();
+      require(!focused.update_preferences(first.pending, focused_snapshot) &&
+                  focused.view() == pending_view,
+              "Configuration bypassed pending delivery gate");
       ++packet.request_id;
       rejected(
           [&] { focused.key(first.pending, packet, ReplyPath::Composition); });
@@ -125,6 +135,11 @@ int main(int argc, char **argv) {
               "Delivery confirmation failed");
       require(!focused.pending(first.pending),
               "Confirmed reply remained staged");
+      const auto deferred =
+          focused.update_preferences(first.pending, focused_snapshot);
+      require(
+          deferred && deferred->at("deferred") == true,
+          "Focused configuration did not reuse shared composition deferral");
       for (char c : std::string("4e2d")) {
         packet.keycode =
             static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
@@ -145,6 +160,10 @@ int main(int argc, char **argv) {
               "Focused Unicode commit/reply failed");
       require(focused.confirm(first.pending, packet.request_id),
               "Final delivery confirmation failed");
+      const auto applied =
+          focused.update_preferences(first.pending, focused_snapshot);
+      require(applied && applied->at("deferred") == false,
+              "Deferred configuration did not apply after composition ended");
       ++packet.request_id;
       packet.keycode = 'U';
       packet.wch = 'U';
@@ -158,6 +177,9 @@ int main(int argc, char **argv) {
                   !focused.confirm(first.pending, packet.request_id) &&
                   focused.view() == old_view,
               "Obsolete focus task reached Engine or confirmed output");
+      require(!focused.update_preferences(first.pending, focused_snapshot) &&
+                  focused.view() == old_view,
+              "Old focus configuration changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");

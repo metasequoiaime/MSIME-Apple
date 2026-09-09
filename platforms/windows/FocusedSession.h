@@ -21,6 +21,10 @@ public:
   // Recover the staged result without rerunning Engine. This does NOT permit
   // blindly resending a frame whose previous delivery is uncertain.
   std::optional<PendingReply> pending(const FocusLease &lease);
+  // Retry the latest snapshot after a pending reply is confirmed. Do not let
+  // configuration mutate Engine/view state while an earlier result is unsent.
+  std::optional<nlohmann::json> update_preferences(const FocusLease &lease,
+                                                   const std::string &snapshot);
   bool cancel(const FocusLease &lease);
   nlohmann::json view() const { return session_.view(); }
 
