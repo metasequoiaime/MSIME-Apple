@@ -12,7 +12,7 @@
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
 - `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
-- `platforms/`：JNI 消费边界、macOS IMK 预览宿主、Android InputMethodService 与开发 APK 构建；Android 15 arm64 模拟器已验证系统输入和共享设置，真机、Windows/Linux 系统入口及 iOS 扩展仍待实现。
+- `platforms/`：macOS IMK、Android InputMethodService 与 Linux IBus 预览宿主；Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路。真机、Linux 图形桌面、Windows 系统入口及 iOS 扩展仍待验证或实现。
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
@@ -35,6 +35,8 @@ pnpm tauri dev
 Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 尚未完成对应应用与键盘扩展接入。
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。
+
+Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
 
 ## Engine 桥接
 
