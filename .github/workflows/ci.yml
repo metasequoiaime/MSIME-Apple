@@ -71,3 +71,7 @@ jobs:
           native_test_dir=$(mktemp -d)
           mkdir "$native_test_dir/resources" "$native_test_dir/user" "$native_test_dir/cache" "$native_test_dir/dictionaries"
           target/debug/native-smoke "$native_test_dir"
+      - if: runner.os == 'macOS'
+        run: |
+          clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation platforms/apple/MSIMEClientSession.mm platforms/apple/tests/session_smoke.mm -Iplatforms/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
+          target/debug/apple-session-smoke
