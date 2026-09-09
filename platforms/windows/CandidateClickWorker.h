@@ -13,19 +13,19 @@ struct CandidateClick {
 };
 // One worker and one outstanding click. No backlog/retries. Dependencies must
 // outlive stop(); cancel handler I/O before joining when necessary.
-class CandidateClickWorker final {
+template <class Task> class SingleClickWorker final {
 public:
-  using Handler = std::function<void(const CandidateClick &)>;
-  explicit CandidateClickWorker(Handler handler)
+  using Handler = std::function<void(const Task &)>;
+  explicit SingleClickWorker(Handler handler)
       : handler_(std::move(handler)) {
     if (!handler_)
       throw std::invalid_argument("Missing click handler");
     worker_ = std::thread([this] { run(); });
   }
-  ~CandidateClickWorker() { stop(); }
-  CandidateClickWorker(const CandidateClickWorker &) = delete;
-  CandidateClickWorker &operator=(const CandidateClickWorker &) = delete;
-  bool submit(const CandidateClick &click) {
+  ~SingleClickWorker() { stop(); }
+  SingleClickWorker(const SingleClickWorker &) = delete;
+  SingleClickWorker &operator=(const SingleClickWorker &) = delete;
+  bool submit(const Task &click) {
     // Handler/I/O never holds this short state lock.
     std::lock_guard lock(mutex_);
     if (stopping_ || busy_)
@@ -51,7 +51,7 @@ public:
 private:
   void run() noexcept {
     for (;;) {
-      std::optional<CandidateClick> click;
+      std::optional<Task> click;
       {
         std::unique_lock lock(mutex_);
         ready_.wait(lock, [&] { return stopping_ || pending_.has_value(); });
@@ -74,9 +74,10 @@ private:
   Handler handler_;
   std::mutex mutex_;
   std::condition_variable ready_;
-  std::optional<CandidateClick> pending_;
+  std::optional<Task> pending_;
   bool stopping_ = false, busy_ = false;
   std::atomic<bool> failed_{false};
   std::thread worker_;
 };
+using CandidateClickWorker = SingleClickWorker<CandidateClick>;
 } // namespace msime::windows

@@ -4,7 +4,9 @@
 
 ## 已确认候选展示接口
 
-WindowsServer::mode_view() 提供独立于组合的当前宿主模式视图，包含精确焦点 lease、中英、标点和全半角可选状态。激活未报告的字段保持 unknown；StatusSnapshot/FocusRestored 填充全部字段，单项通知仅更新对应项。新焦点不继承旧状态，断开/停机清空；读取尝试获取锁并校验连接，忙碌返回空，不等待管道。request_mode 的 Sent 不更新该视图，必须等宿主通知。此接口是模式控件的数据入口，当前尚未增加可见工具栏。
+预览入口现有原生模式面板：六个明确操作为中文/英文、中文/英文标点、全角/半角，显示宿主确认状态，未知显示问号。固定在当前面板所在显示器工作区右下角，按 DPI 缩放，不抢焦点；失焦或读取忙碌时隐藏。点击按下/抬起核对同一 lease，通过独立单任务后台线程调用 request_mode，忙时丢弃、不重试，不在窗口线程等待管道。此为开发面板，尚无拖动、位置持久化、屏幕阅读器支持或 Windows 实机验收，不等价于完整产品工具栏。
+
+WindowsServer::mode_view() 提供独立于组合的当前宿主模式视图，包含精确焦点 lease、中英、标点和全半角可选状态。激活未报告的字段保持 unknown；StatusSnapshot/FocusRestored 填充全部字段，单项通知仅更新对应项。新焦点不继承旧状态，断开/停机清空；读取尝试获取锁并校验连接，忙碌返回空，不等待管道。request_mode 的 Sent 不更新该视图，必须等宿主通知；此接口现供预览模式面板消费。
 
 windows-server-smoke 现将真实隔离 Named Pipe、预览 KeyHandler、确认候选快照、原生窗口合成鼠标消息及单任务后台选词连在同一测试中，检查 worker 提交帧、内部确认、提交后隐藏和前台窗口不变；保留原有空格键提交测试。该程序已交叉链接，尚未在 Windows 运行；合成鼠标消息也不等于真实鼠标或 TSF 编辑器验收。
 
@@ -26,7 +28,7 @@ WindowsServer::request_selection 只能从外部 I/O 线程调用，串行完成
 
 点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；预览窗口点击已接到控制器，TSF 实机验收仍待完成。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
 
-预览入口现已创建主线程 CandidateWindow，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。当前未实现工具栏、无障碍与 TSF 实机定位验收，不能视为产品级窗口完成。原生窗口回归已交叉编译，尚未在 Windows 运行。
+预览入口现已创建主线程 CandidateWindow，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。另有开发模式面板，完整工具栏、无障碍与 TSF 实机定位验收仍待完成。原生窗口回归已交叉编译，尚未在 Windows 运行。
 
 窗口使用临时线程 Per-Monitor V2 上下文，创建/布局/绘制结束后恢复调用者设置，不修改进程 DPI 默认值；预览窗口要求 Windows 10 1703 或更新版本。坐标按固定 TSF 上游的物理屏幕锚点消费；换屏时先隐藏迁移，再按 GetDpiForWindow 重新计算宽度、行高、间距和字体。WM_DPICHANGED 使布局失效，下一次刷新按当前锚点重新定位，避免在 SetWindowPos 回调里递归布局。独立布局计算验证 96–384 DPI、多候选页、负屏幕原点、极小工作区和整数极值，接受 48–960 DPI；真实混合 DPI 显示器与应用坐标回退仍须 Windows 实机验证，不以合成消息冒充换屏验收。
 
@@ -264,7 +266,7 @@ key_bindings 可选对象示例：
 
 对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。未提供对象则全部关闭，与旧五字段配置一致。以词定字优先于同键翻页，Microsoft 分号及 Unicode 编辑优先级不变。入口使用已捕获的启动快照，修改启动文件需重启；共享 preferences.json 的 Engine 方案监听独立工作，不会把延迟中的方案当作已经应用。此预览配置不替代未来跨端设置和 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
 
-这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口和后台点击选词，工具栏仍未接，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
+这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 ### 配置投递后的自动重试
 

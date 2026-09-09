@@ -1,5 +1,6 @@
 #include "WindowsServer.h"
 #include "CandidateWindow.h"
+#include "ModeWindow.h"
 #include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
 #include "PreviewDispatcher.h"
@@ -43,6 +44,44 @@ struct ClientPipe {
 } // namespace
 int main() {
   try {
+    {
+      std::optional<ModePresentation> state;
+      size_t commands = 0;
+      const WorkerMode expected[] = {WorkerMode::Chinese, WorkerMode::English,
+          WorkerMode::ChinesePunctuation, WorkerMode::AsciiPunctuation,
+          WorkerMode::Fullwidth, WorkerMode::Halfwidth};
+      ModeWindow modes([&] { return state; }, [&](const ModeClick &click) {
+        require(commands < 6 && click.mode == expected[commands] &&
+                click.lease.token == 77);
+        ++commands;
+      });
+      require(!IsWindowVisible(modes.handle()));
+      const auto foreground = GetForegroundWindow();
+      state = ModePresentation{{{42, {1, 2, 3}}, 1, 77}, {}, {}, {}};
+      modes.refresh();
+      UpdateWindow(modes.handle());
+      require(IsWindowVisible(modes.handle()) && !modes.failed());
+      require(SendMessageW(modes.handle(), WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE);
+      const auto point = MAKELPARAM(5, 5);
+      SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      SendMessageW(modes.handle(), WM_LBUTTONUP, 0, point);
+      require(commands == 1 && GetForegroundWindow() == foreground);
+      const auto dpi = GetDpiForWindow(modes.handle());
+      for (int i = 1; i < 6; ++i) {
+        const auto cell = MAKELPARAM((i % 2) * MulDiv(112, dpi, 96) + 5,
+                                    (i / 2) * MulDiv(34, dpi, 96) + 5);
+        SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, cell);
+        SendMessageW(modes.handle(), WM_LBUTTONUP, 0, cell);
+      }
+      require(commands == 6);
+      SendMessageW(modes.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      ++state->lease.epoch;
+      SendMessageW(modes.handle(), WM_LBUTTONUP, 0, point);
+      require(commands == 6);
+      state.reset();
+      modes.refresh();
+      require(!IsWindowVisible(modes.handle()) && !modes.failed());
+    }
     {
       std::optional<CandidatePresentation> value;
       const auto original_dpi = GetThreadDpiAwarenessContext();

@@ -1,0 +1,39 @@
+#pragma once
+#include "CandidateClickWorker.h"
+#include "ModeMailbox.h"
+#include "ReplyCodec.h"
+#include <windows.h>
+
+namespace msime::windows {
+struct ModeClick {
+  FocusLease lease;
+  WorkerMode mode;
+};
+using ModeClickWorker = SingleClickWorker<ModeClick>;
+// UI-thread owned, explicit commands rather than optimistic state toggles.
+class ModeWindow final {
+public:
+  using Reader = std::function<std::optional<ModePresentation>()>;
+  using Click = std::function<void(const ModeClick &)>;
+  ModeWindow(Reader reader, Click click);
+  ~ModeWindow();
+  ModeWindow(const ModeWindow &) = delete;
+  ModeWindow &operator=(const ModeWindow &) = delete;
+  void refresh();
+  void hide();
+  bool failed() const { return failed_; }
+  HWND handle() const { return window_; }
+
+private:
+  static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
+  void paint();
+  std::optional<ModeClick> hit(int x, int y);
+  Reader reader_;
+  Click click_;
+  HWND window_ = nullptr;
+  std::optional<ModePresentation> shown_, painted_;
+  std::optional<ModeClick> pressed_;
+  unsigned dpi_ = 0;
+  bool failed_ = false;
+};
+} // namespace msime::windows

@@ -1,5 +1,6 @@
 #include "PreviewConfig.h"
 #include "CandidateWindow.h"
+#include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
@@ -93,22 +94,32 @@ int wmain(int argc, wchar_t **argv) {
           SelectionRequestResult::Failed)
         throw std::runtime_error("Candidate selection failed");
     });
+    ModeClickWorker mode_clicks([&](const ModeClick &click) {
+      if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
+        throw std::runtime_error("Mode request failed");
+    });
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
+      ModeClickWorker &modes;
       ~ClickShutdown() {
         clicks.request_stop();
+        modes.request_stop();
         server.request_stop();
         clicks.stop();
+        modes.stop();
       }
-    } click_shutdown{server, clicks};
+    } click_shutdown{server, clicks, mode_clicks};
     CandidateWindow candidates(
         [&] { return server.candidate_view(); },
         [&](const CandidateClick &click) { (void)clicks.submit(click); });
+    ModeWindow modes([&] { return server.mode_view(); },
+                     [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout
-        << "Preview Server running; native candidate selection enabled.\n";
+        << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
-           !candidates.failed() && !clicks.failed()) {
+           !candidates.failed() && !clicks.failed() &&
+           !modes.failed() && !mode_clicks.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -123,16 +134,21 @@ int wmain(int argc, wchar_t **argv) {
       if (stopping.load())
         break;
       candidates.refresh();
+      modes.refresh();
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
+    modes.hide();
     clicks.request_stop();
+    mode_clicks.request_stop();
     server.stop();
     clicks.stop();
+    mode_clicks.stop();
     return server.failure() == ControllerFailure::None &&
-                   !candidates.failed() && !clicks.failed()
+                   !candidates.failed() && !clicks.failed() &&
+                   !modes.failed() && !mode_clicks.failed()
                ? 0
                : 1;
   } catch (...) {

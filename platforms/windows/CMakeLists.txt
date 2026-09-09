@@ -98,7 +98,7 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
   endif()
 endforeach()
 if(WIN32)
-  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp)
+  add_library(msime-windows-server STATIC WindowsServer.cpp CandidateWindow.cpp ModeWindow.cpp)
   target_link_libraries(msime-windows-server PUBLIC msime-windows-pump msime-windows-pipe user32 gdi32)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
   add_executable(msime-client-server main.cpp)
