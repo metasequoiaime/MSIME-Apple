@@ -151,3 +151,9 @@ Tauri commands 移入桌面与移动共用入口库，React 页面保持唯一�
 Debian bookworm arm64 容器构建真实共享 Rust/C++ 动态库和 IBus 1.5.27 宿主。独立 D-Bus 调用实际 Engine 对象，验证固定词库的预编辑/候选/提交信号、第二页候选点击、标点、数字小键盘、敏感字段和焦点边界；实际可执行文件经隔离 IBus daemon/factory 向独立输入上下文提交合成词语。Linux 共享核心/运行时/宿主共 25 项 Rust 测试通过，容器不连接宿主桌面，源码与词库只读挂载。
 
 目前仅用启动配置快照；Linux 设置自动重读、GTK/Qt 实际编辑器、X11/Wayland、panel 原生翻页按钮与安装打包仍待完成，不据此宣称 Linux 产品迁移完成。未复制相邻 Linux 仓库的未提交内容，CI 继续禁用。
+
+### 第二十三条功能：Windows Server 共享会话适配
+
+按新优先级转入 Windows。ServerSession 消费固定上游 TSF 键包并调用共享 C API，限定 Server 输入队列线程、客户端和 activation epoch；不在注入的 TSF DLL 加载引擎。候选选择和偏好延迟仍归共享层；忽略包中复制的拼音状态，采用布局转换后的 wch，数字小键盘规范化后走共享选词，既有 TSF 的本地 Shift/Escape 取消不回按键回复。
+
+macOS 链接真实 Rust/C++ 库运行边界测试通过，覆盖 Unicode 上屏、真实固定词库的第二页数字选词、配置延迟应用和线程/客户端/焦点拒绝；Windows x86/x64 MinGW 对象交叉编译验证适配器、测试与上游线格式断言。本机没有已配置的 Windows 虚拟机，未执行 Windows Rust 链接、TSF 注册或系统编辑器验收。Named Pipe、回复编码、路由发送前复核和原生候选窗仍是后续 Windows 工作，不将本阶段当作 Windows 端已完成。CI 继续禁用。

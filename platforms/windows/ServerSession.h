@@ -1,0 +1,43 @@
+#pragma once
+#include "windows_ipc.h"
+#include <nlohmann/json.hpp>
+#include <string>
+#include <thread>
+
+namespace msime::windows {
+struct KeyResult {
+  uint64_t client_id;
+  uint64_t activation_epoch;
+  uint64_t request_id;
+  bool reply_expected;
+  nlohmann::json transition;
+};
+
+// Lives on the Server input queue, never inside the injected TSF DLL. The pipe
+// router authenticates/negotiates a client before constructing its session, and
+// assigns monotonically increasing focus epochs. This class is not a pipe
+// server.
+class ServerSession final {
+public:
+  ServerSession(uint64_t client_id, const std::string &prepared_options);
+  ~ServerSession();
+  ServerSession(const ServerSession &) = delete;
+  ServerSession &operator=(const ServerSession &) = delete;
+  nlohmann::json activate(uint64_t epoch);
+  nlohmann::json deactivate(uint64_t epoch);
+  KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
+  nlohmann::json select(uint64_t epoch, uint64_t generation, size_t index);
+  nlohmann::json update_preferences(uint64_t epoch,
+                                    const std::string &snapshot);
+  nlohmann::json view() const;
+
+private:
+  void check_thread() const;
+  void check_active(uint64_t epoch) const;
+  const std::thread::id thread_ = std::this_thread::get_id();
+  uint64_t client_;
+  uint64_t session_ = 0;
+  uint64_t epoch_ = 0;
+  bool active_ = false;
+};
+} // namespace msime::windows
