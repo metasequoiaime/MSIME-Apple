@@ -192,6 +192,12 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 本机测试增加有界登记队列、空闲时服务故障、输入异常全局停机，以及持有焦点锁的事件回调请求退出。原生 windows-server-smoke 使用唯一测试名称运行实际 WindowsServer，发送反向握手、Main 协商、激活及 Unicode 输入，并验证完整提交和空闲停机；测试源码已提供，尚未在 Windows 执行。Windows 上需完整同架构 Rust 导入库构建（不能用 MSIME_WINDOWS_PIPE_ONLY），再运行 `ctest --test-dir target/windows-boundary -C Debug -R windows-server --output-on-failure`。固定 Unicode 测试处理器不代表真实 TSF 模式/候选 UI 已实现，产品分发、设置/模式同步、原生链接与 TSF 编辑控件验收仍待完成。
 
+### 配置投递后的自动重试
+
+`InputState::queue_preferences(lease, snapshot)` 供设置通知在输入队列中提交最新快照。无待回复时直接交给共享宿主；有待回复时每个活动会话最多保存一份 16 KiB 以内的快照，较新 revision 替换旧值，相同内容幂等，较旧或同版本冲突拒绝。只有当前焦点的成功投递确认才会自动交付保存的快照，错误确认不能触发；焦点取消和新激活清除尚未交付的旧快照。
+
+返回 true 表示已接纳，不代表设置已生效：平台仅验证大小、格式版本、revision 和对象外形，完整偏好校验及组合期间延迟应用仍归共享宿主。交付失败抛错，输入队列按既有失败路径撤回授权，不能重放已投递的键。调用方应使用共享设置存储产出的有效快照；已有 update_preferences 保留手动接口。文件监听尚未实现，新焦点仍需设置发布者重新提供当前快照。
+
 ### 显式导航绑定入口
 
 `InputState::navigate(lease, packet, bindings)` 在同一个输入队列/焦点门禁下贯通 FocusedSession、ReplyComposer 和 ServerSession。NavigationBindings 是调用方提供的值快照，分别启用减号等号、逗号句号、方括号、Tab、PageUp/PageDown、上下候选；全部默认关闭，不暗设产品偏好。Tab 根据 Shift 判定方向，UiLess 从原始包读取；Unicode 的 + 仍交给共享字符输入。回复未确认时禁止再导航或输入，失效焦点不会推进 Engine。

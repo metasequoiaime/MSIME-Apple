@@ -360,6 +360,106 @@ int main(int argc, char **argv) {
     }
     session_pump_tests(options.dump());
     session_worker_tests(options.dump());
+    {
+      using namespace msime::windows;
+      FocusGate gate;
+      InputQueue queue(gate, 1, 8, options.dump());
+      auto run = [&](InputQueue::Task task) {
+        auto result = queue.submit(std::move(task));
+        require(result && result->get() == InputTaskStatus::Completed,
+                "Preference retry task failed");
+      };
+      PipeTicket ticket{42, {21, 22, 23}};
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.client_id = 42;
+      packet.request_id = 77;
+      FocusLease lease;
+      run([&](InputState &state) {
+        require(state.connected(ticket).accepted, "Preference client failed");
+        lease = *state.dispatch(ticket, packet).route;
+      });
+      require(gate.acknowledge(lease, [] { return true; }),
+              "Preference fence failed");
+      auto first_preferences = preferences;
+      first_preferences["candidate_page_size"] = 3;
+      auto latest_preferences = preferences;
+      latest_preferences["candidate_page_size"] = 4;
+      const auto first = Json{{"format_version", 1},
+                              {"revision", 1},
+                              {"preferences", first_preferences}}
+                             .dump();
+      const auto latest = Json{{"format_version", 1},
+                               {"revision", 2},
+                               {"preferences", latest_preferences}}
+                              .dump();
+      run([&](InputState &state) {
+        require(state.confirmed(lease), "Preference focus receipt failed");
+        packet.event_type = FanyImePipeEventType::KeyEvent;
+        packet.request_id = 2;
+        packet.keycode = 'U';
+        packet.wch = 'U';
+        packet.modifiers_down = 1;
+        auto pending = state.key(lease, packet, ReplyPath::Composition);
+        require(pending.has_value(), "Preference pending key missing");
+        require(state.queue_preferences(lease, first) &&
+                    state.queue_preferences(lease, latest) &&
+                    state.queue_preferences(lease, latest),
+                "Latest preferences not queued");
+        rejected([&] { state.queue_preferences(lease, first); });
+        auto conflict = Json::parse(latest);
+        conflict["preferences"] = first_preferences;
+        rejected([&] { state.queue_preferences(lease, conflict.dump()); });
+        rejected(
+            [&] { state.queue_preferences(lease, std::string(16385, 'x')); });
+        auto stale = lease;
+        ++stale.epoch;
+        require(!state.queue_preferences(stale, latest),
+                "Stale preferences accepted");
+        rejected([&] { state.delivered(lease, 99); });
+        require(state.delivered(lease, packet.request_id),
+                "Preference retry receipt failed");
+        // The host must have received revision 2 automatically on delivery,
+        // even though its application waits for the active composition to end.
+        rejected([&] { state.update_preferences(lease, first); });
+        const auto deferred = state.update_preferences(lease, latest);
+        require(deferred && deferred->at("deferred") == true,
+                "Queued preferences were not handed to shared deferral");
+        packet.request_id = 3;
+        packet.keycode = 0x1B;
+        packet.wch = 0;
+        auto cancelled = state.key(lease, packet, ReplyPath::LocalCancel);
+        require(cancelled && state.delivered(lease, packet.request_id),
+                "Preference completion reset failed");
+        const auto applied = state.update_preferences(lease, latest);
+        require(applied && applied->at("deferred") == false,
+                "Latest preferences did not apply after reset");
+        packet.request_id = 4;
+        packet.keycode = 'U';
+        packet.wch = 'U';
+        require(state.key(lease, packet, ReplyPath::Composition).has_value(),
+                "Second preference composition missing");
+        auto abandoned = Json::parse(latest);
+        abandoned["revision"] = 3;
+        abandoned["preferences"]["candidate_page_size"] = 5;
+        require(state.queue_preferences(lease, abandoned.dump()),
+                "Abandoned snapshot not queued");
+        state.failed(lease);
+        require(!state.delivered(lease, 4), "Cancelled reply was confirmed");
+        packet.event_type = FanyImePipeEventType::ClientActivated;
+        packet.request_id = 88;
+        lease = *state.dispatch(ticket, packet).route;
+      });
+      require(gate.acknowledge(lease, [] { return true; }),
+              "Replacement preference fence failed");
+      run([&](InputState &state) {
+        require(state.confirmed(lease),
+                "Replacement preference receipt failed");
+        require(state.queue_preferences(lease, latest),
+                "Old focus leaked a newer pending snapshot");
+      });
+      queue.stop();
+    }
     ServerSession session(42, options.dump());
     uint64_t request = 2;
     uint64_t epoch = 1;
