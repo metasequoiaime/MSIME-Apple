@@ -215,6 +215,7 @@ LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
     case WM_DISPLAYCHANGE:
     case WM_SETTINGCHANGE:
       self->layout_.reset();
+      self->monitor_ = nullptr;
       self->shown_.reset();
       self->painted_.reset();
       self->pressed_.reset();
