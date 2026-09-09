@@ -44,8 +44,13 @@ template <class F> void rejected(F action) {
   require(failed, "Invalid request was accepted");
 }
 } // namespace
+#ifdef _WIN32
+int wmain(int argc, wchar_t **argv) {
+#else
 int main(int argc, char **argv) {
+#endif
   try {
+    require(argc == 1 || argc == 2, "Expected at most one resource directory");
     auto root =
         std::filesystem::temp_directory_path() /
         ("msime-windows-session-" +
@@ -76,7 +81,9 @@ int main(int argc, char **argv) {
                     {"dictionaries", directory("dictionaries")},
                     {"preferences", preferences}};
     if (argc == 2) {
-      auto input = Json{{"resources", argv[1]},
+      const auto resources = std::filesystem::path(argv[1]);
+      require(resources.is_absolute(), "Expected absolute resource directory");
+      auto input = Json{{"resources", resources.u8string()},
                         {"state_root", (root / "prepared").u8string()}}
                        .dump();
       std::unique_ptr<char, decltype(&msime_client_string_free)> prepared(
@@ -975,6 +982,7 @@ int main(int argc, char **argv) {
     }
     std::cout << "Windows Server boundary: shared session, routing and input "
                  "acceptance passed\n";
+    return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

@@ -236,7 +236,9 @@ bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动�
 
 完整 x64 构建后运行 `bash platforms/windows/stage-runtime.sh x64`，脚本从同一 MinGW 工具链定位 libstdc++、libgcc、libwinpthread，复制到 target/windows-full/x64，并逐项检查测试 EXE、宿主 DLL 和递归运行时导入的架构。未分类依赖或缺失运行时立即失败，不从网络或任意系统目录猜 DLL；工具链的额外运行时目录可显式通过 MSIME_MINGW_RUNTIME_DIR 提供。该目录仅用于本地验证，不是带完整许可证/源码交付的发布包，不得据此发布产品。
 
-可将验证目录复制到匹配的 Windows 测试机，在其中运行 `powershell -File .\run-smoke.ps1`。脚本预检十一个固定测试程序，逐个执行并限制超时，失败立即停止；不要求 CMake，也不注册 TSF 或修改输入源。仅运行隔离临时目录/唯一管道名的合成测试，不等价于真实编辑器验收。本机只验证目录依赖及构建，PowerShell 脚本和 Windows 二进制尚未实际执行。原生集成测试与本机回归共用完整测试配置，避免遗漏共享宿主必需字段。
+可将验证目录复制到匹配的 Windows 测试机，在其中运行 `powershell -File .\run-smoke.ps1`。脚本预检十一个固定测试程序和预览 EXE，逐个执行并限制超时，失败立即停止；预览 EXE 只执行 --help，不启动常驻服务。不要求 CMake，也不注册 TSF 或修改输入源。
+
+显式运行真实词库回归：`powershell -File .\run-smoke.ps1 -ResourcesDirectory 'C:\IME Test\resources\固定代目录' -TimeoutSeconds 120`。目录必须是已下载的锁定词库代；脚本仅解析目录，数据完整性由共享 prepare_host 校验，不下载或修改词库，工作状态仍在测试临时目录。会话测试在 Windows 使用宽字符入口，路径转 UTF-8 后传给共享宿主；脚本为原生进程引用路径，不经过 shell。未提供目录明确输出 SKIP，不冒充词库验收通过。PowerShell 脚本、Windows 中文路径和原生二进制尚未在本机实际执行；隔离测试不等价于真实编辑器验收。
 
 ### 预览 Server 命令行入口
 

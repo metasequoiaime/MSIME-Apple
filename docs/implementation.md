@@ -517,3 +517,9 @@ WindowsServer/SessionController 增加外部 I/O 线程选择入口，核对当�
 扩展 windows-server-smoke，保留键盘空格提交后再次组 Unicode 候选；等待真实 Server 确认快照，绘制原生窗口，通过合成按下/抬起触发单任务后台选词，检查 worker 完整提交帧、控制器确认、窗口隐藏及前台不变。所有等待有期限，异常清理先停止 Server 再等待点击线程，使用现有隔离管道与临时状态目录，不注册 TSF。
 
 Windows x64 交叉链接及运行时导入检查、本机九项 CTest 和固定词库回归通过。新增联合测试仅编译，尚未在 Windows 执行；当前环境未检测到可用 Windows 运行工具，不将其写成实机成功。真实鼠标、TSF 上屏和混合 DPI 验收仍待完成，CI 保持禁用。
+
+### 第八十四条功能：Windows 验收脚本接入固定词库
+
+run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库的会话测试，未提供时明确 SKIP；保留隔离测试并增加预览 --help，不启动常驻预览或注册 TSF。每项仍有超时与退出码检查。Windows 会话测试改用 wmain，将宽字符路径转 UTF-8 交给共享 prepare_host，避免非 ASCII 路径经过窄字符 argv；命令行拒绝额外参数及相对资源路径。
+
+九项本机 CTest、固定词库会话回归、参数拒绝检查、Windows x64 交叉链接和导入检查通过。本机无 PowerShell，脚本及 Windows 中文路径尚未运行验证；不宣称完成 Windows/TSF 验收。CI 保持禁用。
