@@ -270,6 +270,10 @@ key_bindings 可选对象示例：
 
 这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
+#### TSF 适配器交接契约
+
+`MSIME-Windows` 的 TSF KeyHandler 接入本客户端时，必须由 TSF 线程取得并缓存当前 `FocusLease`，只把同一上下文的原始键包交给 `WindowsServer` 的会话入口；不得在窗口线程直接调用 Engine、管道或候选/模式窗口。配置优先键先调用 `configured_key`，其余编辑键调用 `basic_key`，导航键调用 `navigate`，本地 Enter 提交必须携带实际 TSF 完成观察文本；返回的 `PendingReply` 必须等待投递确认后才允许下一键。候选选择和模式按钮只使用确认快照中的 lease、代次和索引，失效返回值必须丢弃。TSF 通知（激活、失焦、IMESwitch、StatusSnapshot、FocusRestored、候选显隐移动）按原始协议顺序送入会话泵，禁止由 UI 回调重入焦点门禁。适配器须在同一提交中固定兼容的 Engine/Client 版本，并提供普通、UILess、密码字段和焦点切换回归；本契约不宣称已完成 TSF 注册、安装或 Windows 实机验收。
+
 ### 配置投递后的自动重试
 
 `InputState::queue_preferences(lease, snapshot)` 供设置通知在输入队列中提交最新快照。无待回复时直接交给共享宿主；有待回复时每个活动会话最多保存一份 16 KiB 以内的快照，较新 revision 替换旧值，相同内容幂等，较旧或同版本冲突拒绝。只有当前焦点的成功投递确认才会自动交付保存的快照，错误确认不能触发；焦点取消和新激活清除尚未交付的旧快照。
