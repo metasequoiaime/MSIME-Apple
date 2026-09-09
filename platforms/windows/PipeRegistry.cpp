@@ -1,5 +1,7 @@
 #include "PipeRegistry.h"
+#include "MainFrame.h"
 #include "ReplyCodec.h"
+#include <cstring>
 #include <limits>
 
 namespace msime::windows {
@@ -224,6 +226,13 @@ IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
       client->clear(0);
       return {IoStatus::Disconnected, error, 0, false, {}};
     }
+  }
+  if (result.complete()) {
+    FanyImeNamedpipeData packet{};
+    std::memcpy(&packet, result.frame.data(), sizeof(packet));
+    if (!valid_main_frame(packet, value.client))
+      result = {IoStatus::MalformedFrame, ERROR_INVALID_DATA,
+                result.transferred, false, {}};
   }
   if (!result.complete())
     remove(value, 0);

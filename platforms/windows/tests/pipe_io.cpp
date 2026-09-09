@@ -265,7 +265,7 @@ void handshakes() {
             result.io.status == IoStatus::Cancelled && !result.peer);
   }
 }
-void registries() {
+void registries(int malformed = 0) {
   PipeRegistry registry(1);
   const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 33u;
   const auto register_reverse = [&](Pair &pipe, uint32_t role,
@@ -359,6 +359,24 @@ void registries() {
   key.wch = L'a';
   require(write_frame(main.client.value, fixture_bytes(key), 2000).complete());
   require(reading.get().frame == fixture_bytes(key));
+  if (malformed) {
+    if (malformed == 1)
+      ++key.client_id;
+    else if (malformed == 2)
+      key.pinyin_length = 128;
+    else
+      key.event_type = FanyImePipeEventType::LangbarRightClick;
+    auto invalid = std::async(std::launch::async, [&] {
+      return registry.read_main(registered.ticket);
+    });
+    require(write_frame(main.client.value, fixture_bytes(key), 2000).complete());
+    const auto rejected = invalid.get();
+    require(rejected.status == IoStatus::MalformedFrame &&
+            rejected.frame.empty());
+    require(!registry.read_main(registered.ticket, 10).complete());
+    require(!registry.send(registered.ticket, 1, frame, 10).complete());
+    return;
+  }
   auto pending = std::async(std::launch::async, [&] {
     return registry.read_main(registered.ticket);
   });
@@ -593,6 +611,8 @@ int main() {
     services();
     intake_pools();
     registries();
+    for (int malformed = 1; malformed <= 3; ++malformed)
+      registries(malformed);
     listeners();
     handshakes();
     {
