@@ -33,6 +33,8 @@ public:
   // replacement/removal or shutdown cancels the wait. Finite timeouts are for
   // diagnostics; an expired submitted read still invalidates that connection.
   IoResult read_main(const PipeTicket &ticket, DWORD timeout = INFINITE);
+  // Registration snapshot only, not focus authorization or process liveness.
+  bool is_current(const PipeTicket &ticket);
   // Returned input is still untrusted packet data, and the caller must carry
   // its ticket into the input queue and validate focus/activation there.
   // Transport-only send: caller must ALSO verify input focus/activation before

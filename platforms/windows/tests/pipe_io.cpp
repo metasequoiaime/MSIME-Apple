@@ -4,6 +4,7 @@
 #include "PipeIntake.h"
 #include "PipeIo.h"
 #include "PipeListener.h"
+#include "PipeMainTransport.h"
 #include "PipePeer.h"
 #include "PipeRegistry.h"
 #include "PipeService.h"
@@ -343,21 +344,24 @@ void registries(int malformed = 0) {
   require(router.confirmed(activation.pending));
   auto wrong_ticket = registered.ticket;
   ++wrong_ticket.generations[0];
+  PipeMainTransport transport(registry, 2000);
+  require(transport.current(registered.ticket) && !transport.current(wrong_ticket));
+  transport.close(wrong_ticket);
+  require(transport.current(registered.ticket));
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());
   auto sending = std::async(std::launch::async, [&] {
-    IoResult result;
+    bool result = false;
     require(focus.with_active(activation.pending, [&] {
-      result =
-          registry.send(registered.ticket, FanyImePipeRole::ToTsf, frame, 2000);
+      result = transport.send(registered.ticket, FanyImePipeRole::ToTsf, frame);
     }));
     return result;
   });
   auto response =
       read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000);
-  require(sending.get().complete() && response.complete() &&
+  require(sending.get() && response.complete() &&
           response.frame == frame);
   auto reading = std::async(std::launch::async, [&] {
-    return registry.read_main(registered.ticket);
+    return transport.read(registered.ticket);
   });
   RegistryShutdown reading_guard{registry};
   require(reading.wait_for(std::chrono::milliseconds(60)) ==
@@ -368,7 +372,8 @@ void registries(int malformed = 0) {
   key.request_id = 91;
   key.wch = L'a';
   require(write_frame(main.client.value, fixture_bytes(key), 2000).complete());
-  require(reading.get().frame == fixture_bytes(key));
+  const auto received = reading.get();
+  require(received && fixture_bytes(*received) == fixture_bytes(key));
   if (malformed) {
     if (malformed == 1)
       ++key.client_id;

@@ -171,6 +171,7 @@ InputQueueStats InputQueue::stats() const {
   result.queued = jobs_.size();
   return result;
 }
+bool InputQueue::on_worker_thread() const noexcept { return active_queue == this; }
 void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
   WorkerScope scope(this);
   try {

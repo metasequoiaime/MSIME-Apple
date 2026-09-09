@@ -194,6 +194,13 @@ PipeRegistry::register_main(std::unique_ptr<PipeConnection> connection,
   result.status = RegistryStatus::Ready;
   return result;
 }
+bool PipeRegistry::is_current(const PipeTicket &value) {
+  auto client = lookup(value.client, false);
+  if (!client)
+    return false;
+  std::lock_guard lock(client->mutex);
+  return current(value, *client);
+}
 IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
   auto client = lookup(value.client, false);
   if (!client)
