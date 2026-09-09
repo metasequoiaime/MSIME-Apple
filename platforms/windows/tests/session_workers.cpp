@@ -191,8 +191,16 @@ void session_worker_tests(const std::string &options) {
           supervised.close(b);
           stopped.set_value();
         },
-        std::chrono::milliseconds(10));
+        std::chrono::milliseconds(10),
+        nlohmann::json::parse(options).at("cache").get<std::string>());
     owner = &controller;
+    const auto settings_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (controller.preferences_status() !=
+           PreferenceMonitorStatus::Current) {
+      require(std::chrono::steady_clock::now() < settings_deadline);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     supervised.add(a);
     supervised.add(b);
     require(inbox.push(a) && inbox.push(b));

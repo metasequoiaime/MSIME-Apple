@@ -323,3 +323,9 @@ PreferenceSnapshot 在设置线程通过已有共享 C ABI 读取并完整校验
 为 Windows 设置监听准备 PreferencesStore::try_load 和新增 C ABI msime_client_try_load_preferences；同一稳定锁文件被占用时返回忙状态，不等待写者、不旁路校验、不恢复默认值。Windows PreferenceSnapshot::try_load 映射为空值并保留加载错误语义。文件缺失仍返回共享默认快照，坏文件仍报错且不覆盖。磁盘操作本身可能阻塞，仍须设置线程调用，不能宣称任意存储故障下停机有界。
 
 锁竞争/释放恢复、缺失/坏文件区分及 C ABI 忙状态回归通过；30 项 Rust 单元测试、fmt/clippy、八项本机 CTest、锁定词库回归与 x86/x64 交叉编译检查通过。新符号要求宿主库与适配器成套更新，未执行 Windows 原生运行或完整 Windows Rust 链接。设置监听线程仍待装配，继续 Windows 优先，CI 保持禁用。
+
+### 第五十二条功能：Windows 配置轮询线程装配
+
+PreferenceMonitor 以单个设置线程定期调用共享 try_load，最多保留一个待完成的输入队列发布任务，已发布的相同快照不重复入队。坏文件/锁忙/过期版本/队列满保留旧配置并重试，输入不可用或发布失败成为终止故障。WindowsServer 通过显式 preferences_directory 启用，SessionController 管理状态与停机；设置任务只捕获快照值，不借用监听器，停机唤醒轮询且不等待发布 future。
+
+测试覆盖队列满恢复、去重、坏文件与旧版本保护、恢复新值、输入停止、重复停机及输入线程 join 拒绝；带监听器的真实控制器测试覆盖服务/输入故障和回调请求停机。八项本机 CTest、锁定词库回归、x86/x64 交叉编译检查通过，未执行 Windows 原生运行或完整 Windows Rust 链接。初次读取异步，启动仍使用共享准备的 options；磁盘 I/O 故障可能延迟 join，不宣称任意存储故障下停机有界。完整 TSF 分发、候选 UI/模式输出和产品验收仍待完成，继续 Windows 优先，CI 保持禁用。

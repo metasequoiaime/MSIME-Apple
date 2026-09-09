@@ -9,6 +9,8 @@ struct WindowsServerOptions {
   size_t registration_capacity = 64;
   size_t input_capacity = 256;
   DWORD write_timeout = 250;
+  std::string
+      preferences_directory; // Explicit shared store; empty disables polling.
 };
 // Starts an actual native service when constructed. The caller must explicitly
 // choose names and implement native key/UI behavior; this never registers TSF.
@@ -24,6 +26,9 @@ public:
   void request_stop() { controller_->request_stop(); }
   void stop() { controller_->stop(); }
   ControllerFailure failure() const { return controller_->failure(); }
+  std::optional<PreferenceMonitorStatus> preferences_status() const {
+    return controller_->preferences_status();
+  }
 
 private:
   RegistrationInbox inbox_;

@@ -8,7 +8,8 @@ SessionController::SessionController(
     MainTransport &transport, RegistrationInbox &inbox, size_t clients,
     size_t input_capacity, std::string options, SessionPump::KeyHandler key,
     SessionPump::EventHandler event, std::function<bool()> healthy,
-    std::function<void()> stop_service, std::chrono::milliseconds interval)
+    std::function<void()> stop_service, std::chrono::milliseconds interval,
+    std::string preferences_directory)
     : inbox_(inbox), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
       input_(focus_, clients, input_capacity, std::move(options)),
@@ -17,6 +18,9 @@ SessionController::SessionController(
   if (!healthy_ || !stop_service_ || interval.count() < 1 ||
       interval.count() > 1000)
     throw std::invalid_argument("Invalid session supervision configuration");
+  if (!preferences_directory.empty())
+    preferences_ = std::make_unique<PreferenceMonitor>(
+        input_, std::move(preferences_directory));
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }
@@ -51,6 +55,10 @@ void SessionController::run() {
         failure_ = ControllerFailure::SessionWorkers;
         break;
       }
+      if (preferences_ && preferences_->failed()) {
+        failure_ = ControllerFailure::Preferences;
+        break;
+      }
       if (ticket)
         workers_.submit(*ticket);
     }
@@ -58,6 +66,8 @@ void SessionController::run() {
     failure_ = ControllerFailure::Control;
   }
   request_stop();
+  if (preferences_)
+    preferences_->request_stop();
   // Stop intake/listeners and cancel registry reads first. The queue remains
   // live while pumps submit their final session cleanup. Input/handshake
   // callbacks never join.
@@ -68,6 +78,8 @@ void SessionController::run() {
   }
   workers_.stop();
   input_.stop();
+  if (preferences_)
+    preferences_->stop();
   active_controller = nullptr;
 }
 } // namespace msime::windows
