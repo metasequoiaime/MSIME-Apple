@@ -630,7 +630,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       for digit in "64426" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
       controller.view.layoutIfNeeded()
       XCTAssertTrue(toolbar.isHidden)
-      XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+      // The chip carries the candidate and nothing else: a touch keyboard has no number row, so a
+      // leading ordinal is noise that reads as part of the word.
+      let chip = try XCTUnwrap(button("candidate-1", in: controller).configuration?.title)
+      XCTAssertTrue(chip.contains("你好"))
+      XCTAssertFalse(chip.contains(where: \.isNumber), chip)
+      XCTAssertEqual(chip, chip.trimmingCharacters(in: .whitespaces), chip)
       XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
       try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()

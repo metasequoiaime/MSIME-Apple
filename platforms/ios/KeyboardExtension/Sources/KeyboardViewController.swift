@@ -1906,12 +1906,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
-  // The number is the key the chip answers to on the visible page; the index is the engine position
-  // it selects. They only coincide on the first page.
+  // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
+  // the index is the engine position the chip selects. The expand panel already showed bare text.
   private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
     let display = chineseOutput(candidate)
     var configuration = UIButton.Configuration.plain()
-    configuration.title = "\(number)  \(display)"
+    configuration.title = display
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
