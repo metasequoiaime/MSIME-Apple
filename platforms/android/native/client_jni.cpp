@@ -20,6 +20,15 @@ static jbyteArray response(JNIEnv *env, char *value) {
 }
 
 extern "C" {
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_updatePreferencesRaw(JNIEnv *env, jclass, jlong handle, jbyteArray snapshot) {
+    if (!snapshot) return response(env, msime_client_update_preferences(static_cast<uint64_t>(handle), nullptr, 0));
+    jsize length = env->GetArrayLength(snapshot);
+    jbyte *bytes = env->GetByteArrayElements(snapshot, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_update_preferences(static_cast<uint64_t>(handle), reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(snapshot, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_createRaw(JNIEnv *env, jclass, jbyteArray options) {
     if (!options) return response(env, msime_client_create(nullptr, 0));
     jsize length = env->GetArrayLength(options);

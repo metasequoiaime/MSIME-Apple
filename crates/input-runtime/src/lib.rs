@@ -15,6 +15,8 @@ pub enum RuntimeError {
     StaleCandidate,
     #[error("session identity exhausted")]
     IdentityExhausted,
+    #[error("cannot replace an engine while composition is active")]
+    CompositionActive,
     #[error("engine action failed: {0}")]
     Engine(String),
 }
@@ -106,6 +108,7 @@ pub struct Runtime<E: InputEngine = Session> {
     page_size: usize,
     highlighted: usize,
     cached: EngineSnapshot,
+    snapshot_valid: bool,
 }
 
 impl<E: InputEngine> Runtime<E> {
@@ -125,6 +128,7 @@ impl<E: InputEngine> Runtime<E> {
             page_size: page_size.into(),
             highlighted: 0,
             cached,
+            snapshot_valid: true,
         })
     }
 
@@ -160,6 +164,32 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    pub fn is_idle(&self) -> bool {
+        self.snapshot_valid
+            && self.cached.preedit.is_empty()
+            && self.cached.editing_text.is_empty()
+            && self.cached.candidates.is_empty()
+    }
+
+    /// Preserve the host handle/focus while invalidating every old candidate ID.
+    /// Validate the replacement before changing any live state.
+    pub fn replace_engine(&mut self, engine: E, page_size: u8) -> Result<(), RuntimeError> {
+        if !(1..=9).contains(&page_size) {
+            return Err(RuntimeError::InvalidPageSize);
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        let cached = engine.snapshot()?;
+        self.advance()?;
+        self.engine = engine;
+        self.cached = cached;
+        self.snapshot_valid = true;
+        self.page_size = page_size.into();
+        self.highlighted = 0;
+        Ok(())
+    }
+
     fn advance(&mut self) -> Result<(), RuntimeError> {
         self.generation = self
             .generation
@@ -178,6 +208,7 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn refresh(&mut self) -> Result<(), RuntimeError> {
+        self.snapshot_valid = false;
         // Drop cached candidate identities even if fetching the replacement fails.
         let previous = std::mem::replace(
             &mut self.cached,
@@ -191,6 +222,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
+        self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.candidates == previous.candidates
         {
@@ -329,6 +361,7 @@ mod tests {
     struct Fixture {
         words: Vec<String>,
         text: String,
+        snapshot_fails: bool,
     }
     impl InputEngine for Fixture {
         fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
@@ -354,6 +387,9 @@ mod tests {
             Ok(result)
         }
         fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
+            if self.snapshot_fails {
+                return Err(RuntimeError::Engine("injected snapshot failure".into()));
+            }
             Ok(EngineSnapshot {
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
@@ -391,6 +427,7 @@ mod tests {
             Fixture {
                 words: (0..12).map(|n| format!("candidate-{n}")).collect(),
                 text: String::new(),
+                snapshot_fails: false,
             },
             5,
         )
@@ -404,6 +441,51 @@ mod tests {
             })
             .unwrap()
     }
+    #[test]
+    fn replacement_requires_verified_idle_and_preserves_session_focus() {
+        let mut active = runtime();
+        active.focus(true).unwrap();
+        let old = type_key(&mut active).view;
+        assert!(matches!(
+            active.replace_engine(runtime().engine, 2),
+            Err(RuntimeError::CompositionActive)
+        ));
+        assert_eq!(active.view().editing_text, old.editing_text);
+        active.dispatch(Action::Command(Command::Cancel)).unwrap();
+        active.replace_engine(runtime().engine, 2).unwrap();
+        let updated = type_key(&mut active).view;
+        assert_eq!(updated.session, old.session);
+        assert!(updated.focused && updated.generation > old.generation);
+        assert_eq!(updated.candidates.len(), 2);
+        assert!(matches!(
+            active.dispatch(Action::Select(old.candidates[0].id)),
+            Err(RuntimeError::StaleCandidate)
+        ));
+        active.engine.snapshot_fails = true;
+        assert!(active.refresh().is_err());
+        assert!(active.view().editing_text.is_empty());
+        assert!(
+            !active.is_idle(),
+            "missing snapshot is not proof of idle Engine"
+        );
+        assert!(matches!(
+            active.replace_engine(runtime().engine, 2),
+            Err(RuntimeError::CompositionActive)
+        ));
+    }
+
+    #[test]
+    fn replacement_snapshot_failure_keeps_the_original_engine() {
+        let mut active = runtime();
+        active.focus(true).unwrap();
+        let generation = active.view().generation;
+        let mut replacement = runtime().engine;
+        replacement.snapshot_fails = true;
+        assert!(active.replace_engine(replacement, 2).is_err());
+        assert_eq!(active.view().generation, generation);
+        assert_eq!(type_key(&mut active).view.candidates.len(), 5);
+    }
+
     #[test]
     fn paging_and_selection_use_global_engine_indices() {
         let mut runtime = runtime();

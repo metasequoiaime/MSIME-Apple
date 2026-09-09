@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSDictionary<NSString *, id> *)command:(uint32_t)command error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)viewWithError:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 - (BOOL)closeWithError:(NSError **)error;
 @end
 
