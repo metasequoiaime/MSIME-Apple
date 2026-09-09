@@ -249,6 +249,32 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
+/// Try to read preferences without waiting for the writer lock.
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_try_load_preferences(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("preferences directory must be absolute".into());
+        }
+        let snapshot = PreferencesStore::new(directory)
+            .try_load()
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(snapshot).map_err(|e| e.to_string())
+    })
+}
+
 /// # Safety
 /// `options` must point to `length` readable bytes for this call. Null is rejected.
 #[no_mangle]
@@ -407,6 +433,31 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn try_preferences_reader_reports_contention_without_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap();
+        let load = || read(unsafe { msime_client_try_load_preferences(path.as_ptr(), path.len()) });
+        let initial = load();
+        assert_eq!(initial["ok"], true);
+        assert_eq!(initial["value"]["revision"], 0);
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(directory.path().join("preferences.lock"))
+            .unwrap();
+        lock.lock().unwrap();
+        assert_eq!(load(), json!({"ok": true, "value": null}));
+        drop(lock);
+        assert_eq!(load(), initial);
+        std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
+        assert_eq!(load()["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_try_load_preferences(std::ptr::null(), 0) })["ok"],
+            false
+        );
+    }
     #[test]
     fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
         let directory = tempfile::tempdir().unwrap();

@@ -90,7 +90,7 @@ impl PreferencesStore {
         }
     }
 
-    fn lock(&self) -> Result<File, PreferencesError> {
+    fn open_lock(&self) -> Result<File, PreferencesError> {
         fs::create_dir_all(&self.directory)?;
         let lock = OpenOptions::new()
             .read(true)
@@ -98,6 +98,11 @@ impl PreferencesStore {
             .create(true)
             .truncate(false)
             .open(self.directory.join("preferences.lock"))?;
+        Ok(lock)
+    }
+
+    fn lock(&self) -> Result<File, PreferencesError> {
+        let lock = self.open_lock()?;
         crate::file_lock::exclusive(&lock)?;
         Ok(lock)
     }
@@ -125,6 +130,16 @@ impl PreferencesStore {
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         self.read_locked()
+    }
+
+    /// None means the writer lock is busy; retry later without using defaults.
+    /// File operations may still block on storage. Validation matches load().
+    pub fn try_load(&self) -> Result<Option<PreferencesSnapshot>, PreferencesError> {
+        let lock = self.open_lock()?;
+        if !crate::file_lock::try_exclusive(&lock)? {
+            return Ok(None);
+        }
+        self.read_locked().map(Some)
     }
 
     /// Compare-and-swap prevents stale settings windows or IME hosts losing updates.
@@ -168,6 +183,24 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn try_load_distinguishes_busy_missing_and_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        assert_eq!(
+            store.try_load().unwrap(),
+            Some(PreferencesSnapshot::default())
+        );
+        let lock = store.lock().unwrap();
+        assert_eq!(store.try_load().unwrap(), None);
+        drop(lock);
+        let saved = store.save(0, Preferences::default()).unwrap();
+        assert_eq!(store.try_load().unwrap(), Some(saved));
+        fs::write(store.path(), "broken").unwrap();
+        assert!(store.try_load().is_err());
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), "broken");
+    }
 
     #[test]
     fn persists_across_instances_and_rejects_stale_save() {
