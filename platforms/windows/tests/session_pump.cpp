@@ -25,6 +25,7 @@ public:
   bool current(const PipeTicket &value) override {
     return open && same_ticket(ticket, value);
   }
+  bool try_current(const PipeTicket &value) override { return current(value); }
   std::optional<FanyImeNamedpipeData> read(const PipeTicket &value) override {
     require(std::this_thread::get_id() == io_thread);
     if (!current(value) || next == packets.size())

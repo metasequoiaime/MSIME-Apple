@@ -126,7 +126,7 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
   if (stopping_ || !input_.stats().accepting)
     return std::nullopt;
   auto value = candidates_.snapshot(focus_, false, [&](const FocusLease &lease) {
-    return transport_.current(lease.transport);
+    return transport_.try_current(lease.transport);
   });
   if (stopping_ || !input_.stats().accepting)
     return std::nullopt;

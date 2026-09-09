@@ -346,6 +346,9 @@ void registries(int malformed = 0) {
   ++wrong_ticket.generations[0];
   PipeMainTransport transport(registry, 2000);
   require(transport.current(registered.ticket) && !transport.current(wrong_ticket));
+  require(transport.try_current(registered.ticket) &&
+          !transport.try_current(wrong_ticket) &&
+          !transport.try_current(PipeTicket{}));
   transport.close(wrong_ticket);
   require(transport.current(registered.ticket));
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());

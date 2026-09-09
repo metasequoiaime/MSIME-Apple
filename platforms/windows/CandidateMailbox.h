@@ -51,6 +51,8 @@ public:
   // External consumer only, never while holding the gate. No UI callbacks run
   // under either lock. The returned copy is valid at read time, not a grant to
   // perform a later candidate action without checking its identity again.
+  // The optional identity validator runs under the gate and must not reenter;
+  // non-waiting consumers must supply a non-waiting validator as well.
   std::optional<CandidatePresentation>
   snapshot(FocusGate &gate, bool wait = true,
            const std::function<bool(const FocusLease &)> &current = {}) {
@@ -84,8 +86,8 @@ public:
           result->candidates.clear();
         }
         lock.unlock();
-        // Validate transport while the focus lock still excludes pipe sends;
-        // a post-lock check could start waiting behind the very next writer.
+        // Keep identity validation in the same active-focus scope. The
+        // validator must also avoid waiting on independent handshake I/O.
         if (result && current && !current(result->lease))
           result.reset();
       };

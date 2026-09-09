@@ -27,6 +27,17 @@ public:
     std::lock_guard lock(mutex_);
     return matches(ticket);
   }
+  bool try_current(const PipeTicket &ticket) override {
+    std::unique_lock lock(mutex_, std::try_to_lock);
+    return lock && matches(ticket);
+  }
+  void hold_registration(std::promise<void> &entered,
+                         std::future<void> &release) {
+    std::lock_guard lock(mutex_);
+    entered.set_value();
+    require(release.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+  }
   std::optional<FanyImeNamedpipeData> read(const PipeTicket &ticket) override {
     std::unique_lock lock(mutex_);
     if (!matches(ticket))
@@ -193,6 +204,28 @@ void session_worker_tests(const std::string &options) {
     const auto shown = controller.candidate_view();
     require(shown && shown->candidates.at(0).text == "中");
     const auto candidate = shown->candidates.at(0);
+    {
+      std::promise<void> held, release_probe;
+      auto holding = held.get_future();
+      auto resume = release_probe.get_future();
+      auto registering = std::async(std::launch::async,
+          [&] { transport.hold_registration(held, resume); });
+      require(holding.wait_for(std::chrono::seconds(10)) ==
+              std::future_status::ready);
+      auto reading = std::async(std::launch::async,
+                                [&] { return controller.candidate_view(); });
+      const bool ready = reading.wait_for(std::chrono::seconds(1)) ==
+                         std::future_status::ready;
+      release_probe.set_value();
+      registering.get();
+      const auto while_busy = reading.get();
+      require(ready && !while_busy);
+      const auto recovered = controller.candidate_view();
+      require(recovered && recovered->visible &&
+              recovered->generation == shown->generation);
+      require(transport.current(ticket) &&
+              controller.failure() == ControllerFailure::None);
+    }
     if (write_failure) {
       transport.write_failure = write_failure;
       require(controller.request_selection(shown->lease, candidate.session, candidate.generation, candidate.index) == SelectionRequestResult::Failed);

@@ -194,6 +194,23 @@ PipeRegistry::register_main(std::unique_ptr<PipeConnection> connection,
   result.status = RegistryStatus::Ready;
   return result;
 }
+bool PipeRegistry::try_is_current(const PipeTicket &value) {
+  std::shared_ptr<Client> client;
+  {
+    std::unique_lock lock(mutex_, std::try_to_lock);
+    if (!lock || stopped_ || !value.client)
+      return false;
+    const auto found = clients_.find(value.client);
+    if (found == clients_.end())
+      return false;
+    client = found->second;
+  }
+  // Never hold the map lock while inspecting an individual client. In
+  // particular, registration can hold its mutex across handshake I/O without
+  // participating in the controller's focus gate.
+  std::unique_lock lock(client->mutex, std::try_to_lock);
+  return lock && current(value, *client);
+}
 bool PipeRegistry::is_current(const PipeTicket &value) {
   auto client = lookup(value.client, false);
   if (!client)

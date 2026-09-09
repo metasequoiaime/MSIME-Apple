@@ -11,6 +11,9 @@ PipeMainTransport::PipeMainTransport(PipeRegistry &registry, DWORD timeout)
 bool PipeMainTransport::current(const PipeTicket &ticket) {
   return registry_.is_current(ticket);
 }
+bool PipeMainTransport::try_current(const PipeTicket &ticket) {
+  return registry_.try_is_current(ticket);
+}
 std::optional<FanyImeNamedpipeData>
 PipeMainTransport::read(const PipeTicket &ticket) {
   auto result = registry_.read_main(ticket);
