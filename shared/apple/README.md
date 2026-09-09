@@ -1,4 +1,4 @@
-# Apple 原生接入
+# Apple 共用原生桥接
 
 `MSIMEClientSession` 是 Foundation / Objective-C++ 适配器，可通过桥接头被 Swift 调用。它不依赖 AppKit、UIKit、Tauri 或旧 Apple 产品仓。会话创建和动作在主线程执行；响应复制为 Foundation 值并立即释放 C 缓冲区。关闭后操作报错；非主线程释放对象时将句柄销毁派发回主线程。
 
@@ -8,8 +8,8 @@ macOS 验证（先构建 msime-host-api）：
 
 ```sh
 clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation \
-  platforms/apple/MSIMEClientSession.mm platforms/apple/tests/session_smoke.mm \
-  -Iplatforms/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api \
+  shared/apple/MSIMEClientSession.mm shared/apple/tests/session_smoke.mm \
+  -Ishared/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api \
   -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
 target/debug/apple-session-smoke
 ```
