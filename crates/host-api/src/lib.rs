@@ -190,6 +190,39 @@ pub extern "C" fn msime_client_abi_version() -> u32 {
     1
 }
 
+/// Verify packaged resources and prepare an isolated new host. No live sessions
+/// may use the state root while this runs. Returns a HostOptions object.
+/// # Safety
+/// `options` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_prepare_host(
+    options: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Bootstrap {
+        resources: String,
+        state_root: String,
+    }
+    response(|| {
+        if options.is_null() || length > 16384 {
+            return Err("invalid bootstrap buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(options, length) };
+        let options: Bootstrap =
+            serde_json::from_slice(bytes).map_err(|_| "invalid bootstrap document")?;
+        let resources = std::path::Path::new(&options.resources);
+        let state = std::path::Path::new(&options.state_root);
+        if !resources.is_absolute() || !state.is_absolute() {
+            return Err("bootstrap paths must be absolute".into());
+        }
+        let document = prepare_host_configuration(resources, state).map_err(|e| e.to_string())?;
+        serde_json::from_str(&document).map_err(|e| e.to_string())
+    })
+}
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
@@ -570,6 +603,15 @@ mod tests {
     }
     #[test]
     fn invalid_buffers_and_commands_return_owned_errors() {
+        assert_eq!(
+            read(unsafe { msime_client_prepare_host(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        let invalid = br#"{"resources":"relative","state_root":"relative"}"#;
+        assert_eq!(
+            read(unsafe { msime_client_prepare_host(invalid.as_ptr(), invalid.len()) })["ok"],
+            false
+        );
         assert_eq!(
             read(unsafe { msime_client_create(std::ptr::null(), 0) })["ok"],
             false

@@ -15,6 +15,12 @@ extern "C" {
  * Text and candidate values are copied; no Engine pointers escape.
  */
 uint32_t msime_client_abi_version(void);
+/* Worker-thread bootstrap: {resources: absolute path, state_root: absolute path}.
+ * Verifies pinned resources, delegates working data preparation to Engine and
+ * returns HostOptions. Maximum 16384 bytes; no session may use state_root during
+ * preparation. Caller publishes the returned config atomically after success.
+ */
+char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 16384 bytes.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation}.

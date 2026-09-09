@@ -7,6 +7,9 @@ import java.util.regex.Pattern;
 public final class NativeSmoke {
     static void success(String response) { if (!response.contains("\"ok\":true")) throw new AssertionError(response); }
     public static void main(String[] args) throws Exception {
+        if (!NativeClient.prepareHost("{\"resources\":\"relative\",\"state_root\":\"relative\"}").contains("\"ok\":false")) {
+            throw new AssertionError("bootstrap accepted relative paths");
+        }
         Path root = Files.createTempDirectory("msime-jni-");
         try {
             StringBuilder options = new StringBuilder("{\"api_version\":1,");
