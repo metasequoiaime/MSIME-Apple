@@ -7,6 +7,27 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMAKE_PREFIX_PATH");
     let mut config = cmake::Config::new("native");
     let android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
+    let windows_gnu = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
+    println!("cargo:rerun-if-env-changed=MSIME_WINDOWS_DEPS");
+    if windows_gnu {
+        let prefix = PathBuf::from(
+            std::env::var_os("MSIME_WINDOWS_DEPS")
+                .expect("MSIME_WINDOWS_DEPS is required for Windows GNU"),
+        );
+        assert!(
+            prefix.is_absolute(),
+            "Windows dependency path must be absolute"
+        );
+        config
+            .configure_arg("--fresh")
+            .define("CMAKE_PREFIX_PATH", &prefix)
+            .define("CMAKE_FIND_ROOT_PATH", &prefix)
+            .define("CMAKE_FIND_ROOT_PATH_MODE_PROGRAM", "NEVER")
+            .define("CMAKE_FIND_ROOT_PATH_MODE_LIBRARY", "ONLY")
+            .define("CMAKE_FIND_ROOT_PATH_MODE_INCLUDE", "ONLY")
+            .define("CMAKE_FIND_ROOT_PATH_MODE_PACKAGE", "ONLY");
+    }
     for name in ["MSIME_ANDROID_NDK", "MSIME_ANDROID_DEPS"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -66,10 +87,15 @@ fn main() {
     );
     println!(
         "cargo:rustc-link-lib={}sqlite3",
-        if android { "static=" } else { "" }
+        if android || windows_gnu {
+            "static="
+        } else {
+            ""
+        }
     );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         println!("cargo:rustc-link-lib=ole32");
         println!("cargo:rustc-link-lib=shell32");
+        println!("cargo:rustc-link-lib=uuid");
     }
 }

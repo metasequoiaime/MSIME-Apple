@@ -192,6 +192,12 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 本机测试增加有界登记队列、空闲时服务故障、输入异常全局停机，以及持有焦点锁的事件回调请求退出。原生 windows-server-smoke 使用唯一测试名称运行实际 WindowsServer，发送反向握手、Main 协商、激活及 Unicode 输入，并验证完整提交和空闲停机；测试源码已提供，尚未在 Windows 执行。Windows 上需完整同架构 Rust 导入库构建（不能用 MSIME_WINDOWS_PIPE_ONLY），再运行 `ctest --test-dir target/windows-boundary -C Debug -R windows-server --output-on-failure`。固定 Unicode 测试处理器不代表真实 TSF 模式/候选 UI 已实现，产品分发、设置/模式同步、原生链接与 TSF 编辑控件验收仍待完成。
 
+### Windows GNU 完整链接构建
+
+`bash platforms/windows/build-cross.sh x64` 在已具备 MinGW、Rust、CMake 和固定 vcpkg 的主机上安装锁定依赖，构建真实 Rust/C++ 宿主 DLL，再链接全部 Windows 原生测试（包含 windows-server-smoke.exe）。vcpkg 固定 ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0；默认使用 target/tooling/vcpkg，也可设置绝对 MSIME_VCPKG_ROOT。脚本会安装相应 Rust 标准库和清单依赖，依赖安装根按架构隔离，避免 vcpkg 切换 triplet 时移除另一架构的库；同一 vcpkg checkout 不并发执行。GNU 桥接通过 MSIME_WINDOWS_DEPS 指向同架构依赖前缀，禁止 CMake 搜索主机库；Windows 补链 UUID 库以解析 Engine 的已知文件夹标识。
+
+本机已完成 x64 宿主 DLL、会话测试及完整原生管道集成测试的 PE32+ 链接，产物位于 target/windows-full/x64。脚本只复制宿主 DLL，不打包 MinGW 运行时 DLL，运行前还需同工具链的 libstdc++、libgcc 和 libwinpthread 及系统运行时；这不是安装包或运行验收。x86 完整链接在当前 Homebrew SJLJ MinGW 下失败（Rust 展开符号缺失），脚本提前拒绝该组合；不能通过 panic=abort 改变既有错误隔离契约。x86 的既有 C++ 对象检查仍通过，但完整 Rust 链接须匹配异常展开工具链后重验。MSVC 构建和 Windows 实机 TSF 验收仍未执行。
+
 ### 配置投递后的自动重试
 
 `InputState::queue_preferences(lease, snapshot)` 供设置通知在输入队列中提交最新快照。无待回复时直接交给共享宿主；有待回复时每个活动会话最多保存一份 16 KiB 以内的快照，较新 revision 替换旧值，相同内容幂等，较旧或同版本冲突拒绝。只有当前焦点的成功投递确认才会自动交付保存的快照，错误确认不能触发；焦点取消和新激活清除尚未交付的旧快照。
