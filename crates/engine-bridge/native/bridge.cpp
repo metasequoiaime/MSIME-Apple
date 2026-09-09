@@ -30,6 +30,11 @@ EngineSession::EngineSession(const EngineOptions& options) : session_(options_fo
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
+EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
+    auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
+        std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, false, true};
+}
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;

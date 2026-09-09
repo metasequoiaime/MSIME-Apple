@@ -30,6 +30,12 @@ mod ffi {
         include!("bridge.h");
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        fn prepare_options(
+            resources: &str,
+            user_data: &str,
+            cache: &str,
+            content_id: &str,
+        ) -> Result<EngineOptions>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
@@ -39,6 +45,17 @@ mod ffi {
 }
 
 pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
+
+/// Delegate working-dictionary preparation and learning replay to the Engine.
+/// Caller verifies resources first and quiesces all users of these data paths.
+pub fn prepare_options(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    content_id: &str,
+) -> Result<EngineOptions, cxx::Exception> {
+    ffi::prepare_options(resources, user_data, cache, content_id)
+}
 
 #[derive(Clone, Copy)]
 #[repr(u8)]

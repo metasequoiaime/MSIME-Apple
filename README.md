@@ -60,3 +60,9 @@ cargo run -p msime-client-core --example install_resources -- target/resources
 ```
 
 安装器通过注入的流读取资源，限制长度并校验摘要；全部成功后才发布到内容标识目录。再次使用时检查缓存字节；损坏缓存报错，失败安装不替换旧代。这里只准备不可变发布资源，不激活现有输入法，不迁移用户学习数据。它使用独立文件 Release，不冒充尚未发布的完整 Engine ZIP。
+
+`engine-bridge::prepare_options` 调用 Engine 权威的工作词库准备与学习回放入口，调用方必须先验证资源并暂停相关会话。以下探针使用临时用户目录和缓存，验证已发布词库中的 `nihao` 查询和选词提交：
+
+```sh
+cargo run -p msime-engine-bridge --example query_dictionary -- <上一步返回的资源目录>
+```

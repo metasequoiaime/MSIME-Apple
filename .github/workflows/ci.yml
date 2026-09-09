@@ -82,3 +82,17 @@ jobs:
           c++ -std=c++17 -shared -fPIC -Wall -Wextra -Werror platforms/android/native/client_jni.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/$jni_platform" -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o "target/debug/libmsime_android.$jni_extension"
           javac -d target/jni-test platforms/android/java/app/msime/client/NativeClient.java platforms/android/tests/NativeSmoke.java
           java -Djava.library.path=target/debug -cp target/jni-test NativeSmoke
+  published-dictionary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
+      - shell: bash
+        run: |
+          resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)
+          python3 -c 'import sys; sys.path.insert(0, "vendor/MSIME-Engine"); from contracts.dictionary.product import verify_product; verify_product(sys.argv[1])' "$resource_dir"
+          cargo run -p msime-engine-bridge --example query_dictionary -- "$resource_dir"
+          cargo run -p msime-client-core --example install_resources -- target/resources
