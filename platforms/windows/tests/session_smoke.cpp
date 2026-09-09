@@ -389,6 +389,33 @@ int main(int argc, char **argv) {
             "Deferred ASCII punctuation not applied");
     require(key('1', '!', 1).transition.at("handled") == false,
             "Shift digit outside Unicode mode ignored translated punctuation");
+    for (uint32_t flags : {1u, 1u | FanyImePipeFlags::UiLess}) {
+      key('U', 'U', 1);
+      key(0x64); // Numpad hex digits must compose without Shift.
+      key('E', 'e');
+      key(0x62);
+      key('D', 'd');
+      const auto composed = session.view();
+      require(composed.at("editing_text") == "U4e2d",
+              "Numpad digits did not compose Unicode input");
+      const auto outside = key(0x69, 0, flags);
+      require(outside.reply_expected &&
+                  outside.transition.at("commit").is_null() && session.view() == composed,
+              "Out-of-page numpad selection changed Unicode composition");
+      const auto chosen = key(0x61, 0, flags);
+      require(chosen.reply_expected && chosen.transition.at("commit") == "中" &&
+                  session.view().at("local_mode") == "none",
+              "Shift numpad did not select Unicode candidate");
+    }
+    key('U', 'U', 1);
+    key(0x60);
+    require(session.view().at("editing_text") == "U0",
+            "Numpad zero stopped composing Unicode input");
+    const auto numpad_shortcut = key(0x61, 0, 3 | FanyImePipeFlags::UiLess);
+    require(!numpad_shortcut.transition.at("handled").get<bool>() &&
+                numpad_shortcut.transition.at("commit").is_null() &&
+                session.view().at("editing_text") == "",
+            "Control Shift numpad shortcut selected a Unicode candidate");
     key('U', 'U', 1);
     auto shortcut = key('C', 0, 2);
     require(shortcut.transition.at("handled") == false &&

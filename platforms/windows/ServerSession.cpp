@@ -72,14 +72,15 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
     throw std::invalid_argument("Invalid Windows key request");
   nlohmann::json result;
   const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const auto digit_key = normalize_digit_key(packet.keycode);
   nlohmann::json current;
-  if (modifiers == 1 && packet.keycode >= '1' && packet.keycode <= '9')
+  if (modifiers == 1 && digit_key >= '1' && digit_key <= '9')
     current = view();
   if (!current.is_null() && current.at("local_mode") == "unicode") {
     // TSF consumes Shift+1..9 as candidate selection in U mode even when the
     // keyboard layout translates that key to punctuation. Use the Engine's
     // actual mode and the shared page's candidate ID, not a raw-input prefix.
-    const auto slot = static_cast<size_t>(packet.keycode - '1');
+    const auto slot = static_cast<size_t>(digit_key - '1');
     const auto &page = current.at("candidates");
     if (slot < page.size()) {
       const auto &id = page.at(slot).at("id");
