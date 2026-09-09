@@ -33,6 +33,8 @@ void candidate_mailbox_tests() {
       for (size_t i = 0; i < 6; ++i)
         require(layout->hit(static_cast<int>(i % 2) * layout->cell_width,
                             static_cast<int>(i / 2) * layout->cell_height) == i);
+      require(layout->hit(layout->cell_width * 2 - 1,
+                          layout->cell_height * 3 - 1) == 5);
       require(!layout->hit(-1, 0) && !layout->hit(layout->width(), 0) &&
               !layout->hit(0, layout->height()));
     }
