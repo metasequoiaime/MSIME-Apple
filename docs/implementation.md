@@ -18,6 +18,8 @@
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
+后续实施优先级由用户明确为 **Windows → macOS → iOS → Linux**。已合并的 Android/Linux 增量保留，Linux 自动重读尚未开工，暂停继续追加；接下来先推进 Windows 的共享运行时接入，保留 TSF DLL / Server 边界，再按上述顺序推进其他端，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
+
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
 - 相邻平台和 Engine 工作树包含其他任务修改；本工程不导入这些未提交内容。
