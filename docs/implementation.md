@@ -523,3 +523,9 @@ Windows x64 交叉链接及运行时导入检查、本机九项 CTest 和固定�
 run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库的会话测试，未提供时明确 SKIP；保留隔离测试并增加预览 --help，不启动常驻预览或注册 TSF。每项仍有超时与退出码检查。Windows 会话测试改用 wmain，将宽字符路径转 UTF-8 交给共享 prepare_host，避免非 ASCII 路径经过窄字符 argv；命令行拒绝额外参数及相对资源路径。
 
 九项本机 CTest、固定词库会话回归、参数拒绝检查、Windows x64 交叉链接和导入检查通过。本机无 PowerShell，脚本及 Windows 中文路径尚未运行验证；不宣称完成 Windows/TSF 验收。CI 保持禁用。
+
+### 第八十五条功能：验收脚本进程控制回归
+
+使用官方 PowerShell 7.6.6 校验摘要后在 macOS 执行脚本测试，独立 C++ 探针替代 IME 二进制。覆盖默认及带词库参数的调度数量、含空格参数、空目录参数拒绝、缺少 EXE 预检、非零退出与超时；临时副本清理并恢复探针环境变量。超时杀进程后增加有界退出等待。CMake 在非交叉配置可用 PowerShell 时登记回归，交叉配置仅编译探针。
+
+十项本机 CTest、固定词库回归、Windows x64 交叉链接和导入检查通过。这补齐第八十四条缺少的脚本执行证据，但不等于 Windows PowerShell 5.1、Windows 中文路径、真实 IME 二进制或 TSF 验收。CI 保持禁用，继续 Windows 产品实施。

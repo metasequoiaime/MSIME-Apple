@@ -54,6 +54,9 @@ foreach ($case in $cases) {
         if (-not $process.Start()) { throw "Could not start: $name" }
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $process.Kill()
+            if (-not $process.WaitForExit(5000)) {
+                throw "Timed-out test did not terminate: $name"
+            }
             throw "Test timed out: $name"
         }
         if ($process.ExitCode -ne 0) {

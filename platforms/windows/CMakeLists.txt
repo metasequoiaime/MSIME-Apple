@@ -121,6 +121,18 @@ if(WIN32)
   set_tests_properties(windows-server PROPERTIES TIMEOUT 30)
 endif()
 add_test(NAME windows-session COMMAND windows-session-smoke)
+add_executable(windows-runner-probe tests/runner_probe.cpp)
+target_compile_features(windows-runner-probe PRIVATE cxx_std_17)
+if(NOT CMAKE_CROSSCOMPILING)
+  find_program(MSIME_POWERSHELL NAMES pwsh powershell)
+  if(MSIME_POWERSHELL)
+    add_test(NAME windows-runner-control
+      COMMAND "${MSIME_POWERSHELL}" -NoProfile -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/runner_regression.ps1"
+        -Probe $<TARGET_FILE:windows-runner-probe>)
+    set_tests_properties(windows-runner-control PROPERTIES TIMEOUT 30)
+  endif()
+endif()
 set_tests_properties(windows-session PROPERTIES TIMEOUT 30)
 add_test(NAME windows-reply-codec COMMAND windows-reply-codec)
 add_test(NAME windows-reply-composer COMMAND windows-reply-composer)
