@@ -194,7 +194,9 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 ### Windows GNU 完整链接构建
 
-`bash platforms/windows/build-cross.sh x64` 在已具备 MinGW、Rust、CMake 和固定 vcpkg 的主机上安装锁定依赖，构建真实 Rust/C++ 宿主 DLL，再链接全部 Windows 原生测试（包含 windows-server-smoke.exe）。vcpkg 固定 ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0；默认使用 target/tooling/vcpkg，也可设置绝对 MSIME_VCPKG_ROOT。脚本会安装相应 Rust 标准库和清单依赖，依赖安装根按架构隔离，避免 vcpkg 切换 triplet 时移除另一架构的库；同一 vcpkg checkout 不并发执行。GNU 桥接通过 MSIME_WINDOWS_DEPS 指向同架构依赖前缀，禁止 CMake 搜索主机库；Windows 补链 UUID 库以解析 Engine 的已知文件夹标识。
+`bash platforms/windows/build-cross.sh x64` 在已具备 Git、MinGW、Rust、CMake 的主机上准备固定 vcpkg、安装锁定依赖，构建真实 Rust/C++ 宿主 DLL，再链接全部 Windows 原生测试（包含 windows-server-smoke.exe）。vcpkg 固定 ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0；默认使用 target/tooling/vcpkg，缺失时由 bootstrap-vcpkg.sh 从官方仓库获取固定提交并关闭指标收集进行 bootstrap。会访问网络下载工具与依赖。也可设置绝对 MSIME_VCPKG_ROOT，显式提供的目录必须已准备好，脚本不重置或自动修复它。脚本会安装相应 Rust 标准库和清单依赖，依赖安装根按架构隔离，避免 vcpkg 切换 triplet 时移除另一架构的库；同一 vcpkg checkout 不并发执行。GNU 桥接通过 MSIME_WINDOWS_DEPS 指向同架构依赖前缀，禁止 CMake 搜索主机库；Windows 补链 UUID 库以解析 Engine 的已知文件夹标识。
+
+bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动、符号链接或非预期目录均拒绝，不覆盖用户内容。目录锁拒绝并发准备；失败的独立 staging 目录保留供检查，不递归删除。若遗留锁，先确认原进程已结束再清理空锁目录。可单独执行 `bash platforms/windows/bootstrap-vcpkg.sh`，已有固定版本且可执行时复用；离线拒绝路径测试为 `bash platforms/windows/tests/bootstrap-vcpkg.sh`，测试只操作新建的隔离目录。本机 x86 SJLJ 工具链会在网络准备前被拒绝。
 
 本机已完成 x64 宿主 DLL、会话测试及完整原生管道集成测试的 PE32+ 链接，产物位于 target/windows-full/x64。脚本只复制宿主 DLL，不打包 MinGW 运行时 DLL，运行前还需同工具链的 libstdc++、libgcc 和 libwinpthread 及系统运行时；这不是安装包或运行验收。x86 完整链接在当前 Homebrew SJLJ MinGW 下失败（Rust 展开符号缺失），脚本提前拒绝该组合；不能通过 panic=abort 改变既有错误隔离契约。x86 的既有 C++ 对象检查仍通过，但完整 Rust 链接须匹配异常展开工具链后重验。MSVC 构建和 Windows 实机 TSF 验收仍未执行。
 
