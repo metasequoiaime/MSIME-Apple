@@ -62,4 +62,12 @@ jobs:
           "VCPKG_TARGET_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
       - if: runner.os == 'macOS'
         run: echo "CMAKE_PREFIX_PATH=$(brew --prefix)" >> "$GITHUB_ENV"
-      - run: cargo test -p msime-engine-bridge -p msime-input-runtime --locked
+      - run: cargo test -p msime-engine-bridge -p msime-input-runtime -p msime-host-api --locked
+      - run: cargo build -p msime-host-api --locked
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror crates/host-api/tests/native_smoke.c -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/native-smoke
+          native_test_dir=$(mktemp -d)
+          mkdir "$native_test_dir/resources" "$native_test_dir/user" "$native_test_dir/cache" "$native_test_dir/dictionaries"
+          target/debug/native-smoke "$native_test_dir"

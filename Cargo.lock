@@ -1994,6 +1994,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-host-api"
+version = "0.1.0"
+dependencies = [
+ "msime-client-core",
+ "msime-engine-bridge",
+ "msime-input-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "msime-input-runtime"
 version = "0.1.0"
 dependencies = [
