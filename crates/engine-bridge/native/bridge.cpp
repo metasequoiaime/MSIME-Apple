@@ -65,4 +65,8 @@ EngineResult EngineSession::command(std::uint8_t value) {
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
 EngineResult EngineSession::finish(std::size_t index) { return result_for(session_.finish(index)); }
+EngineResult EngineSession::punctuation(std::uint8_t value) {
+    if (value > 127) throw std::invalid_argument("Engine punctuation must be ASCII");
+    return result_for(session_.punctuation(static_cast<char>(value)));
+}
 }

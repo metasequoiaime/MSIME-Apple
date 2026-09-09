@@ -25,9 +25,13 @@ pub trait InputEngine {
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError>;
 }
 
 impl InputEngine for Session {
+    fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+        Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         Session::snapshot(self).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -207,6 +211,42 @@ impl<E: InputEngine> Runtime<E> {
         Ok(self.transition(result))
     }
 
+    fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+        // Finish through Engine with the host highlight BEFORE asking it to translate.
+        // Calling Engine punctuation on an active composition would choose candidate zero.
+        let mut finished = self.engine.finish(self.highlighted)?;
+        let punctuation = match self.engine.punctuation(value) {
+            Ok(result) => result,
+            Err(error) if finished.has_commit => {
+                // Completion already changed Engine state: never discard that commit.
+                finished.commit.push(char::from(value));
+                finished.handled = true;
+                finished.diagnostic =
+                    format!("{} Punctuation failed: {error}", finished.diagnostic)
+                        .trim()
+                        .to_owned();
+                return Ok(finished);
+            }
+            Err(error) => return Err(error),
+        };
+        if !finished.has_commit {
+            return Ok(punctuation);
+        }
+        finished.handled = true;
+        if punctuation.has_commit {
+            finished.commit.push_str(&punctuation.commit);
+        } else if !punctuation.handled {
+            // ASCII mode/unsupported symbols still terminate composition in one commit.
+            finished.commit.push(char::from(value));
+        }
+        if !punctuation.diagnostic.is_empty() {
+            finished.diagnostic = format!("{} {}", finished.diagnostic, punctuation.diagnostic)
+                .trim()
+                .to_owned();
+        }
+        Ok(finished)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
@@ -243,6 +283,9 @@ impl<E: InputEngine> Runtime<E> {
             Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
+                    if !result.handled && value.is_ascii_punctuation() {
+                        return self.punctuation(value);
+                    }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first.
                     if result.handled || !(b'1'..=b'9').contains(&value) || len == 0 {
                         return Ok(result);
@@ -288,7 +331,24 @@ mod tests {
         text: String,
     }
     impl InputEngine for Fixture {
+        fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+            if value == b'!' {
+                return Err(RuntimeError::Engine("injected punctuation failure".into()));
+            }
+            if value != b',' {
+                return Ok(empty_result(false));
+            }
+            Ok(EngineResult {
+                handled: true,
+                has_commit: true,
+                commit: "，".into(),
+                diagnostic: String::new(),
+            })
+        }
         fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+            if self.text.is_empty() {
+                return Ok(empty_result(false));
+            }
             let mut result = self.select(index)?;
             result.commit.push_str("-remaining-segments");
             Ok(result)
@@ -306,7 +366,7 @@ mod tests {
             })
         }
         fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
-            if value.is_ascii_digit() {
+            if value.is_ascii_digit() || value.is_ascii_punctuation() {
                 return Ok(empty_result(false));
             }
             self.text.push(value as char);
@@ -358,6 +418,70 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn punctuation_finishes_highlighted_candidate_and_remaining_segments() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b',',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(
+            result.commit.as_deref(),
+            Some("candidate-5-remaining-segments，")
+        );
+        assert!(result.handled && result.view.editing_text.is_empty());
+    }
+
+    #[test]
+    fn unsupported_punctuation_is_appended_only_after_a_composition() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let idle = runtime
+            .dispatch(Action::Character {
+                value: b'@',
+                shift: false,
+            })
+            .unwrap();
+        assert!(!idle.handled && idle.commit.is_none());
+        type_key(&mut runtime);
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b'@',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(
+            result.commit.as_deref(),
+            Some("candidate-0-remaining-segments@")
+        );
+    }
+
+    #[test]
+    fn punctuation_failure_does_not_lose_an_already_finished_commit() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b'!',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(
+            result.commit.as_deref(),
+            Some("candidate-0-remaining-segments!")
+        );
+        assert!(result
+            .diagnostic
+            .unwrap()
+            .contains("injected punctuation failure"));
     }
 
     #[test]
