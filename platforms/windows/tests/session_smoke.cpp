@@ -25,6 +25,7 @@ using Json = nlohmann::json;
 using msime::windows::ServerSession;
 void session_pump_tests(const std::string &options);
 void candidate_mailbox_tests();
+void ui_selection_tests(const std::string &options, bool dictionary);
 void session_worker_tests(const std::string &options);
 void preference_monitor_tests(const std::string &options,
                               const std::string &directory);
@@ -392,6 +393,7 @@ int main(int argc, char **argv) {
               "Failed task reported before withdrawing Engine authorization");
       failing.stop();
     }
+    ui_selection_tests(options.dump(), argc == 2);
     candidate_mailbox_tests();
     session_pump_tests(options.dump());
     {

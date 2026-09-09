@@ -93,6 +93,30 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
     }
   });
 }
+std::optional<PendingReply>
+FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
+                                 uint64_t generation, size_t index) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<PendingReply> result;
+  gate_.with_active(lease, [&] {
+    result = composer_->select_candidate(session_, session, generation, index);
+  });
+  return result;
+}
+bool FocusedSession::confirm_ui(const FocusLease &lease, uint64_t generation) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    composer_->confirm_ui_delivery(client_, lease.epoch, generation);
+    if (preferences_retry_) {
+      session_.update_preferences(lease.epoch, preferences_retry_->dump());
+      preferences_retry_.reset();
+    }
+  });
+}
 std::optional<PendingReply> FocusedSession::pending(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))

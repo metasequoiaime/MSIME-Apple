@@ -4,6 +4,8 @@
 
 ## 已确认候选展示接口
 
+输入队列现提供 select_candidate / ui_delivered，会话侧在有效 lease 内核对 session、generation 和当前页全局 index，再调用共享 Engine 选择。忙碌或过期点击返回空值且不推进状态；已准备的 UI 回复保留在 PendingReply::ui_selection，完整提交清空前缀、部分组词累积前缀都只在确认后生效。UI 确认使用选择后的视图 generation，不能用线上 request_id=0 作为可重复确认标识；普通 confirm_delivery 拒绝 UI 项。未确认时不得调度下一次 Engine 操作，编码异常由队列失败停机处理，不能捕获后重试选择。控制器与窗口点击接线仍待完成，现有预览窗口继续只读。
+
 点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；窗口点击到会话的接线尚未完成，窗口仍只读。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
 
 预览入口现已创建主线程 CandidateWindow，只读显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。当前未实现鼠标选词、工具栏、无障碍与 TSF 实机定位验收，不能视为产品级窗口完成。原生窗口回归已交叉编译，尚未在 Windows 运行。

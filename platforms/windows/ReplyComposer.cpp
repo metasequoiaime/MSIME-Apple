@@ -285,11 +285,64 @@ ReplyComposer::navigate(ServerSession &session,
 void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
                                      uint64_t request) {
   const auto &current = pending();
-  if (client != client_ || epoch != epoch_ ||
+  if (current.ui_selection || client != client_ || epoch != epoch_ ||
       request != current.source.request_id)
     throw std::logic_error("Expired reply delivery acknowledgement");
   if (current.encoded && !*current.encoded)
     throw std::logic_error("Unencodable reply cannot be acknowledged");
+  prefix_ = current.next_prefix;
+  pending_.reset();
+}
+std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
+    uint64_t expected_session, uint64_t generation, size_t index) {
+  if (pending_ || !session.input_enabled()) return std::nullopt;
+  const auto view = session.view();
+  if (!expected_session || view.at("session") != expected_session ||
+      (session_ && session_ != expected_session) ||
+      view.at("generation") != generation || !view.at("focused").get<bool>())
+    return std::nullopt;
+  bool found = false;
+  for (const auto &candidate : view.at("candidates")) {
+    const auto &id = candidate.at("id");
+    if (id.at("session") == expected_session &&
+        id.at("generation") == generation && id.at("index") == index)
+      found = true;
+  }
+  if (!found)
+    return std::nullopt;
+  auto transition = session.select(epoch_, generation, index);
+  const auto &commit = transition.at("commit");
+  const auto delta =
+      commit.is_null() ? std::string{} : commit.get<std::string>();
+  const auto &next_view = transition.at("view");
+  const auto raw = next_view.at("editing_text").get<std::string>();
+  PendingReply next{
+      {client_, epoch_, 0, true, std::move(transition)}, std::nullopt, prefix_};
+  if (delta.empty())
+    next.ui_selection = ui_rejected_selection();
+  else if (raw.empty()) {
+    next.ui_selection = ui_complete_selection(prefix_ + delta);
+    next.next_prefix.clear();
+  } else {
+    next.next_prefix = prefix_ + delta;
+    next.ui_selection = ui_partial_selection(
+        raw, next.next_prefix,
+        next.next_prefix +
+            next.source.transition.at("view").at("preedit").get<std::string>());
+  }
+  if (!next.ui_selection)
+    throw std::runtime_error(
+        "Unencodable UI selection; disconnect without replay");
+  session_ = expected_session;
+  pending_ = std::move(next);
+  return pending_;
+}
+void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
+                                        uint64_t generation) {
+  const auto &current = pending();
+  if (!current.ui_selection || client != client_ || epoch != epoch_ ||
+      current.source.transition.at("view").at("generation") != generation)
+    throw std::logic_error("Expired UI delivery acknowledgement");
   prefix_ = current.next_prefix;
   pending_.reset();
 }

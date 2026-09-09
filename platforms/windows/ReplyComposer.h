@@ -25,6 +25,7 @@ struct PendingReply {
   KeyResult source;
   std::optional<EncodedReply> encoded;
   std::string next_prefix;
+  std::optional<UiSelectionFrames> ui_selection = std::nullopt;
 };
 // One instance per authenticated client activation, on the Server input queue.
 // prefix is transport presentation state: text already selected by Engine but
@@ -66,6 +67,11 @@ public:
                                        uint64_t epoch,
                                        const NavigationBindings &bindings);
   bool has_pending() const { return pending_.has_value(); }
+  // Stale/busy clicks are rejected without advancing Engine. UI receipts use
+  // the resulting view generation, not the id-zero wire request identifier.
+  std::optional<PendingReply> select_candidate(ServerSession &session,
+      uint64_t expected_session, uint64_t generation, size_t index);
+  void confirm_ui_delivery(uint64_t client, uint64_t epoch, uint64_t generation);
   // Call only after a complete frame write or successful local-only handling.
   // A failed/uncertain write leaves pending unchanged; never rerun Engine
   // input.

@@ -1,6 +1,20 @@
 #include "InputQueue.h"
 
 namespace msime::windows {
+std::optional<PendingReply>
+InputState::select_candidate(const FocusLease &lease, uint64_t expected_session,
+                             uint64_t generation, size_t index) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->select_candidate(lease, expected_session, generation,
+                                         index)
+               : std::nullopt;
+}
+bool InputState::ui_delivered(const FocusLease &lease, uint64_t generation) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner && owner->confirm_ui(lease, generation);
+}
 namespace {
 thread_local const InputQueue *active_queue = nullptr;
 struct WorkerScope {
