@@ -64,6 +64,7 @@ private:
   CandidateMailbox candidates_;
   std::shared_ptr<std::mutex> transactions_ = std::make_shared<std::mutex>();
   SessionPump::Presentation presentation_;
+  SessionPump::EventHandler event_;
   InputQueue input_;
   SessionWorkers workers_;
   std::unique_ptr<PreferenceMonitor> preferences_;

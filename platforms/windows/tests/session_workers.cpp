@@ -161,13 +161,35 @@ void session_worker_tests(const std::string &options) {
     const auto second = controller.candidate_view();
     require(second && second->visible && observed == 2);
     require(second->generation > first->generation);
+    packet.event_type = FanyImePipeEventType::HideCandidateWnd;
+    transport.push(packet);
+    transport.wait_started(5);
+    require(controller.candidate_view() &&
+            !controller.candidate_view()->visible);
+    const auto hidden_candidate = second->candidates.at(0);
+    require(controller.request_selection(second->lease, hidden_candidate.session,
+        hidden_candidate.generation, hidden_candidate.index) == SelectionRequestResult::Rejected);
+    packet.event_type = FanyImePipeEventType::MoveCandidateWnd;
+    packet.point[0] = -250;
+    packet.point[1] = 380;
+    transport.push(packet);
+    transport.wait_started(6);
+    require(!controller.candidate_view()->visible &&
+            controller.candidate_view()->x == -250);
+    packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
+    transport.push(packet);
+    transport.wait_started(7);
+    const auto restored = controller.candidate_view();
+    require(restored && restored->visible && restored->y == 380 &&
+            restored->generation == second->generation);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
     for (char c : std::string("e2d")) {
       ++packet.request_id;
       packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
       packet.wch = c;
       transport.push(packet);
     }
-    transport.wait_started(7);
+    transport.wait_started(10);
     const auto shown = controller.candidate_view();
     require(shown && shown->candidates.at(0).text == "中");
     const auto candidate = shown->candidates.at(0);
@@ -199,7 +221,7 @@ void session_worker_tests(const std::string &options) {
     release_ui.set_value();
     require(busy == SelectionRequestResult::Busy &&
             selection.get() == SelectionRequestResult::Sent);
-    transport.wait_started(8);
+    transport.wait_started(11);
     require(controller.failure() == ControllerFailure::None && observed == 7);
     const auto after_click = controller.candidate_view();
     require(after_click && after_click->visible &&

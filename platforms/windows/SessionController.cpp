@@ -13,23 +13,28 @@ SessionController::SessionController(
     std::string preferences_directory, SessionPump::Presentation presentation)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
-      presentation_(std::move(presentation)),
+      presentation_(std::move(presentation)), event_(std::move(event)),
       input_(focus_, clients, input_capacity, std::move(options)),
-      workers_(transport, input_, focus_, clients, std::move(key),
-               std::move(event),
-               {[this](const FocusLease &lease, const PendingReply &reply,
-                       const FanyImeNamedpipeData &packet) {
-                  candidates_.delivered(lease, reply, packet);
-                  if (presentation_.delivered)
-                    presentation_.delivered(lease, reply, packet);
-                },
-                [this](const PipeTicket &ticket) {
-                  candidates_.disconnected(ticket);
-                  if (presentation_.disconnected)
-                    presentation_.disconnected(ticket);
-                }},
-               transactions_) {
-  if (!healthy_ || !stop_service_ || interval.count() < 1 ||
+      workers_(
+          transport, input_, focus_, clients, std::move(key),
+          [this](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
+            if (route.route)
+              candidates_.event(*route.route, packet);
+            return event_(route, packet);
+          },
+          {[this](const FocusLease &lease, const PendingReply &reply,
+                  const FanyImeNamedpipeData &packet) {
+             candidates_.delivered(lease, reply, packet);
+             if (presentation_.delivered)
+               presentation_.delivered(lease, reply, packet);
+           },
+           [this](const PipeTicket &ticket) {
+             candidates_.disconnected(ticket);
+             if (presentation_.disconnected)
+               presentation_.disconnected(ticket);
+           }},
+          transactions_) {
+  if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
       interval.count() > 1000)
     throw std::invalid_argument("Invalid session supervision configuration");
   if (!preferences_directory.empty())

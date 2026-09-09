@@ -122,12 +122,38 @@ void candidate_mailbox_tests() {
   const auto first = activate(a, 1);
   require(publish(first, 1));
   require(mailbox.snapshot(gate)->visible);
+  auto visual_event = [&](const FocusLease &lease, uint32_t type, uint32_t modifiers = 0) {
+    FanyImeNamedpipeData packet{};
+    packet.client_id = lease.transport.client;
+    packet.event_type = type;
+    packet.modifiers_down = modifiers;
+    packet.point[0] = -200;
+    packet.point[1] = 300;
+    return gate.with_active(lease, [&] { mailbox.event(lease, packet); });
+  };
+  require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
+  const auto suppressed = mailbox.snapshot(gate);
+  require(suppressed && !suppressed->visible && suppressed->preedit.empty() &&
+          suppressed->candidates.empty());
+  require(visual_event(first, FanyImePipeEventType::MoveCandidateWnd));
+  require(!mailbox.snapshot(gate)->visible &&
+          mailbox.snapshot(gate)->x == -200);
+  require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
+  require(mailbox.snapshot(gate)->visible &&
+          mailbox.snapshot(gate)->generation == 1);
+  require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
+  require(publish(first, 2));
+  require(mailbox.snapshot(gate)->visible); // A new confirmed key refreshes UI.
+  require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd, FanyImePipeFlags::UiLess));
+  require(!mailbox.snapshot(gate)->visible);
   const auto pending = gate.begin(b, 2);
   require(pending.has_value() && !mailbox.snapshot(gate));
   require(gate.acknowledge(pending->pending, [] { return true; }));
   require(!mailbox.snapshot(gate)); // No old owner's frame on the new focus.
   require(!publish(first, 2));
   require(publish(pending->pending, 3));
+  require(!visual_event(first, FanyImePipeEventType::HideCandidateWnd));
+  require(mailbox.snapshot(gate)->visible);
   mailbox.disconnected(a);
   require(mailbox.snapshot(gate)->generation == 3);
   auto replacement = b;
@@ -138,6 +164,8 @@ void candidate_mailbox_tests() {
   mailbox.disconnected(b);
   const auto hidden = mailbox.snapshot(gate);
   require(hidden && !hidden->visible && hidden->preedit.empty());
+  require(visual_event(next, FanyImePipeEventType::ShowCandidateWnd));
+  require(!mailbox.snapshot(gate)->visible);
   auto reader = std::async(std::launch::async, [&] {
     for (size_t i = 0; i < 200; ++i) {
       const auto value = mailbox.snapshot(gate);
