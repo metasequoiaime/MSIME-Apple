@@ -54,6 +54,7 @@ void ModeWindow::hide() {
   painted_.reset();
   pressed_.reset();
   layout_.reset();
+  monitor_ = nullptr;
   ShowWindow(window_, SW_HIDE);
 }
 void ModeWindow::refresh() {
@@ -69,21 +70,21 @@ void ModeWindow::refresh() {
     const auto dpi = GetDpiForWindow(window_);
     if (!dpi)
       throw std::runtime_error("Mode DPI unavailable");
+    POINT cursor{};
+    const HMONITOR target = GetCursorPos(&cursor)
+                                ? MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY)
+                                : MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY);
     const bool changed =
         !shown_ || !same(shown_->lease, value->lease) ||
         shown_->chinese != value->chinese ||
         shown_->chinese_punctuation != value->chinese_punctuation ||
-        shown_->fullwidth != value->fullwidth || dpi_ != dpi;
+        shown_->fullwidth != value->fullwidth || dpi_ != dpi || monitor_ != target;
     if (!changed)
       return;
     pressed_.reset();
     painted_.reset();
     shown_ = value;
     dpi_ = dpi;
-    POINT cursor{};
-    const HMONITOR target = GetCursorPos(&cursor)
-                                ? MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY)
-                                : MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
     if (!GetMonitorInfoW(target, &monitor))
@@ -98,6 +99,7 @@ void ModeWindow::refresh() {
                       layout_->width(), layout_->height(),
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Mode positioning failed");
+    monitor_ = target;
     InvalidateRect(window_, nullptr, FALSE);
   } catch (...) {
     failed_ = true;

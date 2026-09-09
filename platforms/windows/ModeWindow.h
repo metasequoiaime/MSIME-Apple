@@ -36,6 +36,7 @@ private:
   std::optional<ModeClick> pressed_;
   unsigned dpi_ = 0;
   std::optional<ModeLayout> layout_;
+  HMONITOR monitor_ = nullptr;
   bool failed_ = false;
 };
 } // namespace msime::windows
