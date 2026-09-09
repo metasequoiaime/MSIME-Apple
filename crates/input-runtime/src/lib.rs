@@ -83,6 +83,8 @@ pub struct Candidate {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    /// Applied Engine configuration, not a newer deferred preference snapshot.
+    pub microsoft_shuangpin: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
     pub session: u64,
@@ -164,6 +166,7 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            microsoft_shuangpin: self.cached.microsoft_shuangpin,
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
             generation: self.generation,
@@ -242,6 +245,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous = std::mem::replace(
             &mut self.cached,
             EngineSnapshot {
+                microsoft_shuangpin: false,
                 local_mode: "unknown".into(),
                 preedit: String::new(),
                 editing_text: String::new(),
@@ -428,6 +432,7 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
+                microsoft_shuangpin: false,
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),

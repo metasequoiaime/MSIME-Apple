@@ -234,7 +234,9 @@ SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnap
 
 ### 配置相关按键分流
 
-InputState::configured_key 接受末尾可选 WordCharacterBinding（默认 Disabled，另有 Brackets/MinusEqual），先处理以词定字，再执行 basic_key 和候选标点／导航。仅无修饰键（UILess 除外）且 VK 与实际字符匹配时命中；以词定字优先于同键翻页配置。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；数字键盘加减键不属于以词定字。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方仍须先完成 Microsoft 双拼分号和配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+InputState::configured_key 接受末尾可选 WordCharacterBinding（默认 Disabled，另有 Brackets/MinusEqual），先处理以词定字，再执行 basic_key 和候选标点／导航。仅无修饰键（UILess 除外）且 VK 与实际字符匹配时命中；以词定字优先于同键翻页配置。逗号/句号和方括号按 NavigationBindings 决定是否保留为翻页；数字键盘加减键不属于以词定字。返回空仍表示未处理，不能直接作为 SessionPump 的最终处理结果。调用方仍须先完成配置专属快捷键等原生优先规则；空组合标点仍由 TSF 本地处理。本入口不是完整产品 KeyHandler。
+
+Microsoft 双拼分号在 edit/basic_key 中先于标点处理：读取 View.microsoft_shuangpin（当前已应用 Engine 配置）、local_mode、editing_text 与 caret_position，只有普通模式且光标所在分隔块为奇数长度时作为 ing 韵母编辑；已完成双键、其他方案或局部模式继续标点路径。不是从最新持久化设置推断，延迟应用期间仍遵循旧会话方案。新 View 字段与宿主库应成套更新；缺失时不启用特殊分号。
 
 以词定字依据共享视图中的高亮候选 ID 调用 Engine 首／尾汉字选择，成功发送 CommitExactText；无汉字或没有候选时清理组合并发送 Normal 高亮文本（可为空），交给 TSF 补本地智能标点，不在 Server 再转换一次，也不完成剩余分段。两条路径都带已有已选前缀，保留焦点、待回复及投递确认门禁。配置持久化监听和产品 TSF KeyHandler 接线仍未完成。
 
@@ -264,7 +266,7 @@ LocalCommit 分发先验证该包确为原始文本提交键，且调用方提�
 
 InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组合中的手动分隔符、Unicode 裸数字/加号、Backspace/Delete 和左右光标移动，并在同一焦点/待回复门禁中推进会话。非编辑键、快捷键、空组合删除、关闭输入或 unknown 模式返回空，不调用 Engine；调用方继续其余原生分发，不能将空结果当作完成了一次输入。
 
-调用方显式提供与 TSF 相同的 Local/Pinyin 预编辑样式，UILess 从包标志读取。Local 编辑不回包；普通 Pinyin 的字符与未清空组合的删除返回 Preedit，左右移动和删除到空组合不回包；UILess 编辑统一返回候选页，包括清空状态。非空 PendingReply 即使没有 encoded 帧也必须通过 SessionPump 确认，不能重跑 Engine。该入口不处理 Enter、取消、候选选择、标点、Microsoft 双拼分号或配置优先导航，尚未组成完整产品 KeyHandler。
+调用方显式提供与 TSF 相同的 Local/Pinyin 预编辑样式，UILess 从包标志读取。Local 编辑不回包；普通 Pinyin 的字符与未清空组合的删除返回 Preedit，左右移动和删除到空组合不回包；UILess 编辑统一返回候选页，包括清空状态。非空 PendingReply 即使没有 encoded 帧也必须通过 SessionPump 确认，不能重跑 Engine。该入口不处理 Enter、取消、候选选择、标点或配置优先导航，尚未组成完整产品 KeyHandler。
 
 ### Engine 模式与 Unicode 数字选词
 

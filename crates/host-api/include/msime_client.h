@@ -23,7 +23,9 @@ uint32_t msime_client_abi_version(void);
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 16384 bytes.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
- * preferences={scheme, candidate_page_size, learning, chinese_punctuation}.
+ * preferences={scheme, candidate_page_size, learning, chinese_punctuation,
+ *              shuangpin_profile?}. Missing profile defaults to xiaohe; allowed
+ * profiles: xiaohe, ziranma, shoudao, microsoft. Unknown values are rejected.
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
  * The host must prepare and validate its dictionary generation before creation.
@@ -76,6 +78,8 @@ enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
  */
 char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t index, uint8_t edge);
 /* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic:
+ * View.microsoft_shuangpin reports the applied Engine configuration, never a
+ * newer deferred preference. Hosts use it with mode, editing text and caret.
  * none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin,
  * temporary_english, temporary_japanese. Treat unknown as unusable state.
  */

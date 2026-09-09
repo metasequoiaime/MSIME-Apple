@@ -62,6 +62,73 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (bool microsoft : {false, true}) {
+    for (bool local : {false, true}) {
+      for (bool uiless : {false, true}) {
+        auto configured = nlohmann::json::parse(options);
+        configured["preferences"]["scheme"] = "shuangpin";
+        configured["preferences"]["shuangpin_profile"] =
+            microsoft ? "microsoft" : "xiaohe";
+        FocusGate gate;
+        InputQueue queue(gate, 2, 8, configured.dump());
+        FixtureTransport transport;
+        transport.packets.resize(3);
+        transport.packets[1].keycode = 'B';
+        transport.packets[1].wch = 'b';
+        transport.packets[1].modifiers_down =
+            uiless ? FanyImePipeFlags::UiLess : 0;
+        transport.packets[2].keycode = 0xBA;
+        transport.packets[2].wch = ';';
+        transport.packets[2].modifiers_down =
+            uiless ? FanyImePipeFlags::UiLess : 0;
+        size_t keys = 0;
+        std::exception_ptr failure;
+        SessionPump pump(
+            transport, queue, gate,
+            [&](InputState &state, const FocusLease &lease,
+                const FanyImeNamedpipeData &packet) {
+              try {
+                auto result = state.configured_key(
+                    lease, packet,
+                    local ? TsfPreeditStyle::Local : TsfPreeditStyle::Pinyin,
+                    {});
+                require(result.has_value());
+                if (++keys == 2) {
+                  const auto &transition = result->source.transition;
+                  require(transition.at("view").at("microsoft_shuangpin") ==
+                          microsoft);
+                  if (microsoft) {
+                    require(transition.at("commit").is_null() &&
+                            transition.at("view").at("editing_text") == "b;");
+                    require(result->encoded.has_value() == (!local || uiless));
+                    if (result->encoded)
+                      require(result->encoded->packet.msg_type ==
+                              (uiless ? FanyImeReplyType::UiLessComposition
+                                      : FanyImeReplyType::Preedit));
+                  } else {
+                    require(transition.at("view").at("editing_text") == "");
+                    require(result->encoded &&
+                            result->encoded->packet.msg_type ==
+                                FanyImeReplyType::CommitExactText);
+                  }
+                }
+                return result;
+              } catch (...) {
+                failure = std::current_exception();
+                throw;
+              }
+            },
+            [](const FocusRoute &, const FanyImeNamedpipeData &) {
+              return true;
+            });
+        const auto completed = pump.run(transport.ticket);
+        if (failure)
+          std::rethrow_exception(failure);
+        require(completed == PumpResult::Disconnected && keys == 2);
+        queue.stop();
+      }
+    }
+  }
   for (bool minus : {false, true}) {
     for (bool last : {false, true}) {
       for (bool han : {false, true}) {

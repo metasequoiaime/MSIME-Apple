@@ -10,12 +10,14 @@ mod ffi {
         pub cache: String,
         pub dictionaries: String,
         pub scheme: u8,
+        pub shuangpin_profile: u8,
         pub learning: bool,
         pub chinese_punctuation: bool,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
         pub local_mode: String,
+        pub microsoft_shuangpin: bool,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
@@ -150,6 +152,7 @@ mod tests {
             cache: path("cache"),
             dictionaries: path("dictionaries"),
             scheme: 0,
+            shuangpin_profile: 0,
             learning: false,
             chinese_punctuation: true,
         }
@@ -161,8 +164,27 @@ mod tests {
         value.scheme = 255;
         assert!(Session::new(&value).is_err());
         value.scheme = 0;
+        value.shuangpin_profile = 255;
+        assert!(Session::new(&value).is_err());
+        value.shuangpin_profile = 0;
         value.resources = "relative".into();
         assert!(Session::new(&value).is_err());
+    }
+    #[test]
+    fn microsoft_profile_accepts_semicolon_as_an_ing_final() {
+        let dir = tempfile::tempdir().unwrap();
+        for profile in 0..4 {
+            let mut options = options(dir.path());
+            options.scheme = 1;
+            options.shuangpin_profile = profile;
+            let mut session = Session::new(&options).unwrap();
+            session.character(b'b', false).unwrap();
+            session.character(b';', false).unwrap();
+            assert_eq!(
+                session.snapshot().unwrap().editing_text,
+                if profile == 3 { "b;" } else { "b" }
+            );
+        }
     }
     #[test]
     fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {

@@ -401,3 +401,9 @@ WindowsServer/SessionController 增加携带焦点 lease 的六种模式请求�
 configured_key 增加默认关闭的 WordCharacterBinding，按方括号或减号/等号及实际字符匹配无修饰键，以词定字优先于翻页与标点。依据共享高亮候选 ID 调用 Engine 首／尾字接口；成功发送 CommitExactText，无汉字或空候选时清理组合并返回 Normal 高亮文本，留给 TSF 补智能标点，不在 Server 重复转换或完成剩余分段。两种回复都保留已有已选前缀并等待投递确认。
 
 16 种绑定/方向/汉字与非汉字/UILess 会话泵组合、按键布局和修饰键拒绝、空回退、前缀保留及真实词库首尾字/待回复回归通过；八项本机 CTest、锁定词库集成、x64 完整链接与运行时依赖检查通过。本轮未改 Rust，未运行 Windows 二进制或 TSF 实机测试。配置持久化接线、特殊双拼、完整产品 KeyHandler 与原生窗口仍待继续，CI 保持禁用。
+
+### 第六十五条功能：双拼方案设置与 Microsoft 分号
+
+共享配置新增严格枚举 shuangpin_profile，支持小鹤、自然码、首道与微软，设置页可选并经 C ABI 宿主传入固定 Engine。旧文件缺省小鹤且读取不改写，未知值拒绝；切换沿用完成当前组合后替换 Engine。View.microsoft_shuangpin 来自已应用 Engine 配置，不会提前暴露等待中的方案。Windows edit/basic_key 据此在普通模式、光标当前分隔块为奇数长度时把分号当 ing 编辑，先于标点，继续使用现有预编辑样式和门禁。
+
+37 项 Rust 单元测试、fmt/clippy、4 项设置页测试、类型检查/生产构建、桌面 Rust check、八项本机 CTest、真实词库四套双拼查询及首尾字回归通过；Windows x64 完整链接与运行时导入检查通过。新增配置往返/未知值保留、创建与延迟方案替换、八种方案/样式/UILess 会话泵以及光标分隔块边界测试。设置与宿主应成套更新，旧严格解析器可能拒绝带新字段的配置；不自动丢字段降级。未执行 Windows 原生或 TSF 验收，CI 保持禁用，完整产品入口与原生窗口仍待继续。

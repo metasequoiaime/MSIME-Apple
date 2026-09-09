@@ -9,7 +9,9 @@ enum class EditKind { None, Character, Erase, Caret };
 // word-to-character, punctuation and navigation) remain separate; never infer
 // Engine mode from text.
 inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
-                          std::string_view mode, bool composing) {
+                          std::string_view mode, bool composing,
+                          bool microsoft_shuangpin = false,
+                          std::string_view editing = {}, size_t caret = 0) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
   const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
@@ -25,6 +27,15 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
   }
   if (translate_key(packet).kind != KeyKind::Character)
     return EditKind::None;
+  if (microsoft_shuangpin && mode == "none" && key == 0xBA && text == ';') {
+    if (caret > editing.size())
+      caret = editing.size();
+    const auto separator =
+        caret == 0 ? std::string_view::npos : editing.rfind('\'', caret - 1);
+    const auto start = separator == std::string_view::npos ? 0 : separator + 1;
+    if ((caret - start) % 2 == 1)
+      return EditKind::Character;
+  }
   if (composing && modifiers == 0 && text == '\'' && mode == "none")
     return EditKind::Character;
   if (key >= 'A' && key <= 'Z' &&

@@ -4,7 +4,23 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
-const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
+const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
+
+test("saves a shuangpin profile and retains it when switching schemes", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  const profile = await screen.findByLabelText("双拼方案") as HTMLSelectElement;
+  expect(profile.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("输入方案"), { target: { value: "shuangpin" } });
+  expect(profile.disabled).toBe(false);
+  fireEvent.change(profile, { target: { value: "microsoft" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", shuangpin_profile: "microsoft" });
+  fireEvent.change(screen.getByLabelText("输入方案"), { target: { value: "quanpin" } });
+  expect(profile.disabled).toBe(true);
+  expect(profile.value).toBe("microsoft");
+});
 
 test("saves edited preferences against the loaded revision", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };

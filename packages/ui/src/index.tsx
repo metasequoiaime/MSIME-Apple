@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 export type Preferences = {
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   learning: boolean;
   chinese_punctuation: boolean;
@@ -73,6 +74,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <label>输入方案<select value={draft.scheme} onChange={event => setDraft({ ...draft, scheme: event.target.value as Preferences["scheme"] })}>
           <option value="quanpin">全拼</option><option value="shuangpin">双拼</option>
           <option value="wubi">五笔</option><option value="japanese">日语</option>
+        </select></label>
+        <label>双拼方案<select disabled={draft.scheme !== "shuangpin"} value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
+          <option value="xiaohe">小鹤双拼</option><option value="ziranma">自然码双拼</option>
+          <option value="shoudao">首道双拼</option><option value="microsoft">微软双拼</option>
         </select></label>
         <label>每页候选数量<select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}

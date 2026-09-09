@@ -36,6 +36,8 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。
 
+共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。旧配置缺省按小鹤读取且不自动改写，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。新宿主会写出此字段，旧版本严格解析器可能拒绝新配置，设置端和宿主应成套更新，不得通过删除未知字段强行降级。
+
 Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
 
 当前优先推进 [Windows Server 适配](platforms/windows/README.md)，已完成键包到共享会话的边界；Named Pipe 与 TSF 系统消费仍在后续阶段。平台顺序按 Windows → macOS → iOS → Linux，暂停追加 Android/Linux 功能。

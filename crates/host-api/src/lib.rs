@@ -2,7 +2,7 @@
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
+    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
@@ -36,6 +36,7 @@ impl HostSession {
         }
         let mut options = self.options.clone();
         options.scheme = scheme_code(snapshot.preferences.scheme);
+        options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.learning = snapshot.preferences.learning;
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         // Build and validate first; errors leave the original session usable.
@@ -85,6 +86,15 @@ impl HostSession {
         Ok(
             json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view() }),
         )
+    }
+}
+
+fn profile_code(profile: ShuangpinProfile) -> u8 {
+    match profile {
+        ShuangpinProfile::Xiaohe => 0,
+        ShuangpinProfile::Ziranma => 1,
+        ShuangpinProfile::Shoudao => 2,
+        ShuangpinProfile::Microsoft => 3,
     }
 }
 
@@ -305,6 +315,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             cache: options.cache,
             dictionaries: options.dictionaries,
             scheme: scheme_code(options.preferences.scheme),
+            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
             learning: options.preferences.learning,
             chinese_punctuation: options.preferences.chinese_punctuation,
         };
@@ -541,12 +552,15 @@ mod tests {
         );
     }
     fn test_host(root: &std::path::Path) -> u64 {
+        test_host_preferences(root, Preferences::default())
+    }
+    fn test_host_preferences(root: &std::path::Path, preferences: Preferences) -> u64 {
         let path = |name| {
             let path = root.join(name);
             std::fs::create_dir_all(&path).unwrap();
             path
         };
-        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": Preferences::default() }).to_string();
+        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences }).to_string();
         let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
         assert_eq!(created["ok"], true);
         created["value"]["session"].as_u64().unwrap()
@@ -556,6 +570,51 @@ mod tests {
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
+    }
+
+    #[test]
+    fn shuangpin_profile_creation_and_deferred_replacement_use_real_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let microsoft = Preferences {
+            scheme: InputScheme::Shuangpin,
+            shuangpin_profile: ShuangpinProfile::Microsoft,
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), microsoft.clone());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'b', false));
+        let first = read(msime_client_character(handle, b';', false));
+        assert_eq!(first["value"]["view"]["editing_text"], "b;");
+        let xiaohe = Preferences {
+            shuangpin_profile: ShuangpinProfile::Xiaohe,
+            ..microsoft.clone()
+        };
+        let before = read(msime_client_view(handle))["value"].clone();
+        let queued = update(handle, 1, &xiaohe);
+        assert_eq!(before["microsoft_shuangpin"], true);
+        assert_eq!(queued["value"]["deferred"], true);
+        assert_eq!(queued["value"]["view"], before);
+        // The old composition completes under Microsoft before replacing Engine.
+        assert_eq!(
+            read(msime_client_command(handle, 2))["value"]["commit"],
+            "b;"
+        );
+        assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["microsoft_shuangpin"],
+            false
+        );
+        read(msime_client_character(handle, b'b', false));
+        let replaced = read(msime_client_character(handle, b';', false));
+        assert_ne!(replaced["value"]["view"]["editing_text"], "b;");
+        read(msime_client_command(handle, 3));
+        assert_eq!(update(handle, 2, &microsoft)["value"]["deferred"], false);
+        read(msime_client_character(handle, b'b', false));
+        assert_eq!(
+            read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],
+            "b;"
+        );
+        read(msime_client_destroy(handle));
     }
     #[test]
     fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {

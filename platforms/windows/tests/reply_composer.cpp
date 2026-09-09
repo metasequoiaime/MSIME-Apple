@@ -48,6 +48,24 @@ void confirm(ReplyComposer &composer) {
 } // namespace
 int main() {
   try {
+    FanyImeNamedpipeData semicolon{};
+    semicolon.event_type = FanyImePipeEventType::KeyEvent;
+    semicolon.keycode = 0xBA;
+    semicolon.wch = ';';
+    require(edit_kind(semicolon, "none", true, true, "b", 1) ==
+            EditKind::Character);
+    require(edit_kind(semicolon, "none", true, true, "ni'b", 4) ==
+            EditKind::Character);
+    require(edit_kind(semicolon, "none", true, true, "ni'b", 3) ==
+            EditKind::None);
+    require(edit_kind(semicolon, "none", true, true, "ni", 2) ==
+            EditKind::None);
+    require(edit_kind(semicolon, "none", true, false, "b", 1) ==
+            EditKind::None);
+    require(edit_kind(semicolon, "unicode", true, true, "U", 1) ==
+            EditKind::None);
+    semicolon.modifiers_down = 2;
+    require(edit_kind(semicolon, "none", true, true, "b", 1) == EditKind::None);
     FanyImeNamedpipeData edge_packet{};
     edge_packet.event_type = FanyImePipeEventType::KeyEvent;
     edge_packet.keycode = 0xDB;

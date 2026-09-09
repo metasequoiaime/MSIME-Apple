@@ -20,6 +20,8 @@ pub enum InputScheme {
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     pub scheme: InputScheme,
+    #[serde(default)]
+    pub shuangpin_profile: ShuangpinProfile,
     pub candidate_page_size: u8,
     pub learning: bool,
     pub chinese_punctuation: bool,
@@ -29,11 +31,22 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             scheme: InputScheme::default(),
+            shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
             learning: true,
             chinese_punctuation: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShuangpinProfile {
+    #[default]
+    Xiaohe,
+    Ziranma,
+    Shoudao,
+    Microsoft,
 }
 
 impl Preferences {
@@ -183,6 +196,46 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let legacy = r#"{"format_version":1,"revision":7,"preferences":{"scheme":"shuangpin","candidate_page_size":5,"learning":false,"chinese_punctuation":true}}"#;
+        fs::write(store.path(), legacy).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.shuangpin_profile,
+            ShuangpinProfile::Xiaohe
+        );
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), legacy);
+        let mut revision = 7;
+        for profile in [
+            ShuangpinProfile::Xiaohe,
+            ShuangpinProfile::Ziranma,
+            ShuangpinProfile::Shoudao,
+            ShuangpinProfile::Microsoft,
+        ] {
+            let saved = store
+                .save(
+                    revision,
+                    Preferences {
+                        scheme: InputScheme::Shuangpin,
+                        shuangpin_profile: profile,
+                        ..Preferences::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+            revision = saved.revision;
+        }
+        let unknown = fs::read_to_string(store.path())
+            .unwrap()
+            .replace("microsoft", "future_profile");
+        fs::write(store.path(), &unknown).unwrap();
+        assert!(store.load().is_err());
+        assert!(store.save(revision, Preferences::default()).is_err());
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
+    }
 
     #[test]
     fn try_load_distinguishes_busy_missing_and_corrupt() {

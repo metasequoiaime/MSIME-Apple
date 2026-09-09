@@ -51,8 +51,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("published dictionary edge selection failed".into());
         }
     }
+    for (profile, code) in [(0, "bk"), (1, "by"), (2, "bg"), (3, "b;")] {
+        let mut profile_options = options.clone();
+        profile_options.scheme = 1;
+        profile_options.shuangpin_profile = profile;
+        let mut session = Session::new(&profile_options)?;
+        for byte in code.bytes() {
+            session.character(byte, false)?;
+        }
+        if !session
+            .snapshot()?
+            .candidates
+            .iter()
+            .any(|word| word == "冰")
+        {
+            return Err(
+                format!("published dictionary shuangpin profile {profile} query failed").into(),
+            );
+        }
+    }
     println!(
-        "published dictionary: phrase and both Han edges committed; isolated generation prepared"
+        "published dictionary: phrase, Han edges and four shuangpin profiles passed; isolated generation prepared"
     );
     Ok(())
 }

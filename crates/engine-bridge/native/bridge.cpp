@@ -17,6 +17,13 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         case 3: options.scheme = SchemeType::JapaneseRomaji; break;
         default: throw std::invalid_argument("Unsupported input scheme");
     }
+    switch (value.shuangpin_profile) {
+        case 0: options.shuangpin_profile = GetXiaoheShuangpinProfile(); break;
+        case 1: options.shuangpin_profile = GetZiranmaShuangpinProfile(); break;
+        case 2: options.shuangpin_profile = GetShoudaoShuangpinProfile(); break;
+        case 3: options.shuangpin_profile = GetMicrosoftShuangpinProfile(); break;
+        default: throw std::invalid_argument("Unsupported shuangpin profile");
+    }
     options.learning = value.learning;
     options.chinese_punctuation = value.chinese_punctuation;
     options.helpcode = false;
@@ -41,19 +48,21 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
     throw std::logic_error("Unknown Engine local mode");
 }
 }
-EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)) {}
+EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
+    microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, false, true};
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true};
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
+    output.microsoft_shuangpin = microsoft_shuangpin_;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
