@@ -49,3 +49,11 @@ React 组件只依赖 `SettingsClient` 接口。Tauri commands 注入应用数�
 提供 ABI 1 头文件、静态库和动态库。会话用线程局部注册表中的整数句柄表示，错误线程和已销毁句柄不会解引用陈旧对象指针。响应是库拥有的 UTF-8 JSON，配套释放入口。输入缓冲区有效性和输出指针单次释放仍是 C 调用方的责任。
 
 macOS 上 2 项 host-api 测试通过，覆盖真实 Unicode 输入链路、错误线程、失效句柄、非法缓冲区和命令。另用系统 C 编译器编译独立 native_smoke.c，链接实际动态库，执行创建、焦点、Unicode 输入、提交和销毁，输出通过。这证明真实跨语言消费链路，不证明 TSF/IMK/IBus/Android/iOS 系统宿主接入完成。
+
+### 第六条功能：Apple Foundation 适配器
+
+提供可供 Swift 使用的 Objective-C++ 会话对象，负责 C 响应释放、Foundation 值转换、主线程约束和对象销毁。macOS 使用系统 clang++ 编译并链接实际动态库；Unicode 上屏结果、后台线程拒绝和关闭后拒绝测试通过。这是 Apple 原生消费边界，不是已安装的 InputMethodKit 输入法，也不是 iOS 扩展构建验收。
+
+### 第七条功能：Android JNI 边界
+
+Java NativeClient 经 JNI 调用同一个 C API，避免 JNI modified UTF-8。macOS 系统编译器和 JDK 21 构建本机 JNI 动态库及 Java 消费者，包含非 BMP 字符的资源路径和 Unicode 提交回归通过。尚无 Android NDK 构建、InputMethodService 或 APK 验证；本机 JVM 只证明互操作和编码边界。
