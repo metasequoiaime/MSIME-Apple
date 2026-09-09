@@ -420,6 +420,11 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     return _adapter->set_fuzzy_pinyin_rules(rules);
 }
 
+- (void)setWubiMixedPinyin:(BOOL)enabled
+{
+    _adapter->set_wubi_mixed_pinyin(enabled);
+}
+
 - (BOOL)setLearningEnabled:(BOOL)enabled
 {
     _requestedLearning = enabled;

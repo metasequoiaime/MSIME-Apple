@@ -68,6 +68,9 @@ class InputSessionAdapter
     bool set_learning_enabled(bool enabled);
     bool learning_enabled() const;
     bool set_fuzzy_pinyin_rules(std::uint32_t rules);
+    // Answers a wubi code the table cannot spell with quanpin candidates for the same letters.
+    // Takes effect from the next query, so a live composition is left as it is.
+    void set_wubi_mixed_pinyin(bool enabled);
     RuntimePaths runtime_paths() const;
     bool idle() const;
     PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
@@ -95,5 +98,8 @@ class InputSessionAdapter
     std::unique_ptr<Impl> impl_;
     bool learning_enabled_ = false;
     std::uint32_t fuzzy_pinyin_rules_ = 0;
+    // Held here because every rebuild of impl_ constructs a fresh session, which would
+    // otherwise drop the setting silently.
+    bool wubi_mixed_pinyin_ = false;
 };
 } // namespace metasequoia::apple

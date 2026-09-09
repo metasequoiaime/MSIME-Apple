@@ -40,6 +40,8 @@ typedef NS_ENUM(NSInteger, MetasequoiaCandidateAction) {
 - (MetasequoiaInputSnapshot *)selectCandidateAtIndex:(NSUInteger)index;
 - (BOOL)setLearningEnabled:(BOOL)enabled;
 - (BOOL)setFuzzyPinyinRules:(uint32_t)rules;
+// Answers a wubi code the table cannot spell with quanpin candidates for the same letters.
+- (void)setWubiMixedPinyin:(BOOL)enabled;
 - (BOOL)suspendDictionarySession;
 - (BOOL)resumeDictionarySessionWithError:(NSError **)error NS_SWIFT_NAME(resumeDictionarySession());
 // Call on the session-owning thread. This token describes the current logical

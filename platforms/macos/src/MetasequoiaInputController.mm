@@ -49,6 +49,7 @@ struct SessionPreferences
     size_t candidateFontSize;
     bool candidateLearningEnabled;
     bool wubiAutoCommitUniqueEnabled;
+    bool wubiMixedPinyinEnabled;
 };
 
 SessionPreferences ReadSessionPreferences()
@@ -72,6 +73,7 @@ SessionPreferences ReadSessionPreferences()
             static_cast<size_t>([MetasequoiaPreferencesWindowController storedCandidateFontSize])),
         [MetasequoiaPreferencesWindowController storedCandidateLearningEnabled] == YES,
         [MetasequoiaPreferencesWindowController storedWubiAutoCommitUniqueEnabled] == YES,
+        [MetasequoiaPreferencesWindowController storedWubiMixedPinyinEnabled] == YES,
     };
 }
 
@@ -85,9 +87,13 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
 {
     const bool helpcodeMatches =
         !SchemeUsesHelpcodes(preferences.scheme) || options.helpcode == preferences.helpcodeEnabled;
+    // Mixed pinyin only affects Wubi, so the mirror of the helpcode rule holds: changing it must not
+    // rebuild a pinyin session. Switching to Wubi rebuilds on the scheme itself and reads it then.
+    const bool wubiMixedPinyinMatches =
+        preferences.scheme != SchemeType::Wubi || options.wubi.mixed_pinyin == preferences.wubiMixedPinyinEnabled;
     return options.scheme == preferences.scheme && options.autocorrect == preferences.autocorrectEnabled &&
            helpcodeMatches && options.chinese_punctuation == preferences.chinesePunctuationEnabled &&
-           options.learning == preferences.candidateLearningEnabled;
+           options.learning == preferences.candidateLearningEnabled && wubiMixedPinyinMatches;
 }
 } // namespace
 
@@ -276,6 +282,7 @@ static NSHashTable *LiveDictionaryControllers()
     options.helpcode_schema = preferences.helpcodeSchema;
     options.chinese_punctuation = preferences.chinesePunctuationEnabled;
     options.learning = preferences.candidateLearningEnabled;
+    options.wubi.mixed_pinyin = preferences.wubiMixedPinyinEnabled;
     options.local_modes = [self localInputModeOptions];
     _session = std::make_unique<metasequoia::Session>(options);
     _sessionOptions = options;

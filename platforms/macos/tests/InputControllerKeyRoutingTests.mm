@@ -92,13 +92,17 @@ int main()
                 EngineSchemeForStoredPreference(1) == SchemeType::Shuangpin &&
                 EngineSchemeForStoredPreference(2) == SchemeType::Wubi,
             "A stored input scheme did not map to the matching engine scheme.");
-    require(metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 1),
+    require(metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 1, false),
             "The enabled four-code unique Wubi policy did not auto-commit.");
-    require(!metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(false, SchemeType::Wubi, 4, 1) &&
-                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Quanpin, 4, 1) &&
-                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 3, 1) &&
-                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 2),
+    require(!metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(false, SchemeType::Wubi, 4, 1, false) &&
+                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Quanpin, 4, 1, false) &&
+                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 3, 1, false) &&
+                !metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 2, false),
             "The four-code unique Wubi policy auto-committed outside its exact conditions.");
+    // A four-letter code answered by the mixed-pinyin fallback looks identical to a unique wubi
+    // candidate. Committing it would take away the fifth letter the fallback exists to allow.
+    require(!metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 1, true),
+            "Auto-commit took a pinyin fallback candidate for a unique four-code Wubi candidate.");
 
     const std::filesystem::path helpcodeDataDirectory =
         std::filesystem::path(__FILE__).parent_path() / "../../../vendor/MetasequoiaImeEngine/helpcode";

@@ -113,7 +113,7 @@ struct MacCloudSettingsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack { Text("桌面设置同步").font(.title2); Spacer(); Button("关闭") { model.close(); dismiss() } }
-      Text("同步输入方案、辅助码、候选窗口、学习和标点等 19 项 macOS 设置。上传与替换均需主动确认，不包含账号凭据或本机文件路径。")
+      Text("同步输入方案、辅助码、候选窗口、学习和标点等 20 项 macOS 设置。上传与替换均需主动确认，不包含账号凭据或本机文件路径。")
       Button("下载云端设置并预览") { model.download() }.disabled(model.busy)
       if model.cloud != nil { Button("上传本机设置") { action = .upload }.disabled(model.busy) }
       if let preview = model.preview {

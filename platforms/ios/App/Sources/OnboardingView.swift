@@ -48,6 +48,8 @@ struct InputSettingsView: View {
   private var hapticsEnabled = false
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
+  @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
+  private var wubiMixedPinyin = false
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
@@ -106,6 +108,15 @@ struct InputSettingsView: View {
             .font(.footnote).foregroundStyle(.secondary)
           NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
             Label("配置键盘 AI", systemImage: "sparkles")
+          }
+        }
+
+        if enabledSchemes.contains(.wubi) {
+          Section("五笔") {
+            Toggle("编码打不出时用拼音候选", isOn: $wubiMixedPinyin)
+              .accessibilityIdentifier("wubiMixedPinyin")
+            Text("五笔词库答不上当前编码时，用同一串字母查全拼。词库答得上的编码不受影响。")
+              .font(.footnote).foregroundStyle(.secondary)
           }
         }
 

@@ -51,6 +51,8 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 + (void)setTraditionalChineseOutputEnabled:(BOOL)enabled;
 + (BOOL)storedWubiAutoCommitUniqueEnabled;
 + (void)setWubiAutoCommitUniqueEnabled:(BOOL)enabled;
++ (BOOL)storedWubiMixedPinyinEnabled;
++ (void)setWubiMixedPinyinEnabled:(BOOL)enabled;
 + (BOOL)storedShuangpinKeymapEnabled;
 + (void)setShuangpinKeymapEnabled:(BOOL)enabled;
 + (BOOL)storedLocalInputModesEnabled;

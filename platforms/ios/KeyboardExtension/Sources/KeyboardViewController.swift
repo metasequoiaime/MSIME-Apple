@@ -157,6 +157,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = applyInputScheme()
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
+    session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     view.backgroundColor = MetasequoiaTheme.keyboardBackground
     skinBackdrop.translatesAutoresizingMaskIntoConstraints = false
     view.insertSubview(skinBackdrop, at: 0)
@@ -213,6 +214,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeChineseOutputPreference()
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
+    session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     applyKeyboardSkin()
     synchronizeReplyKeyboard()
   }
@@ -1839,6 +1841,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition {
       _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
       _ = session.setFuzzyPinyinRules(FuzzyPinyinPreference.activeRules)
+      session.setWubiMixedPinyin(WubiMixedPinyinPreference.isEnabled)
     }
     showDiagnostic(snapshot.diagnosticText)
     updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates)

@@ -160,10 +160,19 @@ bool InputSessionAdapter::set_learning_enabled(bool enabled)
         return false;
     const bool nine_key = impl_->nine_key;
     impl_ = std::make_unique<Impl>(impl_->paths, current.scheme, impl_->profile_name, enabled, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     learning_enabled_ = enabled;
     return true;
+}
+
+void InputSessionAdapter::set_wubi_mixed_pinyin(bool enabled)
+{
+    if (enabled == wubi_mixed_pinyin_)
+        return;
+    wubi_mixed_pinyin_ = enabled;
+    impl_->session.set_wubi_mixed_pinyin(enabled);
 }
 
 bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
@@ -176,6 +185,7 @@ bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
         return false;
     const bool nine_key = impl_->nine_key;
     impl_ = std::make_unique<Impl>(impl_->paths, current.scheme, impl_->profile_name, learning_enabled_, rules);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     fuzzy_pinyin_rules_ = rules;
@@ -211,6 +221,7 @@ PersonalDictionaryEditResult InputSessionAdapter::edit_personal_word(
     impl_.reset();
     const auto result = edit_personal_dictionary(paths, previous, replacement, request_id);
     impl_ = std::make_unique<Impl>(paths, current.scheme, profile, learning_enabled_, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     return result;
@@ -275,6 +286,7 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
     auto snapshot = MakeSnapshot(impl_->session, result);
     const auto scheme = uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin;
     impl_ = std::make_unique<Impl>(impl_->paths, scheme, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     return snapshot;
 }
 
@@ -286,6 +298,7 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin_profile(const std::string
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
     impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::Shuangpin, name, learning_enabled_, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     return snapshot;
 }
 std::string InputSessionAdapter::shuangpin_profile_name() const
@@ -299,6 +312,7 @@ InputSnapshot InputSessionAdapter::switch_to_wubi()
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
     impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::Wubi, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     return snapshot;
 }
 
@@ -309,6 +323,7 @@ InputSnapshot InputSessionAdapter::switch_to_japanese()
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
     impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::JapaneseRomaji, "xiaohe", learning_enabled_,
                                    fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     return snapshot;
 }
 
@@ -318,6 +333,7 @@ InputSnapshot InputSessionAdapter::switch_to_nine_key()
         return MakeSnapshot(impl_->session, {});
     auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
     impl_ = std::make_unique<Impl>(impl_->paths, SchemeType::Quanpin, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_);
+    impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
     impl_->session.set_nine_key_enabled(true);
     impl_->nine_key = true;
     return snapshot;
