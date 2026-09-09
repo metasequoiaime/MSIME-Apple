@@ -81,6 +81,24 @@ static NSDictionary *decode(char *response, NSError **error) {
     _handle = 0;
     return YES;
 }
+- (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary *, NSError *))completion {
+    NSError *error = nil;
+    if (![self checkThreadAndHandle:&error]) { completion(nil, error); return; }
+    NSData *path = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    __weak MSIMEClientSession *weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *loadError = nil;
+        NSDictionary *snapshot = decode(msime_client_load_preferences(static_cast<const uint8_t *>(path.bytes), path.length), &loadError);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEClientSession *session = weakSelf;
+            NSError *updateError = loadError;
+            NSDictionary *result = nil;
+            if (!session) setError(&updateError, @"输入会话已释放");
+            else if (snapshot) result = [session updatePreferencesSnapshot:snapshot error:&updateError];
+            completion(result, updateError);
+        });
+    });
+}
 - (void)dealloc {
     uint64_t handle = _handle;
     if (!handle) return;

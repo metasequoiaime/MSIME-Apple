@@ -52,9 +52,17 @@ async fn save_preferences(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(std::sync::Arc::new(PreferencesStore::new(
-                app.path().app_data_dir()?,
-            )));
+            let directory = match std::env::var_os("MSIME_CLIENT_STATE_DIR") {
+                Some(value) => {
+                    let path = std::path::PathBuf::from(value);
+                    if !path.is_absolute() {
+                        return Err("MSIME_CLIENT_STATE_DIR must be absolute".into());
+                    }
+                    path
+                }
+                None => app.path().app_data_dir()?,
+            };
+            app.manage(std::sync::Arc::new(PreferencesStore::new(directory)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![load_preferences, save_preferences])

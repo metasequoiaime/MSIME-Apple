@@ -100,6 +100,8 @@ struct HostOptions {
     cache: String,
     dictionaries: String,
     preferences: Preferences,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preferences_directory: Option<String>,
 }
 
 /// Bootstrap a new host using the reviewed desktop data and Engine-owned replay.
@@ -134,6 +136,12 @@ pub fn prepare_host_configuration(
         cache: prepared.cache,
         dictionaries: prepared.dictionaries,
         preferences,
+        preferences_directory: Some(
+            state_root
+                .to_str()
+                .ok_or("non-UTF-8 state path")?
+                .to_owned(),
+        ),
     })?)
 }
 
@@ -180,6 +188,32 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn msime_client_abi_version() -> u32 {
     1
+}
+
+/// Load the shared store on a worker thread; no session handle is accessed.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_load_preferences(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("preferences directory must be absolute".into());
+        }
+        let snapshot = PreferencesStore::new(directory)
+            .load()
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(snapshot).map_err(|e| e.to_string())
+    })
 }
 
 /// # Safety
@@ -340,6 +374,34 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let saved = PreferencesStore::new(directory.path())
+            .save(0, Preferences::default())
+            .unwrap();
+        let path = directory.path().to_str().unwrap().to_owned();
+        let load = |path: String| {
+            std::thread::spawn(move || {
+                read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) })
+            })
+            .join()
+            .unwrap()
+        };
+        assert_eq!(
+            load(path.clone())["value"],
+            serde_json::to_value(saved).unwrap()
+        );
+        let file = directory.path().join("preferences.json");
+        std::fs::write(&file, "broken").unwrap();
+        assert_eq!(load(path)["ok"], false);
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "broken");
+        assert_eq!(load("relative".into())["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_load_preferences(std::ptr::null(), 0) })["ok"],
+            false
+        );
+    }
     fn test_host(root: &std::path::Path) -> u64 {
         let path = |name| {
             let path = root.join(name);

@@ -18,6 +18,9 @@
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
+    NSString *_preferencesDirectory;
+    NSTimer *_preferencesTimer;
+    BOOL _preferencesLoading;
 }
 
 - (void)activateServer:(id)sender {
@@ -31,17 +34,50 @@
         }
         NSData *data = [NSData dataWithContentsOfFile:path];
         NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if ([options isKindOfClass:NSDictionary.class]) _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
+        if ([options isKindOfClass:NSDictionary.class]) {
+            _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
+            id directory = options[@"preferences_directory"];
+            if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+        }
     }
     if (_session) [self apply:[_session setFocused:YES error:nil]];
+    if (_session && _preferencesDirectory) {
+        [_preferencesTimer invalidate];
+        __weak MSIMEInputController *weakSelf = self;
+        _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
+            (void)timer;
+            [weakSelf reloadPreferences];
+        }];
+        [self reloadPreferences];
+    }
+}
+
+- (void)reloadPreferences {
+    if (_preferencesLoading || !_activeClient) return;
+    _preferencesLoading = YES;
+    __weak MSIMEInputController *weakSelf = self;
+    [_session reloadPreferencesDirectory:_preferencesDirectory completion:^(NSDictionary *result, NSError *error) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller) return;
+        controller->_preferencesLoading = NO;
+        // Failed loads retain the old configuration; never synthesize defaults here.
+        if (result && !error && controller->_activeClient) {
+            controller->_view = result[@"view"];
+            [controller renderCandidates];
+        }
+    }];
 }
 
 - (void)deactivateServer:(id)sender {
+    [_preferencesTimer invalidate];
+    _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];
     [_panel orderOut:nil];
     _activeClient = nil;
     [super deactivateServer:sender];
 }
+
+- (void)dealloc { [_preferencesTimer invalidate]; }
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
