@@ -75,3 +75,10 @@ jobs:
         run: |
           clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation platforms/apple/MSIMEClientSession.mm platforms/apple/tests/session_smoke.mm -Iplatforms/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
           target/debug/apple-session-smoke
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then jni_platform=darwin; jni_extension=dylib; else jni_platform=linux; jni_extension=so; fi
+          c++ -std=c++17 -shared -fPIC -Wall -Wextra -Werror platforms/android/native/client_jni.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/$jni_platform" -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o "target/debug/libmsime_android.$jni_extension"
+          javac -d target/jni-test platforms/android/java/app/msime/client/NativeClient.java platforms/android/tests/NativeSmoke.java
+          java -Djava.library.path=target/debug -cp target/jni-test NativeSmoke
