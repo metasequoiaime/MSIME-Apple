@@ -1,5 +1,6 @@
 #include "FocusedSession.h"
 #include "FocusRouter.h"
+#include "InputQueue.h"
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
@@ -243,6 +244,89 @@ int main(int argc, char **argv) {
       require(router.disconnected(b).accepted &&
                   second.cancel(*takeover.route),
               "Disconnected queue session cleanup failed");
+    }
+    {
+      using namespace msime::windows;
+      FocusGate gate;
+      InputQueue queue(gate, 2, 8, options.dump());
+      const auto run = [&](InputQueue::Task task) {
+        auto completion = queue.submit(std::move(task));
+        require(completion && completion->get() == InputTaskStatus::Completed,
+                "Shared input queue task failed");
+      };
+      PipeTicket a{42, {1, 2, 3}}, b{43, {4, 5, 6}};
+      FocusRoute activation;
+      FanyImeNamedpipeData packet{};
+      packet.client_id = 42;
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 77;
+      run([&](InputState &state) {
+        require(state.connected(a).accepted && state.connected(b).accepted,
+                "Worker session creation failed");
+        activation = state.dispatch(a, packet);
+        require(activation.route.has_value(), "Worker activation failed");
+      });
+      // Synthetic external I/O completion: never perform pipe I/O in a task.
+      require(gate.acknowledge(*activation.route, [] { return true; }),
+              "Worker queue synthetic fence failed");
+      run([&](InputState &state) {
+        require(state.confirmed(*activation.route), "Worker fence receipt failed");
+      });
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.request_id = 2;
+      for (char c : std::string("U4e2d")) {
+        packet.keycode = static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
+        packet.wch = c;
+        packet.modifiers_down = c == 'U' ? 1 : 0;
+        run([&](InputState &state) {
+          auto route = state.dispatch(a, packet);
+          require(route.route.has_value(), "Worker key route missing");
+          auto result = state.key(*route.route, packet, ReplyPath::Composition);
+          require(result && result->encoded && *result->encoded,
+                  "Worker composition failed");
+        });
+        run([&](InputState &state) {
+          require(state.delivered(*activation.route, packet.request_id),
+                  "Worker reply receipt failed");
+        });
+        ++packet.request_id;
+      }
+      packet.keycode = 0x20;
+      packet.wch = 0;
+      run([&](InputState &state) {
+        auto result = state.key(*activation.route, packet, ReplyPath::Selection);
+        require(result && result->source.transition.at("commit") == "中",
+                "Dedicated worker Unicode commit failed");
+        require(state.delivered(*activation.route, packet.request_id),
+                "Worker commit receipt failed");
+      });
+      packet.client_id = 43;
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 88;
+      FocusRoute other;
+      run([&](InputState &state) {
+        other = state.dispatch(b, packet);
+        require(other.activation && other.cleanup &&
+                    !state.delivered(*activation.route, 2),
+                "Worker focus takeover failed");
+        require(!state.disconnected({42, {7, 2, 3}}).accepted,
+                "Stale worker disconnect accepted");
+      });
+      queue.stop(); // Destroys both actual Rust/C++ sessions on the worker.
+      require(!gate.with_pending(*other.route, [] {}),
+              "Stopped worker retained focus authorization");
+      InputQueue failing(gate, 1, 2, options.dump());
+      packet.client_id = 42;
+      auto failure = failing.submit([&](InputState &state) {
+        require(state.connected(a).accepted, "Failure fixture registration failed");
+        activation = state.dispatch(a, packet);
+        require(activation.route.has_value(), "Failure fixture activation failed");
+        throw std::runtime_error("Synthetic active-session failure");
+      });
+      require(failure && failure->get() == InputTaskStatus::Failed &&
+                  !gate.with_pending(*activation.route, [] {}),
+              "Failed task reported before withdrawing Engine authorization");
+      failing.stop();
     }
     ServerSession session(42, options.dump());
     uint64_t request = 2;

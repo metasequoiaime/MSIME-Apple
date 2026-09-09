@@ -150,4 +150,14 @@ dispatch 按各 Main 流原始顺序处理消息。显式激活引入非零 toke
 
 FocusRoute.activation 表示新激活：先将 cleanup 交给旧 FocusedSession.cancel，再 prepare 新会话，I/O worker 经 gate.acknowledge 写焦点 fence；成功通知回到控制队列后调用 confirmed，再执行输入。fence 表示上游要求确认标记：pending 路由等待已安排的确认，不重复 acknowledge；ready 路由重发标记通过 gate.with_active 和 Registry 票据检查。准备、确认或发送失败调用 failed 并处理 cleanup，不能重放不确定写入。gate 切换时原子记录 previous_ready，避免遗漏已成功确认但通知尚未处理的 token。route 可能仍为 pending，不是立即执行 Engine 的授权，实际执行与发送仍复核 gate。
 
-本机测试覆盖策略状态和真实 FocusedSession 跨客户端组合清理；Windows 管道测试已串入路由、worker 确认与回复发送，但未原生运行。仍缺负责上述调度的有界输入队列及可执行控制器，未接管系统焦点或注册 TSF。
+本机测试覆盖策略状态和真实 FocusedSession 跨客户端组合清理；Windows 管道测试已串入路由、worker 确认与回复发送，但未原生运行。专用队列见下节，可执行控制器仍未装配，未接管系统焦点或注册 TSF。
+
+### 专用输入线程与有界任务队列
+
+InputQueue 的单一 worker 拥有 InputState、FocusRouter 和各客户端 FocusedSession，包含创建和销毁；从不把 Rust 线程局部会话迁移给管道 worker。InputState.connected 创建或更新登记会话，dispatch 自动执行旧 lease 清理和新 lease 准备，disconnected/failed 自动清理匹配会话。后续输入、回复确认和配置快照通过 key、delivered、update_preferences 进入同一线程；confirmed 只记录外部 I/O worker 已成功写出的焦点确认。key 前仍需 dispatch 得到正确路由；ReplyPath 由原生控制器提供，不能仅靠 VK 推断。
+
+submit 非阻塞接纳任务，容量 1–4096 限制等待任务数，客户端容量 1–1024；捕获数据大小仍由控制器限制。满队列、停机或空任务返回空结果，调用方必须撤销相应传输/焦点，不能静默丢键或在 I/O worker 直接执行 Engine。每个已接纳任务都有 Completed/Failed/Cancelled future；Completed 只表示回调正常返回，不表示消息被接受、输入已上屏或网络发送成功。实际结果必须按任务返回的数据和会话接口判断。回调不得做管道 I/O、等待队列 future、保留 InputState/会话引用，或捕获可能过期的管道缓冲区；控制器应复制已验证的有界数据。
+
+request_stop 可从回调调用，不 join；stop 由外部控制线程调用，等待当前短任务结束，取消未执行任务并结算 future，在原 worker 撤销路由和销毁全部会话。任务异常先清理全部会话、停止接纳，再返回 Failed，其余任务得到 Cancelled，不传播原始诊断。禁止在 worker 调用 stop 或销毁队列；对同一队列的并发外部 stop 会串行 join。Gate 及回调依赖必须活到 stop 返回，产品停机还应先停止外部发送/接纳，不能在队列结束后继续调度 I/O。
+
+本机测试执行专用线程真实 Unicode 提交、焦点切换和停机销毁，另验证多生产者顺序、满队列、取消、异常和自 join 拒绝。仍需原生控制器把 PipeService 接纳、读取、焦点确认、回复发送及失败回执串接到此队列，包含逐客户端等待与配置重试；这不是已经可安装的 Windows 输入法。
