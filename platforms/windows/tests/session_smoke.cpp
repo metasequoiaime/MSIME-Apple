@@ -24,6 +24,8 @@ using Json = nlohmann::json;
 using msime::windows::ServerSession;
 void session_pump_tests(const std::string &options);
 void session_worker_tests(const std::string &options);
+void preference_monitor_tests(const std::string &options,
+                              const std::string &directory);
 namespace {
 void require(bool condition, const char *message) {
   if (!condition)
@@ -361,6 +363,7 @@ int main(int argc, char **argv) {
     }
     session_pump_tests(options.dump());
     session_worker_tests(options.dump());
+    preference_monitor_tests(options.dump(), directory("monitor-preferences"));
     {
       using namespace msime::windows;
       FocusGate gate;
