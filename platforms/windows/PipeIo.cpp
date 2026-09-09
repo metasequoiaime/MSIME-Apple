@@ -28,7 +28,8 @@ struct Event {
 IoResult transfer(HANDLE pipe, std::vector<uint8_t> &buffer, bool writing,
                   DWORD timeout, HANDLE cancel) {
   if (!pipe || pipe == INVALID_HANDLE_VALUE || buffer.empty() ||
-      buffer.size() > MaxFrameBytes || !timeout || timeout == INFINITE)
+      buffer.size() > MaxFrameBytes || !timeout ||
+      (timeout == INFINITE && (writing || !cancel)))
     return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};
   DWORD mode = 0, flags = 0;
   if (!GetNamedPipeInfo(pipe, &flags, nullptr, nullptr, nullptr) ||
@@ -91,10 +92,19 @@ IoResult transfer(HANDLE pipe, std::vector<uint8_t> &buffer, bool writing,
 }
 } // namespace
 IoResult read_frame(HANDLE pipe, DWORD expected, DWORD timeout, HANDLE cancel) {
-  if (!expected || expected > MaxFrameBytes)
+  if (!expected || expected > MaxFrameBytes || !timeout || timeout == INFINITE)
     return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};
   std::vector<uint8_t> buffer(expected);
   auto result = transfer(pipe, buffer, false, timeout, cancel);
+  if (result.complete())
+    result.frame = std::move(buffer);
+  return result;
+}
+IoResult read_frame_until_cancel(HANDLE pipe, DWORD expected, HANDLE cancel) {
+  if (!expected || expected > MaxFrameBytes || !cancel)
+    return {IoStatus::InvalidArgument, ERROR_INVALID_PARAMETER, 0, false, {}};
+  std::vector<uint8_t> buffer(expected);
+  auto result = transfer(pipe, buffer, false, INFINITE, cancel);
   if (result.complete())
     result.frame = std::move(buffer);
   return result;

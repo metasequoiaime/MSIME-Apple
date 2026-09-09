@@ -33,7 +33,10 @@ public:
                                  const FanyImeNamedpipeData &hello,
                                  uint32_t capabilities, DWORD timeout,
                                  HANDLE cancel = nullptr);
-  IoResult read_main(const PipeTicket &ticket, DWORD timeout);
+  // Established streams wait through user inactivity by default. Endpoint
+  // replacement/removal or shutdown cancels the wait. Finite timeouts are for
+  // diagnostics; an expired submitted read still invalidates that connection.
+  IoResult read_main(const PipeTicket &ticket, DWORD timeout = INFINITE);
   // Returned input is still untrusted packet data, and the caller must carry
   // its ticket into the input queue and validate focus/activation there.
   // Transport-only send: caller must ALSO verify input focus/activation before

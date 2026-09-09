@@ -36,6 +36,14 @@ struct Handle {
     value = INVALID_HANDLE_VALUE;
   }
 };
+struct RegistryShutdown {
+  PipeRegistry &registry;
+  ~RegistryShutdown() { registry.shutdown(); }
+};
+struct SignalOnExit {
+  HANDLE event;
+  ~SignalOnExit() { SetEvent(event); }
+};
 struct Pair {
   std::unique_ptr<PipeListener> listener;
   struct Server {
@@ -318,8 +326,11 @@ void registries() {
   require(sending.get().complete() && response.complete() &&
           response.frame == frame);
   auto reading = std::async(std::launch::async, [&] {
-    return registry.read_main(registered.ticket, 2000);
+    return registry.read_main(registered.ticket);
   });
+  RegistryShutdown reading_guard{registry};
+  require(reading.wait_for(std::chrono::milliseconds(60)) ==
+          std::future_status::timeout);
   FanyImeNamedpipeData key{};
   key.event_type = FanyImePipeEventType::KeyEvent;
   key.client_id = id;
@@ -328,8 +339,9 @@ void registries() {
   require(write_frame(main.client.value, fixture_bytes(key), 2000).complete());
   require(reading.get().frame == fixture_bytes(key));
   auto pending = std::async(std::launch::async, [&] {
-    return registry.read_main(registered.ticket, 2000);
+    return registry.read_main(registered.ticket);
   });
+  RegistryShutdown pending_guard{registry};
   require(pending.wait_for(std::chrono::milliseconds(30)) ==
           std::future_status::timeout);
   Pair replacement;
@@ -532,6 +544,29 @@ void services() {
 } // namespace
 int main() {
   try {
+    {
+      Pair pipe;
+      require(read_frame_until_cancel(pipe.server.value, 4, nullptr).status ==
+              IoStatus::InvalidArgument);
+      Handle cancel;
+      cancel.value = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+      require(cancel.value != nullptr);
+      require(read_frame(pipe.server.value, 4, INFINITE, cancel.value).status ==
+              IoStatus::InvalidArgument);
+      require(
+          write_frame(pipe.server.value, {1, 2, 3, 4}, INFINITE, cancel.value)
+              .status == IoStatus::InvalidArgument);
+      auto reader = std::async(std::launch::async, [&] {
+        return read_frame_until_cancel(pipe.server.value, 4, cancel.value);
+      });
+      SignalOnExit cancel_guard{cancel.value};
+      require(reader.wait_for(std::chrono::milliseconds(60)) ==
+              std::future_status::timeout);
+      require(SetEvent(cancel.value));
+      require(reader.wait_for(std::chrono::seconds(2)) ==
+              std::future_status::ready);
+      require(reader.get().status == IoStatus::Cancelled);
+    }
     services();
     intake_pools();
     registries();
