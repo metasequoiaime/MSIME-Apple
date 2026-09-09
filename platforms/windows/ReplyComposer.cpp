@@ -5,6 +5,8 @@ namespace msime::windows {
 namespace {
 std::optional<NavigationReply> navigation_for(ReplyPath path) {
   switch (path) {
+  case ReplyPath::IgnoredNavigation:
+    return NavigationReply::Ignored;
   case ReplyPath::PreviousCandidate:
     return NavigationReply::PreviousCandidate;
   case ReplyPath::NextCandidate:
@@ -101,6 +103,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       next.next_prefix.clear();
     }
     break;
+  case ReplyPath::IgnoredNavigation:
   case ReplyPath::PreviousCandidate:
   case ReplyPath::NextCandidate:
   case ReplyPath::PreviousPage:
@@ -167,6 +170,9 @@ ReplyComposer::navigate(ServerSession &session,
     return std::nullopt;
   ReplyPath path;
   switch (result->direction) {
+  case NavigationReply::Ignored:
+    path = ReplyPath::IgnoredNavigation;
+    break;
   case NavigationReply::PreviousCandidate:
     path = ReplyPath::PreviousCandidate;
     break;

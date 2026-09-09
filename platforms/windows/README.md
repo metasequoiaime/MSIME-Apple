@@ -196,7 +196,7 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 `InputState::navigate(lease, packet, bindings)` 在同一个输入队列/焦点门禁下贯通 FocusedSession、ReplyComposer 和 ServerSession。NavigationBindings 是调用方提供的值快照，分别启用减号等号、逗号句号、方括号、Tab、PageUp/PageDown、上下候选；全部默认关闭，不暗设产品偏好。Tab 根据 Shift 判定方向，UiLess 从原始包读取；Unicode 的 + 仍交给共享字符输入。回复未确认时禁止再导航或输入，失效焦点不会推进 Engine。
 
-该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。返回空表示本入口没有消费键且未修改 Engine，可能是绑定关闭、非导航键、快捷键、空组合或失效焦点；不是要求调用方无条件回退到旧 VK 映射。尤其禁用的 PageUp/PageDown、上下键不能再经旧 key 路径执行导航，最终忽略/转发/回复策略仍须由完整原生分发判定。设置监听和产品 KeyHandler 尚未接入，本接口不证明默认产品行为已完成。
+该入口必须在 TSF 上下文已排除标点提交、以词定字等优先路径后调用。已消费的导航键即使绑定关闭也返回 PendingReply：普通模式使用 NavigationIgnored，UILess 返回未变的候选页；不调用 Engine command，不改变组合、代次、页码或高亮，仍等待投递确认，禁止再回退旧 VK 映射。返回空只表示非导航键、快捷键、Unicode +、空组合或失效焦点等不适用情况。设置监听和产品 KeyHandler 尚未接入，本接口不证明默认产品行为已完成。
 
 ### Engine 模式与 Unicode 数字选词
 

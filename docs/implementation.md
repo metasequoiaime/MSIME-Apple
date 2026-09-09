@@ -299,3 +299,9 @@ ReplyCodec 显式映射共享契约的导航 opcode；ReplyComposer 新增上下
 新增 NavigationBindings 值快照，按固定上游键规则表达减号等号、逗号句号、方括号、Tab/Shift+Tab、PageUp/PageDown 和上下候选。InputState::navigate 经焦点校验及投递门禁调用共享导航命令，再自动选择普通导航 opcode 或 UILess 候选页；不要求调用方另外猜回复类型。Unicode +、快捷键、空组合和关闭绑定不被此入口消费，原始请求不改写。
 
 每组绑定独立启用的真实词库回归覆盖前后翻页、高亮、禁用不变、快捷键排除和两种回包；真实输入队列覆盖 Unicode + 排除、边界导航、失效焦点和待回复门禁。八项本机 CTest、锁定词库回归及 x86/x64 交叉编译检查通过，未执行 Windows 原生运行。此入口仍需完整 TSF 上下文判定排除标点/以词定字优先路径，关闭绑定后的忽略/转发不能无条件回退旧 VK 映射；设置监听和产品 KeyHandler 尚未接入。继续 Windows → macOS → iOS → Linux，CI 保持禁用。
+
+### 第四十八条功能：Windows 禁用导航明确回包
+
+补齐上一阶段关闭绑定时的消费结果：已进入 TSF 导航路径的键返回 NavigationIgnored，UILess 返回原候选页，而不是空结果交回调用方。NavigationAction 使用可空 command 表达不执行 Engine 操作，ReplyComposer 新增 IgnoredNavigation 并保留已选前缀及投递门禁。Unicode +、快捷键和非导航键仍不进入该路径。
+
+真实词库回归逐组验证关闭绑定时整个视图不变、两种回包及确认前禁止继续；组合器回归覆盖部分选词前缀、UILess 页和非法 commit。八项本机 CTest、锁定词库回归及 x86/x64 交叉编译检查通过，未执行 Windows 原生运行或完整 Windows Rust 链接。设置监听、完整产品分发和 Windows 原生验收仍待完成，不扩展其他端，CI 保持禁用。

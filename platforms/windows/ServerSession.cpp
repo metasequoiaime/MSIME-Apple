@@ -128,7 +128,12 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
                              current.at("local_mode") == "unicode");
   if (!action)
     return std::nullopt;
-  auto result = response(msime_client_command(session_, action->command));
+  auto result = action->command
+                    ? response(msime_client_command(session_, *action->command))
+                    : nlohmann::json{{"handled", true},
+                                     {"commit", nullptr},
+                                     {"diagnostic", nullptr},
+                                     {"view", current}};
   return NavigationResult{
       {client_, epoch_, packet.request_id, true, std::move(result)},
       action->reply};

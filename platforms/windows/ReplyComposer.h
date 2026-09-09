@@ -16,7 +16,8 @@ enum class ReplyPath {
   PreviousCandidate,
   NextCandidate,
   PreviousPage,
-  NextPage
+  NextPage,
+  IgnoredNavigation
 };
 struct PendingReply {
   KeyResult source;
@@ -38,7 +39,8 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
-  // Null means this binding did not consume the key; Engine is unchanged.
+  // Disabled navigation returns an ignored reply (UILess: unchanged page).
+  // Null means this is not a navigation path; Engine is unchanged.
   // Caller may then run its ordinary TSF path. UiLess is read from the packet.
   std::optional<PendingReply> navigate(ServerSession &session,
                                        const FanyImeNamedpipeData &packet,
