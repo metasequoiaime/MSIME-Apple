@@ -5,6 +5,20 @@
 namespace msime::windows {
 ReverseHandshake accept_reverse(HANDLE pipe, uint32_t role, DWORD timeout,
                                 HANDLE cancel) {
+  auto result = verify_reverse(pipe, role, timeout, cancel);
+  if (result.status != HandshakeStatus::Verified)
+    return result;
+  result.io = write_frame(pipe, *pipe_ready_bytes(role), timeout, cancel);
+  if (!result.io.complete()) {
+    result.status = HandshakeStatus::TransportError;
+    result.peer.reset();
+    return result;
+  }
+  result.status = HandshakeStatus::Ready;
+  return result;
+}
+ReverseHandshake verify_reverse(HANDLE pipe, uint32_t role, DWORD timeout,
+                                HANDLE cancel) {
   ReverseHandshake result;
   const auto ready = pipe_ready_bytes(role);
   if (!ready)
@@ -28,14 +42,9 @@ ReverseHandshake accept_reverse(HANDLE pipe, uint32_t role, DWORD timeout,
     result.io.system_error = error;
     return result;
   }
-  result.io = write_frame(pipe, *ready, timeout, cancel);
-  if (!result.io.complete()) {
-    result.status = HandshakeStatus::TransportError;
-    return result;
-  }
   result.client_id = hello.client_id;
   result.peer = std::move(peer);
-  result.status = HandshakeStatus::Ready;
+  result.status = HandshakeStatus::Verified;
   return result;
 }
 MainHandshake accept_main(HANDLE main_pipe, HANDLE reply_pipe,
@@ -62,6 +71,34 @@ MainHandshake accept_main(HANDLE main_pipe, HANDLE reply_pipe,
   FanyImeNamedpipeData hello{};
   std::memcpy(&hello, result.io.frame.data(), sizeof(hello));
   result.io.frame.clear();
+  return negotiate_main(main_pipe, reply_pipe, peer, client_id, hello,
+                        capabilities, timeout, cancel);
+}
+MainHandshake negotiate_main(HANDLE main_pipe, HANDLE reply_pipe,
+                             const PipePeer &peer, uint64_t client_id,
+                             const FanyImeNamedpipeData &hello,
+                             uint32_t capabilities, DWORD timeout,
+                             HANDLE cancel) {
+  MainHandshake result;
+  if (main_pipe == reply_pipe || !timeout || timeout == INFINITE ||
+      (capabilities & FanyImeProtocol::RequiredCapabilities) !=
+          FanyImeProtocol::RequiredCapabilities)
+    return result;
+  DWORD error = ERROR_SUCCESS;
+  if (cancel) {
+    const auto wait = WaitForSingleObject(cancel, 0);
+    if (wait != WAIT_TIMEOUT) {
+      result.status = HandshakeStatus::TransportError;
+      result.io = {wait == WAIT_OBJECT_0 ? IoStatus::Cancelled
+                                         : IoStatus::InvalidArgument,
+                   wait == WAIT_OBJECT_0 ? ERROR_OPERATION_ABORTED
+                                         : GetLastError(),
+                   0,
+                   false,
+                   {}};
+      return result;
+    }
+  }
   if (hello.client_id != client_id ||
       hello.event_type != FanyImePipeEventType::ClientHello) {
     result.status = HandshakeStatus::ProtocolRejected;
@@ -89,6 +126,8 @@ MainHandshake accept_main(HANDLE main_pipe, HANDLE reply_pipe,
       return result;
     }
   }
+  if (result.protocol.legacy)
+    result.io = {IoStatus::Complete, ERROR_SUCCESS, 0, false, {}};
   result.status = result.protocol.accepted ? HandshakeStatus::Ready
                                            : HandshakeStatus::ProtocolRejected;
   return result;
