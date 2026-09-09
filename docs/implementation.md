@@ -389,3 +389,9 @@ WindowsServer/SessionController 增加携带焦点 lease 的六种模式请求�
 新增 InputState::configured_key，在基础按键处理后按翻页绑定分流候选标点与导航；保留原生以词定字、特殊双拼及快捷键优先入口。最初 Unicode 组合加标点回归失败，确认普通字符路径可能被局部模式吞掉；新增共享显式标点动作及附加 C ABI，复用已有高亮候选完成和 Engine 标点转换，不在 Windows 复制转换算法。
 
 新增八种逗号/方括号、翻页开关、UILess 组合回归，以及非法标点参数无状态变化、中英文标点、错线程/销毁句柄和焦点/待回复门禁检查。32 项 Rust 单元测试、fmt/clippy、八项本机 CTest、锁定词库回归、x64 完整链接与运行时导入检查通过。未执行 Windows 二进制或 TSF 原生验收，x86 完整构建的工具链限制未解除；CI 保持禁用，继续 Windows 优先。
+
+### 第六十三条功能：共享候选首尾汉字选择
+
+将固定 Engine 已有的 Session::select_edge 接入 CXX、共享运行时和 ABI 1 附加接口 msime_client_select_edge。选择携带候选会话、代次及全局 index，沿用当前页身份校验；方向严格限定首／尾汉字。提取与成功后清理组合仍归 Engine，不在 Rust 或 Windows 复制 Unicode 算法。无汉字候选未处理且保留组合；有效调用返回新代次，宿主须刷新身份后再执行回退。
+
+34 项 Rust 单元测试、fmt/clippy、本机 C 消费程序、八项本机 CTest、重新校验的固定词库“你好 → 你／好”回归、Windows x64 完整交叉链接和运行时导入图检查通过；C 消费程序也链接到新 Windows DLL，未在 Windows 执行。覆盖扩展平面汉字、无汉字、非法方向、失效/跨页/跨会话候选、错线程和销毁句柄。Windows 以词定字配置与 TSF 回复/无汉字回退尚待接线，本阶段不宣称产品快捷键可用。CI 保持禁用。

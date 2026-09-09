@@ -5,7 +5,7 @@ use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
-use msime_engine_bridge::{Command, EngineOptions, Session};
+use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 use msime_input_runtime::{Action, CandidateId, Runtime, Transition};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -414,6 +414,32 @@ pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     })
 }
 
+/// Select one Han edge through Engine using the displayed candidate identity.
+#[no_mangle]
+pub extern "C" fn msime_client_select_edge(
+    handle: u64,
+    generation: u64,
+    index: usize,
+    edge: u8,
+) -> *mut c_char {
+    let edge = match edge {
+        0 => CandidateEdge::FirstHan,
+        1 => CandidateEdge::LastHan,
+        _ => return response(|| Err("Invalid candidate edge".into())),
+    };
+    dispatch(
+        handle,
+        Action::SelectEdge(
+            CandidateId {
+                session: handle,
+                generation,
+                index,
+            },
+            edge,
+        ),
+    )
+}
+
 /// Queue a validated preference snapshot without interrupting composition.
 /// # Safety
 /// `snapshot` must point to `length` readable bytes for this call. Null is rejected.
@@ -566,6 +592,97 @@ mod tests {
             assert_eq!(result["value"]["view"]["editing_text"], "");
             read(msime_client_destroy(handle));
             assert_eq!(read(msime_client_punctuation(handle, b','))["ok"], false);
+        }
+    }
+
+    #[test]
+    fn candidate_edge_uses_engine_han_text_and_preserves_unsupported_composition() {
+        for (code, first, last) in [("4e2d", "中", "中"), ("20000", "𠀀", "𠀀"), ("41", "", "")]
+        {
+            for (edge, expected) in [(0, first), (1, last)] {
+                let dir = tempfile::tempdir().unwrap();
+                let handle = test_host(dir.path());
+                read(msime_client_focus(handle, true));
+                read(msime_client_character(handle, b'U', true));
+                for byte in code.bytes() {
+                    read(msime_client_character(handle, byte, false));
+                }
+                let before = read(msime_client_view(handle))["value"].clone();
+                assert!(
+                    before["candidates"]
+                        .as_array()
+                        .is_some_and(|items| !items.is_empty()),
+                    "Missing Unicode fixture candidate for {code}: {before}"
+                );
+                let id = &before["candidates"][0]["id"];
+                let generation = id["generation"].as_u64().unwrap();
+                let index = id["index"].as_u64().unwrap() as usize;
+                for invalid in [2, 255] {
+                    assert_eq!(
+                        read(msime_client_select_edge(handle, generation, index, invalid))["ok"],
+                        false
+                    );
+                    assert_eq!(read(msime_client_view(handle))["value"], before);
+                }
+                assert_eq!(
+                    read(msime_client_select_edge(
+                        handle,
+                        generation - 1,
+                        index,
+                        edge
+                    ))["ok"],
+                    false
+                );
+                assert_eq!(
+                    read(msime_client_select_edge(
+                        handle,
+                        generation,
+                        usize::MAX,
+                        edge
+                    ))["ok"],
+                    false
+                );
+                assert_eq!(
+                    std::thread::spawn(move || read(msime_client_select_edge(
+                        handle, generation, index, edge
+                    ))["ok"]
+                        .clone())
+                    .join()
+                    .unwrap(),
+                    false
+                );
+                assert_eq!(read(msime_client_view(handle))["value"], before);
+                let result = read(msime_client_select_edge(handle, generation, index, edge));
+                assert_eq!(result["ok"], true);
+                assert_eq!(result["value"]["handled"], !expected.is_empty());
+                if expected.is_empty() {
+                    assert!(result["value"]["commit"].is_null());
+                    assert_eq!(
+                        result["value"]["view"]["editing_text"],
+                        before["editing_text"]
+                    );
+                    assert_eq!(
+                        result["value"]["view"]["candidates"][0]["text"],
+                        before["candidates"][0]["text"]
+                    );
+                } else {
+                    assert_eq!(result["value"]["commit"], expected);
+                    assert_eq!(result["value"]["view"]["editing_text"], "");
+                    assert!(result["value"]["view"]["candidates"]
+                        .as_array()
+                        .unwrap()
+                        .is_empty());
+                }
+                assert_eq!(
+                    read(msime_client_select_edge(handle, generation, index, edge))["ok"],
+                    false
+                );
+                read(msime_client_destroy(handle));
+                assert_eq!(
+                    read(msime_client_select_edge(handle, generation, index, edge))["ok"],
+                    false
+                );
+            }
         }
     }
 

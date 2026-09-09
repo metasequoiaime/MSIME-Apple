@@ -30,7 +30,20 @@ int main(int argc, char **argv) {
     char *result = msime_client_command(handle, MSIME_COMMIT_CANDIDATE);
     assert(result && strstr(result, "\"commit\":\"中\""));
     msime_client_string_free(result);
+    for (uint8_t edge = MSIME_FIRST_HAN; edge <= MSIME_LAST_HAN; ++edge) {
+        success(msime_client_character(handle, 'U', true));
+        for (size_t i = 0; i < strlen(code); ++i) success(msime_client_character(handle, (uint8_t)code[i], false));
+        char *view = msime_client_view(handle);
+        assert(view && strstr(view, "\"ok\":true"));
+        const char *generation_field = strstr(view, "\"generation\":");
+        assert(generation_field);
+        uint64_t generation = strtoull(generation_field + strlen("\"generation\":"), NULL, 10);
+        msime_client_string_free(view);
+        result = msime_client_select_edge(handle, generation, 0, edge);
+        assert(result && strstr(result, "\"ok\":true") && strstr(result, "\"commit\":\"中\""));
+        msime_client_string_free(result);
+    }
     success(msime_client_destroy(handle));
-    puts("native C consumer: Unicode input and commit passed");
+    puts("native C consumer: Unicode input, commit and Han edge selection passed");
     return 0;
 }

@@ -43,6 +43,11 @@ mod ffi {
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn select_edge(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+            edge: u8,
+        ) -> Result<EngineResult>;
         fn finish(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn punctuation(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn set_chinese_punctuation_enabled(
@@ -79,6 +84,13 @@ pub enum Command {
     DeleteForward,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CandidateEdge {
+    FirstHan = 0,
+    LastHan = 1,
+}
+
 pub struct Session {
     inner: cxx::UniquePtr<ffi::EngineSession>,
     _thread_confined: std::marker::PhantomData<std::rc::Rc<()>>,
@@ -102,6 +114,13 @@ impl Session {
     }
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
+    }
+    pub fn select_edge(
+        &mut self,
+        index: usize,
+        edge: CandidateEdge,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().select_edge(index, edge as u8)
     }
     pub fn finish(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().finish(index)

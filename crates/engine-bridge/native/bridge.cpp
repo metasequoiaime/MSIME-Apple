@@ -80,6 +80,11 @@ EngineResult EngineSession::command(std::uint8_t value) {
     }
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
+EngineResult EngineSession::select_edge(std::size_t index, std::uint8_t edge) {
+    if (edge > 1) throw std::invalid_argument("Invalid candidate edge");
+    return result_for(session_.select_edge(index, edge == 0 ? metasequoia::CandidateEdge::FirstHan
+                                                          : metasequoia::CandidateEdge::LastHan));
+}
 EngineResult EngineSession::finish(std::size_t index) { return result_for(session_.finish(index)); }
 EngineResult EngineSession::punctuation(std::uint8_t value) {
     if (value > 127) throw std::invalid_argument("Engine punctuation must be ASCII");

@@ -1,7 +1,7 @@
 //! Shared host orchestration; the Engine remains the owner of composition state.
 //! Views are cached values. UI selection carries both session and view identity.
 
-use msime_engine_bridge::{Command, EngineResult, EngineSnapshot, Session};
+use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -28,6 +28,11 @@ pub trait InputEngine {
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    fn select_edge(
+        &mut self,
+        index: usize,
+        edge: CandidateEdge,
+    ) -> Result<EngineResult, RuntimeError>;
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError>;
 }
@@ -51,6 +56,14 @@ impl InputEngine for Session {
     }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+    fn select_edge(
+        &mut self,
+        index: usize,
+        edge: CandidateEdge,
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::select_edge(self, index, edge)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
     }
 }
 
@@ -97,6 +110,7 @@ pub enum Action {
     Punctuation(u8),
     Command(Command),
     Select(CandidateId),
+    SelectEdge(CandidateId, CandidateEdge),
     SelectHighlighted,
     Finish,
     NextPage,
@@ -303,7 +317,7 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
-        if let Action::Select(id) = &action {
+        if let Action::Select(id) | Action::SelectEdge(id, _) = &action {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
                 || id.generation != self.generation
@@ -353,6 +367,7 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
+            Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
@@ -444,6 +459,18 @@ mod tests {
                 diagnostic: String::new(),
             })
         }
+        fn select_edge(
+            &mut self,
+            index: usize,
+            edge: CandidateEdge,
+        ) -> Result<EngineResult, RuntimeError> {
+            let mut result = self.select(index)?;
+            result.commit.push_str(match edge {
+                CandidateEdge::FirstHan => "-first",
+                CandidateEdge::LastHan => "-last",
+            });
+            Ok(result)
+        }
     }
     fn runtime() -> Runtime<Fixture> {
         Runtime::new(
@@ -524,6 +551,43 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn edge_selection_checks_identity_and_routes_global_index() {
+        for edge in [CandidateEdge::FirstHan, CandidateEdge::LastHan] {
+            let mut active = runtime();
+            active.focus(true).unwrap();
+            let first = type_key(&mut active).view.candidates[0].id;
+            let page = active.dispatch(Action::NextPage).unwrap().view;
+            let id = page.candidates[1].id;
+            assert_eq!(id.index, 6);
+            let generation = active.view().generation;
+            for invalid in [
+                first,
+                CandidateId {
+                    session: id.session + 1,
+                    ..id
+                },
+                CandidateId { index: 0, ..id },
+                CandidateId { index: 10, ..id },
+            ] {
+                assert!(matches!(
+                    active.dispatch(Action::SelectEdge(invalid, edge)),
+                    Err(RuntimeError::StaleCandidate)
+                ));
+                assert_eq!(active.view().generation, generation);
+            }
+            let selected = active.dispatch(Action::SelectEdge(id, edge)).unwrap();
+            assert_eq!(
+                selected.commit.as_deref(),
+                Some(match edge {
+                    CandidateEdge::FirstHan => "candidate-6-first",
+                    CandidateEdge::LastHan => "candidate-6-last",
+                })
+            );
+            assert!(selected.view.editing_text.is_empty());
+        }
     }
 
     #[test]
