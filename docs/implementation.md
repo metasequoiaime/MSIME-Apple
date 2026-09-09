@@ -115,3 +115,9 @@ C API 接收版本化 PreferencesSnapshot，Apple 与 JNI 桥接同步暴露。�
 安装固定 NDK r28c，vcpkg 2025.06.13/ef7dbf94 固定 Boost、fmt、spdlog 和 SQLite 依赖。Android CMake 使用 NDK 工具链及独立依赖前缀，不改 Engine 子模块；SQLite 静态进入宿主库，JNI 动态消费宿主库并随包携带 NDK libc++。各 ABI 使用独立 vcpkg 安装根，避免切换 ABI 时删除上一套依赖；Android CMake 重新配置清理旧依赖路径缓存。
 
 arm64-v8a 与 x86_64 release 库已构建，ELF 架构、16 KB LOAD 对齐、动态依赖白名单及 C/JNI 导出校验通过；错误 ABI 负例被拒绝。本机 macOS 桥接/宿主 8 项回归及 clippy 通过。NDK/vcpkg 许可声明复制到构建输出，分发前仍需完整 Rust/Engine/词库许可汇总。无可安装 APK 或设备运行证据，CI 保持禁用。
+
+### 第十八条功能：Android 开发 APK 与首次准备入口
+
+增加共享 C/JNI bootstrap，复用锁定资源校验和 Engine 工作目录准备；启动 Activity 后台解包 APK 资源，首次成功后原子发布私有运行配置，已有配置不覆盖。开发构建脚本用 SDK 编译 Java/DEX、打包双 ABI 和六份资源、16 KB zip 对齐及开发签名；不执行安装、启用或切换输入法。
+
+本地 SDK 源码检查、双 ABI 原生导出检查、APK 签名/对齐/包结构检查通过。共享核心与宿主 14 项测试、真实资源 C bootstrap 探针、桌面 JNI 回归、fmt/clippy 通过。当前 APK 约 92 MiB，只是开发产物；未进行设备安装、首次准备及系统输入验收，也未完成正式分发的完整许可材料，CI 保持禁用。

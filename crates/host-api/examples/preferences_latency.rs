@@ -17,7 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("usage: preferences_latency <verified-resources>")?;
     let state = tempfile::tempdir()?;
-    let options = prepare_host_configuration(std::path::Path::new(&resources), state.path())?;
+    let resources = std::fs::canonicalize(resources)?;
+    let request = json!({"resources": resources, "state_root": state.path()}).to_string();
+    let options =
+        read(unsafe { msime_client_prepare_host(request.as_ptr(), request.len()) }).to_string();
     let started = Instant::now();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     let create_ms = started.elapsed().as_secs_f64() * 1000.0;
