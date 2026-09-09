@@ -1,4 +1,5 @@
 #include "KeyEvent.h"
+#include "ReplyCodec.h"
 #include "ServerSession.h"
 #include "ipc_negotiation.h"
 #include <chrono>
@@ -123,6 +124,12 @@ int main(int argc, char **argv) {
     auto selected = key(0x20);
     require(selected.transition.at("commit") == "中" && selected.reply_expected,
             "Unicode commit failed");
+    auto reply = msime::windows::candidate_commit(
+        selected.request_id,
+        selected.transition.at("commit").get<std::string>());
+    require(reply && reply.packet.request_id == selected.request_id &&
+                reply.packet.candidate_string[0] == 0x4E2D,
+            "Shared result did not encode into the candidate reply");
     rejected([&] { session.select(epoch, stale_generation, 0); });
     require(key(0xBC, ',').transition.at("handled") == false,
             "Deferred ASCII punctuation not applied");
