@@ -1,5 +1,6 @@
 #include "WindowsServer.h"
 #include "CandidateWindow.h"
+#include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
@@ -150,7 +151,7 @@ int main() {
     const nlohmann::json launch{{"format_version", 1}, {"resources", host.at("resources")},
         {"state_root", root.u8string()}, {"pipe_namespace", "server-fixture"},
         {"preedit_style", "pinyin"}};
-    // Same key-handler factory as the executable; native UI is still absent.
+    // Same key-handler factory and background click path as the executable.
     WindowsServer server(
         options, host.dump(),
         preview_key_handler(PreviewConfig::parse(launch.dump())),
@@ -192,7 +193,8 @@ int main() {
     require(activation.complete() && activation.frame == fence);
     packet.event_type = FanyImePipeEventType::KeyEvent;
     packet.request_id = 2;
-    for (char c : std::string("U4e2d ")) {
+    // Keep keyboard commit coverage, then compose again for window selection.
+    for (char c : std::string("U4e2d U4e2d")) {
       packet.keycode =
           static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
       packet.wch = static_cast<FanyImeWireChar>(c == ' ' ? 0 : c);
@@ -211,7 +213,64 @@ int main() {
       }
       ++packet.request_id;
     }
+    std::atomic<SelectionRequestResult> selected{SelectionRequestResult::Rejected};
+    CandidateClickWorker clicks([&](const CandidateClick &click) {
+      selected = server.request_selection(click.lease, click.session,
+                                           click.generation, click.index);
+    });
+    struct ClickShutdown {
+      WindowsServer &server;
+      CandidateClickWorker &clicks;
+      ~ClickShutdown() {
+        clicks.request_stop();
+        server.request_stop();
+        clicks.stop();
+      }
+    } click_shutdown{server, clicks};
+    CandidateWindow candidates(
+        [&] { return server.candidate_view(); },
+        [&](const CandidateClick &click) { require(clicks.submit(click)); });
+    // Pipe receipt precedes queue confirmation. Wait for the confirmed value,
+    // not a guessed delay or an independently fabricated window snapshot.
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(2);
+    bool painted = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+      const auto value = server.candidate_view();
+      if (value && value->visible && !value->candidates.empty() &&
+          value->candidates[0].text == "中") {
+        candidates.refresh();
+        UpdateWindow(candidates.handle());
+        painted = IsWindowVisible(candidates.handle()) && !candidates.failed();
+        if (painted)
+          break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    require(painted);
+    const auto foreground = GetForegroundWindow();
+    const auto metrics = candidate_metrics(GetDpiForWindow(candidates.handle()));
+    const auto point =
+        MAKELPARAM(metrics.padding + 1, metrics.padding + metrics.row + 1);
+    SendMessageW(candidates.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+    SendMessageW(candidates.handle(), WM_LBUTTONUP, 0, point);
+    const auto committed = read_frame(
+        worker.handle, sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 2000);
+    require(committed.complete() &&
+            committed.frame == ui_complete_selection("中")->worker);
+    // Wait for controller confirmation before stopping; the received frame
+    // alone is not proof that the background selection transaction completed.
+    const auto confirmed_deadline = std::chrono::steady_clock::now() +
+                                    std::chrono::seconds(2);
+    while (selected.load() == SelectionRequestResult::Rejected &&
+           std::chrono::steady_clock::now() < confirmed_deadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(selected.load() == SelectionRequestResult::Sent && !clicks.failed());
+    candidates.refresh();
+    require(!IsWindowVisible(candidates.handle()) && !candidates.failed() &&
+            GetForegroundWindow() == foreground);
     server.stop(); // Must cancel the now-idle Main reader before joining it.
+    clicks.stop();
     server.stop();
     require(!server.candidate_view());
     require(server.failure() == ControllerFailure::None);
