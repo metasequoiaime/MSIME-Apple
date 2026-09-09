@@ -9,6 +9,8 @@ for arch in x86_64 i686; do
   output="$repo_root/target/windows-cross/$arch"
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
     platforms/windows/tests/focus_gate.cpp -o "$output/focus-gate.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \

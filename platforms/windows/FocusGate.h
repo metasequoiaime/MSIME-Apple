@@ -36,6 +36,15 @@ public:
     ready_ = false;
     return change;
   }
+  // Prepare the queue-owned Engine session before scheduling its worker fence.
+  template <typename Action>
+  bool with_pending(const FocusLease &lease, Action &&action) {
+    std::lock_guard lock(mutex_);
+    if (!matches(lease) || ready_)
+      return false;
+    std::forward<Action>(action)();
+    return true;
+  }
   // Writer performs the ordered worker fence and returns true only on complete
   // delivery. Do not re-enter this gate from either callback. The transport
   // registry must revalidate the ticket while writing. Uncertain writes fail.

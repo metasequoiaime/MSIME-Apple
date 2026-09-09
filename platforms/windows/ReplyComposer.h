@@ -34,6 +34,7 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
+  bool has_pending() const { return pending_.has_value(); }
   // Call only after a complete frame write or successful local-only handling.
   // A failed/uncertain write leaves pending unchanged; never rerun Engine
   // input.

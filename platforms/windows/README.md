@@ -123,3 +123,13 @@ with_active 在同一焦点锁内验证并执行动作，避免检查后焦点�
 这只是状态与同步机制，不会从任意状态通知推断系统焦点。可信 ClientActivated、KeyEvent、FocusRestored、挂起与停用的事件路由策略，以及旧/新 ServerSession 的输入队列切换仍由后续分发器接入。系统焦点事件未接入前，不能仅调用 begin 就宣称完成焦点授权。
 
 本机新增 windows-focus-gate 测试，验证 pending/ready、坏票据、旧确认、失败/异常、失焦失效与并发动作互斥；连同原有三项 CTest 共四项通过。原生管道测试把门禁组合到 worker 焦点确认和回复发送，并在重连后失效旧 lease；x86/x64 编译链接通过，未 Windows 实测。
+
+## 焦点约束的输入队列会话
+
+`FocusedSession` 为一个已登记客户端组合 ServerSession、ReplyComposer 与 FocusGate，全部方法必须在创建它的输入队列线程执行。控制器先 begin 新 lease，再在队列 prepare：只有当前 pending 激活能准备 Engine，新的 epoch 会取消旧组合并替换旧回复编排；准备成功后才把 worker 焦点确认交给 I/O 线程。适配器不执行管道 I/O，也不自行判断 OS 焦点。
+
+key 必须匹配已准备的完整 lease，并在 with_active 内调用真实 Engine；确认前或过期任务返回空结果，不推进 Engine。ReplyComposer 的待回复门禁继续阻止重复执行。返回的 PendingReply 是独立副本，供 I/O 队列处理；复制/传输失败时可通过 pending 取回暂存结果而不重跑输入，但这不是不确定投递的重发许可。成功写入或已核实本地处理后，confirm 回到输入队列并重新检查 lease；旧确认不能推进新会话前缀。
+
+cancel 只清理匹配 lease 的 Engine/编排状态，即使全局焦点已切走也可清理旧客户端，不会清掉新激活。控制器仍负责将 FocusChange.previous 的取消发送给旧客户端队列；不能只准备新客户端而遗漏旧组合。ReplyPath 与本地完成文本由实际 TSF 路径显式提供，候选点击、配置同步及生命周期事件策略尚未装配到这一适配器。
+
+本机测试调用真实 Rust/C++ 会话验证 Unicode 提交结果与编码、确认前阻止输入、待回复时不重跑 Engine、暂存结果读取、过期输入/确认拒绝、新激活清空旧组合、过期取消与线程拒绝。焦点写入完成使用测试回调，未执行系统上屏或 Windows 端到端链路；x86/x64 仅编译适配器对象，独立原生管道测试仍未 Windows 运行。

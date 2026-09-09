@@ -1,3 +1,4 @@
+#include "FocusedSession.h"
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
@@ -5,6 +6,7 @@
 #include "ipc_negotiation.h"
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -85,6 +87,97 @@ int main(int argc, char **argv) {
         FanyImeProtocol::Negotiate(hello, FanyImeProtocol::RequiredCapabilities)
             .accepted,
         "Shared protocol negotiation failed");
+    {
+      using namespace msime::windows;
+      FocusGate gate;
+      FocusedSession focused(gate, 42, options.dump());
+      PipeTicket ticket{42, {1, 2, 3}};
+      auto first = *gate.begin(ticket, 77);
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.client_id = 42;
+      packet.request_id = 2;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      require(!focused.key(first.pending, packet, ReplyPath::Composition),
+              "Unprepared focus entered Engine");
+      require(focused.prepare(first.pending), "Focus preparation failed");
+      require(!focused.key(first.pending, packet, ReplyPath::Composition),
+              "Unacknowledged focus entered Engine");
+      require(focused.view().at("editing_text") == "",
+              "Pending focus changed composition");
+      require(gate.acknowledge(first.pending, [] { return true; }),
+              "Synthetic queue-test fence failed");
+      auto initial = focused.key(first.pending, packet, ReplyPath::Composition);
+      require(initial && focused.view().at("editing_text") == "U",
+              "Focused key did not reach Engine");
+      const auto pending_view = focused.view();
+      ++packet.request_id;
+      rejected(
+          [&] { focused.key(first.pending, packet, ReplyPath::Composition); });
+      require(focused.view() == pending_view,
+              "Pending reply allowed another Engine action");
+      require(focused.pending(first.pending)->source.request_id ==
+                  initial->source.request_id,
+              "Staged reply could not be recovered without Engine replay");
+      require(focused.confirm(first.pending, initial->source.request_id),
+              "Delivery confirmation failed");
+      require(!focused.pending(first.pending),
+              "Confirmed reply remained staged");
+      for (char c : std::string("4e2d")) {
+        packet.keycode =
+            static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
+        packet.wch = c;
+        packet.modifiers_down = 0;
+        auto result =
+            focused.key(first.pending, packet, ReplyPath::Composition);
+        require(result && focused.confirm(first.pending, packet.request_id),
+                "Focused Unicode edit failed");
+        ++packet.request_id;
+      }
+      packet.keycode = 0x20;
+      packet.wch = 0;
+      auto committed = focused.key(first.pending, packet, ReplyPath::Selection);
+      require(committed && committed->source.transition.at("commit") == "中" &&
+                  committed->encoded &&
+                  committed->encoded->packet.candidate_string[0] == 0x4e2d,
+              "Focused Unicode commit/reply failed");
+      require(focused.confirm(first.pending, packet.request_id),
+              "Final delivery confirmation failed");
+      ++packet.request_id;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      require(focused.key(first.pending, packet, ReplyPath::Composition)
+                  .has_value(),
+              "Pending edit failed");
+      auto second = *gate.begin(ticket, 78);
+      const auto old_view = focused.view();
+      require(!focused.key(first.pending, packet, ReplyPath::Composition) &&
+                  !focused.confirm(first.pending, packet.request_id) &&
+                  focused.view() == old_view,
+              "Obsolete focus task reached Engine or confirmed output");
+      require(focused.prepare(second.pending) &&
+                  focused.view().at("editing_text") == "",
+              "New activation retained old composition");
+      require(!focused.cancel(first.pending),
+              "Old cancellation cleared new prepared session");
+      auto wrong_thread = std::async(std::launch::async, [&] {
+        try {
+          focused.prepare(second.pending);
+        } catch (const std::logic_error &) {
+          return true;
+        }
+        return false;
+      });
+      require(wrong_thread.get(),
+              "Focused adapter accepted wrong queue thread");
+      auto other = *gate.begin({99, {4, 5, 6}}, 79);
+      require(focused.cancel(second.pending), "Previous owner cleanup failed");
+      require(gate.with_pending(other.pending, [] {}),
+              "Old owner cleanup invalidated new focus");
+    }
     ServerSession session(42, options.dump());
     uint64_t request = 2;
     uint64_t epoch = 1;
