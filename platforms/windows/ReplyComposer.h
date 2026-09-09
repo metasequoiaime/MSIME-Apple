@@ -35,6 +35,8 @@ public:
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
         std::optional<std::string> local_text = std::nullopt);
   // Normal input entry: enforce the pending-reply gate BEFORE advancing Engine.
+  // LocalCommit also requires an Enter/raw-commit key and caller-observed text
+  // equal to selected_prefix + Engine editing_text BEFORE clearing composition.
   const PendingReply &
   dispatch(ServerSession &session, const FanyImeNamedpipeData &packet,
            uint64_t epoch, ReplyPath path, bool uiless = false,

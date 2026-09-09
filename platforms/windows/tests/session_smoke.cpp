@@ -554,6 +554,37 @@ int main(int argc, char **argv) {
     };
     rejected([&] { key('U', 'U', 1); });
     session.activate(epoch);
+    {
+      using namespace msime::windows;
+      key('U', 'U', 1);
+      const auto unchanged = session.view();
+      ReplyComposer composer(42, epoch);
+      FanyImeNamedpipeData enter{};
+      enter.client_id = 42;
+      enter.event_type = FanyImePipeEventType::KeyEvent;
+      enter.request_id = request++;
+      enter.keycode = 0x0D;
+      rejected([&] { composer.dispatch(session, enter, epoch, ReplyPath::LocalCommit,
+                                       false, "different"); });
+      require(session.view() == unchanged && !composer.has_pending(),
+              "Rejected local commit consumed Engine composition");
+      rejected([&] { composer.dispatch(session, enter, epoch, ReplyPath::LocalCommit); });
+      require(session.view() == unchanged && !composer.has_pending(),
+              "Missing local text consumed Engine composition");
+      auto wrong_key = enter;
+      wrong_key.keycode = 'A';
+      wrong_key.wch = 'a';
+      rejected([&] { composer.dispatch(session, wrong_key, epoch, ReplyPath::LocalCommit,
+                                       false, "U"); });
+      require(session.view() == unchanged && !composer.has_pending(),
+              "Non-Enter local commit advanced Engine");
+      const auto local = composer.dispatch(session, enter, epoch, ReplyPath::LocalCommit,
+                                            false, "U");
+      require(!local.encoded && local.source.transition.at("commit") == "U" &&
+                  session.view().at("editing_text") == "",
+              "Validated local Enter changed its text or emitted a reply");
+      composer.confirm_delivery(42, epoch, enter.request_id);
+    }
     key('U', 'U', 1);
     session.set_input_enabled(epoch, false);
     const auto closed_view = session.view();
@@ -840,6 +871,22 @@ int main(int argc, char **argv) {
                       FanyImeReplyType::NeedToCreateWord &&
                   composer.selected_prefix() == "你",
               "Real partial prefix not retained");
+      {
+        const auto preserved = session.view();
+        FanyImeNamedpipeData enter{};
+        enter.client_id = 42;
+        enter.event_type = FanyImePipeEventType::KeyEvent;
+        enter.request_id = request++;
+        enter.keycode = 0x0D;
+        rejected([&] {
+          composer.dispatch(session, enter, epoch,
+                            msime::windows::ReplyPath::LocalCommit, false,
+                            preserved.at("editing_text").get<std::string>());
+        });
+        require(session.view() == preserved && !composer.has_pending() &&
+                    composer.selected_prefix() == "你",
+                "Rejected raw-only Enter lost the selected prefix or remainder");
+      }
       auto final = send(0x20, 0, msime::windows::ReplyPath::Selection);
       require(final.encoded->packet.msg_type == FanyImeReplyType::Normal &&
                   final.encoded->packet.candidate_string[0] == 0x4F60 &&

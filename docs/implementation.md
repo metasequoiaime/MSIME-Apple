@@ -371,3 +371,9 @@ WindowsServer/SessionController 增加携带焦点 lease 的六种模式请求�
 新增 InputState::edit，依据 Engine 模式判定字母、手动分隔符、Unicode 裸数字/加号、删除及左右移动；不会把 Unicode Shift 数字选词或快捷键混为编辑。按显式 TSF 预编辑样式和包内 UILess 标志生成回复：普通 Local 编辑无帧，普通 Pinyin 光标移动和删空无帧，UILess 保持候选页更新。无帧编辑仍经待回复确认，不允许重跑 Engine。过期焦点与待回复门禁保持不变。
 
 实际 SessionPump 四种样式/UILess 组合序列覆盖输入、左右移动和连续删除，逐次核对是否应有帧及回复类型；另覆盖选词/加号/快捷键/unknown 模式边界。八项本机 CTest、锁定词库回归、x64 完整链接和运行时依赖检查通过；未改 Rust，未执行 Windows 原生测试。Enter、取消、标点、导航与其他原生优先路径尚未组成完整产品 KeyHandler，继续 Windows 优先，CI 保持禁用。
+
+### 第六十条修复：本地提交先验证后清理
+
+修复 LocalCommit 在校验本地完成文本之前就执行 Engine 原始文本提交的问题。现在先核对键型及完整已选前缀加剩余编辑文本，不匹配或缺失观察值立即拒绝，组合、前缀和待回复状态均保持；保留提交后校验以防结果分歧。不凭 Engine 结果制造本地完成证明。
+
+新回归在原实现失败；修复后八项本机 CTest、真实词库部分选词前缀回归、x64 完整链接和运行时依赖检查通过，覆盖错误文本、缺失文本、错误键型及有效 Enter 无帧完成。未改 Rust、未执行 Windows 原生验收，CI 保持禁用。完整原生 KeyHandler 仍待继续接入。

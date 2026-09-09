@@ -154,6 +154,16 @@ const PendingReply &ReplyComposer::dispatch(
     throw std::logic_error("Pending or expired Windows reply route");
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
+  if (path == ReplyPath::LocalCommit && session.input_enabled()) {
+    const auto action = translate_key(packet);
+    const auto raw = session.view().at("editing_text").get<std::string>();
+    // The TSF has already inserted its local text. Validate that observation
+    // before MSIME_COMMIT_RAW can clear Engine state. The postflight check in
+    // stage() remains necessary; never manufacture proof from Engine's result.
+    if (action.kind != KeyKind::Command || action.value != MSIME_COMMIT_RAW ||
+        !local_text || *local_text != prefix_ + raw)
+      throw std::invalid_argument("Invalid local commit observation");
+  }
   auto result = session.key(packet, epoch);
   if (!session.input_enabled())
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
