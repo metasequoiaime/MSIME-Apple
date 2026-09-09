@@ -79,6 +79,16 @@ public:
     std::forward<Action>(action)();
     return true;
   }
+  // UI reads must not wait behind a pipe writer. False includes a busy gate;
+  // callers must fail closed instead of displaying a cached owner's content.
+  template <typename Action>
+  bool try_with_active(const FocusLease &lease, Action &&action) {
+    std::unique_lock lock(mutex_, std::try_to_lock);
+    if (!lock || !matches(lease) || !ready_)
+      return false;
+    std::forward<Action>(action)();
+    return true;
+  }
   bool deactivate(const FocusLease &lease) {
     std::lock_guard lock(mutex_);
     if (!matches(lease))

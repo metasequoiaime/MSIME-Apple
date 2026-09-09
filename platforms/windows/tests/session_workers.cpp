@@ -213,12 +213,18 @@ void session_worker_tests(const std::string &options) {
             std::future_status::ready);
     const auto busy = controller.request_selection(
         shown->lease, candidate.session, candidate.generation, candidate.index);
+    auto reading = std::async(std::launch::async,
+                              [&] { return controller.candidate_view(); });
+    const bool read_ready = reading.wait_for(std::chrono::seconds(1)) ==
+                            std::future_status::ready;
     ++packet.request_id;
     packet.keycode = 'U';
     packet.wch = 'U';
     packet.modifiers_down = 1;
     transport.push(packet); // Must wait until the UI transaction finishes.
     release_ui.set_value();
+    const auto during_delivery = reading.get();
+    require(read_ready && !during_delivery);
     require(busy == SelectionRequestResult::Busy &&
             selection.get() == SelectionRequestResult::Sent);
     transport.wait_started(11);

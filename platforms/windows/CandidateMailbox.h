@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidatePresentation.h"
+#include <functional>
 
 namespace msime::windows {
 // Single latest value, not an unbounded per-key UI event queue. Publish only
@@ -50,19 +51,29 @@ public:
   // External consumer only, never while holding the gate. No UI callbacks run
   // under either lock. The returned copy is valid at read time, not a grant to
   // perform a later candidate action without checking its identity again.
-  std::optional<CandidatePresentation> snapshot(FocusGate &gate) {
+  std::optional<CandidatePresentation>
+  snapshot(FocusGate &gate, bool wait = true,
+           const std::function<bool(const FocusLease &)> &current = {}) {
     std::optional<FocusLease> lease;
     {
-      std::lock_guard lock(mutex_);
+      std::unique_lock lock(mutex_, std::defer_lock);
+      if (wait)
+        lock.lock();
+      else if (!lock.try_lock())
+        return std::nullopt;
       if (latest_)
         lease = latest_->lease;
     }
     std::optional<CandidatePresentation> result;
-    if (lease)
-      gate.with_active(*lease, [&] {
+    if (lease) {
+      auto read = [&] {
         // Always gate -> mailbox, matching the producer's lock order. Fetch
         // the newest generation here, not the value observed before the gate.
-        std::lock_guard lock(mutex_);
+        std::unique_lock lock(mutex_, std::defer_lock);
+        if (wait)
+          lock.lock();
+        else if (!lock.try_lock())
+          return;
         if (latest_ && latest_->lease.epoch == lease->epoch &&
             latest_->lease.token == lease->token &&
             same_ticket(latest_->lease.transport, lease->transport))
@@ -72,7 +83,17 @@ public:
           result->preedit.clear();
           result->candidates.clear();
         }
-      });
+        lock.unlock();
+        // Validate transport while the focus lock still excludes pipe sends;
+        // a post-lock check could start waiting behind the very next writer.
+        if (result && current && !current(result->lease))
+          result.reset();
+      };
+      if (wait)
+        gate.with_active(*lease, read);
+      else
+        gate.try_with_active(*lease, read);
+    }
     return result;
   }
 

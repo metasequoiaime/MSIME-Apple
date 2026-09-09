@@ -125,9 +125,10 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
         "Candidate read cannot reenter controller callbacks");
   if (stopping_ || !input_.stats().accepting)
     return std::nullopt;
-  auto value = candidates_.snapshot(focus_);
-  if (stopping_ || !input_.stats().accepting ||
-      (value && !transport_.current(value->lease.transport)))
+  auto value = candidates_.snapshot(focus_, false, [&](const FocusLease &lease) {
+    return transport_.current(lease.transport);
+  });
+  if (stopping_ || !input_.stats().accepting)
     return std::nullopt;
   return value;
 }

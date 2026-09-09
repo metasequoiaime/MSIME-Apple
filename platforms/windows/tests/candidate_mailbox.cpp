@@ -122,7 +122,33 @@ void candidate_mailbox_tests() {
   const auto first = activate(a, 1);
   require(publish(first, 1));
   require(mailbox.snapshot(gate)->visible);
-  auto visual_event = [&](const FocusLease &lease, uint32_t type, uint32_t modifiers = 0) {
+  {
+    std::promise<void> held, release;
+    auto holding = held.get_future();
+    auto resume = release.get_future();
+    auto writer = std::async(std::launch::async, [&] {
+      return gate.with_active(first, [&] {
+        held.set_value();
+        require(resume.wait_for(std::chrono::seconds(10)) ==
+                std::future_status::ready);
+      });
+    });
+    require(holding.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    auto reader = std::async(std::launch::async,
+                             [&] { return mailbox.snapshot(gate, false); });
+    const bool ready =
+        reader.wait_for(std::chrono::seconds(1)) == std::future_status::ready;
+    release.set_value();
+    require(writer.get());
+    const auto blocked = reader.get();
+    require(ready && !blocked);
+    require(mailbox.snapshot(gate, false)->visible);
+    require(!mailbox.snapshot(gate, false,
+                              [](const FocusLease &) { return false; }));
+  }
+  auto visual_event = [&](const FocusLease &lease, uint32_t type,
+                          uint32_t modifiers = 0) {
     FanyImeNamedpipeData packet{};
     packet.client_id = lease.transport.client;
     packet.event_type = type;
