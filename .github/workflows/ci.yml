@@ -73,7 +73,7 @@ jobs:
           target/debug/native-smoke "$native_test_dir"
       - if: runner.os == 'macOS'
         run: |
-          clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation platforms/apple/MSIMEClientSession.mm platforms/apple/tests/session_smoke.mm -Iplatforms/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
+          clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation shared/apple/MSIMEClientSession.mm shared/apple/tests/session_smoke.mm -Ishared/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
           target/debug/apple-session-smoke
       - if: runner.os == 'macOS'
         run: |
@@ -102,4 +102,5 @@ jobs:
           resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)
           python3 -c 'import sys; sys.path.insert(0, "vendor/MSIME-Engine"); from contracts.dictionary.product import verify_product; verify_product(sys.argv[1])' "$resource_dir"
           cargo run -p msime-engine-bridge --example query_dictionary -- "$resource_dir"
+          cargo run -p msime-input-runtime --example query_dictionary -- "$resource_dir"
           cargo run -p msime-client-core --example install_resources -- target/resources

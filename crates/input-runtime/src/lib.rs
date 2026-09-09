@@ -175,14 +175,24 @@ impl<E: InputEngine> Runtime<E> {
 
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         // Drop cached candidate identities even if fetching the replacement fails.
-        self.cached = EngineSnapshot {
-            preedit: String::new(),
-            editing_text: String::new(),
-            caret_position: 0,
-            candidates: Vec::new(),
-        };
+        let previous = std::mem::replace(
+            &mut self.cached,
+            EngineSnapshot {
+                preedit: String::new(),
+                editing_text: String::new(),
+                caret_position: 0,
+                candidates: Vec::new(),
+            },
+        );
+        let previous_highlight = self.highlighted;
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
+        if self.cached.editing_text == previous.editing_text
+            && self.cached.candidates == previous.candidates
+        {
+            self.highlighted =
+                previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
+        }
         Ok(())
     }
 
@@ -231,7 +241,20 @@ impl<E: InputEngine> Runtime<E> {
         }
         let result = match action {
             Action::Finish => self.engine.finish(self.highlighted),
-            Action::Character { value, shift } => self.engine.character(value, shift),
+            Action::Character { value, shift } => {
+                self.engine.character(value, shift).and_then(|result| {
+                    // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first.
+                    if result.handled || !(b'1'..=b'9').contains(&value) || len == 0 {
+                        return Ok(result);
+                    }
+                    let page_start = (self.highlighted / self.page_size) * self.page_size;
+                    let slot = usize::from(value - b'1');
+                    if slot >= self.page_size || page_start + slot >= len {
+                        return Ok(empty_result(true));
+                    }
+                    self.engine.select(page_start + slot)
+                })
+            }
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
@@ -283,6 +306,9 @@ mod tests {
             })
         }
         fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
+            if value.is_ascii_digit() {
+                return Ok(empty_result(false));
+            }
             self.text.push(value as char);
             Ok(empty_result(true))
         }
@@ -332,6 +358,47 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn number_keys_select_the_visible_page_and_pass_through_when_idle() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        assert!(
+            !runtime
+                .dispatch(Action::Character {
+                    value: b'2',
+                    shift: false
+                })
+                .unwrap()
+                .handled
+        );
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b'2',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(result.commit.as_deref(), Some("candidate-6"));
+    }
+
+    #[test]
+    fn unavailable_numeric_slot_does_not_jump_back_to_first_page() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        runtime.dispatch(Action::NextPage).unwrap();
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b'9',
+                shift: false,
+            })
+            .unwrap();
+        assert!(result.handled && result.commit.is_none());
+        assert_eq!(result.view.page, 2);
     }
 
     #[test]

@@ -114,7 +114,8 @@
     NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 280, height)];
     NSUInteger slot = 0;
     for (NSDictionary *candidate in candidates) {
-        MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:candidate[@"text"] target:self action:@selector(selectCandidate:)];
+        NSString *title = [NSString stringWithFormat:@"%lu. %@", (unsigned long)(slot + 1), candidate[@"text"]];
+        MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         button.frame = NSMakeRect(6, height - (++slot * 34), 268, 30);
         button.bordered = [candidate[@"highlighted"] boolValue];
