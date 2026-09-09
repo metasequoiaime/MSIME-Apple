@@ -15,6 +15,7 @@ mod ffi {
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
+        pub local_mode: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
@@ -144,6 +145,7 @@ mod tests {
             assert!(session.character(*character, false).unwrap().handled);
         }
         let snapshot = session.snapshot().unwrap();
+        assert_eq!(snapshot.local_mode, "unicode");
         assert!(snapshot
             .candidates
             .iter()
@@ -152,5 +154,6 @@ mod tests {
         assert!(result.has_commit);
         assert_eq!(result.commit, "中");
         assert!(session.snapshot().unwrap().preedit.is_empty());
+        assert_eq!(session.snapshot().unwrap().local_mode, "none");
     }
 }

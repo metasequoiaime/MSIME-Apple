@@ -275,3 +275,9 @@ SessionWorkers 用固定线程槽位运行 SessionPump，每客户端最多一�
 RegistrationInbox 将握手回调与可能等待取消的连接管理分离；SessionController 持有输入队列、连接 worker 和控制线程，消费登记并在空闲时检查故障。WindowsServer 装配实际 PipeService、传输和控制器，使用显式名称及能力，早到的通知进入预先构造的有界收件箱。退出顺序固定为停止服务/Registry、join 连接循环、停止输入队列；输入回调只发出停止请求，不 join。
 
 新增本机收件箱、空闲服务故障、输入异常与回调请求停机测试；八项本机 CTest、会话回归连续二十次与真实锁定词库回归通过。WindowsServer 及使用唯一测试管道、真实握手/激活/Unicode 提交的原生集成测试源码通过 x86/x64 对象编译，独立管道测试交叉链接和管道 CMake 构建通过。尚未执行 Windows 原生组合或 TSF 系统验收，生产分发、UI/模式/设置同步仍待实现，继续 Windows 优先且 CI 保持禁用。
+
+### 第四十四条功能：Engine 模式透传与 Windows Unicode 选词
+
+对照固定上游 TSF 后复现 Unicode 模式 Shift+1 被当作 !、无法选词的问题。共享桥接/视图新增来自 Engine 的 local_mode，模式切换不沿用旧高亮；Windows 使用真实模式和当前页候选 ID 处理 Shift+1..9，不复制选词算法，不从 U 前缀猜模式。越界选择保留组合，非 Unicode 模式继续使用翻译后的标点字符。
+
+回归包含修复前失败、修复后提交、UiLess 修饰位、越界与模式复位；28 项 Rust 单元测试、fmt/clippy、八项本机 CTest、真实锁定词库回归及 x86/x64 适配器编译检查通过。完整生产分发与 Windows 原生验收仍待完成，CI 保持禁用。

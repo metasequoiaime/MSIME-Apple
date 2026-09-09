@@ -358,7 +358,7 @@ int main(int argc, char **argv) {
     for (char c : std::string("4e2d"))
       key(static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c), c);
     auto before = session.view();
-    require(before.at("editing_text") == "U4e2d",
+    require(before.at("editing_text") == "U4e2d" && before.at("local_mode") == "unicode",
             "TSF text overwrote shared composition");
     auto stale_generation = before.at("generation").get<uint64_t>();
     preferences["chinese_punctuation"] = false;
@@ -369,9 +369,15 @@ int main(int argc, char **argv) {
          preferences}}.dump();
     require(session.update_preferences(epoch, snapshot).at("deferred") == true,
             "Active preferences not deferred");
-    auto selected = key(0x20);
+    const auto no_selection = key('9', '(', 1);
+    require(no_selection.transition.at("commit").is_null() &&
+                session.view() == before,
+            "Out-of-page Unicode selection changed composition");
+    auto selected = key('1', '!', 1 | FanyImePipeFlags::UiLess);
     require(selected.transition.at("commit") == "中" && selected.reply_expected,
             "Unicode commit failed");
+    require(selected.transition.at("view").at("local_mode") == "none",
+            "Committed session retained Unicode mode");
     auto reply = msime::windows::candidate_commit(
         selected.request_id,
         selected.transition.at("commit").get<std::string>());
@@ -381,6 +387,8 @@ int main(int argc, char **argv) {
     rejected([&] { session.select(epoch, stale_generation, 0); });
     require(key(0xBC, ',').transition.at("handled") == false,
             "Deferred ASCII punctuation not applied");
+    require(key('1', '!', 1).transition.at("handled") == false,
+            "Shift digit outside Unicode mode ignored translated punctuation");
     key('U', 'U', 1);
     auto shortcut = key('C', 0, 2);
     require(shortcut.transition.at("handled") == false &&

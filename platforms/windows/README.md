@@ -189,3 +189,9 @@ SessionController 持有输入队列、连接 worker 和独立控制线程，消
 WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初始化，不能访问尚未构造完成的 server。通用 SessionController 的 healthy/stop_service 回调在控制线程运行；stop_service 必须关闭所有登记端点（包括尚未消费的收件箱票据）并等待服务线程结束，服务和收件箱须活到 controller 停止之后。
 
 本机测试增加有界登记队列、空闲时服务故障、输入异常全局停机，以及持有焦点锁的事件回调请求退出。原生 windows-server-smoke 使用唯一测试名称运行实际 WindowsServer，发送反向握手、Main 协商、激活及 Unicode 输入，并验证完整提交和空闲停机；测试源码已提供，尚未在 Windows 执行。Windows 上需完整同架构 Rust 导入库构建（不能用 MSIME_WINDOWS_PIPE_ONLY），再运行 `ctest --test-dir target/windows-boundary -C Debug -R windows-server --output-on-failure`。固定 Unicode 测试处理器不代表真实 TSF 模式/候选 UI 已实现，产品分发、设置/模式同步、原生链接与 TSF 编辑控件验收仍待完成。
+
+### Engine 模式与 Unicode 数字选词
+
+共享 View 新增 local_mode，由固定 Engine 的 SessionSnapshot.local_mode 显式映射并透传，不从 editing_text/preedit 猜测；快照失败时的 unknown 不能当作普通输入模式使用。模式变化不会沿用旧模式候选高亮。宿主与共享库应成套构建，Windows 不对缺失模式字段做前缀回退。
+
+依据固定上游 TSF 消费规则，ServerSession 在 Unicode 模式下把 Shift+1..9 解释为当前页候选选择，即使 wch 已被键盘布局翻译为 ! 等标点；通过视图提供的 generation/global index 调用共享 select，越界槽位不改变组合。非 Unicode 模式仍使用原始 wch 和共享标点处理，不将所有 Shift+数字都强制选词。UiLess 标志不干扰修饰键判定，模式快照只在该数字分支读取，不给普通字符路径增加一次完整视图查询。原生分发处理器仍须选择 Selection 回复路径，其他 TSF 键路由未因此自动完成。
