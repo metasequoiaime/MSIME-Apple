@@ -12,6 +12,8 @@ macOS 每次 Engine 动作完成后更新值快照；候选选择必须用当前
 活动组合继续使用创建时的偏好，组合结束后才按新的 SessionOptions 重建会话。
 高亮候选的自动提交调用 Session::finish(index)，剩余分段仍由 Engine 完成。
 
+`InputSchemePreference.scheme` 的 setter 在目标方案不在 `enabledSchemes` 中时静默替换为 `enabledSchemes[0]`，赋值失败不报错；`enabledSchemes` 存在 app group，跨进程与跨 test bundle 持久化。依赖某个方案的测试必须先在 `setUp` 中接管整个方案集合（`enableAllInputSchemes()`），隐藏方案的 UI 测试必须在 `defer` 中经 `--reset-input-schemes-for-ui-tests` 恢复可见性，否则它留下的状态会让后续 bundle 静默跑在错误方案上。
+
 iOS 个人词库通过 Engine `<metasequoia/personal_dictionary.h>` 校验和编辑；SharedUI 同步文件仅传递用户操作、确认和分页快照，不复制拼音解析或 SQL。键盘仅在完全访问开启且会话空闲时处理队列，写入前释放会话，完成后保留方案、九键和学习偏好重建。操作 UUID 作为 Engine 事务回执 ID，确认文件写入中断后的重试必须复用它。
 
 发布构建：push 到 main 保留 version.txt 的语义版本，仅递增独立 build，以 v<version>-build.<build> 发布 Pre-release。正式升版本通过 release.yml 的 workflow_dispatch（bump_version=true、tag 留空）调用 release-please；tag 输入用于发布已有 draft。macOS、iOS 和 Sparkle 使用同一 METASEQUOIA_BUILD_NUMBER，安装器版本也使用 build。正式发布后仍须将 main 回合到 develop。
