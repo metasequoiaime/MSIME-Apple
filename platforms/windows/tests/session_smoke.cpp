@@ -1,5 +1,6 @@
 #include "KeyEvent.h"
 #include "ReplyCodec.h"
+#include "ReplyComposer.h"
 #include "ServerSession.h"
 #include "ipc_negotiation.h"
 #include <chrono>
@@ -180,6 +181,69 @@ int main(int argc, char **argv) {
       auto expected = page.at("candidates").at(0).at("text");
       require(key(0x61).transition.at("commit") == expected,
               "Numpad did not select shared page global index");
+      // Start a clean activation and select a real partial candidate from the
+      // locked dictionary. Do not synthesize an Engine remainder for this test.
+      session.deactivate(epoch);
+      session.activate(++epoch);
+      msime::windows::ReplyComposer composer(42, epoch);
+      auto send = [&](uint32_t vk, uint32_t text,
+                      msime::windows::ReplyPath path) {
+        FanyImeNamedpipeData packet{};
+        packet.event_type = FanyImePipeEventType::KeyEvent;
+        packet.client_id = 42;
+        packet.request_id = request++;
+        packet.keycode = vk;
+        packet.wch = static_cast<FanyImeWireChar>(text);
+        const auto &pending = composer.dispatch(session, packet, epoch, path);
+        auto copy = pending;
+        auto unchanged = session.view();
+        rejected([&] { composer.dispatch(session, packet, epoch, path); });
+        require(session.view() == unchanged,
+                "Pending-reply gate advanced Engine");
+        require(!pending.encoded || static_cast<bool>(*pending.encoded),
+                "Real reply cannot be encoded");
+        composer.confirm_delivery(42, epoch, packet.request_id);
+        return copy;
+      };
+      for (char c : std::string("nihao"))
+        send(c - 'a' + 'A', c, msime::windows::ReplyPath::Composition);
+      bool found = false;
+      size_t slot = 0;
+      for (size_t attempts = 0; attempts < 100; ++attempts) {
+        auto current = session.view();
+        for (size_t i = 0; i < current.at("candidates").size(); ++i) {
+          if (current.at("candidates").at(i).at("text") == "你") {
+            slot = i;
+            found = true;
+            break;
+          }
+        }
+        if (found || current.at("page").get<size_t>() + 1 >=
+                         current.at("page_count").get<size_t>())
+          break;
+        send(0x22, 0, msime::windows::ReplyPath::Composition);
+      }
+      require(found, "No real partial candidate in fixed dictionary");
+      auto partial = send(static_cast<uint32_t>(0x61 + slot), 0,
+                          msime::windows::ReplyPath::Selection);
+      require(partial.source.transition.at("commit") == "你" &&
+                  !partial.source.transition.at("view")
+                       .at("editing_text")
+                       .get<std::string>()
+                       .empty(),
+              "Fixture did not exercise a partial commit");
+      require(partial.encoded->packet.msg_type ==
+                      FanyImeReplyType::NeedToCreateWord &&
+                  composer.selected_prefix() == "你",
+              "Real partial prefix not retained");
+      auto final = send(0x20, 0, msime::windows::ReplyPath::Selection);
+      require(final.encoded->packet.msg_type == FanyImeReplyType::Normal &&
+                  final.encoded->packet.candidate_string[0] == 0x4F60 &&
+                  final.encoded->packet.candidate_string[1] == 0x597D &&
+                  final.encoded->packet.candidate_string[2] == 0,
+              "Legacy final reply lost or duplicated partial prefix");
+      require(composer.selected_prefix().empty(),
+              "Final reply retained stale prefix");
     }
     std::cout << "Windows Server boundary: shared session, routing and input "
                  "acceptance passed\n";

@@ -12,6 +12,10 @@ for arch in x86_64 i686; do
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/ReplyCodec.cpp platforms/windows/tests/reply_codec.cpp -o "$output/reply-codec.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/ReplyComposer.cpp -o "$output/ReplyComposer.o"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/tests/reply_composer.cpp -o "$output/reply_composer.o"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/ServerSession.cpp -o "$output/ServerSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/tests/session_smoke.cpp -o "$output/session_smoke.o"
