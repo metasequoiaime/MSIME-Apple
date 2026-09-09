@@ -7,3 +7,4 @@ dist/
 .env.*
 !Cargo.lock
 !pnpm-lock.yaml
+/apps/desktop/src-tauri/gen/

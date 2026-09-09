@@ -10,7 +10,7 @@
 - 后续 `crates/input-runtime`：会话编排与候选展示模型；不复制 Engine 组词状态机。
 - 后续 `crates/engine-bridge`：固定上游 C++ Engine 的互操作层。
 - 后续 `crates/host-api`：原生宿主入口与明确的对象生命周期。
-- 后续 `packages/ui`、`apps/desktop`：共享 React UI 与 Tauri 应用壳。
+- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，已接入真实本地配置。
 - 后续 `platforms/`：系统入口；Windows 保留 TSF DLL / Server 隔离。
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
@@ -18,9 +18,17 @@
 ## 开发
 
 ```sh
-cargo test --workspace --locked
+cargo test -p msime-client-core --locked
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+pnpm install --frozen-lockfile
+pnpm --filter @msime/desktop test
+pnpm build
+pnpm tauri dev
 ```
+
+桌面构建需要 [Tauri 平台依赖](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 构建开发二进制；暂不签名、安装或发布。普通浏览器中只显示无法访问本地配置的提示，不模拟保存成功。
+
+设置通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存。当前四个字段仅属于预览客户端，尚不作用于已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。

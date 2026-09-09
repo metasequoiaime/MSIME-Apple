@@ -1,0 +1,1 @@
+{ "identifier": "settings", "description": "Local settings window", "windows": ["main"], "permissions": ["core:default"] }
