@@ -30,6 +30,7 @@ public:
                                                    const std::string &snapshot);
   bool cancel(const FocusLease &lease);
   bool set_input_enabled(const FocusLease &lease, bool enabled);
+  bool set_chinese_punctuation(const FocusLease &lease, bool enabled);
   // Retain at most one latest snapshot while a reply is pending. True means
   // accepted for delivery, not necessarily applied to an active composition.
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);

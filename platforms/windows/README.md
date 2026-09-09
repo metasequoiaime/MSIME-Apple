@@ -228,7 +228,13 @@ WindowsServerOptions::preferences_directory 显式启用共享配置轮询，空
 
 SessionPump 在输入队列内自动处理当前焦点的 IMESwitch、StatusSnapshot 与 FocusRestored，先同步 keycode 表示的中文开关，再调用外部事件回调。关闭时经共享宿主清空 Engine 组合与旧回复前缀；关闭期间迟到按键不再推进 Engine，重新开启从空组合输入。相同状态通知不重复改变 Engine 代次，每个客户端会话保留开关至再次通知；过期焦点不能修改状态，未确认回复阻止切换。外部事件回调仍在焦点锁内，不得重入 Engine/焦点门禁。
 
-这里只连接每客户端键盘开关，不实现上游全局模式作用域、全半角/标点状态同步或发往 TSF worker 的模式通知；完整产品按键分类与 Windows 原生验收仍未完成。
+这里只连接每客户端键盘开关，不实现上游全局模式作用域、全半角状态同步或发往 TSF worker 的模式通知；完整产品按键分类与 Windows 原生验收仍未完成。
+
+### TSF 标点开关同步
+
+PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步到当前会话的中文标点开关。经共享 C ABI 调用固定 Engine 的运行时 setter，不重建会话，不改变组合、光标、候选代次或引号配对。待回复和过期焦点仍不能修改状态。TSF 开关是每会话临时覆盖，不写入配置文件，并在共享偏好替换 Engine 时重新应用；未收到覆盖的会话继续使用持久化偏好默认值。
+
+新增 msime_client_set_chinese_punctuation 为 ABI 1 的附加符号，适配器和宿主库须成套更新。其返回值为未变化的 View；关闭时空组合 ASCII 标点由宿主透传，组合中标点仍按共享运行时的完成策略处理。本轮仅接入入站标点开关，不代表全局作用域、出站通知或原生产品键路由已完成。
 
 ### Engine 模式与 Unicode 数字选词
 

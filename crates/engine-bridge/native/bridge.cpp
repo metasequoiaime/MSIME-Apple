@@ -85,4 +85,7 @@ EngineResult EngineSession::punctuation(std::uint8_t value) {
     if (value > 127) throw std::invalid_argument("Engine punctuation must be ASCII");
     return result_for(session_.punctuation(static_cast<char>(value)));
 }
+void EngineSession::set_chinese_punctuation_enabled(bool enabled) {
+    session_.set_chinese_punctuation_enabled(enabled);
+}
 }

@@ -60,6 +60,46 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (auto event : {FanyImePipeEventType::PuncSwitch,
+                    FanyImePipeEventType::StatusSnapshot,
+                    FanyImePipeEventType::FocusRestored}) {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.resize(1);
+    auto status = transport.packets.front();
+    status.event_type = event;
+    status.keycode = event == FanyImePipeEventType::PuncSwitch ? 0 : 1;
+    transport.packets.push_back(status);
+    auto punctuation = transport.packets.front();
+    punctuation.event_type = FanyImePipeEventType::KeyEvent;
+    punctuation.request_id = 2;
+    punctuation.keycode = 0xBC;
+    punctuation.wch = ',';
+    transport.packets.push_back(punctuation);
+    status.keycode = 1;
+    status.pinyin_length = event == FanyImePipeEventType::PuncSwitch ? 0 : 1;
+    transport.packets.push_back(status);
+    ++punctuation.request_id;
+    transport.packets.push_back(punctuation);
+    size_t keys = 0;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &focus,
+            const FanyImeNamedpipeData &packet) {
+          auto reply = state.key(focus, packet, ReplyPath::Punctuation);
+          require(reply.has_value());
+          if (++keys == 1)
+            require(reply->source.transition.at("handled") == false &&
+                    reply->source.transition.at("commit").is_null());
+          else
+            require(reply->source.transition.at("commit") == "，");
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 2);
+    queue.stop();
+  }
   for (auto event : {FanyImePipeEventType::StatusSnapshot,
                      FanyImePipeEventType::IMESwitch,
                      FanyImePipeEventType::FocusRestored}) {

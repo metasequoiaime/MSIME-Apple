@@ -45,6 +45,10 @@ mod ffi {
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn finish(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn punctuation(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
+        fn set_chinese_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
     }
 }
 
@@ -104,6 +108,11 @@ impl Session {
     }
     pub fn punctuation(&mut self, value: u8) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().punctuation(value)
+    }
+    pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .set_chinese_punctuation_enabled(enabled)
     }
 }
 

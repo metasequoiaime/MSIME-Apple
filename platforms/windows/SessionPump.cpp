@@ -93,6 +93,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 return;
               if (route.route &&
                   (packet.event_type == FanyImePipeEventType::IMESwitch ||
+                   packet.event_type == FanyImePipeEventType::PuncSwitch ||
                    packet.event_type == FanyImePipeEventType::StatusSnapshot ||
                    packet.event_type == FanyImePipeEventType::FocusRestored) &&
                   !state.synchronize_input_mode(*route.route, packet))

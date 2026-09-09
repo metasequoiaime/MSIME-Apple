@@ -113,6 +113,15 @@ pub struct Runtime<E: InputEngine = Session> {
     snapshot_valid: bool,
 }
 
+impl Runtime<Session> {
+    /// A live host mode changes neither composition nor candidate identity.
+    pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine
+            .set_chinese_punctuation_enabled(enabled)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+}
+
 impl<E: InputEngine> Runtime<E> {
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
         if !(1..=9).contains(&page_size) {

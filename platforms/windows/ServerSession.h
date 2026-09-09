@@ -31,6 +31,7 @@ public:
   nlohmann::json activate(uint64_t epoch);
   nlohmann::json deactivate(uint64_t epoch);
   void set_input_enabled(uint64_t epoch, bool enabled);
+  void set_chinese_punctuation(uint64_t epoch, bool enabled);
   bool input_enabled() const {
     check_thread();
     return input_enabled_;
