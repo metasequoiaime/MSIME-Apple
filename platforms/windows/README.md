@@ -171,3 +171,11 @@ PipeMainTransport 的 read 复用 Registry 的可取消空闲等待与消息校�
 KeyHandler 在输入队列上使用真实 TSF 模式/消费路径选择 ReplyPath，并且只调用一次 state.key；测试里的 Unicode 专用分发不是生产 VK 推断器。EventHandler 必须显式提供，用于发布携带 lease 的模式/候选 UI 工作；有活动 route 时回调处于焦点锁内，不得重入 gate、调用 Engine 或执行 I/O。清理类通知没有新前台授权，不得隐藏其他客户端 UI；异步消费者仍须检查 lease。无编码帧的返回只能表示 ReplyComposer 已验证的本地完成或无回复路径，不能拿它绕过待回复门禁。
 
 本机确定性传输测试运行同一个 SessionPump 和真实 Rust/C++ 输入线程，验证 Unicode 完整回复、确认顺序、失败不重放、错误路由拒绝、旧焦点输出丢弃、重复 hello 和自等待拒绝。Windows 原生管道测试使用实际 PipeMainTransport 检查读写与旧 ticket 关闭不影响新登记；尚未在 Windows 运行，也尚未把 Windows Rust 与真实管道完整链接验收。剩余原生控制器负责有界 worker 生命周期、接纳回调、取消/join、实际 KeyHandler/EventHandler、模式输出和配置重试；目前不启动生产管道。
+
+### 有界连接工作线程
+
+SessionWorkers 为 1–64 个固定连接槽位预建 I/O worker，每槽最多一个活动 SessionPump 和一个待替换 ticket。重复完整票据不会启动第二个读取者；同客户端重连取消旧读取并覆盖待替换票据，旧循环完成队列清理后原线程接替新连接。不同客户端超过槽位容量、旧代次或停机后提交会被拒绝并关闭匹配主注册，不按每次重连无限创建线程。
+
+submit 供外部控制线程消费已协商的登记通知，先检查 MainTransport.current；取消可能等待有限时间的在途写入，不得直接放进要求非阻塞的 PipeIntake 回调或输入/gate 回调。原生控制器还需提供有界登记通知入口。request_stop 标记停止、关闭活动和待替换票据以取消读取；stop 从外部线程串行 join，不能从输入队列或自身 worker 调用。依赖的传输、Gate、输入队列和处理器须活到 stop 返回；正常退出顺序是停止接纳、取消/join 连接循环、停止输入队列，再释放传输服务。输入队列故障被循环观察到时会停止其余槽位；全部连接空闲时仍需宿主监控输入队列/服务状态并主动取消，不能依靠空闲读取自行发现故障。
+
+本机测试组合实际 SessionWorkers、SessionPump、InputQueue 和真实会话，使用可取消的空闲传输验证并发读取上限、重复登记、容量拒绝、重连线程复用、连续替换合并、旧关闭隔离与并发 stop。仍未执行 Windows 原生组合，也未完成服务启动装配、实际 TSF/UI 处理器与安装验收。
