@@ -139,7 +139,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.mac_only != true }}
     # ML Kit ships x86_64 simulator binaries; run them natively instead of under Rosetta.
     runs-on: macos-15-intel
-    timeout-minutes: 120
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
@@ -180,14 +180,66 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
       - name: Test native iOS keyboard and settings
-        # Includes simulator boot, test-bundle compilation, and the full UI/unit suite.
-        # Includes the expanded skin, community, account, and handwriting suites.
-        timeout-minutes: 80
+        # Interface tests run in the ios-ui matrix; this covers the keyboard, service and backend
+        # suites, which finish in about a minute once the test bundles are compiled.
+        env:
+          MSIME_TEST_SCOPE: unit
+        timeout-minutes: 30
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ios-test-results
+          name: ios-test-results-unit
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
+
+  ios-ui:
+    # The interface suite is 40 cases and roughly 48 minutes of simulator time, so it decides how
+    # long CI takes. Slice it across runners instead of letting one runner walk the whole list.
+    name: iOS Interface ${{ matrix.slice }}/4
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mac_only != true }}
+    # ML Kit ships x86_64 simulator binaries; run them natively instead of under Rosetta.
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    strategy:
+      # A failure in one slice says nothing about the others, and cancelling them throws away the
+      # evidence needed to tell a real regression from a flake.
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Install project generator
+        run: |
+          brew install boost fmt spdlog nlohmann-json xcodegen
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
+      - name: Package iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          pod install --deployment --project-directory=platforms/ios
+      - name: Test the iOS interface slice
+        env:
+          MSIME_TEST_SCOPE: ui
+          MSIME_UI_SHARD_INDEX: ${{ matrix.slice }}
+          MSIME_UI_SHARD_COUNT: 4
+        timeout-minutes: 70
+        run: bash platforms/ios/scripts/run_ui_tests.sh
+      - name: Upload iOS interface results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-test-results-ui-${{ matrix.slice }}
           path: build/ios-derived/Logs/Test/*.xcresult
           retention-days: 7
