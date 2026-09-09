@@ -1,5 +1,7 @@
 #pragma once
 #include "EditPolicy.h"
+#include "NavigationPolicy.h"
+#include "WordCharacterPolicy.h"
 #include <array>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -10,11 +12,14 @@ struct PreviewConfig {
   std::filesystem::path state_root;
   std::string pipe_namespace;
   TsfPreeditStyle style;
+  NavigationBindings navigation{};
+  WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
     const auto value = nlohmann::json::parse(document);
-    if (!value.is_object() || value.size() != 5 ||
+    if (!value.is_object() ||
+        value.size() != (value.contains("key_bindings") ? 6u : 5u) ||
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
       throw std::invalid_argument("Invalid preview configuration");
@@ -37,6 +42,24 @@ struct PreviewConfig {
       result.style = TsfPreeditStyle::Pinyin;
     else if (style != "local")
       throw std::invalid_argument("Invalid preview preedit style");
+    if (value.contains("key_bindings")) {
+      const auto &keys = value.at("key_bindings");
+      if (!keys.is_object() || keys.size() != 7)
+        throw std::invalid_argument("Invalid preview key bindings");
+      result.navigation.minus_equal = keys.at("minus_equal").get<bool>();
+      result.navigation.comma_period = keys.at("comma_period").get<bool>();
+      result.navigation.brackets = keys.at("brackets").get<bool>();
+      result.navigation.tab = keys.at("tab").get<bool>();
+      result.navigation.page_up_down = keys.at("page_up_down").get<bool>();
+      result.navigation.arrows = keys.at("arrows").get<bool>();
+      const auto word = keys.at("word_character").get<std::string>();
+      if (word == "brackets")
+        result.word_character = WordCharacterBinding::Brackets;
+      else if (word == "minus_equal")
+        result.word_character = WordCharacterBinding::MinusEqual;
+      else if (word != "disabled")
+        throw std::invalid_argument("Invalid preview word binding");
+    }
     return result;
   }
   std::array<std::wstring, 3> pipe_names() const {

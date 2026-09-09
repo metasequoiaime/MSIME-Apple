@@ -1,4 +1,5 @@
 #include "WindowsServer.h"
+#include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
 #include <cstring>
@@ -68,15 +69,13 @@ int main() {
     for (size_t role = 0; role < 3; ++role)
       options.pipes.names[role] = L"\\\\.\\pipe\\msime-server-fixture-" +
                                   suffix + L"-" + std::to_wstring(role);
-    // Test-only fixed Unicode path, not a production TSF dispatch policy.
+    const nlohmann::json launch{{"format_version", 1}, {"resources", host.at("resources")},
+        {"state_root", root.u8string()}, {"pipe_namespace", "server-fixture"},
+        {"preedit_style", "pinyin"}};
+    // Same key-handler factory as the executable; native UI is still absent.
     WindowsServer server(
         options, host.dump(),
-        [](InputState &state, const FocusLease &lease,
-           const FanyImeNamedpipeData &packet) {
-          return state.key(lease, packet,
-                           packet.keycode == 0x20 ? ReplyPath::Selection
-                                                  : ReplyPath::Composition);
-        },
+        preview_key_handler(PreviewConfig::parse(launch.dump())),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     const uint64_t client =
         (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 42u;

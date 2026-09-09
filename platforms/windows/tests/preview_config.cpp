@@ -16,6 +16,10 @@ int main() {
                             {"preedit_style", "pinyin"}};
     const auto good = PreviewConfig::parse(document.dump());
     require(good.style == TsfPreeditStyle::Pinyin);
+    require(!good.navigation.minus_equal && !good.navigation.comma_period &&
+            !good.navigation.brackets && !good.navigation.tab &&
+            !good.navigation.page_up_down && !good.navigation.arrows &&
+            good.word_character == WordCharacterBinding::Disabled);
     const auto names = good.pipe_names();
     require(names[0] == L"\\\\.\\pipe\\msime-client-preview-fixture-12-0" &&
             names[0] != names[1] && names[1] != names[2]);
@@ -64,6 +68,47 @@ int main() {
     document["preedit_style"] = "local";
     require(PreviewConfig::parse(document.dump()).style ==
             TsfPreeditStyle::Local);
+    const nlohmann::json bindings{
+        {"minus_equal", false},        {"comma_period", false},
+        {"brackets", false},           {"tab", false},
+        {"page_up_down", false},       {"arrows", false},
+        {"word_character", "disabled"}};
+    for (const char *name : {"minus_equal", "comma_period", "brackets", "tab",
+                             "page_up_down", "arrows"}) {
+      auto config = document;
+      config["key_bindings"] = bindings;
+      config["key_bindings"][name] = true;
+      const auto loaded = PreviewConfig::parse(config.dump());
+      require(loaded.navigation.minus_equal ==
+              (std::string(name) == "minus_equal"));
+      require(loaded.navigation.comma_period ==
+              (std::string(name) == "comma_period"));
+      require(loaded.navigation.brackets == (std::string(name) == "brackets"));
+      require(loaded.navigation.tab == (std::string(name) == "tab"));
+      require(loaded.navigation.page_up_down ==
+              (std::string(name) == "page_up_down"));
+      require(loaded.navigation.arrows == (std::string(name) == "arrows"));
+      config["key_bindings"][name] = 1;
+      reject(config);
+      config["key_bindings"].erase(name);
+      reject(config);
+    }
+    document["key_bindings"] = bindings;
+    for (const auto &[name, expected] :
+         std::array<std::pair<const char *, WordCharacterBinding>, 3>{
+             {{"disabled", WordCharacterBinding::Disabled},
+              {"brackets", WordCharacterBinding::Brackets},
+              {"minus_equal", WordCharacterBinding::MinusEqual}}}) {
+      document["key_bindings"]["word_character"] = name;
+      require(PreviewConfig::parse(document.dump()).word_character == expected);
+    }
+    document["key_bindings"]["word_character"] = "unknown";
+    reject(document);
+    document["key_bindings"] = bindings;
+    document["key_bindings"]["extra"] = false;
+    reject(document);
+    document["key_bindings"] = nullptr;
+    reject(document);
     std::cout
         << "Preview configuration: isolated names and strict fields passed\n";
   } catch (...) {

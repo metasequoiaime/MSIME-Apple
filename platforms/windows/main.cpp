@@ -1,4 +1,5 @@
 #include "PreviewConfig.h"
+#include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
@@ -84,10 +85,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     WindowsServer server(
         options, prepared.at("value").dump(),
-        [style = config.style](InputState &state, const FocusLease &focus,
-                               const FanyImeNamedpipeData &packet) {
-          return state.configured_key(focus, packet, style, {});
-        },
+        preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     std::cout
         << "Preview Server running; native candidate UI is not connected.\n";

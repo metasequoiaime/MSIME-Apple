@@ -1,4 +1,5 @@
 #include "SessionPump.h"
+#include "PreviewDispatcher.h"
 #include <atomic>
 #include <exception>
 
@@ -151,10 +152,25 @@ void session_pump_tests(const std::string &options) {
           if (uiless)
             for (size_t i = 1; i < transport.packets.size(); ++i)
               transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
-          NavigationBindings bindings;
-          bindings.brackets = bindings.minus_equal = true;
-          const auto word_binding = minus ? WordCharacterBinding::MinusEqual
-                                          : WordCharacterBinding::Brackets;
+          const auto host = nlohmann::json::parse(options);
+          const nlohmann::json launch{
+              {"format_version", 1},
+              {"resources", host.at("resources")},
+              {"state_root", host.at("user_data")},
+              {"pipe_namespace", "binding-fixture"},
+              {"preedit_style", "pinyin"},
+              {"key_bindings",
+               {{"minus_equal", true},
+                {"brackets", true},
+                {"comma_period", false},
+                {"tab", false},
+                {"page_up_down", false},
+                {"arrows", false},
+                {"word_character", minus ? "minus_equal" : "brackets"}}}};
+          auto config = PreviewConfig::parse(launch.dump());
+          const auto handler = preview_key_handler(config);
+          config.word_character = WordCharacterBinding::Disabled;
+          config.navigation = {}; // Already-created handler owns its snapshot.
           size_t keys = 0;
           std::exception_ptr failure;
           SessionPump pump(
@@ -162,9 +178,7 @@ void session_pump_tests(const std::string &options) {
               [&](InputState &state, const FocusLease &lease,
                   const FanyImeNamedpipeData &packet) {
                 try {
-                  auto result = state.configured_key(
-                      lease, packet, TsfPreeditStyle::Pinyin, bindings,
-                      std::nullopt, word_binding);
+                  auto result = handler(state, lease, packet);
                   if (!result || !result->encoded ||
                       !static_cast<bool>(*result->encoded))
                     throw std::runtime_error(
@@ -211,9 +225,22 @@ void session_pump_tests(const std::string &options) {
         if (uiless)
           for (size_t i = 1; i < transport.packets.size(); ++i)
             transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
-        NavigationBindings bindings;
-        bindings.brackets = brackets && paging;
-        bindings.comma_period = !brackets && paging;
+        const auto host = nlohmann::json::parse(options);
+        const nlohmann::json launch{{"format_version", 1},
+                                    {"resources", host.at("resources")},
+                                    {"state_root", host.at("user_data")},
+                                    {"pipe_namespace", "paging-fixture"},
+                                    {"preedit_style", "pinyin"},
+                                    {"key_bindings",
+                                     {{"minus_equal", false},
+                                      {"brackets", brackets && paging},
+                                      {"comma_period", !brackets && paging},
+                                      {"tab", false},
+                                      {"page_up_down", false},
+                                      {"arrows", false},
+                                      {"word_character", "disabled"}}}};
+        const auto handler =
+            preview_key_handler(PreviewConfig::parse(launch.dump()));
         size_t keys = 0;
         std::exception_ptr failure;
         SessionPump pump(
@@ -221,8 +248,7 @@ void session_pump_tests(const std::string &options) {
             [&](InputState &state, const FocusLease &lease,
                 const FanyImeNamedpipeData &packet) {
               try {
-                auto result = state.configured_key(
-                    lease, packet, TsfPreeditStyle::Pinyin, bindings);
+                auto result = handler(state, lease, packet);
                 require(result && result->encoded &&
                         static_cast<bool>(*result->encoded));
                 if (++keys == 6) {

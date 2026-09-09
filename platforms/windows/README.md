@@ -208,7 +208,7 @@ bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动�
 
 ### 预览 Server 命令行入口
 
-完整构建新增 msime-client-server.exe，使用 `--config <绝对配置路径>` 启动，`--help` 不读写状态。配置是最多 16 KiB 的 JSON，必须且只能含以下五个字段：
+完整构建新增 msime-client-server.exe，使用 `--config <绝对配置路径>` 启动，`--help` 不读写状态。配置是最多 16 KiB 的 JSON，以下五个字段必需，另可提供 key_bindings；其余字段拒绝：
 
 ```json
 {"format_version":1,"resources":"C:\\MSIME-Preview\\resources","state_root":"C:\\MSIME-Preview\\state","pipe_namespace":"dev-01","preedit_style":"pinyin"}
@@ -218,7 +218,15 @@ resources 指向已下载的锁定词库代目录；state_root 必须是本预�
 
 入口调用共享 prepare_host 校验词库并准备隔离工作数据，启用同目录配置监听，再启动 WindowsServer。Ctrl+C/Ctrl+Break 请求顺序停机；准备阶段的磁盘操作不能即时中断，系统强制终止不保证清理。初始化错误只输出通用信息，不输出配置路径或输入内容。此入口未在 Windows 执行验证。
 
-这是不注册 TSF 的开发预览，不是可安装输入法：候选窗口/工具栏未接，翻页及以词定字绑定当前关闭，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
+key_bindings 可选对象示例：
+
+```json
+{"minus_equal":false,"comma_period":true,"brackets":false,"tab":false,"page_up_down":true,"arrows":true,"word_character":"brackets"}
+```
+
+对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。未提供对象则全部关闭，与旧五字段配置一致。以词定字优先于同键翻页，Microsoft 分号及 Unicode 编辑优先级不变。入口使用已捕获的启动快照，修改启动文件需重启；共享 preferences.json 的 Engine 方案监听独立工作，不会把延迟中的方案当作已经应用。此预览配置不替代未来跨端设置和 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
+
+这是不注册 TSF 的开发预览，不是可安装输入法：候选窗口/工具栏未接，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 ### 配置投递后的自动重试
 
