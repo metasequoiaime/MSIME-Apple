@@ -36,8 +36,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var standardRowHeights: [(UIView, NSLayoutConstraint)] = []
   private let candidateScrollView = CandidateScrollView()
   private let diagnosticLabel = UILabel()
-  private let previousPageButton = UIButton()
-  private let nextPageButton = UIButton()
+  private let expandCandidatesButton = UIButton()
   private let candidateStack = UIStackView()
   private let candidateEmptySpacer = UIView()
   private let schemeButton = UIButton()
@@ -54,6 +53,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let handwriting = HandwritingInputView()
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
+  private var candidatePanel: KeyboardCandidatePanelView?
   private var moreMenu: UIMenu?
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
@@ -98,7 +98,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
-  private var candidatePageStart = 0
   private var showsSymbols = false
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
@@ -111,7 +110,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var pendingOwnEdits = 0
 
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
-  private static let candidatePageSize = 9
+  // Not private: the expansion test asserts the panel reaches past what the strip shows.
+  static let candidatePageSize = 9
+  // The composition sits on its own line above the candidates. Both rows are reserved whether or
+  // not anything is being composed, so no row appears or disappears mid-typing.
+  // Not private: the height assertions derive from it rather than restating the sum.
+  static let compositionRowHeight: CGFloat = 24
+  private static let candidateStripHeight: CGFloat = 62
 
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
@@ -162,7 +167,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       skinBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     installKeyboard()
-    let height = view.heightAnchor.constraint(equalToConstant: 260)
+    let height = view.heightAnchor.constraint(equalToConstant: 260 + Self.compositionRowHeight)
     height.priority = .init(999)
     height.identifier = "keyboardHeight"
     height.isActive = true
@@ -281,7 +286,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
 
     root.addArrangedSubview(makeCandidateStrip())
-    preeditButton.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.28).isActive = true
     for (index, row) in letterRows.enumerated() {
       let rowView = makeLetterRow(row, includesShift: index == letterRows.count - 1)
       letterRowViews.append(rowView)
@@ -440,9 +444,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
 
+    // The composition gets its own line. Sharing the candidate row cost it up to 28% of the width
+    // and left the candidates that much narrower, on the one row where width is worth most.
+    let compositionRow = UIView()
+    compositionRow.accessibilityIdentifier = "compositionRow"
+    compositionRow.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(compositionRow)
+
     var preeditConfiguration = UIButton.Configuration.plain()
     preeditConfiguration.contentInsets = .zero
-    preeditConfiguration.titleLineBreakMode = .byTruncatingHead
+    // Truncate the tail. The head of a spelling is what tells the typist where a long composition
+    // went wrong, so dropping it is dropping the useful half.
+    preeditConfiguration.titleLineBreakMode = .byTruncatingTail
     preeditConfiguration.baseForegroundColor = KeyboardSkinPreference.selected.accent
     preeditConfiguration.titleTextAttributesTransformer =
       UIConfigurationTextAttributesTransformer { attributes in
@@ -476,18 +489,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticLabel.isHidden = true
     diagnosticLabel.accessibilityIdentifier = "diagnosticLabel"
 
-    configurePageButton(previousPageButton, symbol: "chevron.left", label: "上一页候选")
-    previousPageButton.addAction(
-      UIAction { [weak self] _ in self?.showCandidatePage(offset: -1) },
-      for: .primaryActionTriggered)
-    configurePageButton(nextPageButton, symbol: "chevron.right", label: "下一页候选")
-    nextPageButton.addAction(
-      UIAction { [weak self] _ in self?.showCandidatePage(offset: 1) },
+    configureStripButton(
+      expandCandidatesButton, symbol: "chevron.down", label: "展开全部候选",
+      identifier: "expandCandidates")
+    expandCandidatesButton.addAction(
+      UIAction { [weak self] _ in self?.showCandidatePanel() },
       for: .primaryActionTriggered)
 
+    preeditButton.translatesAutoresizingMaskIntoConstraints = false
+    compositionRow.addSubview(preeditButton)
+
     let content = UIStackView(arrangedSubviews: [
-      preeditButton, candidateScrollView, diagnosticLabel,
-      candidateEmptySpacer, previousPageButton, nextPageButton, exitLocalModeButton,
+      candidateScrollView, diagnosticLabel,
+      candidateEmptySpacer, expandCandidatesButton, exitLocalModeButton,
     ])
     content.axis = .horizontal
     content.alignment = .center
@@ -510,10 +524,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     installShortcutBar(in: container)
 
     NSLayoutConstraint.activate([
-      container.heightAnchor.constraint(equalToConstant: 38),
+      container.heightAnchor.constraint(equalToConstant: Self.candidateStripHeight),
+      compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+      compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+      compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
+      compositionRow.heightAnchor.constraint(equalToConstant: Self.compositionRowHeight),
+      preeditButton.leadingAnchor.constraint(equalTo: compositionRow.leadingAnchor),
+      preeditButton.trailingAnchor.constraint(lessThanOrEqualTo: compositionRow.trailingAnchor),
+      preeditButton.centerYAnchor.constraint(equalTo: compositionRow.centerYAnchor),
       content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
       content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-      content.topAnchor.constraint(equalTo: container.topAnchor),
+      content.topAnchor.constraint(equalTo: compositionRow.bottomAnchor),
       content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
       candidateStack.leadingAnchor.constraint(
         equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
@@ -564,7 +585,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NSLayoutConstraint.activate([
       shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
       shortcutBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
-      shortcutBar.topAnchor.constraint(equalTo: container.topAnchor),
+      // The shortcut bar stands in for the candidates, so it takes their row rather than the
+      // composition's; the composition line stays reserved either way and nothing shifts when a
+      // composition starts.
+      shortcutBar.topAnchor.constraint(
+        equalTo: container.topAnchor, constant: Self.compositionRowHeight),
       shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
     scriptShortcut.addAction(UIAction { [weak self] _ in
@@ -965,14 +990,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // absolute index the chip with that number is actually displaying, and a digit with no chip
       // on this page has to do nothing: falling through would hand it to handleCandidateKey and
       // commit a first-page candidate the user cannot see.
-      if candidatePageStart > 0, let digit = Int(symbol) {
-        let index = candidatePageStart + digit - 1
-        if index < visibleCandidates.count {
-          render(session.selectCandidate(at: UInt(index)))
-        }
-        return
-      }
-
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
         insertOwnText(symbol)
@@ -1412,7 +1429,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  private func configurePageButton(_ button: UIButton, symbol: String, label: String) {
+  private func configureStripButton(
+    _ button: UIButton, symbol: String, label: String, identifier: String
+  ) {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
@@ -1420,29 +1439,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       top: 2, leading: 2, bottom: 2, trailing: 2)
     button.configuration = configuration
     button.accessibilityLabel = label
-    button.accessibilityIdentifier =
-      symbol == "chevron.left" ? "previousCandidatePage" : "nextCandidatePage"
+    button.accessibilityIdentifier = identifier
     button.isHidden = true
     button.widthAnchor.constraint(equalToConstant: 26).isActive = true
   }
 
-  private func showCandidatePage(offset: Int) {
-    let target = candidatePageStart + offset * Self.candidatePageSize
-    guard target >= 0, target < visibleCandidates.count else { return }
-
+  private func showCandidatePanel() {
+    closeKeyboardService()
+    closeKeyboardPicker()
     playInputClick()
-    candidatePageStart = target
-    candidateScrollView.setContentOffset(.zero, animated: false)
-    renderCandidateStrip()
+    let panel = KeyboardCandidatePanelView(
+      candidates: visibleCandidates, preedit: visiblePreedit,
+      display: { [weak self] in self?.chineseOutput($0) ?? $0 },
+      onSelect: { [weak self] index in
+        guard let self else { return }
+        closeKeyboardPicker()
+        playInputClick()
+        render(session.selectCandidate(at: UInt(index)))
+      },
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
+    panel.accessibilityViewIsModal = true
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel)
+    NSLayoutConstraint.activate([
+      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: view.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    candidatePanel = panel
+    UIAccessibility.post(notification: .screenChanged, argument: panel)
   }
 
-  private func updatePageControls() {
-    // The strip scrolls, so paging is what makes the numbered keys reach past the ninth candidate
-    // rather than a way to see them. It is only offered when there is somewhere to go.
-    let pageable = visibleCandidates.count > Self.candidatePageSize && visibleDiagnostic == nil
-    previousPageButton.isHidden = !pageable || candidatePageStart == 0
-    nextPageButton.isHidden =
-      !pageable || candidatePageStart + Self.candidatePageSize >= visibleCandidates.count
+  private func updateExpandControl() {
+    // Offered whenever the strip is not already showing everything. Paging by nine used to be the
+    // only way past the ninth candidate, which left the tail of a 351-candidate answer thirty-nine
+    // taps away; the panel shows the whole list at once instead.
+    expandCandidatesButton.isHidden =
+      visibleCandidates.count <= Self.candidatePageSize || visibleDiagnostic != nil
   }
 
   // The engine's local input modes open on a capital carried with a shift-only modifier, which this
@@ -1691,16 +1725,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     handleBackspace()
   }
 
-  // Space means "commit the leading candidate", and that has to be the leading candidate the strip
-  // is showing. commitCandidate always takes the engine's first, which on a later page is off
-  // screen, so the page's own first chip is selected by index instead. On the first page the two
-  // are the same candidate, and only commitCandidate reports itself unhandled when there is
-  // nothing to commit, which is what tells the caller to insert its space. Return and the
-  // language switch flush the whole composition through finishComposition instead.
+  // Space means "commit the leading candidate". The strip no longer pages, so the leading chip is
+  // always the engine's first and commitCandidate is that candidate. It also reports itself
+  // unhandled when there is nothing to commit, which is what tells the caller to insert its space.
+  // Return and the language switch flush the whole composition through finishComposition instead.
   private func commitVisibleCandidate() -> MetasequoiaInputSnapshot {
-    if candidatePageStart > 0, candidatePageStart < visibleCandidates.count {
-      return session.selectCandidate(at: UInt(candidatePageStart))
-    }
     return session.commitCandidate()
   }
 
@@ -1842,7 +1871,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidates = candidates
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
-    candidatePageStart = 0
     // A horizontal offset belongs to the previous matches, just like the page index.
     // Cancel deceleration as well so it cannot hide the new leading candidate.
     candidateScrollView.setContentOffset(.zero, animated: false)
@@ -1860,13 +1888,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       view.removeFromSuperview()
     }
 
-    let page = visibleCandidates.dropFirst(candidatePageStart).prefix(Self.candidatePageSize)
+    let page = visibleCandidates.prefix(Self.candidatePageSize)
     for (offset, candidate) in page.enumerated() {
       candidateStack.addArrangedSubview(
         makeCandidateButton(
-          candidate: candidate, number: offset + 1, index: candidatePageStart + offset))
+          candidate: candidate, number: offset + 1, index: offset))
     }
-    updatePageControls()
+    updateExpandControl()
 
     diagnosticLabel.text = visibleDiagnostic
     diagnosticLabel.accessibilityLabel = visibleDiagnostic.map { "提示：\($0)" }
@@ -2021,9 +2049,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updatePreferredKeyboardHeight() {
     let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
       ?? (traitCollection.verticalSizeClass == .compact)
+    // The composition line added a row to the candidate strip; the keyboard grew by it rather than
+    // taking the space out of the keys.
+    let extra = Self.compositionRowHeight
     let height: CGFloat = handwriting.isHidden
-      ? (landscape ? 216 : 260)
-      : (landscape ? 260 : 360)
+      ? (landscape ? 216 + extra : 260 + extra)
+      : (landscape ? 260 + extra : 360 + extra)
     if keyboardHeightConstraint?.constant != height { keyboardHeightConstraint?.constant = height }
   }
 
@@ -2153,6 +2184,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func closeKeyboardPicker() {
+    if let panel = candidatePanel {
+      panel.removeFromSuperview()
+      candidatePanel = nil
+      UIAccessibility.post(notification: .screenChanged, argument: expandCandidatesButton)
+    }
     if let picker = layoutPicker {
       picker.removeFromSuperview()
       layoutPicker = nil
@@ -2217,8 +2253,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSpellingStrip()
     exitLocalModeButton.configuration?.baseForegroundColor = skin.accent
     preeditButton.configuration?.baseForegroundColor = skin.accent
-    previousPageButton.configuration?.baseForegroundColor = skin.accent
-    nextPageButton.configuration?.baseForegroundColor = skin.accent
+    expandCandidatesButton.configuration?.baseForegroundColor = skin.accent
     for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
   }
