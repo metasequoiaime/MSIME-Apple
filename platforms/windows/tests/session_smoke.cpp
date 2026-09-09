@@ -142,6 +142,7 @@ int main(int argc, char **argv) {
               "Input mode bypassed pending delivery gate");
       rejected([&] { focused.edit(first.pending, packet, TsfPreeditStyle::Pinyin); });
       require(focused.view() == pending_view, "Editing bypassed pending reply gate");
+      rejected([&] { focused.basic_key(first.pending, packet, TsfPreeditStyle::Pinyin); });
       require(focused.pending(first.pending)->source.request_id ==
                   initial->source.request_id,
               "Staged reply could not be recovered without Engine replay");
@@ -203,6 +204,9 @@ int main(int argc, char **argv) {
       require(!focused.edit(first.pending, packet, TsfPreeditStyle::Pinyin) &&
                   focused.view() == old_view,
               "Old focus edit changed Engine state");
+      require(!focused.basic_key(first.pending, packet, TsfPreeditStyle::Pinyin) &&
+                  focused.view() == old_view,
+              "Old basic key changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");
@@ -699,6 +703,34 @@ int main(int argc, char **argv) {
     session.activate(++epoch);
     rejected([&] { session.deactivate(epoch - 1); });
     if (argc == 2) {
+      {
+        using namespace msime::windows;
+        ReplyComposer basic(42, epoch);
+        for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
+        const auto unchanged = session.view();
+        FanyImeNamedpipeData digit{};
+        digit.client_id = 42;
+        digit.event_type = FanyImePipeEventType::KeyEvent;
+        digit.request_id = request++;
+        digit.keycode = 'C';
+        digit.modifiers_down = 2;
+        require(!basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin) &&
+                    session.view() == unchanged && !basic.has_pending(),
+                "Basic dispatcher consumed a native shortcut");
+        digit.keycode = 0xBC;
+        digit.wch = ',';
+        digit.modifiers_down = 0;
+        require(!basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin) &&
+                    session.view() == unchanged && !basic.has_pending(),
+                "Basic dispatcher consumed priority punctuation");
+        digit.keycode = '1';
+        digit.wch = '&'; // An unshifted digit VK on a non-US layout.
+        const auto selected = basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin);
+        require(selected && selected->source.transition.at("commit") == "你好" &&
+                    selected->encoded->packet.msg_type == FanyImeReplyType::Normal,
+                "Layout-produced punctuation replaced digit selection");
+        basic.confirm_delivery(42, epoch, digit.request_id);
+      }
       for (char c : std::string("nihao"))
         key(c - 'a' + 'A', c);
       require(session.view().at("candidates").at(0).at("text") == "你好",

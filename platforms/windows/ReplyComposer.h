@@ -42,6 +42,11 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
+  // Native configuration-specific priority routes must run first. Null leaves
+  // Engine untouched and means this key needs another native route.
+  std::optional<PendingReply> basic_key(ServerSession &session,
+      const FanyImeNamedpipeData &packet, uint64_t epoch, TsfPreeditStyle style,
+      std::optional<std::string> local_text = std::nullopt);
   // Null: not an editing key; no Engine action. Non-null may have no frame
   // because TSF completed this edit locally; still confirm it through the pump.
   std::optional<PendingReply> edit(ServerSession &session,

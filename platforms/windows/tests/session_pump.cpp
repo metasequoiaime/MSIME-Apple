@@ -3,10 +3,11 @@
 
 using namespace msime::windows;
 namespace {
-void require(bool value) {
+void require_at(bool value, int line) {
   if (!value)
-    throw std::runtime_error("Session pump test failed");
+    throw std::runtime_error("Session pump test failed at line " + std::to_string(line));
 }
+#define require(...) require_at((__VA_ARGS__), __LINE__)
 class FixtureTransport final : public MainTransport {
 public:
   PipeTicket ticket{42, {1, 2, 3}};
@@ -60,6 +61,37 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    const auto original = transport.packets;
+    transport.packets.pop_back();
+    auto packet = original.back();
+    packet.keycode = 0x1B;
+    packet.request_id = 88; // Main packets always carry a correlation ID.
+    transport.packets.push_back(packet);
+    transport.packets.insert(transport.packets.end(), original.begin() + 1, original.end() - 1);
+    packet.keycode = 0x0D;
+    packet.request_id = 90;
+    transport.packets.push_back(packet);
+    size_t keys = 0;
+    SessionPump pump(transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &key) {
+          auto result = state.basic_key(lease, key, TsfPreeditStyle::Pinyin,
+              key.keycode == 0x0D ? std::optional<std::string>("U4e2d") : std::nullopt);
+          require(result.has_value());
+          ++keys;
+          if (key.keycode == 0x1B || key.keycode == 0x0D)
+            require(!result->encoded && result->source.transition.at("view").at("editing_text") == "");
+          if (key.keycode == 0x0D)
+            require(result->source.transition.at("commit") == "U4e2d");
+          return result;
+        }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 12);
+    require(transport.writes.size() == 23);
+    queue.stop();
+  }
   {
     FanyImeNamedpipeData packet{};
     packet.event_type = FanyImePipeEventType::KeyEvent;
@@ -242,12 +274,9 @@ void session_pump_tests(const std::string &options) {
             const FanyImeNamedpipeData &packet) {
           require(std::this_thread::get_id() != transport.io_thread);
           ++keys;
-          // Only this fixed synthetic Unicode sequence uses this test plan.
-          // This is not a VK-only production TSF dispatch implementation.
-          auto result =
-              state.key(focus, packet,
-                        packet.keycode == 0x20 ? ReplyPath::Selection
-                                               : ReplyPath::Composition);
+          // The shared basic dispatcher owns editing versus selection here.
+          // Native configuration-priority routes are outside this fixture.
+          auto result = state.basic_key(focus, packet, TsfPreeditStyle::Pinyin);
           if (mode == 3 && result)
             ++result->source.request_id;
           if (mode == 5 && result) {

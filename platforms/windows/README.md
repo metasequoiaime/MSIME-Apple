@@ -248,6 +248,10 @@ WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中
 
 ### 编辑键与 TSF 预编辑回复
 
+InputState::basic_key(lease, packet, style, local_text) 统一基础分发：复用 edit 的预编辑规则，按 Engine 模式识别空格/数字选词，处理 Shift/Esc 本地清理及忽略的修饰键，并将 Enter 交给 LocalCommit 前置校验。原生配置相关优先路径必须先处理；返回空表示尚未处理的快捷键、标点或导航，不清空组合，调用方必须继续其他路径而非把空结果直接交给 SessionPump。Enter 的 local_text 必须来自宿主实际完成观察，不能从 Engine 返回结果拼造。本入口已经用于会话泵回归，但还不是完整产品 KeyHandler。
+
+普通模式的无修饰 1..9 与 Unicode 模式的 Shift+1..9 均按 VK 槽位选择当前共享候选 ID，不依赖 wch；例如非美式布局数字键产生 & 时仍选词，Unicode 裸数字仍编辑。小键盘按同样规则归一化。空候选返回未提交状态，不把布局字符作为替代文本上屏。
+
 LocalCommit 分发先验证该包确为原始文本提交键，且调用方提供的本地完成文本等于已选前缀加 Engine 当前 editing_text，再执行共享提交；缺少文本、内容不符或错误键型抛错，并保留组合和待回复状态。stage 的提交后校验仍保留，调用方不能用 Engine 返回值反过来伪造本地已上屏的证明。拒绝并不能撤回 TSF 已经错误插入的文本，仍需宿主处理协议分歧。
 
 InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组合中的手动分隔符、Unicode 裸数字/加号、Backspace/Delete 和左右光标移动，并在同一焦点/待回复门禁中推进会话。非编辑键、快捷键、空组合删除、关闭输入或 unknown 模式返回空，不调用 Engine；调用方继续其余原生分发，不能将空结果当作完成了一次输入。

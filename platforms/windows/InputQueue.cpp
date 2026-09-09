@@ -126,6 +126,15 @@ std::optional<PendingReply> InputState::edit(const FocusLease &lease,
   auto *owner = session(lease.transport);
   return owner ? owner->edit(lease, packet, style) : std::nullopt;
 }
+std::optional<PendingReply>
+InputState::basic_key(const FocusLease &lease,
+                      const FanyImeNamedpipeData &packet, TsfPreeditStyle style,
+                      std::optional<std::string> local_text) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->basic_key(lease, packet, style, std::move(local_text))
+               : std::nullopt;
+}
 bool InputState::synchronize_input_mode(const FocusLease &lease,
                                         const FanyImeNamedpipeData &packet) {
   check_thread();

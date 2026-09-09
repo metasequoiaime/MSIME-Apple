@@ -170,6 +170,39 @@ const PendingReply &ReplyComposer::dispatch(
                                  : ReplyPath::NoReply;
   return stage(result, path, uiless, std::move(local_text));
 }
+std::optional<PendingReply> ReplyComposer::basic_key(
+    ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
+    TsfPreeditStyle style, std::optional<std::string> local_text) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_)
+    throw std::logic_error("Pending or expired Windows reply route");
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+    throw std::invalid_argument("Invalid TSF preedit style");
+  const auto action = translate_key(packet);
+  const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
+  if (action.kind == KeyKind::LocalReset)
+    return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
+  if (action.kind == KeyKind::Ignore)
+    return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
+  if (action.kind == KeyKind::CancelAndForward)
+    return std::nullopt; // Configuration-specific shortcuts are not generic
+                         // cancel.
+  if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW)
+    return dispatch(session, packet, epoch, ReplyPath::LocalCommit, uiless,
+                    std::move(local_text));
+  if (auto edited = edit(session, packet, epoch, style))
+    return edited;
+  const auto view = session.view();
+  const auto mode = view.at("local_mode").get<std::string>();
+  if (mode == "unknown")
+    return std::nullopt;
+  const auto key = normalize_digit_key(packet.keycode);
+  const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
+  const bool digit = key >= '1' && key <= '9';
+  if ((key == 0x20 && modifiers == 0) ||
+      (digit && modifiers == (mode == "unicode" ? 1u : 0u)))
+    return dispatch(session, packet, epoch, ReplyPath::Selection, uiless);
+  return std::nullopt;
+}
 std::optional<PendingReply>
 ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
