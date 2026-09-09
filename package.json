@@ -1,0 +1,10 @@
+{
+  "name": "msime-client",
+  "private": true,
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "dev": "pnpm --filter @msime/desktop dev",
+    "build": "pnpm --filter @msime/desktop build",
+    "tauri": "pnpm --filter @msime/desktop tauri"
+  }
+}
