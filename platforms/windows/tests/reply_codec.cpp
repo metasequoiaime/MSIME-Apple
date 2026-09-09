@@ -28,6 +28,28 @@ void error(const EncodedReply &reply, ReplyError expected) {
 } // namespace
 int main() {
   try {
+    for (auto [navigation, type] :
+         std::vector<std::pair<NavigationReply, uint32_t>>{
+             {NavigationReply::Ignored, FanyImeReplyType::NavigationIgnored},
+             {NavigationReply::PreviousCandidate,
+              FanyImeReplyType::MoveSelectionPrevious},
+             {NavigationReply::NextCandidate,
+              FanyImeReplyType::MoveSelectionNext},
+             {NavigationReply::PreviousPage,
+              FanyImeReplyType::MovePagePrevious},
+             {NavigationReply::NextPage, FanyImeReplyType::MovePageNext}}) {
+      const auto reply = navigation_reply(77, navigation);
+      require(reply && reply.packet.msg_type == type && payload(reply).empty());
+      const auto bytes = *wire_bytes(reply);
+      require(bytes[0] == type && bytes[8] == 77);
+      for (size_t i = 16; i < bytes.size(); ++i)
+        require(bytes[i] == 0);
+      error(navigation_reply(0, navigation), ReplyError::InvalidRequest);
+      error(navigation_reply(FANY_IME_NO_REQUEST_ID, navigation),
+            ReplyError::InvalidRequest);
+    }
+    error(navigation_reply(77, static_cast<NavigationReply>(99)),
+          ReplyError::InvalidFields);
     require(!focus_ready_bytes(0));
     for (const auto &example : std::vector<std::pair<uint64_t, std::string>>{
              {1, "1"},

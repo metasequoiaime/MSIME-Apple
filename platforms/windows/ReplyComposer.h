@@ -12,7 +12,11 @@ enum class ReplyPath {
   Punctuation,
   LocalCommit,
   LocalCancel,
-  NoReply
+  NoReply,
+  PreviousCandidate,
+  NextCandidate,
+  PreviousPage,
+  NextPage
 };
 struct PendingReply {
   KeyResult source;

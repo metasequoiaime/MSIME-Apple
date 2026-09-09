@@ -82,6 +82,29 @@ EncodedReply preedit_reply(uint64_t request, std::string_view text) {
 EncodedReply ignored_reply(uint64_t request) {
   return text_reply(request, FanyImeReplyType::NavigationIgnored, {});
 }
+EncodedReply navigation_reply(uint64_t request, NavigationReply navigation) {
+  uint32_t type;
+  switch (navigation) {
+  case NavigationReply::Ignored:
+    type = FanyImeReplyType::NavigationIgnored;
+    break;
+  case NavigationReply::PreviousCandidate:
+    type = FanyImeReplyType::MoveSelectionPrevious;
+    break;
+  case NavigationReply::NextCandidate:
+    type = FanyImeReplyType::MoveSelectionNext;
+    break;
+  case NavigationReply::PreviousPage:
+    type = FanyImeReplyType::MovePagePrevious;
+    break;
+  case NavigationReply::NextPage:
+    type = FanyImeReplyType::MovePageNext;
+    break;
+  default:
+    return failed(ReplyError::InvalidFields);
+  }
+  return text_reply(request, type, {});
+}
 namespace {
 ReplyBytes packet_bytes(const FanyImeNamedpipeDataToTsf &packet) {
   ReplyBytes bytes{};
