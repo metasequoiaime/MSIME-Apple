@@ -1,6 +1,7 @@
 #pragma once
 #include "FocusRouter.h"
 #include "FocusedSession.h"
+#include "PreferenceSnapshot.h"
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -30,6 +31,10 @@ public:
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
+  // Retain latest validated global settings for current and future focus.
+  // Snapshot loading happens outside the input queue. Older/conflicting values
+  // are rejected; identical publications are safe retries.
+  void publish_preferences(const PreferenceSnapshot &snapshot);
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -50,6 +55,7 @@ private:
   FocusGate &gate_;
   FocusRouter router_;
   std::string options_;
+  std::optional<PreferenceSnapshot> preferences_;
   std::unordered_map<uint64_t, Client> clients_;
 };
 
