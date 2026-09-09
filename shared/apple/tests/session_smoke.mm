@@ -19,8 +19,13 @@ int main() {
         assert([session setFocused:YES error:&error]);
         assert([session typeASCII:'U' shift:YES error:&error]);
         for (uint8_t key : {'4', 'e', '2', 'd'}) assert([session typeASCII:key shift:NO error:&error]);
+        NSDictionary *snapshot = @{@"format_version": @1, @"revision": @1, @"preferences": @{@"scheme": @"quanpin", @"candidate_page_size": @2, @"learning": @NO, @"chinese_punctuation": @NO}};
+        NSDictionary *queued = [session updatePreferencesSnapshot:snapshot error:&error];
+        assert([queued[@"deferred"] isEqual:@YES]);
         NSDictionary *result = [session command:MSIME_COMMIT_CANDIDATE error:&error];
         assert([result[@"commit"] isEqual:@"中"]);
+        assert([[session updatePreferencesSnapshot:snapshot error:&error][@"deferred"] isEqual:@NO]);
+        assert([[session typeASCII:',' shift:NO error:&error][@"handled"] isEqual:@NO]);
         __block BOOL rejected = NO;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{

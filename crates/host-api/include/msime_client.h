@@ -21,6 +21,16 @@ uint32_t msime_client_abi_version(void);
  * The host must prepare and validate its dictionary generation before creation.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
+/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=16384):
+ * {format_version:1, revision, preferences:{...}}. Revision order is per session;
+ * identical retries are allowed, older/conflicting snapshots are rejected.
+ * Returns {revision, deferred, view}. Active composition defers application until
+ * a successful dispatch/focus leaves it idle. Newer snapshots replace pending ones.
+ * Build failure retains the old session and pending snapshot for retry; dispatch
+ * reports retry failure in diagnostic without losing completed input.
+ * Does not read/write preferences files; the host supplies an already loaded snapshot.
+ */
+char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 char *msime_client_focus(uint64_t session, bool focused);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 enum MsimeCommand {

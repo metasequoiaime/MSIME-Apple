@@ -67,6 +67,13 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_view(_handle), error);
 }
+- (nullable NSDictionary *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    if (![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好快照必须是 JSON 对象"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
+    if (!data) return nil;
+    return decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
 - (BOOL)closeWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return NO;
     NSDictionary *result = decode(msime_client_destroy(_handle), error);

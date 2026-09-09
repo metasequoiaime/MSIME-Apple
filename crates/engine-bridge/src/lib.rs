@@ -3,6 +3,7 @@
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
         pub user_data: String,
