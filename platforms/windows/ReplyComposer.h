@@ -1,5 +1,6 @@
 #pragma once
 #include "ReplyCodec.h"
+#include "EditPolicy.h"
 #include "ServerSession.h"
 #include <optional>
 
@@ -39,6 +40,10 @@ public:
            uint64_t epoch, ReplyPath path, bool uiless = false,
            std::optional<std::string> local_text = std::nullopt);
   const PendingReply &pending() const;
+  // Null: not an editing key; no Engine action. Non-null may have no frame
+  // because TSF completed this edit locally; still confirm it through the pump.
+  std::optional<PendingReply> edit(ServerSession &session,
+      const FanyImeNamedpipeData &packet, uint64_t epoch, TsfPreeditStyle style);
   // Disabled navigation returns an ignored reply (UILess: unchanged page).
   // Null means this is not a navigation path; Engine is unchanged.
   // Caller may then run its ordinary TSF path. UiLess is read from the packet.

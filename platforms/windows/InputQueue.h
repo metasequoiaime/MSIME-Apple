@@ -30,6 +30,8 @@ public:
       ReplyPath path, bool uiless = false,
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
+  std::optional<PendingReply> edit(const FocusLease &lease,
+      const FanyImeNamedpipeData &packet, TsfPreeditStyle style);
   bool synchronize_input_mode(const FocusLease &lease,
                               const FanyImeNamedpipeData &packet);
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);

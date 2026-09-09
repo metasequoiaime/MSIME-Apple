@@ -140,6 +140,8 @@ int main(int argc, char **argv) {
       rejected([&] { focused.set_chinese_punctuation(first.pending, false); });
       require(focused.view() == pending_view,
               "Input mode bypassed pending delivery gate");
+      rejected([&] { focused.edit(first.pending, packet, TsfPreeditStyle::Pinyin); });
+      require(focused.view() == pending_view, "Editing bypassed pending reply gate");
       require(focused.pending(first.pending)->source.request_id ==
                   initial->source.request_id,
               "Staged reply could not be recovered without Engine replay");
@@ -198,6 +200,9 @@ int main(int argc, char **argv) {
       require(!focused.set_chinese_punctuation(first.pending, false) &&
                   focused.view() == old_view,
               "Old focus punctuation notification changed Engine state");
+      require(!focused.edit(first.pending, packet, TsfPreeditStyle::Pinyin) &&
+                  focused.view() == old_view,
+              "Old focus edit changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");

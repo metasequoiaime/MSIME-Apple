@@ -60,6 +60,72 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  {
+    FanyImeNamedpipeData packet{};
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.keycode = '1';
+    packet.wch = '1';
+    require(edit_kind(packet, "none", true) == EditKind::None);
+    require(edit_kind(packet, "unicode", true) == EditKind::Character);
+    packet.modifiers_down = 1;
+    packet.wch = '+';
+    require(edit_kind(packet, "unicode", true) == EditKind::None);
+    packet.keycode = 0xBB;
+    require(edit_kind(packet, "unicode", true) == EditKind::Character);
+    require(edit_kind(packet, "none", true) == EditKind::None);
+    packet.keycode = 0x20;
+    require(edit_kind(packet, "unicode", true) == EditKind::None);
+    packet.keycode = 'A';
+    packet.wch = 'A';
+    packet.modifiers_down = 2;
+    require(edit_kind(packet, "none", true) == EditKind::None);
+    packet.modifiers_down = 0;
+    require(edit_kind(packet, "unknown", true) == EditKind::None);
+    packet.keycode = 0xDE;
+    packet.wch = '\'';
+    require(edit_kind(packet, "none", false) == EditKind::None);
+    require(edit_kind(packet, "none", true) == EditKind::Character);
+  }
+  for (int mode = 0; mode < 4; ++mode) {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.pop_back(); // Editing only; no candidate commit.
+    auto packet = transport.packets.back();
+    packet.wch = 0;
+    packet.modifiers_down = 0;
+    for (uint32_t key : {0x25, 0x27, 0x08, 0x08, 0x08, 0x08, 0x08}) {
+      packet.keycode = key;
+      ++packet.request_id;
+      transport.packets.push_back(packet);
+    }
+    const bool uiless = mode >= 2;
+    const auto style = mode % 2 ? TsfPreeditStyle::Pinyin : TsfPreeditStyle::Local;
+    if (uiless)
+      for (size_t i = 1; i < transport.packets.size(); ++i)
+        transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
+    size_t keys = 0;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &focus, const FanyImeNamedpipeData &key) {
+          auto result = state.edit(focus, key, style);
+          require(result.has_value());
+          ++keys;
+          const bool reply = uiless || (style == TsfPreeditStyle::Pinyin &&
+                                       keys != 6 && keys != 7 && keys != 12);
+          require(result->encoded.has_value() == reply);
+          require(result->source.reply_expected == reply);
+          if (result->encoded)
+            require(result->encoded->packet.msg_type ==
+                    (uiless ? FanyImeReplyType::UiLessComposition : FanyImeReplyType::Preedit));
+          if (keys == 12)
+            require(result->source.transition.at("view").at("editing_text") == "");
+          return result;
+        }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 12);
+    require(transport.writes.size() == 13 + (uiless ? 12 : mode == 1 ? 9 : 0));
+    queue.stop();
+  }
   for (auto event : {FanyImePipeEventType::PuncSwitch,
                     FanyImePipeEventType::StatusSnapshot,
                     FanyImePipeEventType::FocusRestored}) {
