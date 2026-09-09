@@ -30,6 +30,8 @@ public:
       ReplyPath path, bool uiless = false,
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
+  bool synchronize_input_mode(const FocusLease &lease,
+                              const FanyImeNamedpipeData &packet);
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
   // Retain latest validated global settings for current and future focus.
   // Snapshot loading happens outside the input queue. Older/conflicting values

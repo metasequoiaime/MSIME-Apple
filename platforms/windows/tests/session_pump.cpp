@@ -60,6 +60,56 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (auto event : {FanyImePipeEventType::StatusSnapshot,
+                     FanyImePipeEventType::IMESwitch,
+                     FanyImePipeEventType::FocusRestored}) {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    const auto original = transport.packets;
+    auto status = original.front();
+    status.event_type = event;
+    status.keycode = 0;
+    transport.packets.insert(transport.packets.end() - 1, status);
+    transport.packets.insert(transport.packets.end() - 1, status);
+    // Closed mode must also suppress a fresh Unicode-mode trigger.
+    transport.packets.push_back(original[1]);
+    status.keycode = event == FanyImePipeEventType::IMESwitch ? 9 : 1;
+    transport.packets.push_back(status);
+    transport.packets.insert(transport.packets.end(), original.begin() + 1,
+                             original.end());
+    size_t keys = 0;
+    size_t notifications = 0;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &focus,
+            const FanyImeNamedpipeData &packet) {
+          ++keys;
+          auto reply =
+              state.key(focus, packet,
+                        packet.keycode == 0x20 ? ReplyPath::Selection
+                                               : ReplyPath::Composition);
+          require(reply.has_value());
+          const auto &transition = reply->source.transition;
+          if (keys == 5)
+            require(transition.at("view").at("editing_text") == "U4e2d");
+          if (keys == 6 || keys == 7)
+            require(transition.at("commit").is_null() &&
+                    transition.at("handled") == false &&
+                    transition.at("view").at("editing_text") == "");
+          if (keys == 13)
+            require(transition.at("commit") == "中");
+          return reply;
+        },
+        [&](const FocusRoute &, const FanyImeNamedpipeData &packet) {
+          if (packet.event_type == event)
+            ++notifications;
+          return true;
+        });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected);
+    require(keys == 13 && notifications == 3);
+    queue.stop();
+  }
   for (int mode = 0; mode < 6; ++mode) {
     FocusGate gate;
     InputQueue queue(gate, 2, 8, options);

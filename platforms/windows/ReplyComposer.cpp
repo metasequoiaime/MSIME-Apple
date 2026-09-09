@@ -155,6 +155,9 @@ const PendingReply &ReplyComposer::dispatch(
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   auto result = session.key(packet, epoch);
+  if (!session.input_enabled())
+    path = result.reply_expected ? ReplyPath::IgnoredNavigation
+                                 : ReplyPath::NoReply;
   return stage(result, path, uiless, std::move(local_text));
 }
 std::optional<PendingReply>

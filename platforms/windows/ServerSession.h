@@ -30,6 +30,11 @@ public:
   ServerSession &operator=(const ServerSession &) = delete;
   nlohmann::json activate(uint64_t epoch);
   nlohmann::json deactivate(uint64_t epoch);
+  void set_input_enabled(uint64_t epoch, bool enabled);
+  bool input_enabled() const {
+    check_thread();
+    return input_enabled_;
+  }
   KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
   std::optional<NavigationResult> navigate(const FanyImeNamedpipeData &packet,
                                            uint64_t epoch,
@@ -47,5 +52,6 @@ private:
   uint64_t session_ = 0;
   uint64_t epoch_ = 0;
   bool active_ = false;
+  bool input_enabled_ = true;
 };
 } // namespace msime::windows

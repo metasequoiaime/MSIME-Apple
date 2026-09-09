@@ -119,6 +119,17 @@ InputState::navigate(const FocusLease &lease,
   auto *owner = session(lease.transport);
   return owner ? owner->navigate(lease, packet, bindings) : std::nullopt;
 }
+bool InputState::synchronize_input_mode(const FocusLease &lease,
+                                        const FanyImeNamedpipeData &packet) {
+  check_thread();
+  if (!valid_main_frame(packet, lease.transport.client) ||
+      (packet.event_type != FanyImePipeEventType::IMESwitch &&
+       packet.event_type != FanyImePipeEventType::StatusSnapshot &&
+       packet.event_type != FanyImePipeEventType::FocusRestored))
+    throw std::invalid_argument("Invalid input mode notification");
+  auto *owner = session(lease.transport);
+  return owner && owner->set_input_enabled(lease, packet.keycode != 0);
+}
 bool InputState::delivered(const FocusLease &lease, uint64_t request) {
   check_thread();
   auto *owner = session(lease.transport);

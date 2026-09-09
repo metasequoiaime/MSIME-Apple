@@ -136,6 +136,9 @@ int main(int argc, char **argv) {
           [&] { focused.key(first.pending, packet, ReplyPath::Composition); });
       require(focused.view() == pending_view,
               "Pending reply allowed another Engine action");
+      rejected([&] { focused.set_input_enabled(first.pending, false); });
+      require(focused.view() == pending_view,
+              "Input mode bypassed pending delivery gate");
       require(focused.pending(first.pending)->source.request_id ==
                   initial->source.request_id,
               "Staged reply could not be recovered without Engine replay");
@@ -188,6 +191,9 @@ int main(int argc, char **argv) {
       require(!focused.update_preferences(first.pending, focused_snapshot) &&
                   focused.view() == old_view,
               "Old focus configuration changed Engine state");
+      require(!focused.set_input_enabled(first.pending, false) &&
+                  focused.view() == old_view,
+              "Old focus mode notification changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");
@@ -539,6 +545,21 @@ int main(int argc, char **argv) {
     };
     rejected([&] { key('U', 'U', 1); });
     session.activate(epoch);
+    key('U', 'U', 1);
+    session.set_input_enabled(epoch, false);
+    const auto closed_view = session.view();
+    require(closed_view.at("editing_text") == "" && !session.input_enabled(),
+            "Closing input retained composition");
+    session.set_input_enabled(epoch, false);
+    require(session.view() == closed_view,
+            "Repeated closed notification changed generation");
+    session.deactivate(epoch);
+    session.activate(++epoch);
+    require(!session.input_enabled() &&
+                key('U', 'U', 1).transition.at("handled") == false &&
+                session.view().at("editing_text") == "",
+            "Reactivation forgot closed input mode");
+    session.set_input_enabled(epoch, true);
     key('U', 'U', 1 | FanyImePipeFlags::UiLess);
     for (char c : std::string("4e2d"))
       key(static_cast<uint32_t>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c), c);

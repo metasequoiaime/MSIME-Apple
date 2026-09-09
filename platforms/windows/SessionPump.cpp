@@ -88,8 +88,14 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (packet->event_type != FanyImePipeEventType::KeyEvent) {
         bool handled = false;
         bool eligible = false;
-        if (!enqueue([&, route, packet = *packet](InputState &) {
+        if (!enqueue([&, route, packet = *packet](InputState &state) {
               if (!transport_.current(ticket))
+                return;
+              if (route.route &&
+                  (packet.event_type == FanyImePipeEventType::IMESwitch ||
+                   packet.event_type == FanyImePipeEventType::StatusSnapshot ||
+                   packet.event_type == FanyImePipeEventType::FocusRestored) &&
+                  !state.synchronize_input_mode(*route.route, packet))
                 return;
               if (route.route)
                 eligible = focus_.with_active(
