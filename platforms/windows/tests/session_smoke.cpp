@@ -5,6 +5,7 @@
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
 #include "ServerSession.h"
+#include "TestHostOptions.h"
 #include "ipc_negotiation.h"
 #include <chrono>
 #include <filesystem>
@@ -362,6 +363,17 @@ int main(int argc, char **argv) {
       failing.stop();
     }
     session_pump_tests(options.dump());
+    {
+      const auto native_options = test_host_options(root / "native-config");
+      auto incomplete = native_options;
+      incomplete["preferences"].erase("candidate_page_size");
+      incomplete["preferences"].erase("chinese_punctuation");
+      rejected([&] { ServerSession invalid(42, incomplete.dump()); });
+      ServerSession native(42, native_options.dump());
+      native.activate(1);
+      require(native.view().at("editing_text") == "",
+              "Native fixture options failed shared host initialization");
+    }
     session_worker_tests(options.dump());
     preference_monitor_tests(options.dump(), directory("monitor-preferences"));
     {

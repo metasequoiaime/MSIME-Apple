@@ -1,4 +1,5 @@
 #include "WindowsServer.h"
+#include "TestHostOptions.h"
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -49,15 +50,7 @@ int main() {
         std::filesystem::remove_all(path, error);
       }
     } cleanup{root};
-    nlohmann::json host{
-        {"api_version", 1},
-        {"preferences", {{"scheme", "quanpin"}, {"learning", false}}}};
-    for (const char *name :
-         {"resources", "user_data", "cache", "dictionaries"}) {
-      auto directory = root / name;
-      require(std::filesystem::create_directory(directory));
-      host[name] = directory.u8string();
-    }
+    auto host = test_host_options(root);
     WindowsServerOptions options;
     options.pipes.max_clients = 2;
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
