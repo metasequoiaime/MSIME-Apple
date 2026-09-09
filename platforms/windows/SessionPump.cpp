@@ -2,9 +2,10 @@
 
 namespace msime::windows {
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
-                         FocusGate &focus, KeyHandler key, EventHandler event)
+                         FocusGate &focus, KeyHandler key, EventHandler event,
+                         Presentation presentation)
     : transport_(transport), input_(input), focus_(focus), key_(std::move(key)),
-      event_(std::move(event)) {
+      event_(std::move(event)), presentation_(std::move(presentation)) {
   if (!key_ || !event_)
     throw std::invalid_argument("Missing Windows dispatch handlers");
 }
@@ -16,7 +17,11 @@ void SessionPump::cleanup(const PipeTicket &ticket) noexcept {
   focus_.invalidate(ticket);
   transport_.close(ticket);
   try {
-    if (enqueue([ticket](InputState &state) { state.disconnected(ticket); }))
+    if (enqueue([this, ticket](InputState &state) {
+          state.disconnected(ticket);
+          if (presentation_.disconnected)
+            presentation_.disconnected(ticket);
+        }))
       return;
   } catch (...) {
   }
@@ -149,6 +154,11 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (!enqueue([&, lease = *route.route,
                     request = reply->source.request_id](InputState &state) {
             delivered = state.delivered(lease, request);
+            if (delivered && presentation_.delivered)
+              focus_.with_active(lease, [&] {
+                if (transport_.current(ticket))
+                  presentation_.delivered(lease, *reply, *packet);
+              });
           }))
         return PumpResult::QueueUnavailable;
       if (!delivered && focus_.with_active(*route.route, [] {}))

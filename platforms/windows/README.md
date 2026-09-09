@@ -2,6 +2,12 @@
 
 本阶段将固定 Engine 的 `FanyImeNamedpipeData` 键包接到 `msime-host-api`，不是完整 Windows 输入法。共享库只进入独立 Server，不能加载到注入应用的 TSF DLL 中。后续仍保留 TSF DLL / Server 进程隔离、现有版本化 Named Pipe 契约及 UI 原生窗口所有权。
 
+## 已确认候选展示接口
+
+WindowsServer 可注入 SessionPump::Presentation，经控制器和连接 worker 传入会话泵。delivered 在回复完整发送并确认后运行，本地预编辑无回复帧时也在确认后运行；回调位于输入队列并持有有效焦点锁，只允许复制有界快照，不允许窗口操作、I/O、Engine 调用或焦点门禁重入。写入失败不发布候选，回调异常停止输入队列且不重放按键。
+
+CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐标、已选前缀和候选身份的值快照；预编辑最多 4096 字节、候选最多 9 项且每项最多 4096 字节，核对候选代次与高亮。UILess、失焦或组合结束仅输出隐藏快照，不携带候选文本。disconnected 在输入队列完成清理后通知匹配 ticket；队列失败时不保证通知，消费者还必须处理 Server 停机和其他焦点事件，显示及点击前重新验证 lease，不能让旧连接清空新窗口。当前仅提供数据接口，预览入口尚未挂接窗口消费者，不能视为原生候选 UI 已完成。
+
 `ServerSession` 由 Server 输入队列线程创建和销毁，不可复制或移动；所有操作检查线程。上层路由器须在构造前完成客户端认证与协议握手，并分配递增的 activation epoch；适配器拒绝错误客户端、未聚焦、过期代次、非法请求 ID 和长度。新的激活代次先取消旧组合。键结果携带 client/epoch/request 元数据，供后续回复队列在发送前再次验证所有权，不能绕过路由检查直接发给当前任意客户端。
 
 输入文本使用 TSF 已按当前键盘布局转换的 wch，不在 Server 重跑 ToUnicode，不用 TSF 的 pinyin_string 覆盖 Engine 组合状态。数字小键盘交给共享数字选词，UiLess 标志不当作修饰键；既有 TSF 的 Shift/Escape 本地消费通知只取消后端，不生成按键回复。共享候选代次和配置延迟应用接口直接复用，不复制其规则。

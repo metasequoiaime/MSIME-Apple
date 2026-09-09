@@ -4,7 +4,8 @@ namespace msime::windows {
 WindowsServer::WindowsServer(WindowsServerOptions options,
                              std::string host_options,
                              SessionPump::KeyHandler key,
-                             SessionPump::EventHandler event)
+                             SessionPump::EventHandler event,
+                             SessionPump::Presentation presentation)
     : inbox_(options.registration_capacity) {
   if (!options.pipes.max_clients || options.pipes.max_clients > 64 ||
       !options.input_capacity || options.input_capacity > 4096 ||
@@ -28,7 +29,7 @@ WindowsServer::WindowsServer(WindowsServerOptions options,
       std::move(host_options), std::move(key), std::move(event),
       [this] { return service_->failure() == ERROR_SUCCESS; },
       [this] { service_->stop(); }, std::chrono::milliseconds(100),
-      std::move(options.preferences_directory));
+      std::move(options.preferences_directory), std::move(presentation));
 }
 WindowsServer::~WindowsServer() { stop(); }
 } // namespace msime::windows

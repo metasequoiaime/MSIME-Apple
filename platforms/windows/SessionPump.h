@@ -21,8 +21,18 @@ public:
       InputState &, const FocusLease &, const FanyImeNamedpipeData &)>;
   using EventHandler =
       std::function<bool(const FocusRoute &, const FanyImeNamedpipeData &)>;
+  struct Presentation {
+    // Input queue, under active focus, after delivery and confirmation.
+    // Copy bounded data only; no UI calls, I/O, Engine calls or gate reentry.
+    std::function<void(const FocusLease &, const PendingReply &,
+                       const FanyImeNamedpipeData &)> delivered;
+    // Input queue after cleanup. Match the ticket before hiding an owner's UI.
+    // Not guaranteed on queue failure: consumers must also clear on server stop
+    // and revalidate the lease when rendering.
+    std::function<void(const PipeTicket &)> disconnected;
+  };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
-              KeyHandler key, EventHandler event);
+              KeyHandler key, EventHandler event, Presentation presentation = {});
   // One external I/O worker per current Main ticket; never call on input queue.
   // Owner bounds workers and cancels transport reads before joining them.
   // Dependencies/handlers outlive run(). No TSF registration or listener
@@ -37,5 +47,6 @@ private:
   FocusGate &focus_;
   KeyHandler key_;
   EventHandler event_;
+  Presentation presentation_;
 };
 } // namespace msime::windows

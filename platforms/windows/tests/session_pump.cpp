@@ -1,4 +1,5 @@
 #include "SessionPump.h"
+#include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
 #include <atomic>
 #include <exception>
@@ -63,6 +64,117 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (bool local : {false, true}) {
+    for (bool uiless : {false, true}) {
+      for (bool fail_write : {false, true}) {
+        if (local && !uiless && fail_write)
+          continue;
+        FocusGate gate;
+        InputQueue queue(gate, 2, 8, options);
+        FixtureTransport transport;
+        if (uiless)
+          for (size_t i = 1; i < transport.packets.size(); ++i)
+            transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
+        if (fail_write)
+          transport.fail_write = 3; // Activation fence, key fence, key reply.
+        std::vector<CandidatePresentation> frames;
+        size_t closed = 0;
+        std::exception_ptr failure;
+        SessionPump::Presentation presentation;
+        presentation.delivered = [&](const FocusLease &lease,
+                                     const PendingReply &reply,
+                                     const FanyImeNamedpipeData &packet) {
+          try {
+            require(std::this_thread::get_id() != transport.io_thread);
+            require(!transport.writes.empty());
+            if (reply.encoded) {
+              const auto expected = wire_bytes(*reply.encoded);
+              require(expected && transport.writes.back().second ==
+                                      std::vector<uint8_t>(expected->begin(),
+                                                           expected->end()));
+            } else {
+              require(local && !uiless && packet.keycode != 0x20);
+            }
+            auto frame = candidate_presentation(lease, reply, packet);
+            require(frame.visible == (!uiless && packet.keycode != 0x20));
+            if (uiless)
+              require(frame.preedit.empty() && frame.candidates.empty());
+            if (frame.visible) {
+              auto prefixed = reply;
+              prefixed.next_prefix = "prefix";
+              require(candidate_presentation(lease, prefixed, packet).preedit ==
+                      "prefix" + frame.preedit);
+              prefixed.next_prefix = std::string(4097, 'a');
+              bool rejected = false;
+              try {
+                (void)candidate_presentation(lease, prefixed, packet);
+              } catch (const std::invalid_argument &) {
+                rejected = true;
+              }
+              require(rejected);
+            }
+            frames.push_back(std::move(frame));
+          } catch (...) {
+            failure = std::current_exception();
+            throw;
+          }
+        };
+        presentation.disconnected = [&](const PipeTicket &ticket) {
+          require(std::this_thread::get_id() != transport.io_thread);
+          require(same_ticket(ticket, transport.ticket));
+          ++closed;
+        };
+        SessionPump pump(
+            transport, queue, gate,
+            [local](InputState &state, const FocusLease &lease,
+                    const FanyImeNamedpipeData &packet) {
+              return state.configured_key(
+                  lease, packet,
+                  local ? TsfPreeditStyle::Local : TsfPreeditStyle::Pinyin, {});
+            },
+            [](const FocusRoute &, const FanyImeNamedpipeData &) {
+              return true;
+            },
+            presentation);
+        const auto result = pump.run(transport.ticket);
+        if (failure)
+          std::rethrow_exception(failure);
+        require(result == (fail_write ? PumpResult::WriteFailed
+                                      : PumpResult::Disconnected));
+        require(closed == 1 && frames.size() == (fail_write ? 0u : 6u));
+        queue.stop();
+      }
+    }
+  }
+  {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    size_t keys = 0, notifications = 0, closed = 0;
+    SessionPump::Presentation presentation;
+    presentation.delivered = [&](const FocusLease &, const PendingReply &,
+                                 const FanyImeNamedpipeData &) {
+      ++notifications;
+      throw std::runtime_error("Synthetic presentation failure");
+    };
+    presentation.disconnected = [&](const PipeTicket &) { ++closed; };
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          ++keys;
+          return state.configured_key(lease, packet, TsfPreeditStyle::Pinyin,
+                                      {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        presentation);
+    require(pump.run(transport.ticket) == PumpResult::QueueUnavailable);
+    // A throwing input task stops the queue; cleanup cannot publish afterward.
+    require(keys == 1 && notifications == 1 && closed == 0);
+    require(!queue.stats().accepting);
+    require(!transport.open && transport.writes.size() == 3);
+    queue.stop();
+  }
   for (bool microsoft : {false, true}) {
     for (bool local : {false, true}) {
       for (bool uiless : {false, true}) {

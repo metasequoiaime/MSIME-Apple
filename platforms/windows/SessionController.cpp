@@ -9,12 +9,12 @@ SessionController::SessionController(
     size_t input_capacity, std::string options, SessionPump::KeyHandler key,
     SessionPump::EventHandler event, std::function<bool()> healthy,
     std::function<void()> stop_service, std::chrono::milliseconds interval,
-    std::string preferences_directory)
+    std::string preferences_directory, SessionPump::Presentation presentation)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
       input_(focus_, clients, input_capacity, std::move(options)),
       workers_(transport, input_, focus_, clients, std::move(key),
-               std::move(event)) {
+               std::move(event), std::move(presentation)) {
   if (!healthy_ || !stop_service_ || interval.count() < 1 ||
       interval.count() > 1000)
     throw std::invalid_argument("Invalid session supervision configuration");

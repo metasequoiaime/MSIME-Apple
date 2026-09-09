@@ -26,7 +26,8 @@ public:
       SessionPump::EventHandler event, std::function<bool()> healthy,
       std::function<void()> stop_service,
       std::chrono::milliseconds interval = std::chrono::milliseconds(100),
-      std::string preferences_directory = {});
+      std::string preferences_directory = {},
+      SessionPump::Presentation presentation = {});
   ~SessionController();
   SessionController(const SessionController &) = delete;
   SessionController &operator=(const SessionController &) = delete;

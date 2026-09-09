@@ -19,7 +19,8 @@ struct WindowsServerOptions {
 class WindowsServer final {
 public:
   WindowsServer(WindowsServerOptions options, std::string host_options,
-                SessionPump::KeyHandler key, SessionPump::EventHandler event);
+                SessionPump::KeyHandler key, SessionPump::EventHandler event,
+                SessionPump::Presentation presentation = {});
   ~WindowsServer();
   WindowsServer(const WindowsServer &) = delete;
   WindowsServer &operator=(const WindowsServer &) = delete;

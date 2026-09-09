@@ -13,9 +13,11 @@ struct WorkerScope {
 SessionWorkers::SessionWorkers(MainTransport &transport, InputQueue &input,
                                FocusGate &focus, size_t capacity,
                                SessionPump::KeyHandler key,
-                               SessionPump::EventHandler event)
+                               SessionPump::EventHandler event,
+                               SessionPump::Presentation presentation)
     : transport_(transport), input_(input),
-      pump_(transport, input, focus, std::move(key), std::move(event)) {
+      pump_(transport, input, focus, std::move(key), std::move(event),
+            std::move(presentation)) {
   if (!capacity || capacity > 64)
     throw std::invalid_argument("Invalid session worker capacity");
   if (input_.on_worker_thread())

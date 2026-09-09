@@ -16,7 +16,8 @@ class SessionWorkers final {
 public:
   SessionWorkers(MainTransport &transport, InputQueue &input, FocusGate &focus,
                  size_t capacity, SessionPump::KeyHandler key,
-                 SessionPump::EventHandler event);
+                 SessionPump::EventHandler event,
+                 SessionPump::Presentation presentation = {});
   ~SessionWorkers();
   SessionWorkers(const SessionWorkers &) = delete;
   SessionWorkers &operator=(const SessionWorkers &) = delete;
