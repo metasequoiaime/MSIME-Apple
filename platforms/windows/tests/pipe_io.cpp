@@ -314,6 +314,15 @@ void registries() {
   require(ack.complete() && ack.frame[0] == FanyImeReplyType::ProtocolReady);
   auto registered = handshake.get();
   require(registered.status == RegistryStatus::Ready);
+  const auto fence = *focus_ready_bytes(90);
+  auto fencing = std::async(std::launch::async, [&] {
+    return registry.send(registered.ticket, FanyImePipeRole::ToTsfWorkerThread,
+                         fence, 2000);
+  });
+  auto focus_ack = read_frame(
+      worker.client.value, sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 2000);
+  require(fencing.get().complete() && focus_ack.complete() &&
+          focus_ack.frame == fence);
   auto wrong_ticket = registered.ticket;
   ++wrong_ticket.generations[0];
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());

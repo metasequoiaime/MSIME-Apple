@@ -1,5 +1,6 @@
 #include "ReplyCodec.h"
 #include <algorithm>
+#include <charconv>
 
 namespace msime::windows {
 namespace {
@@ -124,6 +125,24 @@ std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role) {
   for (size_t i = 0; i < sizeof(uint32_t); ++i)
     bytes[i] =
         static_cast<uint8_t>(FanyImeWorkerReplyType::PipeReady >> (8 * i));
+  return bytes;
+}
+std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t token) {
+  if (!token)
+    return std::nullopt;
+  std::array<char, 20> decimal{};
+  const auto converted =
+      std::to_chars(decimal.data(), decimal.data() + decimal.size(), token);
+  if (converted.ec != std::errc{})
+    return std::nullopt;
+  std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+  for (size_t i = 0; i < sizeof(uint32_t); ++i)
+    bytes[i] = static_cast<uint8_t>(FanyImeWorkerReplyType::FocusSessionReady >>
+                                    (8 * i));
+  const auto count = static_cast<size_t>(converted.ptr - decimal.data());
+  for (size_t i = 0; i < count; ++i)
+    bytes[offsetof(FanyImeNamedpipeDataToTsfWorkerThread, data) + 2 * i] =
+        static_cast<uint8_t>(decimal[i]);
   return bytes;
 }
 EncodedReply partial_selection(uint64_t request, std::string_view raw,

@@ -28,6 +28,26 @@ void error(const EncodedReply &reply, ReplyError expected) {
 } // namespace
 int main() {
   try {
+    require(!focus_ready_bytes(0));
+    for (const auto &example : std::vector<std::pair<uint64_t, std::string>>{
+             {1, "1"},
+             {77, "77"},
+             {4294967296ULL, "4294967296"},
+             {UINT64_MAX, "18446744073709551615"}}) {
+      const auto fence = focus_ready_bytes(example.first);
+      require(fence &&
+              fence->size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
+      require(fence->at(0) == FanyImeWorkerReplyType::FocusSessionReady);
+      for (size_t i = 1; i < 4; ++i)
+        require(fence->at(i) == 0);
+      for (size_t i = 0; i < example.second.size(); ++i) {
+        require(fence->at(4 + 2 * i) ==
+                static_cast<uint8_t>(example.second[i]));
+        require(fence->at(5 + 2 * i) == 0);
+      }
+      for (size_t i = 4 + example.second.size() * 2; i < fence->size(); ++i)
+        require(fence->at(i) == 0);
+    }
     for (auto role :
          {FanyImePipeRole::ToTsf, FanyImePipeRole::ToTsfWorkerThread}) {
       auto ready = pipe_ready_bytes(role);

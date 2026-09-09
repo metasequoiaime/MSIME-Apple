@@ -33,6 +33,10 @@ using ReplyBytes = std::array<uint8_t, sizeof(FanyImeNamedpipeDataToTsf)>;
 std::optional<ReplyBytes> wire_bytes(const EncodedReply &reply);
 // Registration-only frames. These must never enter the candidate reply queue.
 std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role);
+// Worker focus fence echoes the TSF activation request token, NOT the Server
+// epoch. Caller must check current client/activation/transport ownership and
+// order this before subsequent worker output. Encoding is not authorization.
+std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t focus_token);
 std::optional<ReplyBytes>
 protocol_reply_bytes(const FanyImeNamedpipeDataToTsf &packet);
 // Existing DLL expects remaining raw input, the ENTIRE selected prefix and the
