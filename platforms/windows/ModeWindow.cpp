@@ -70,10 +70,11 @@ void ModeWindow::refresh() {
     const auto dpi = GetDpiForWindow(window_);
     if (!dpi)
       throw std::runtime_error("Mode DPI unavailable");
-    POINT cursor{};
-    const HMONITOR target = GetCursorPos(&cursor)
-                                ? MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY)
-                                : MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY);
+    // The mode panel follows the focused host, not an unrelated pointer move.
+    const HWND foreground = GetForegroundWindow();
+    const HMONITOR target =
+        MonitorFromWindow(foreground ? foreground : window_,
+                          MONITOR_DEFAULTTOPRIMARY);
     const bool changed =
         !shown_ || !same(shown_->lease, value->lease) ||
         shown_->chinese != value->chinese ||
