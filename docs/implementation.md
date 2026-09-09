@@ -287,3 +287,9 @@ RegistrationInbox 将握手回调与可能等待取消的连接管理分离；Se
 ReplyCodec 显式映射共享契约的导航 opcode；ReplyComposer 新增上下候选及前后翻页路径。普通模式返回无文本的导航意图，边界不移动也保留该指令；UILess 返回共享候选页、高亮及已选前缀。导航拒绝 commit 增量，沿用投递确认门禁，不在 Windows 复制分页逻辑。
 
 新增编码字段/非法枚举、部分选词前缀保留、待投递门禁与真实词库导航回归，覆盖首屏边界、翻页和高亮往返。八项本机 CTest、真实锁定词库回归、x86/x64 交叉编译及独立管道测试链接通过；未执行 Windows 原生运行或完整 Rust 链接。后续仍需配置感知的 TSF 键分类、UI/模式/设置同步和产品验收，按 Windows → macOS → iOS → Linux 推进，CI 保持禁用。
+
+### 第四十六条功能：Windows 小键盘 Unicode 选词一致性
+
+真实共享会话回归复现 Shift+小键盘越界选词反而改写 Unicode 组合的问题。按固定上游 Server 的 NormalizeNumpadDigitKey 规则，在候选判定前统一数字键身份，保留原始请求与共享选词代次校验。普通和 UILess 路径均覆盖小键盘输入、越界不变、Shift 选中及模式清理，另验证 0 仍可输入和 Ctrl+Shift 不误选词。
+
+修复前回归失败，修复后八项本机 CTest、真实锁定词库回归及 x86/x64 交叉编译检查通过；不涉及 Rust 源码。Windows 原生运行和完整生产按键分发仍未完成，继续 Windows 优先，CI 保持禁用。
