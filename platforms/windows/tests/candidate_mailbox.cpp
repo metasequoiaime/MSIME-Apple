@@ -1,4 +1,5 @@
 #include "CandidateMailbox.h"
+#include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
 #include <future>
 
@@ -10,8 +11,54 @@ void require(bool condition) {
 }
 } // namespace
 void candidate_mailbox_tests() {
+  {
+    CandidateClick click{{{42, {1, 2, 3}}, 1, 1}, 2, 3, 4};
+    std::promise<void> entered, release;
+    auto started = entered.get_future();
+    auto resume = release.get_future();
+    size_t calls = 0;
+    const auto caller = std::this_thread::get_id();
+    CandidateClickWorker worker([&](const CandidateClick &value) {
+      require(std::this_thread::get_id() != caller && value.index == 4);
+      ++calls;
+      entered.set_value();
+      require(resume.wait_for(std::chrono::seconds(10)) ==
+              std::future_status::ready);
+    });
+    require(worker.submit(click));
+    require(started.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    const bool busy_rejected = !worker.submit(click);
+    worker.request_stop();
+    release.set_value();
+    worker.stop();
+    require(busy_rejected && calls == 1 && !worker.failed() &&
+            !worker.submit(click));
+    std::promise<void> failing;
+    auto began = failing.get_future();
+    CandidateClickWorker failed([&](const CandidateClick &) {
+      failing.set_value();
+      throw std::runtime_error("Synthetic click failure");
+    });
+    require(failed.submit(click));
+    require(began.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    failed.stop();
+    require(failed.failed() && !failed.submit(click));
+  }
   for (unsigned dpi : {96u, 120u, 144u, 192u, 288u, 384u}) {
     const auto metrics = candidate_metrics(dpi);
+    require(!candidate_hit(metrics.padding, metrics.padding, metrics.width,
+                           1000, dpi, 9));
+    for (size_t row = 0; row < 9; ++row)
+      require(candidate_hit(metrics.padding,
+                            metrics.padding +
+                                static_cast<int>(row + 1) * metrics.row,
+                            metrics.width, 2000, dpi, 9) == row);
+    require(!candidate_hit(-1, 100, metrics.width, 1000, dpi, 9));
+    require(!candidate_hit(metrics.width, 100, metrics.width, 1000, dpi, 9));
+    require(!candidate_hit(metrics.padding, 10 * metrics.row + metrics.padding,
+                           metrics.width, 2000, dpi, 9));
     require(metrics.row == static_cast<int>(28 * dpi / 96));
     require(metrics.font == static_cast<int>(16 * dpi / 96));
     for (size_t count = 0; count <= 9; ++count) {

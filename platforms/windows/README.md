@@ -4,21 +4,23 @@
 
 ## 已确认候选展示接口
 
-输入队列现提供 select_candidate / ui_delivered，会话侧在有效 lease 内核对 session、generation 和当前页全局 index，再调用共享 Engine 选择。忙碌或过期点击返回空值且不推进状态；已准备的 UI 回复保留在 PendingReply::ui_selection，完整提交清空前缀、部分组词累积前缀都只在确认后生效。UI 确认使用选择后的视图 generation，不能用线上 request_id=0 作为可重复确认标识；普通 confirm_delivery 拒绝 UI 项。未确认时不得调度下一次 Engine 操作，编码异常由队列失败停机处理，不能捕获后重试选择。控制器已有选择事务入口，窗口事件和非阻塞调用层仍待完成，现有预览窗口继续只读。
+预览窗口现支持左键按下/抬起同一候选后提交选择。命中按已绘制快照与 DPI 行布局计算，不用未绘制的新候选替换用户点击的内容；页/代次变化、隐藏、取消或 DPI 重排会使旧按下失效。CandidateClickWorker 使用一个后台线程、最多一个未完成请求；忙碌/停止时拒绝新点击，不积压、不自动重试。窗口回调仅复制身份并更新短锁保护的任务状态，不等待管道；后台调用控制器再次验证可见候选与焦点。正常或异常退出均先停止接收并请求 Server 停机，再等待任务退出。此链路已构建，但真实鼠标点击、TSF 完整/部分上屏、拖出窗口及混合 DPI 交互尚待 Windows 验收。
+
+输入队列现提供 select_candidate / ui_delivered，会话侧在有效 lease 内核对 session、generation 和当前页全局 index，再调用共享 Engine 选择。忙碌或过期点击返回空值且不推进状态；已准备的 UI 回复保留在 PendingReply::ui_selection，完整提交清空前缀、部分组词累积前缀都只在确认后生效。UI 确认使用选择后的视图 generation，不能用线上 request_id=0 作为可重复确认标识；普通 confirm_delivery 拒绝 UI 项。未确认时不得调度下一次 Engine 操作，编码异常由队列失败停机处理，不能捕获后重试选择。控制器已有选择事务入口，窗口事件与后台调用层已接入预览入口，实机验收仍待完成。
 
 WindowsServer::request_selection 只能从外部 I/O 线程调用，串行完成视图核对、队列内准备、管道发送、队列确认及候选发布；Sent 仅证明完整写入和内部确认，不证明 TSF 已插入文本。共享事务锁覆盖 Main 包处理的整个准备/发送/确认阶段，但不覆盖阻塞读管道；点击抢锁失败返回 Busy 且不排队、不重试，模式请求忙时返回 Rejected。确认后的展示回调中，UI 结果带 ui_selection，packet 是保留屏幕锚点的合成零请求号包，不代表真实按键。写入或队列失败关闭连接并停止控制器，防止留下半完成选择。当前按控制器串行化所有客户端事务，慢写会延迟其他 Main 包处理，真实延迟仍需实机测量。
 
-点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；窗口点击到会话的接线尚未完成，窗口仍只读。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
+点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；预览窗口点击已接到控制器，TSF 实机验收仍待完成。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
 
-预览入口现已创建主线程 CandidateWindow，只读显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。当前未实现鼠标选词、工具栏、无障碍与 TSF 实机定位验收，不能视为产品级窗口完成。原生窗口回归已交叉编译，尚未在 Windows 运行。
+预览入口现已创建主线程 CandidateWindow，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。当前未实现工具栏、无障碍与 TSF 实机定位验收，不能视为产品级窗口完成。原生窗口回归已交叉编译，尚未在 Windows 运行。
 
 窗口使用临时线程 Per-Monitor V2 上下文，创建/布局/绘制结束后恢复调用者设置，不修改进程 DPI 默认值；预览窗口要求 Windows 10 1703 或更新版本。坐标按固定 TSF 上游的物理屏幕锚点消费；换屏时先隐藏迁移，再按 GetDpiForWindow 重新计算宽度、行高、间距和字体。WM_DPICHANGED 使布局失效，下一次刷新按当前锚点重新定位，避免在 SetWindowPos 回调里递归布局。独立布局计算验证 96–384 DPI、多候选页、负屏幕原点、极小工作区和整数极值，接受 48–960 DPI；真实混合 DPI 显示器与应用坐标回退仍须 Windows 实机验证，不以合成消息冒充换屏验收。
 
-控制器内置 CandidateMailbox，默认接收确认后的快照，同时保留外部展示回调。WindowsServer::candidate_view() 供外部窗口线程读取最新值；单槽覆盖更新，不积压逐键消息。读取复核焦点、连接和输入队列状态，空值表示应隐藏；UILess 等也可能返回 visible=false 的隐藏快照。旧 ticket 断开不清除新连接，request_stop 清空并永久关闭缓冲区，迟到投递不能重开。输入/控制器回调禁止调用读取接口，避免焦点锁重入；锁内不调用 UI。此接口只保证读取时的有效性，窗口每次绘制重新读取，不能把缓存快照当作稍后点击的授权；点击命令尚待接入。
+控制器内置 CandidateMailbox，默认接收确认后的快照，同时保留外部展示回调。WindowsServer::candidate_view() 供外部窗口线程读取最新值；单槽覆盖更新，不积压逐键消息。读取复核焦点、连接和输入队列状态，空值表示应隐藏；UILess 等也可能返回 visible=false 的隐藏快照。旧 ticket 断开不清除新连接，request_stop 清空并永久关闭缓冲区，迟到投递不能重开。输入/控制器回调禁止调用读取接口，避免焦点锁重入；锁内不调用 UI。此接口只保证读取时的有效性，窗口每次绘制重新读取，不能把缓存快照当作稍后点击的授权；点击命令由后台提交并在控制器重新校验。
 
 WindowsServer 可注入 SessionPump::Presentation，经控制器和连接 worker 传入会话泵。delivered 在回复完整发送并确认后运行，本地预编辑无回复帧时也在确认后运行；回调位于输入队列并持有有效焦点锁，只允许复制有界快照，不允许窗口操作、I/O、Engine 调用或焦点门禁重入。写入失败不发布候选，回调异常停止输入队列且不重放按键。
 
-CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐标、已选前缀和候选身份的值快照；预编辑最多 4096 字节、候选最多 9 项且每项最多 4096 字节，核对候选代次与高亮。UILess、失焦或组合结束仅输出隐藏快照，不携带候选文本。disconnected 在输入队列完成清理后通知匹配 ticket；队列失败时不保证通知，消费者还必须处理 Server 停机和其他焦点事件，显示及点击前重新验证 lease，不能让旧连接清空新窗口。预览入口已挂接只读窗口消费者，完整原生候选 UI 验收仍待完成。
+CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐标、已选前缀和候选身份的值快照；预编辑最多 4096 字节、候选最多 9 项且每项最多 4096 字节，核对候选代次与高亮。UILess、失焦或组合结束仅输出隐藏快照，不携带候选文本。disconnected 在输入队列完成清理后通知匹配 ticket；队列失败时不保证通知，消费者还必须处理 Server 停机和其他焦点事件，显示及点击前重新验证 lease，不能让旧连接清空新窗口。预览入口已挂接窗口与点击消费者，完整原生候选 UI 验收仍待完成。
 
 `ServerSession` 由 Server 输入队列线程创建和销毁，不可复制或移动；所有操作检查线程。上层路由器须在构造前完成客户端认证与协议握手，并分配递增的 activation epoch；适配器拒绝错误客户端、未聚焦、过期代次、非法请求 ID 和长度。新的激活代次先取消旧组合。键结果携带 client/epoch/request 元数据，供后续回复队列在发送前再次验证所有权，不能绕过路由检查直接发给当前任意客户端。
 
@@ -244,7 +246,7 @@ key_bindings 可选对象示例：
 
 对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。未提供对象则全部关闭，与旧五字段配置一致。以词定字优先于同键翻页，Microsoft 分号及 Unicode 编辑优先级不变。入口使用已捕获的启动快照，修改启动文件需重启；共享 preferences.json 的 Engine 方案监听独立工作，不会把延迟中的方案当作已经应用。此预览配置不替代未来跨端设置和 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
 
-这是不注册 TSF 的开发预览，不是可安装输入法：已接只读候选窗口，点击选词和工具栏仍未接，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
+这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口和后台点击选词，工具栏仍未接，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 ### 配置投递后的自动重试
 

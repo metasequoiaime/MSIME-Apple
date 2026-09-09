@@ -1,5 +1,6 @@
 #include "WindowsServer.h"
 #include "CandidateWindow.h"
+#include "CandidateLayout.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
@@ -89,6 +90,33 @@ int main() {
       window.refresh();
       UpdateWindow(window.handle());
       require(window.failed() && !IsWindowVisible(window.handle()));
+      value = frame;
+      size_t clicks = 0;
+      CandidateWindow clickable([&] { return value; },
+                                [&](const CandidateClick &click) {
+                                  require(click.index == 0 &&
+                                          click.session == 1 &&
+                                          click.generation == 1);
+                                  ++clicks;
+                                });
+      clickable.refresh();
+      UpdateWindow(clickable.handle());
+      require(SendMessageW(clickable.handle(), WM_MOUSEACTIVATE, 0, 0) ==
+              MA_NOACTIVATE);
+      const auto metrics =
+          candidate_metrics(GetDpiForWindow(clickable.handle()));
+      const auto point =
+          MAKELPARAM(metrics.padding + 1, metrics.padding + metrics.row + 1);
+      SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
+      require(clicks == 1 && !clickable.failed());
+      SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
+      ++value->generation;
+      ++value->candidates[0].generation;
+      clickable.refresh();
+      UpdateWindow(clickable.handle());
+      SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
+      require(clicks == 1 && !clickable.failed());
     }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +
                         std::to_wstring(GetTickCount64());

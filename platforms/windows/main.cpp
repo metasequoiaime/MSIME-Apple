@@ -87,11 +87,28 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
-    CandidateWindow candidates([&] { return server.candidate_view(); });
+    CandidateClickWorker clicks([&](const CandidateClick &click) {
+      if (server.request_selection(click.lease, click.session, click.generation,
+                                   click.index) ==
+          SelectionRequestResult::Failed)
+        throw std::runtime_error("Candidate selection failed");
+    });
+    struct ClickShutdown {
+      WindowsServer &server;
+      CandidateClickWorker &clicks;
+      ~ClickShutdown() {
+        clicks.request_stop();
+        server.request_stop();
+        clicks.stop();
+      }
+    } click_shutdown{server, clicks};
+    CandidateWindow candidates(
+        [&] { return server.candidate_view(); },
+        [&](const CandidateClick &click) { (void)clicks.submit(click); });
     std::cout
-        << "Preview Server running; read-only native candidates enabled.\n";
+        << "Preview Server running; native candidate selection enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
-           !candidates.failed()) {
+           !candidates.failed() && !clicks.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -111,8 +128,11 @@ int wmain(int argc, wchar_t **argv) {
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
+    clicks.request_stop();
     server.stop();
-    return server.failure() == ControllerFailure::None && !candidates.failed()
+    clicks.stop();
+    return server.failure() == ControllerFailure::None &&
+                   !candidates.failed() && !clicks.failed()
                ? 0
                : 1;
   } catch (...) {

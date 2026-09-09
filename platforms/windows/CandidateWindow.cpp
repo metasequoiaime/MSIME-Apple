@@ -66,7 +66,7 @@ struct Painting {
   ~Painting() { EndPaint(window, &state); }
 };
 } // namespace
-CandidateWindow::CandidateWindow(Reader reader) : reader_(std::move(reader)) {
+CandidateWindow::CandidateWindow(Reader reader, Click click) : reader_(std::move(reader)), click_(std::move(click)) {
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;
@@ -92,6 +92,8 @@ CandidateWindow::~CandidateWindow() {
 }
 void CandidateWindow::hide() {
   shown_.reset();
+  painted_.reset();
+  pressed_.reset();
   ShowWindow(window_, SW_HIDE);
 }
 void CandidateWindow::refresh() {
@@ -176,6 +178,22 @@ void CandidateWindow::paint() {
   for (size_t i = 0; i < value->candidates.size(); ++i)
     line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
          i + 1, value->candidates[i].highlighted);
+  painted_ = value;
+  painted_dpi_ = GetDpiForWindow(window_);
+}
+std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
+  if (!click_ || !painted_ || !IsWindowVisible(window_))
+    return std::nullopt;
+  RECT bounds{};
+  if (!GetClientRect(window_, &bounds))
+    return std::nullopt;
+  const auto row = candidate_hit(x, y, bounds.right, bounds.bottom,
+                                 painted_dpi_, painted_->candidates.size());
+  if (!row)
+    return std::nullopt;
+  const auto &candidate = painted_->candidates[*row];
+  return CandidateClick{painted_->lease, candidate.session,
+                        candidate.generation, candidate.index};
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
@@ -192,7 +210,28 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
     try {
       switch (message) {
       case WM_MOUSEACTIVATE:
-        return MA_NOACTIVATEANDEAT;
+        return self->click_ ? MA_NOACTIVATE : MA_NOACTIVATEANDEAT;
+      case WM_LBUTTONDOWN:
+        self->pressed_ = self->hit(static_cast<short>(LOWORD(lparam)),
+                                   static_cast<short>(HIWORD(lparam)));
+        return 0;
+      case WM_LBUTTONUP: {
+        const auto pressed = self->pressed_;
+        self->pressed_.reset();
+        const auto hit = self->hit(static_cast<short>(LOWORD(lparam)),
+                                   static_cast<short>(HIWORD(lparam)));
+        if (pressed && hit && pressed->session == hit->session &&
+            pressed->generation == hit->generation &&
+            pressed->index == hit->index &&
+            pressed->lease.epoch == hit->lease.epoch &&
+            pressed->lease.token == hit->lease.token &&
+            same_ticket(pressed->lease.transport, hit->lease.transport))
+          self->click_(*hit);
+        return 0;
+      }
+      case WM_CANCELMODE:
+        self->pressed_.reset();
+        return 0;
       case WM_ERASEBKGND:
         return 1;
       case WM_DISPLAYCHANGE:
@@ -201,6 +240,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         // The next refresh recomputes from the authenticated caret anchor;
         // do not recursively reposition from inside SetWindowPos's callback.
         self->shown_.reset();
+        self->painted_.reset();
+        self->pressed_.reset();
         return 0;
       case WM_PAINT:
         self->paint();

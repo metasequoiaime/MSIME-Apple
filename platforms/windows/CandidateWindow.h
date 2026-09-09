@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidatePresentation.h"
+#include "CandidateClickWorker.h"
 #include <functional>
 #include <windows.h>
 
@@ -10,7 +11,8 @@ namespace msime::windows {
 class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
-  explicit CandidateWindow(Reader reader);
+  using Click = std::function<void(const CandidateClick &)>;
+  explicit CandidateWindow(Reader reader, Click click = {});
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -22,10 +24,15 @@ public:
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
+  std::optional<CandidateClick> hit(int x, int y);
   Reader reader_;
+  Click click_;
   HWND window_ = nullptr;
   std::optional<CandidatePresentation> shown_;
   unsigned shown_dpi_ = 0;
+  std::optional<CandidatePresentation> painted_;
+  std::optional<CandidateClick> pressed_;
+  unsigned painted_dpi_ = 0;
   bool failed_ = false;
 };
 } // namespace msime::windows

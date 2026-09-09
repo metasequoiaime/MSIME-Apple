@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 
 namespace msime::windows {
@@ -19,6 +20,16 @@ inline CandidateMetrics candidate_metrics(unsigned dpi) {
 struct CandidateBounds {
   int x, y, width, height;
 };
+inline std::optional<size_t> candidate_hit(int x, int y, int width, int height,
+                                           unsigned dpi, size_t count) {
+  const auto metrics = candidate_metrics(dpi);
+  if (count > 9 || x < metrics.padding ||
+      int64_t(x) >= int64_t(width) - metrics.padding ||
+      y < metrics.padding + metrics.row || y >= height)
+    return std::nullopt;
+  const auto row = static_cast<size_t>((y - metrics.padding) / metrics.row - 1);
+  return row < count ? std::optional<size_t>(row) : std::nullopt;
+}
 // Screen pixels, including negative monitor origins. Widen before subtracting
 // so untrusted caret coordinates cannot overflow placement arithmetic.
 inline CandidateBounds candidate_bounds(int x, int y, int left, int top,
