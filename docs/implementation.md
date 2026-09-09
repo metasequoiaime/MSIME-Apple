@@ -239,3 +239,9 @@ FocusedSession 在输入队列组合 FocusGate、真实 ServerSession 和 ReplyC
 ### 第三十七条功能：Windows 焦点会话配置更新
 
 将共享配置更新接入 FocusedSession 的队列与 lease 检查，待回复未确认时不允许配置修改 Engine；确认后可重试最新快照，组词中的延迟应用继续由共享层处理。新增真实会话测试验证待回复拒绝、deferred、提交后应用与旧焦点拒绝，四项本机 CTest 通过，x86/x64 适配器对象编译通过。配置文件监听、队列重试与系统生命周期调度仍未装配，未 Windows 原生验收，CI 保持禁用。
+
+### 第三十八条功能：Windows Main 消息验证与身份固定
+
+将 MainFrame 验证直接接入 PipeRegistry::read_main，补齐逐帧 client_id 固定、Main 事件白名单、字符串边界和生命周期字段检查；畸形帧不交给控制器，清空返回数据并使匹配主注册失效。字段规则来自固定上游 Main 接收路径，不更改 Engine 线格式；保留重复 hello，key 的保留请求编号检查与 ServerSession 一致。
+
+新增纯字段测试及实际管道拒绝用例，覆盖身份切换、越界长度和 Aux 事件。五项本机 CTest、x86/x64 交叉编译及独立测试链接、Windows 管道 CMake 交叉构建通过；未在 Windows 执行原生测试。此阶段仍不包含生命周期策略或可运行的完整 Windows 输入产品；继续 Windows → macOS → iOS → Linux，CI 保持禁用。

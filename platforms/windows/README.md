@@ -130,8 +130,14 @@ with_active 在同一焦点锁内验证并执行动作，避免检查后焦点�
 
 key 必须匹配已准备的完整 lease，并在 with_active 内调用真实 Engine；确认前或过期任务返回空结果，不推进 Engine。ReplyComposer 的待回复门禁继续阻止重复执行。返回的 PendingReply 是独立副本，供 I/O 队列处理；复制/传输失败时可通过 pending 取回暂存结果而不重跑输入，但这不是不确定投递的重发许可。成功写入或已核实本地处理后，confirm 回到输入队列并重新检查 lease；旧确认不能推进新会话前缀。
 
-cancel 只清理匹配 lease 的 Engine/编排状态，即使全局焦点已切走也可清理旧客户端，不会清掉新激活。控制器仍负责将 FocusChange.previous 的取消发送给旧客户端队列；不能只准备新客户端而遗漏旧组合。ReplyPath 与本地完成文本由实际 TSF 路径显式提供，候选点击、配置同步及生命周期事件策略尚未装配到这一适配器。
+cancel 只清理匹配 lease 的 Engine/编排状态，即使全局焦点已切走也可清理旧客户端，不会清掉新激活。控制器仍负责将 FocusChange.previous 的取消发送给旧客户端队列；不能只准备新客户端而遗漏旧组合。ReplyPath 与本地完成文本由实际 TSF 路径显式提供，候选点击、配置文件监听及生命周期事件策略尚未装配到这一适配器。
 
 本机测试调用真实 Rust/C++ 会话验证 Unicode 提交结果与编码、确认前阻止输入、待回复时不重跑 Engine、暂存结果读取、过期输入/确认拒绝、新激活清空旧组合、过期取消与线程拒绝。焦点写入完成使用测试回调，未执行系统上屏或 Windows 端到端链路；x86/x64 仅编译适配器对象，独立原生管道测试仍未 Windows 运行。
 
 FocusedSession 的 update_preferences 同样检查完整 lease 与队列线程；回复待确认时返回空结果，不修改 Engine，调用方应在确认后重试最新配置快照。没有待确认回复时直接复用共享层的版本与组词延迟规则，不在 Windows 重写它们。本机实际会话测试覆盖待回复拒绝、组词中 deferred、提交后应用和旧焦点拒绝；文件监控及队列重试调度仍由后续控制器接入。
+
+### Main 消息进入控制器前的校验
+
+PipeRegistry::read_main 在返回完整帧前复核 packet.client_id 与登记客户端一致，并通过 MainFrame 校验已知 Main 事件、pinyin 长度及终止符、状态快照字段和非零激活 token。Aux 专用事件和未知 opcode 不进入分发；key 同时拒绝零与 NO_REQUEST_ID，激活 token 则允许完整 uint64 范围。失败返回 MalformedFrame 且不携带原始帧，注销匹配主注册，旧票据不可继续发送。重复 ClientHello 保留为后续控制器忽略的兼容事件，不重协商；这一校验不证明前台焦点，也不取代 lease 检查。
+
+字段规则依据 MSIME-Windows develop 固定提交 6e03f5774777e40c921930fd90a76e5425c66d89 的 Main 接收路径，key 的 NO_REQUEST_ID 限制与本仓 ServerSession 一致。纯测试可本机执行；真实管道测试另覆盖同进程伪造 client_id、越界长度与 Aux 事件导致连接弃用，仍需 Windows 执行验收。
