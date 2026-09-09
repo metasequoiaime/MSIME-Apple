@@ -106,8 +106,7 @@ void PipeIntake::run() {
     }
   }
 }
-void PipeIntake::stop() {
-  std::lock_guard stop_lock(stop_mutex_);
+void PipeIntake::request_stop() {
   {
     std::lock_guard lock(mutex_);
     stopping_ = true;
@@ -115,6 +114,10 @@ void PipeIntake::stop() {
   }
   SetEvent(cancel_);
   ready_.notify_all();
+}
+void PipeIntake::stop() {
+  std::lock_guard stop_lock(stop_mutex_);
+  request_stop();
   for (auto &worker : workers_)
     if (worker.joinable())
       worker.join();

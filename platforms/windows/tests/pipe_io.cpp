@@ -4,6 +4,7 @@
 #include "PipeListener.h"
 #include "PipePeer.h"
 #include "PipeRegistry.h"
+#include "PipeService.h"
 #include "ReplyCodec.h"
 #include "windows_ipc.h"
 #include <aclapi.h>
@@ -15,6 +16,7 @@
 #include <sddl.h>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 using namespace msime::windows;
 namespace {
@@ -450,9 +452,87 @@ void intake_pools() {
     registry.shutdown();
   }
 }
+void services() {
+  PipeServiceOptions options;
+  options.capabilities = FanyImeProtocol::RequiredCapabilities;
+  options.handshake_timeout = 2000;
+  for (size_t role = 0; role < 3; ++role)
+    options.names[role] = L"\\\\.\\pipe\\MSIMEClientServiceTest-" +
+                          std::to_wstring(GetCurrentProcessId()) + L"-" +
+                          std::to_wstring(role);
+  const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 55u;
+  for (int round = 0; round < 2; ++round) {
+    std::promise<PipeRegistration> main_ready;
+    auto ready = main_ready.get_future();
+    PipeService service(options,
+                        [&](uint32_t role, const PipeRegistration &result) {
+                          if (role == FanyImePipeRole::Main)
+                            main_ready.set_value(result);
+                          return true;
+                        });
+    std::array<Handle, 3> clients;
+    const auto open = [&](size_t role) {
+      clients[role].value =
+          CreateFileW(options.names[role].c_str(), GENERIC_READ | GENERIC_WRITE,
+                      0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+      require(clients[role].value != INVALID_HANDLE_VALUE);
+      DWORD mode = PIPE_READMODE_MESSAGE;
+      require(SetNamedPipeHandleState(clients[role].value, &mode, nullptr,
+                                      nullptr));
+    };
+    for (uint32_t role : {1u, 2u}) {
+      open(role);
+      FanyImePipeHello hello{};
+      hello.client_id = id;
+      hello.pipe_role = role;
+      require(write_frame(clients[role].value, fixture_bytes(hello), 2000)
+                  .complete());
+      require(read_frame(clients[role].value,
+                         role == 1
+                             ? sizeof(FanyImeNamedpipeDataToTsf)
+                             : sizeof(FanyImeNamedpipeDataToTsfWorkerThread),
+                         2000)
+                  .complete());
+    }
+    open(0);
+    require(write_frame(clients[0].value,
+                        fixture_bytes(FanyImeProtocol::Hello(id, 93)), 2000)
+                .complete());
+    auto ack =
+        read_frame(clients[1].value, sizeof(FanyImeNamedpipeDataToTsf), 2000);
+    require(ack.complete() && ack.frame[0] == FanyImeReplyType::ProtocolReady);
+    require(ready.wait_for(std::chrono::seconds(2)) ==
+            std::future_status::ready);
+    require(ready.get().status == RegistryStatus::Ready);
+    service.stop();
+    service.stop(); // Control-thread shutdown is idempotent.
+    require(service.failure() == ERROR_SUCCESS);
+    for (auto &client : clients)
+      client.close();
+  }
+  {
+    DWORD error = ERROR_SUCCESS;
+    auto occupied = PipeListener::create(options.names[2], error);
+    require(occupied != nullptr);
+    bool rejected = false;
+    try {
+      PipeService service(
+          options, [](uint32_t, const PipeRegistration &) { return true; });
+    } catch (const std::system_error &) {
+      rejected = true;
+    }
+    require(rejected);
+    // Failed startup released the other names and did not take over the old
+    // one.
+    auto recovered = PipeListener::create(options.names[0], error);
+    require(recovered != nullptr);
+    require(!PipeListener::create(options.names[2], error));
+  }
+}
 } // namespace
 int main() {
   try {
+    services();
     intake_pools();
     registries();
     listeners();
