@@ -77,4 +77,17 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   lease_.reset();
   return true;
 }
+std::optional<nlohmann::json>
+FocusedSession::update_preferences(const FocusLease &lease,
+                                   const std::string &snapshot) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] {
+    if (!composer_->has_pending())
+      result = session_.update_preferences(lease.epoch, snapshot);
+  });
+  return result;
+}
 } // namespace msime::windows
