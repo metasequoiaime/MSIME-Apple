@@ -25,8 +25,6 @@ struct DpiScope {
   }
   ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
 };
-int cell_width(unsigned dpi) { return MulDiv(112, static_cast<int>(dpi), 96); }
-int cell_height(unsigned dpi) { return MulDiv(34, static_cast<int>(dpi), 96); }
 } // namespace
 ModeWindow::ModeWindow(Reader reader, Click click)
     : reader_(std::move(reader)), click_(std::move(click)) {
@@ -55,6 +53,7 @@ void ModeWindow::hide() {
   shown_.reset();
   painted_.reset();
   pressed_.reset();
+  layout_.reset();
   ShowWindow(window_, SW_HIDE);
 }
 void ModeWindow::refresh() {
@@ -86,9 +85,14 @@ void ModeWindow::refresh() {
     if (!GetMonitorInfoW(MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY),
                          &monitor))
       throw std::runtime_error("Mode monitor unavailable");
-    const int width = cell_width(dpi) * 2, height = cell_height(dpi) * 3;
-    if (!SetWindowPos(window_, HWND_TOPMOST, monitor.rcWork.right - width,
-                      monitor.rcWork.bottom - height, width, height,
+    layout_ = mode_layout(monitor.rcWork.left, monitor.rcWork.top,
+                          monitor.rcWork.right, monitor.rcWork.bottom, dpi);
+    if (!layout_) {
+      hide();
+      return;
+    }
+    if (!SetWindowPos(window_, HWND_TOPMOST, layout_->x, layout_->y,
+                      layout_->width(), layout_->height(),
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Mode positioning failed");
     InvalidateRect(window_, nullptr, FALSE);
@@ -108,7 +112,7 @@ void ModeWindow::paint() {
   if (!dc)
     throw std::runtime_error("Mode paint unavailable");
   const auto value = reader_();
-  if (!value || !shown_ || !same(value->lease, shown_->lease)) {
+  if (!value || !shown_ || !layout_ || !same(value->lease, shown_->lease)) {
     hide();
     return;
   }
@@ -136,27 +140,29 @@ void ModeWindow::paint() {
   const std::optional<bool> values[] = {
       value->chinese, value->chinese_punctuation, value->fullwidth};
   for (int i = 0; i < 6; ++i) {
-    RECT rect{(i % 2) * cell_width(dpi_), (i / 2) * cell_height(dpi_),
-              (i % 2 + 1) * cell_width(dpi_), (i / 2 + 1) * cell_height(dpi_)};
+    RECT rect{(i % 2) * layout_->cell_width, (i / 2) * layout_->cell_height,
+              (i % 2 + 1) * layout_->cell_width,
+              (i / 2 + 1) * layout_->cell_height};
     FillRect(dc, &rect, GetSysColorBrush(COLOR_BTNFACE));
     DrawEdge(dc, &rect, EDGE_RAISED, BF_RECT);
     const auto current = values[i / 2];
     std::wstring text = labels[i];
     text += !current ? L" ?" : (*current == (i % 2 == 0) ? L" ✓" : L"");
     DrawTextW(dc, text.c_str(), -1, &rect,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
   }
   painted_ = value;
 }
 std::optional<ModeClick> ModeWindow::hit(int x, int y) {
-  if (!painted_ || !dpi_ || x < 0 || y < 0 || x >= 2 * cell_width(dpi_) ||
-      y >= 3 * cell_height(dpi_))
+  if (!painted_ || !layout_ || !IsWindowVisible(window_))
+    return {};
+  const auto index = layout_->hit(x, y);
+  if (!index)
     return {};
   const auto value = reader_();
   if (!value || !same(value->lease, painted_->lease))
     return {};
-  return ModeClick{value->lease,
-                   commands[y / cell_height(dpi_) * 2 + x / cell_width(dpi_)]};
+  return ModeClick{value->lease, commands[*index]};
 }
 LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
                                        LPARAM l) noexcept {
@@ -197,6 +203,7 @@ LRESULT CALLBACK ModeWindow::procedure(HWND window, UINT message, WPARAM w,
     case WM_DPICHANGED:
     case WM_DISPLAYCHANGE:
     case WM_SETTINGCHANGE:
+      self->layout_.reset();
       self->shown_.reset();
       self->painted_.reset();
       self->pressed_.reset();

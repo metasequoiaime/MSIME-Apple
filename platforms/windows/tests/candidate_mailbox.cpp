@@ -2,6 +2,7 @@
 #include "CandidateClickWorker.h"
 #include "CandidateLayout.h"
 #include "ModeMailbox.h"
+#include "ModeLayout.h"
 #include <future>
 
 using namespace msime::windows;
@@ -23,6 +24,24 @@ void require(bool condition) {
 }
 } // namespace
 void candidate_mailbox_tests() {
+  for (unsigned dpi : {48u, 96u, 144u, 192u, 384u, 960u}) {
+    for (int width : {2, 5, 100, 1920}) {
+      const auto layout = mode_layout(-width, -7, 0, 0, dpi);
+      require(layout && layout->x >= -width && layout->y >= -7 &&
+              layout->x + layout->width() == 0 &&
+              layout->y + layout->height() == 0);
+      for (size_t i = 0; i < 6; ++i)
+        require(layout->hit(static_cast<int>(i % 2) * layout->cell_width,
+                            static_cast<int>(i / 2) * layout->cell_height) == i);
+      require(!layout->hit(-1, 0) && !layout->hit(layout->width(), 0) &&
+              !layout->hit(0, layout->height()));
+    }
+  }
+  require(!mode_layout(0, 0, 1, 3, 96));
+  require(!mode_layout(0, 0, 2, 2, 96));
+  const auto extreme_mode = mode_layout(INT32_MIN, INT32_MIN, INT32_MAX,
+                                        INT32_MAX, 960);
+  require(extreme_mode && extreme_mode->x == INT32_MAX - 2240);
   {
     CandidateClick click{{{42, {1, 2, 3}}, 1, 1}, 2, 3, 4};
     std::promise<void> entered, release;

@@ -1,4 +1,5 @@
 #pragma once
+#include "ModeLayout.h"
 #include "CandidateClickWorker.h"
 #include "ModeMailbox.h"
 #include "ReplyCodec.h"
@@ -34,6 +35,7 @@ private:
   std::optional<ModePresentation> shown_, painted_;
   std::optional<ModeClick> pressed_;
   unsigned dpi_ = 0;
+  std::optional<ModeLayout> layout_;
   bool failed_ = false;
 };
 } // namespace msime::windows
