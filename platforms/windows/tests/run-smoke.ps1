@@ -6,7 +6,7 @@ $tests = @(
     'windows-main-frame.exe', 'windows-focus-gate.exe',
     'windows-input-queue.exe', 'windows-session-smoke.exe',
     'windows-reply-codec.exe', 'windows-reply-composer.exe',
-    'windows-pipe-io.exe', 'windows-server-smoke.exe'
+    'windows-pipe-io.exe', 'windows-server-smoke.exe', 'windows-preview-config.exe'
 )
 foreach ($name in $tests) {
     $testPath = Join-Path $PSScriptRoot $name

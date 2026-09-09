@@ -1,4 +1,5 @@
 #include "WindowsServer.h"
+#include "StateRootLease.h"
 #include "TestHostOptions.h"
 #include <cstring>
 #include <filesystem>
@@ -50,6 +51,14 @@ int main() {
         std::filesystem::remove_all(path, error);
       }
     } cleanup{root};
+    {
+      StateRootLease lease(root);
+      bool rejected = false;
+      try { StateRootLease second(root); } catch (...) { rejected = true; }
+      require(rejected);
+    }
+    { StateRootLease reacquired(root); }
+    require(std::filesystem::exists(root / L".msime-client-server.lock"));
     auto host = test_host_options(root);
     WindowsServerOptions options;
     options.pipes.max_clients = 2;

@@ -204,7 +204,21 @@ bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动�
 
 完整 x64 构建后运行 `bash platforms/windows/stage-runtime.sh x64`，脚本从同一 MinGW 工具链定位 libstdc++、libgcc、libwinpthread，复制到 target/windows-full/x64，并逐项检查测试 EXE、宿主 DLL 和递归运行时导入的架构。未分类依赖或缺失运行时立即失败，不从网络或任意系统目录猜 DLL；工具链的额外运行时目录可显式通过 MSIME_MINGW_RUNTIME_DIR 提供。该目录仅用于本地验证，不是带完整许可证/源码交付的发布包，不得据此发布产品。
 
-可将验证目录复制到匹配的 Windows 测试机，在其中运行 `powershell -File .\run-smoke.ps1`。脚本预检十个固定测试程序，逐个执行并限制超时，失败立即停止；不要求 CMake，也不注册 TSF 或修改输入源。仅运行隔离临时目录/唯一管道名的合成测试，不等价于真实编辑器验收。本机只验证目录依赖及构建，PowerShell 脚本和 Windows 二进制尚未实际执行。原生集成测试与本机回归共用完整测试配置，避免遗漏共享宿主必需字段。
+可将验证目录复制到匹配的 Windows 测试机，在其中运行 `powershell -File .\run-smoke.ps1`。脚本预检十一个固定测试程序，逐个执行并限制超时，失败立即停止；不要求 CMake，也不注册 TSF 或修改输入源。仅运行隔离临时目录/唯一管道名的合成测试，不等价于真实编辑器验收。本机只验证目录依赖及构建，PowerShell 脚本和 Windows 二进制尚未实际执行。原生集成测试与本机回归共用完整测试配置，避免遗漏共享宿主必需字段。
+
+### 预览 Server 命令行入口
+
+完整构建新增 msime-client-server.exe，使用 `--config <绝对配置路径>` 启动，`--help` 不读写状态。配置是最多 16 KiB 的 JSON，必须且只能含以下五个字段：
+
+```json
+{"format_version":1,"resources":"C:\\MSIME-Preview\\resources","state_root":"C:\\MSIME-Preview\\state","pipe_namespace":"dev-01","preedit_style":"pinyin"}
+```
+
+resources 指向已下载的锁定词库代目录；state_root 必须是本预览实例独享的独立目录，两者不能互相包含。路径需绝对；preedit_style 仅 local/pinyin。命名空间只允许 1–48 个 ASCII 字母、数字或连字符，三条管道固定生成为 `\\.\pipe\msime-client-preview-<命名空间>-0/1/2`，不接受旧产品管道名。词库准备前独占打开稳定锁文件，持有到 Server/worker/输入会话全部停止；退出释放句柄，锁文件不删除，其存在不代表实例仍活着。其他直接调用 Engine 的进程不遵守此锁，必须由调用方保证不共享此状态目录。
+
+入口调用共享 prepare_host 校验词库并准备隔离工作数据，启用同目录配置监听，再启动 WindowsServer。Ctrl+C/Ctrl+Break 请求顺序停机；准备阶段的磁盘操作不能即时中断，系统强制终止不保证清理。初始化错误只输出通用信息，不输出配置路径或输入内容。此入口未在 Windows 执行验证。
+
+这是不注册 TSF 的开发预览，不是可安装输入法：候选窗口/工具栏未接，翻页及以词定字绑定当前关闭，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 ### 配置投递后的自动重试
 
