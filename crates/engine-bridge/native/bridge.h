@@ -16,6 +16,7 @@ public:
     EngineResult select(std::size_t index);
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);
+    void set_chinese_punctuation_enabled(bool enabled);
 private:
     metasequoia::Session session_;
 };

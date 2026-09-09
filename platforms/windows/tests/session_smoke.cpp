@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
       require(focused.view() == pending_view,
               "Pending reply allowed another Engine action");
       rejected([&] { focused.set_input_enabled(first.pending, false); });
+      rejected([&] { focused.set_chinese_punctuation(first.pending, false); });
       require(focused.view() == pending_view,
               "Input mode bypassed pending delivery gate");
       require(focused.pending(first.pending)->source.request_id ==
@@ -194,6 +195,9 @@ int main(int argc, char **argv) {
       require(!focused.set_input_enabled(first.pending, false) &&
                   focused.view() == old_view,
               "Old focus mode notification changed Engine state");
+      require(!focused.set_chinese_punctuation(first.pending, false) &&
+                  focused.view() == old_view,
+              "Old focus punctuation notification changed Engine state");
       require(focused.prepare(second.pending) &&
                   focused.view().at("editing_text") == "",
               "New activation retained old composition");

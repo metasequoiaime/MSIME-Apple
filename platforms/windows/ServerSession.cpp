@@ -66,6 +66,10 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
     input_enabled_ = enabled;
   }
 }
+void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
+  check_active(epoch);
+  response(msime_client_set_chinese_punctuation(session_, enabled));
+}
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
   check_active(epoch);

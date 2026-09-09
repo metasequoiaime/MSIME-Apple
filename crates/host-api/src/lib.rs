@@ -23,6 +23,7 @@ struct HostSession {
     options: EngineOptions,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
+    punctuation_override: Option<bool>,
 }
 
 impl HostSession {
@@ -38,7 +39,12 @@ impl HostSession {
         options.learning = snapshot.preferences.learning;
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         // Build and validate first; errors leave the original session usable.
-        let engine = Session::new(&options).map_err(|e| e.to_string())?;
+        let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+        if let Some(enabled) = self.punctuation_override {
+            engine
+                .set_chinese_punctuation_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+        }
         self.runtime
             .replace_engine(engine, snapshot.preferences.candidate_page_size)
             .map_err(|e| e.to_string())?;
@@ -314,6 +320,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     options,
                     applied,
                     requested: None,
+                    punctuation_override: None,
                 },
             )
         });
@@ -328,6 +335,21 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
             let result = session.runtime.focus(focused).map_err(|e| e.to_string())?;
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())
+        })
+    })
+}
+
+/// Override the live host punctuation mode without persisting preferences.
+#[no_mangle]
+pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_chinese_punctuation_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+            session.punctuation_override = Some(enabled);
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
 }
@@ -503,6 +525,54 @@ mod tests {
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
     }
+    #[test]
+    fn live_punctuation_preserves_composition_and_survives_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        for byte in b"4e2d" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let before = read(msime_client_view(handle))["value"].clone();
+        for _ in 0..2 {
+            let toggled = read(msime_client_set_chinese_punctuation(handle, false));
+            assert_eq!(toggled["value"], before);
+        }
+        let preferences = Preferences {
+            candidate_page_size: 2,
+            ..Preferences::default()
+        };
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        let committed = read(msime_client_command(handle, 9));
+        assert_eq!(committed["value"]["commit"], "中");
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+        let ascii = read(msime_client_character(handle, b',', false));
+        assert_eq!(ascii["value"]["handled"], false);
+        assert!(ascii["value"]["commit"].is_null());
+        assert_eq!(
+            read(msime_client_set_chinese_punctuation(handle, true))["ok"],
+            true
+        );
+        assert_eq!(
+            read(msime_client_character(handle, b',', false))["value"]["commit"],
+            "，"
+        );
+        assert_eq!(
+            std::thread::spawn(
+                move || read(msime_client_set_chinese_punctuation(handle, false))["ok"].clone()
+            )
+            .join()
+            .unwrap(),
+            false
+        );
+        read(msime_client_destroy(handle));
+        assert_eq!(
+            read(msime_client_set_chinese_punctuation(handle, true))["ok"],
+            false
+        );
+    }
+
     #[test]
     fn preferences_wait_for_commit_keep_handle_and_reject_old_revisions() {
         let dir = tempfile::tempdir().unwrap();

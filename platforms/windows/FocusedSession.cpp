@@ -95,6 +95,16 @@ bool FocusedSession::set_input_enabled(const FocusLease &lease, bool enabled) {
       composer_->cancel();
   });
 }
+bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabled) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Punctuation mode changed before reply delivery");
+    session_.set_chinese_punctuation(lease.epoch, enabled);
+  });
+}
 bool FocusedSession::cancel(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))
