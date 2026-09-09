@@ -3,10 +3,12 @@
 namespace msime::windows {
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
                          FocusGate &focus, KeyHandler key, EventHandler event,
-                         Presentation presentation)
+                         Presentation presentation,
+                         std::shared_ptr<std::mutex> transactions)
     : transport_(transport), input_(input), focus_(focus), key_(std::move(key)),
-      event_(std::move(event)), presentation_(std::move(presentation)) {
-  if (!key_ || !event_)
+      event_(std::move(event)), presentation_(std::move(presentation)),
+      transactions_(std::move(transactions)) {
+  if (!key_ || !event_ || !transactions_)
     throw std::invalid_argument("Missing Windows dispatch handlers");
 }
 bool SessionPump::enqueue(InputQueue::Task task) {
@@ -47,6 +49,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
     if (!connected)
       return PumpResult::Disconnected;
     while (auto packet = transport_.read(ticket)) {
+      // Never hold this while waiting for client input. Serialize the whole
+      // prepare/send/confirm transaction with externally requested selections.
+      std::lock_guard transaction(*transactions_);
       if (!valid_main_frame(*packet, ticket.client))
         return PumpResult::DispatchFailed;
       FocusRoute route;

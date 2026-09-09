@@ -7,6 +7,7 @@
 
 namespace msime::windows {
 enum class ModeRequestResult { Rejected, Sent, WriteFailed };
+enum class SelectionRequestResult { Rejected, Busy, Sent, Failed };
 enum class ControllerFailure {
   None,
   Service,
@@ -42,6 +43,10 @@ public:
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
+  // External I/O thread only, never a window/input callback. Busy is a dropped
+  // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
+  SelectionRequestResult request_selection(const FocusLease &lease,
+      uint64_t session, uint64_t generation, size_t index);
   std::optional<PreferenceMonitorStatus> preferences_status() const {
     return preferences_
                ? std::optional<PreferenceMonitorStatus>(preferences_->status())
@@ -57,6 +62,8 @@ private:
   std::chrono::milliseconds interval_;
   FocusGate focus_;
   CandidateMailbox candidates_;
+  std::shared_ptr<std::mutex> transactions_ = std::make_shared<std::mutex>();
+  SessionPump::Presentation presentation_;
   InputQueue input_;
   SessionWorkers workers_;
   std::unique_ptr<PreferenceMonitor> preferences_;

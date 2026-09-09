@@ -14,10 +14,11 @@ SessionWorkers::SessionWorkers(MainTransport &transport, InputQueue &input,
                                FocusGate &focus, size_t capacity,
                                SessionPump::KeyHandler key,
                                SessionPump::EventHandler event,
-                               SessionPump::Presentation presentation)
+                               SessionPump::Presentation presentation,
+                               std::shared_ptr<std::mutex> transactions)
     : transport_(transport), input_(input),
       pump_(transport, input, focus, std::move(key), std::move(event),
-            std::move(presentation)) {
+            std::move(presentation), std::move(transactions)) {
   if (!capacity || capacity > 64)
     throw std::invalid_argument("Invalid session worker capacity");
   if (input_.on_worker_thread())

@@ -32,7 +32,8 @@ public:
     std::function<void(const PipeTicket &)> disconnected;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
-              KeyHandler key, EventHandler event, Presentation presentation = {});
+              KeyHandler key, EventHandler event, Presentation presentation = {},
+              std::shared_ptr<std::mutex> transactions = std::make_shared<std::mutex>());
   // One external I/O worker per current Main ticket; never call on input queue.
   // Owner bounds workers and cancels transport reads before joining them.
   // Dependencies/handlers outlive run(). No TSF registration or listener
@@ -48,5 +49,6 @@ private:
   KeyHandler key_;
   EventHandler event_;
   Presentation presentation_;
+  std::shared_ptr<std::mutex> transactions_;
 };
 } // namespace msime::windows

@@ -98,14 +98,17 @@ private:
 };
 } // namespace
 void session_worker_tests(const std::string &options) {
-  {
+  for (int write_failure : {0, 1, 2}) {
     IdleTransport transport;
     RegistrationInbox inbox(2);
     PipeTicket ticket{42, {1, 2, 3}};
     SessionController *owner = nullptr;
     std::atomic<size_t> observed{0};
+    std::promise<void> ui_entered, release_ui;
+    auto entered = ui_entered.get_future();
+    auto release = release_ui.get_future();
     SessionPump::Presentation presentation;
-    presentation.delivered = [&](const FocusLease &, const PendingReply &,
+    presentation.delivered = [&](const FocusLease &, const PendingReply &reply,
                                  const FanyImeNamedpipeData &) {
       bool rejected = false;
       try {
@@ -115,6 +118,11 @@ void session_worker_tests(const std::string &options) {
       }
       require(rejected);
       ++observed;
+      if (reply.ui_selection) {
+        ui_entered.set_value();
+        require(release.wait_for(std::chrono::seconds(10)) ==
+                std::future_status::ready);
+      }
     };
     SessionController controller(
         transport, inbox, 1, 8, options,
@@ -153,6 +161,56 @@ void session_worker_tests(const std::string &options) {
     const auto second = controller.candidate_view();
     require(second && second->visible && observed == 2);
     require(second->generation > first->generation);
+    for (char c : std::string("e2d")) {
+      ++packet.request_id;
+      packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+      packet.wch = c;
+      transport.push(packet);
+    }
+    transport.wait_started(7);
+    const auto shown = controller.candidate_view();
+    require(shown && shown->candidates.at(0).text == "中");
+    const auto candidate = shown->candidates.at(0);
+    if (write_failure) {
+      transport.write_failure = write_failure;
+      require(controller.request_selection(shown->lease, candidate.session, candidate.generation, candidate.index) == SelectionRequestResult::Failed);
+      require(observed == 5 && !transport.current(ticket) && !controller.candidate_view());
+      controller.stop();
+      require(controller.failure() != ControllerFailure::None);
+      continue;
+    }
+    require(controller.request_selection(
+                shown->lease, candidate.session, candidate.generation + 1,
+                candidate.index) == SelectionRequestResult::Rejected);
+    auto selection = std::async(std::launch::async, [&] {
+      return controller.request_selection(shown->lease, candidate.session,
+                                          candidate.generation,
+                                          candidate.index);
+    });
+    require(entered.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    const auto busy = controller.request_selection(
+        shown->lease, candidate.session, candidate.generation, candidate.index);
+    ++packet.request_id;
+    packet.keycode = 'U';
+    packet.wch = 'U';
+    packet.modifiers_down = 1;
+    transport.push(packet); // Must wait until the UI transaction finishes.
+    release_ui.set_value();
+    require(busy == SelectionRequestResult::Busy &&
+            selection.get() == SelectionRequestResult::Sent);
+    transport.wait_started(8);
+    require(controller.failure() == ControllerFailure::None && observed == 7);
+    const auto after_click = controller.candidate_view();
+    require(after_click && after_click->visible &&
+            after_click->generation > shown->generation);
+    const auto writes = transport.writes();
+    size_t commits = 0;
+    for (const auto &write : writes)
+      if (write.first == FanyImePipeRole::ToTsfWorkerThread &&
+          write.second == ui_complete_selection("中")->worker)
+        ++commits;
+    require(commits == 1);
     transport.close(ticket);
     require(!controller.candidate_view());
     controller.stop();
@@ -275,6 +333,7 @@ void session_worker_tests(const std::string &options) {
     require(activation.wait_for(std::chrono::seconds(10)) ==
             std::future_status::ready);
     const auto lease = activation.get();
+    transport.wait_started(2); // Activation transaction has released its lock.
     auto stale = lease;
     ++stale.epoch;
     require(controller.request_mode(stale, WorkerMode::Fullwidth) ==

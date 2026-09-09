@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "UiSelectionDelivery.h"
 
 namespace msime::windows {
 namespace {
@@ -12,22 +13,22 @@ SessionController::SessionController(
     std::string preferences_directory, SessionPump::Presentation presentation)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
+      presentation_(std::move(presentation)),
       input_(focus_, clients, input_capacity, std::move(options)),
       workers_(transport, input_, focus_, clients, std::move(key),
                std::move(event),
-               {[this, observer = std::move(presentation.delivered)](
-                    const FocusLease &lease, const PendingReply &reply,
-                    const FanyImeNamedpipeData &packet) {
+               {[this](const FocusLease &lease, const PendingReply &reply,
+                       const FanyImeNamedpipeData &packet) {
                   candidates_.delivered(lease, reply, packet);
-                  if (observer)
-                    observer(lease, reply, packet);
+                  if (presentation_.delivered)
+                    presentation_.delivered(lease, reply, packet);
                 },
-                [this, observer = std::move(presentation.disconnected)](
-                    const PipeTicket &ticket) {
+                [this](const PipeTicket &ticket) {
                   candidates_.disconnected(ticket);
-                  if (observer)
-                    observer(ticket);
-                }}) {
+                  if (presentation_.disconnected)
+                    presentation_.disconnected(ticket);
+                }},
+               transactions_) {
   if (!healthy_ || !stop_service_ || interval.count() < 1 ||
       interval.count() > 1000)
     throw std::invalid_argument("Invalid session supervision configuration");
@@ -37,9 +38,86 @@ SessionController::SessionController(
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }
+SelectionRequestResult
+SessionController::request_selection(const FocusLease &lease, uint64_t session,
+                                     uint64_t generation, size_t index) {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Selection cannot reenter controller callbacks");
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return SelectionRequestResult::Busy;
+  const auto fail = [&] {
+    focus_.invalidate(lease.transport);
+    transport_.close(lease.transport);
+    failure_ = ControllerFailure::Control;
+    request_stop();
+    return SelectionRequestResult::Failed;
+  };
+  try {
+    const auto shown = candidate_view();
+    if (!shown || !shown->visible || shown->session != session ||
+        shown->generation != generation || shown->lease.epoch != lease.epoch ||
+        shown->lease.token != lease.token ||
+        !same_ticket(shown->lease.transport, lease.transport))
+      return SelectionRequestResult::Rejected;
+    bool found = false;
+    for (const auto &candidate : shown->candidates)
+      if (candidate.index == index && candidate.session == session &&
+          candidate.generation == generation)
+        found = true;
+    if (!found)
+      return SelectionRequestResult::Rejected;
+    std::optional<PendingReply> pending;
+    auto prepared = input_.submit([&](InputState &state) {
+      if (!stopping_ && transport_.current(lease.transport))
+        pending = state.select_candidate(lease, session, generation, index);
+    });
+    if (!prepared || prepared->get() != InputTaskStatus::Completed)
+      return fail();
+    if (!pending)
+      return SelectionRequestResult::Rejected;
+    if (!pending->ui_selection || stopping_ ||
+        deliver_ui_selection(transport_, focus_, lease,
+                             *pending->ui_selection) != UiDeliveryResult::Sent)
+      return fail();
+    bool delivered = false;
+    auto confirmed = input_.submit([&](InputState &state) {
+      if (stopping_)
+        return;
+      delivered = state.ui_delivered(
+          lease, pending->source.transition.at("view").at("generation"));
+      if (delivered) {
+        const bool active = focus_.with_active(lease, [&] {
+          if (!transport_.current(lease.transport)) {
+            delivered = false;
+            return;
+          }
+          // UI has no key packet. Preserve the last confirmed screen anchor;
+          // id zero and ui_selection distinguish this callback from key input.
+          FanyImeNamedpipeData packet{};
+          packet.client_id = lease.transport.client;
+          packet.event_type = FanyImePipeEventType::KeyEvent;
+          packet.point[0] = shown->x;
+          packet.point[1] = shown->y;
+          candidates_.delivered(lease, *pending, packet);
+          if (presentation_.delivered)
+            presentation_.delivered(lease, *pending, packet);
+        });
+        delivered = delivered && active;
+      }
+    });
+    if (!confirmed || confirmed->get() != InputTaskStatus::Completed ||
+        !delivered)
+      return fail();
+    return SelectionRequestResult::Sent;
+  } catch (...) {
+    return fail();
+  }
+}
 std::optional<CandidatePresentation> SessionController::candidate_view() {
   if (input_.on_worker_thread() || active_controller == this)
-    throw std::logic_error("Candidate read cannot reenter controller callbacks");
+    throw std::logic_error(
+        "Candidate read cannot reenter controller callbacks");
   if (stopping_ || !input_.stats().accepting)
     return std::nullopt;
   auto value = candidates_.snapshot(focus_);
@@ -49,11 +127,14 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
   return value;
 }
 ModeRequestResult SessionController::request_mode(const FocusLease &lease,
-                                                 WorkerMode mode) {
+                                                  WorkerMode mode) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Mode request cannot reenter controller callbacks");
   const auto bytes = worker_mode_bytes(mode);
   if (!bytes || stopping_)
+    return ModeRequestResult::Rejected;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
     return ModeRequestResult::Rejected;
   bool attempted = false;
   bool sent = false;

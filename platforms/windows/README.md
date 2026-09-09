@@ -4,7 +4,9 @@
 
 ## 已确认候选展示接口
 
-输入队列现提供 select_candidate / ui_delivered，会话侧在有效 lease 内核对 session、generation 和当前页全局 index，再调用共享 Engine 选择。忙碌或过期点击返回空值且不推进状态；已准备的 UI 回复保留在 PendingReply::ui_selection，完整提交清空前缀、部分组词累积前缀都只在确认后生效。UI 确认使用选择后的视图 generation，不能用线上 request_id=0 作为可重复确认标识；普通 confirm_delivery 拒绝 UI 项。未确认时不得调度下一次 Engine 操作，编码异常由队列失败停机处理，不能捕获后重试选择。控制器与窗口点击接线仍待完成，现有预览窗口继续只读。
+输入队列现提供 select_candidate / ui_delivered，会话侧在有效 lease 内核对 session、generation 和当前页全局 index，再调用共享 Engine 选择。忙碌或过期点击返回空值且不推进状态；已准备的 UI 回复保留在 PendingReply::ui_selection，完整提交清空前缀、部分组词累积前缀都只在确认后生效。UI 确认使用选择后的视图 generation，不能用线上 request_id=0 作为可重复确认标识；普通 confirm_delivery 拒绝 UI 项。未确认时不得调度下一次 Engine 操作，编码异常由队列失败停机处理，不能捕获后重试选择。控制器已有选择事务入口，窗口事件和非阻塞调用层仍待完成，现有预览窗口继续只读。
+
+WindowsServer::request_selection 只能从外部 I/O 线程调用，串行完成视图核对、队列内准备、管道发送、队列确认及候选发布；Sent 仅证明完整写入和内部确认，不证明 TSF 已插入文本。共享事务锁覆盖 Main 包处理的整个准备/发送/确认阶段，但不覆盖阻塞读管道；点击抢锁失败返回 Busy 且不排队、不重试，模式请求忙时返回 Rejected。确认后的展示回调中，UI 结果带 ui_selection，packet 是保留屏幕锚点的合成零请求号包，不代表真实按键。写入或队列失败关闭连接并停止控制器，防止留下半完成选择。当前按控制器串行化所有客户端事务，慢写会延迟其他 Main 包处理，真实延迟仍需实机测量。
 
 点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；窗口点击到会话的接线尚未完成，窗口仍只读。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
 

@@ -17,7 +17,8 @@ public:
   SessionWorkers(MainTransport &transport, InputQueue &input, FocusGate &focus,
                  size_t capacity, SessionPump::KeyHandler key,
                  SessionPump::EventHandler event,
-                 SessionPump::Presentation presentation = {});
+                 SessionPump::Presentation presentation = {},
+                 std::shared_ptr<std::mutex> transactions = std::make_shared<std::mutex>());
   ~SessionWorkers();
   SessionWorkers(const SessionWorkers &) = delete;
   SessionWorkers &operator=(const SessionWorkers &) = delete;
