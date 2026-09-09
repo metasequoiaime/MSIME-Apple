@@ -18,6 +18,8 @@ public:
   // Only queue this after successful I/O or verified local-only completion.
   // A false return means the receipt is obsolete; never replay the key.
   bool confirm(const FocusLease &lease, uint64_t request);
+  std::optional<PendingReply> edit(const FocusLease &lease,
+      const FanyImeNamedpipeData &packet, TsfPreeditStyle style);
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);

@@ -161,6 +161,37 @@ const PendingReply &ReplyComposer::dispatch(
   return stage(result, path, uiless, std::move(local_text));
 }
 std::optional<PendingReply>
+ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
+                    uint64_t epoch, TsfPreeditStyle style) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_)
+    throw std::logic_error("Pending or expired Windows reply route");
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+    throw std::invalid_argument("Invalid TSF preedit style");
+  const auto before = session.view();
+  if (session_ && before.at("session").get<uint64_t>() != session_)
+    throw std::logic_error("Reply changed host session");
+  if (!session.input_enabled())
+    return std::nullopt;
+  const auto kind =
+      edit_kind(packet, before.at("local_mode").get<std::string>(),
+                !before.at("editing_text").get<std::string>().empty());
+  if (kind == EditKind::None)
+    return std::nullopt;
+  auto result = session.key(packet, epoch);
+  const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
+  const bool erased_all =
+      kind == EditKind::Erase && result.transition.at("view")
+                                     .at("editing_text")
+                                     .get<std::string>()
+                                     .empty();
+  const auto path = uiless || (style == TsfPreeditStyle::Pinyin &&
+                               kind != EditKind::Caret && !erased_all)
+                        ? ReplyPath::Composition
+                        : ReplyPath::NoReply;
+  result.reply_expected = path != ReplyPath::NoReply;
+  return stage(result, path, uiless);
+}
+std::optional<PendingReply>
 ReplyComposer::navigate(ServerSession &session,
                         const FanyImeNamedpipeData &packet, uint64_t epoch,
                         const NavigationBindings &bindings) {

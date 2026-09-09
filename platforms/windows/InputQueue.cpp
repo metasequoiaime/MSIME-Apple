@@ -119,6 +119,13 @@ InputState::navigate(const FocusLease &lease,
   auto *owner = session(lease.transport);
   return owner ? owner->navigate(lease, packet, bindings) : std::nullopt;
 }
+std::optional<PendingReply> InputState::edit(const FocusLease &lease,
+                                             const FanyImeNamedpipeData &packet,
+                                             TsfPreeditStyle style) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->edit(lease, packet, style) : std::nullopt;
+}
 bool InputState::synchronize_input_mode(const FocusLease &lease,
                                         const FanyImeNamedpipeData &packet) {
   check_thread();
