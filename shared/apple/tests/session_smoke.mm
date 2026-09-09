@@ -3,6 +3,23 @@
 #include <cassert>
 #include <initializer_list>
 
+static NSDictionary *reload(MSIMEClientSession *session, NSString *directory, BOOL expectError) {
+    __block BOOL done = NO;
+    __block NSDictionary *loaded = nil;
+    [session reloadPreferencesDirectory:directory completion:^(NSDictionary *result, NSError *error) {
+        assert([NSThread isMainThread]);
+        assert((error != nil) == expectError);
+        loaded = result;
+        done = YES;
+    }];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!done && deadline.timeIntervalSinceNow > 0) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    assert(done);
+    return loaded;
+}
+
 int main() {
     @autoreleasepool {
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
@@ -26,6 +43,17 @@ int main() {
         assert([result[@"commit"] isEqual:@"中"]);
         assert([[session updatePreferencesSnapshot:snapshot error:&error][@"deferred"] isEqual:@NO]);
         assert([[session typeASCII:',' shift:NO error:&error][@"handled"] isEqual:@NO]);
+        NSString *preferencesPath = [root stringByAppendingPathComponent:@"preferences.json"];
+        NSDictionary *on = @{@"format_version": @1, @"revision": @2, @"preferences": options[@"preferences"]};
+        assert([[NSJSONSerialization dataWithJSONObject:on options:0 error:nil] writeToFile:preferencesPath atomically:YES]);
+        assert([session typeASCII:'U' shift:YES error:&error]);
+        for (uint8_t key : {'4', 'e', '2', 'd'}) assert([session typeASCII:key shift:NO error:&error]);
+        assert([reload(session, root, NO)[@"deferred"] isEqual:@YES]);
+        assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"中"]);
+        assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
+        assert([[@"broken" dataUsingEncoding:NSUTF8StringEncoding] writeToFile:preferencesPath atomically:YES]);
+        assert(!reload(session, root, YES));
+        assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
         __block BOOL rejected = NO;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{

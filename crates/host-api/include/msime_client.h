@@ -18,9 +18,17 @@ uint32_t msime_client_abi_version(void);
 /* options is a readable UTF-8 buffer of length bytes; maximum 16384 bytes.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation}.
+ * Optional preferences_directory is bootstrap metadata for host file monitoring;
+ * session creation itself does not monitor or load it.
  * The host must prepare and validate its dictionary generation before creation.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
+/* Load PreferencesStore from an absolute UTF-8 directory, without a session.
+ * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
+ * Missing file returns shared defaults; malformed/future files return errors.
+ * Creates the directory/lock file if absent, never overwrites preference contents.
+ */
+char *msime_client_load_preferences(const uint8_t *directory, size_t length);
 /* Call on the session thread with a PreferencesSnapshot JSON buffer (<=16384):
  * {format_version:1, revision, preferences:{...}}. Revision order is per session;
  * identical retries are allowed, older/conflicting snapshots are rejected.
