@@ -160,6 +160,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button button(LinearLayout row, String label, Runnable action) {
         Button button = new Button(this);
+        button.setAllCaps(false);
         button.setText(label);
         button.setOnClickListener(ignored -> action.run());
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -169,6 +170,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public View onCreateInputView() {
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
+        WindowLayout.fitSystemBars(keyboard);
         status = new TextView(this);
         keyboard.addView(status);
         candidates = new LinearLayout(this);

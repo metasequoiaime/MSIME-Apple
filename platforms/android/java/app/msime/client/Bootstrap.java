@@ -49,7 +49,7 @@ public final class Bootstrap {
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
-            if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed");
+            if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed: " + result.optString("error"));
             AtomicFile destination = new AtomicFile(configuration);
             FileOutputStream output = null;
             try {

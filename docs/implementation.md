@@ -121,3 +121,9 @@ arm64-v8a 与 x86_64 release 库已构建，ELF 架构、16 KB LOAD 对齐、动
 增加共享 C/JNI bootstrap，复用锁定资源校验和 Engine 工作目录准备；启动 Activity 后台解包 APK 资源，首次成功后原子发布私有运行配置，已有配置不覆盖。开发构建脚本用 SDK 编译 Java/DEX、打包双 ABI 和六份资源、16 KB zip 对齐及开发签名；不执行安装、启用或切换输入法。
 
 本地 SDK 源码检查、双 ABI 原生导出检查、APK 签名/对齐/包结构检查通过。共享核心与宿主 14 项测试、真实资源 C bootstrap 探针、桌面 JNI 回归、fmt/clippy 通过。当前 APK 约 92 MiB，只是开发产物；未进行设备安装、首次准备及系统输入验收，也未完成正式分发的完整许可材料，CI 保持禁用。
+
+### 第十九条功能：Android 模拟器系统输入验收
+
+新增独立 arm64 Android 15 AVD、合成编辑器 APK、跨窗口 instrumentation 与共享核心 Cargo 设备 runner；脚本校验设备类型和专用 AVD 名称，不操作用户现有真机。实际首次准备发现标准库 File::lock 在 Android 不支持，改用 rustix 安全 flock，保留其他目标标准库锁与 unsafe 禁令；同时修复启动页 ActionBar 覆盖内容、系统导航栏覆盖软键盘底部操作的问题。
+
+专用模拟器上安装、首次资源准备及重复准备通过，真实软键盘点击经 JNI/共享运行时/Engine/InputConnection 提交“你好”、退格得到“你”、密码字段直接输入通过。测试等待窗口稳定后从最新节点取坐标，读取全部交互窗口，不以只含前台 Activity 的 dump 代替 IME 观察。Android 上共享核心 8 项测试通过，包括配置并发单赢家、缓存校验与失败升级保护；macOS 核心/宿主 14 项测试、fmt、桌面和 Android 核心 clippy、SDK 编译、双 ABI 打包/签名/对齐通过。尚未覆盖真机、x86_64 运行、完整生命周期和五端迁移，CI 保持禁用。
