@@ -272,7 +272,13 @@ key_bindings 可选对象示例：
 
 #### TSF 适配器交接契约
 
-`MSIME-Windows` 的 TSF KeyHandler 接入本客户端时，必须由 TSF 线程取得并缓存当前 `FocusLease`，只把同一上下文的原始键包交给 `WindowsServer` 的会话入口；不得在窗口线程直接调用 Engine、管道或候选/模式窗口。配置优先键先调用 `configured_key`，其余编辑键调用 `basic_key`，导航键调用 `navigate`，本地 Enter 提交必须携带实际 TSF 完成观察文本；返回的 `PendingReply` 必须等待投递确认后才允许下一键。候选选择和模式按钮只使用确认快照中的 lease、代次和索引，失效返回值必须丢弃。TSF 通知（激活、失焦、IMESwitch、StatusSnapshot、FocusRestored、候选显隐移动）按原始协议顺序送入会话泵，禁止由 UI 回调重入焦点门禁。适配器须在同一提交中固定兼容的 Engine/Client 版本，并提供普通、UILess、密码字段和焦点切换回归；本契约不宣称已完成 TSF 注册、安装或 Windows 实机验收。
+TSF DLL 与 WindowsServer 保持独立进程，通过 Engine contracts 定义的 Main、ToTsf、Worker 管道交换协议帧。DLL 不调用 `configured_key`、`basic_key`、`navigate`，也不缓存 Server 内部 `FocusLease` 或 `PendingReply`。DLL 使用自身的 focus token、composition epoch 和 request_id 验证异步回复，再在所属线程的 TSF edit session 中修改文本；这些值不能冒充 Server 的连接代次或焦点 epoch。
+
+Server 的 SessionPump 接收已登记连接的键和通知，在输入队列与焦点门禁内调用处理器。`configured_key` 已按顺序包含以词定字、`basic_key`、标点及 `navigate`，不能在返回后重复调用这些路径。PendingReply 的编码、发送与确认由 Server 完成；完整写入不等于 TSF 已上屏。原生候选/模式窗口仍归 Server，使用确认快照中的 lease、代次和索引发起请求，不把窗口回调或 Engine 对象注入 DLL。
+
+现有 DLL 的 `KeyEventSendResult` 区分 Sent、DefinitelyNotSent、DeliveryAmbiguous。只有确定未发送的键才可进入既有本地原始输入回退策略；发送结果不确定时禁止重新交给另一套路由，否则可能重复上屏。不能用一个 bool 代替该分类。本地 Enter 完成观察仍是预览入口的未完成项：不得从 Engine 文本或原始键包推断已经完成的 TSF 文档写入。
+
+接入验收须固定两端使用的 Engine 契约提交、DLL 与 Client 产物，先验证隔离管道握手、激活 fence、请求配对和断连，再验证普通/UILess、密码字段、焦点切换、候选与模式请求。不得借接线测试注册 TSF、接管生产管道或替换现有 Server；本说明不宣称这些验证已完成。
 
 ### 配置投递后的自动重试
 

@@ -85,10 +85,6 @@ void ModeWindow::refresh() {
     painted_.reset();
     shown_ = value;
     dpi_ = dpi;
-    POINT cursor{};
-    const HMONITOR target = GetCursorPos(&cursor)
-                                ? MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY)
-                                : MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
     if (!GetMonitorInfoW(target, &monitor))
