@@ -95,12 +95,13 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   const auto modifiers = packet.modifiers_down & ~FanyImePipeFlags::UiLess;
   const auto digit_key = normalize_digit_key(packet.keycode);
   nlohmann::json current;
-  if (modifiers == 1 && digit_key >= '1' && digit_key <= '9')
+  if (modifiers <= 1 && digit_key >= '1' && digit_key <= '9')
     current = view();
-  if (!current.is_null() && current.at("local_mode") == "unicode") {
-    // TSF consumes Shift+1..9 as candidate selection in U mode even when the
-    // keyboard layout translates that key to punctuation. Use the Engine's
-    // actual mode and the shared page's candidate ID, not a raw-input prefix.
+  if (!current.is_null() && current.at("local_mode") != "unknown" &&
+      ((current.at("local_mode") == "unicode" && modifiers == 1) ||
+       (current.at("local_mode") != "unicode" && modifiers == 0))) {
+    // TSF selects by VK digit, regardless of layout-produced text. Unicode
+    // requires Shift; ordinary modes use unmodified digits. Use current IDs.
     const auto slot = static_cast<size_t>(digit_key - '1');
     const auto &page = current.at("candidates");
     if (slot < page.size()) {
@@ -108,8 +109,11 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       result = select(epoch, id.at("generation").get<uint64_t>(),
                       id.at("index").get<size_t>());
     } else {
-      result = {{"handled", true}, {"commit", nullptr},
-                {"diagnostic", nullptr}, {"view", current}};
+      result = {
+          {"handled", !current.at("editing_text").get<std::string>().empty()},
+          {"commit", nullptr},
+          {"diagnostic", nullptr},
+          {"view", current}};
     }
   } else if (action.kind == KeyKind::Ignore) {
     result = {{"handled", false},
