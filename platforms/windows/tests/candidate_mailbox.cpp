@@ -171,6 +171,16 @@ void candidate_mailbox_tests() {
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
   require(publish(first, 2));
   require(mailbox.snapshot(gate)->visible); // A new confirmed key refreshes UI.
+  require(visual_event(first, FanyImePipeEventType::MoveCandidateWnd,
+                       FanyImePipeFlags::UiLess));
+  const auto host_drawn = mailbox.snapshot(gate);
+  require(host_drawn && !host_drawn->visible && host_drawn->preedit.empty() &&
+          host_drawn->candidates.empty() && host_drawn->x == -200);
+  require(visual_event(first, FanyImePipeEventType::MoveCandidateWnd));
+  require(!mailbox.snapshot(gate)->visible);
+  require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
+  require(mailbox.snapshot(gate)->visible &&
+          mailbox.snapshot(gate)->generation == 2);
   require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd, FanyImePipeFlags::UiLess));
   require(!mailbox.snapshot(gate)->visible);
   for (auto mode_event : {FanyImePipeEventType::IMESwitch,

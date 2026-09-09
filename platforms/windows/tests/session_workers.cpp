@@ -318,13 +318,35 @@ void session_worker_tests(const std::string &options) {
     const auto before = controller.candidate_view();
     require(before && before->visible && !before->candidates.empty());
     const auto candidate = before->candidates.at(0);
+    packet.event_type = FanyImePipeEventType::MoveCandidateWnd;
+    packet.modifiers_down = FanyImePipeFlags::UiLess;
+    packet.point[0] = 240;
+    transport.push(packet);
+    transport.wait_started(5);
+    const auto host_drawn = controller.candidate_view();
+    require(host_drawn && !host_drawn->visible && host_drawn->preedit.empty() &&
+            host_drawn->candidates.empty() && host_drawn->x == 240);
+    require(controller.request_selection(before->lease, candidate.session,
+                candidate.generation, candidate.index) ==
+            SelectionRequestResult::Rejected);
+    packet.modifiers_down = 0;
+    transport.push(packet);
+    transport.wait_started(6);
+    require(!controller.candidate_view()->visible);
+    packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
+    transport.push(packet);
+    transport.wait_started(7);
+    const auto returned = controller.candidate_view();
+    require(returned && returned->visible &&
+            returned->generation == before->generation &&
+            returned->preedit == before->preedit);
     packet.event_type = notification;
     packet.request_id = 77;
     packet.keycode = 0;
     packet.wch = 0;
     packet.modifiers_down = 0;
     transport.push(packet);
-    transport.wait_started(5);
+    transport.wait_started(8);
     const auto disabled = controller.candidate_view();
     require(disabled && !disabled->visible && disabled->preedit.empty() &&
             disabled->candidates.empty());
@@ -333,12 +355,12 @@ void session_worker_tests(const std::string &options) {
             SelectionRequestResult::Rejected);
     packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
     transport.push(packet);
-    transport.wait_started(6);
+    transport.wait_started(9);
     require(!controller.candidate_view()->visible);
     packet.event_type = notification;
     packet.keycode = 1;
     transport.push(packet);
-    transport.wait_started(7);
+    transport.wait_started(10);
     require(!controller.candidate_view()->visible);
     packet.event_type = FanyImePipeEventType::KeyEvent;
     packet.request_id = 4;
@@ -351,7 +373,7 @@ void session_worker_tests(const std::string &options) {
     packet.wch = '4';
     packet.modifiers_down = 0;
     transport.push(packet);
-    transport.wait_started(9);
+    transport.wait_started(12);
     const auto fresh = controller.candidate_view();
     require(fresh && fresh->visible && fresh->generation > before->generation &&
             fresh->preedit == before->preedit);

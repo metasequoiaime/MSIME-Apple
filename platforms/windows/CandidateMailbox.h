@@ -45,6 +45,10 @@ public:
       suppressed_ = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
       [[fallthrough]];
     case FanyImePipeEventType::MoveCandidateWnd:
+      // The host may take over candidate rendering without another key or
+      // Show event. A move can suppress display, never revive hidden content.
+      if ((packet.modifiers_down & FanyImePipeFlags::UiLess) != 0)
+        suppressed_ = true;
       latest_->x = packet.point[0];
       latest_->y = packet.point[1];
       break;
