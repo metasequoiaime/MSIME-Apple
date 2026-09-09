@@ -1,7 +1,10 @@
 #include "PipeHandshake.h"
 #include "PipeIo.h"
+#include "PipeListener.h"
 #include "PipePeer.h"
 #include "windows_ipc.h"
+#include <aclapi.h>
+#include <chrono>
 #include <cstring>
 #include <future>
 #include <iostream>
@@ -28,47 +31,32 @@ struct Handle {
   }
 };
 struct Pair {
-  Handle server, client;
+  std::unique_ptr<PipeListener> listener;
+  struct Server {
+    std::unique_ptr<PipeConnection> owner;
+    HANDLE value = INVALID_HANDLE_VALUE; // Borrowed from owner for test calls.
+  } server;
+  Handle client;
   Pair() {
     static unsigned serial = 0;
-    // Unique test-only pipe. Protected owner-rights DACL, no Everyone/remote
-    // access, no production pipe name or registration touched.
+    // Exercise the production listener with a unique test-only name.
     auto name = L"\\\\.\\pipe\\MSIMEClientIoTest-" +
                 std::to_wstring(GetCurrentProcessId()) + L"-" +
                 std::to_wstring(++serial);
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        L"D:P(A;;GA;;;OW)", SDDL_REVISION_1, &descriptor, nullptr));
-    SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), descriptor,
-                                 FALSE};
-    server.value = CreateNamedPipeW(name.c_str(),
-                                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
-                                        FILE_FLAG_FIRST_PIPE_INSTANCE,
-                                    PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE |
-                                        PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                                    1, 4096, 4096, 0, &security);
-    LocalFree(descriptor);
-    require(server.value != INVALID_HANDLE_VALUE);
+    DWORD error = ERROR_SUCCESS;
+    listener = PipeListener::create(name, error);
+    require(listener && error == ERROR_SUCCESS);
+    require(!PipeListener::create(name, error)); // Never join an owned name.
     client.value =
         CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                     OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
     require(client.value != INVALID_HANDLE_VALUE);
     DWORD mode = PIPE_READMODE_MESSAGE;
     require(SetNamedPipeHandleState(client.value, &mode, nullptr, nullptr));
-    Handle event;
-    event.value = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    require(event.value != nullptr);
-    OVERLAPPED operation{};
-    operation.hEvent = event.value;
-    BOOL ready = ConnectNamedPipe(server.value, &operation);
-    DWORD error = ready ? ERROR_SUCCESS : GetLastError();
-    if (!ready && error == ERROR_IO_PENDING) {
-      DWORD transferred;
-      CancelIoEx(server.value, &operation);
-      GetOverlappedResult(server.value, &operation, &transferred, TRUE);
-      require(false); // Client was opened first; no pending connect expected.
-    }
-    require(ready || error == ERROR_PIPE_CONNECTED);
+    auto accepted = listener->accept(2000);
+    require(accepted.io.complete() && accepted.connection);
+    server.owner = std::move(accepted.connection);
+    server.value = server.owner->handle();
   }
 };
 template <typename Packet>
@@ -77,6 +65,87 @@ std::vector<uint8_t> fixture_bytes(const Packet &packet) {
   std::vector<uint8_t> bytes(sizeof(Packet));
   std::memcpy(bytes.data(), &packet, sizeof(Packet));
   return bytes;
+}
+void listeners() {
+  DWORD error = ERROR_SUCCESS;
+  require(!PipeListener::create(L"\\\\remote\\pipe\\test", error));
+  require(error == ERROR_INVALID_NAME);
+  const auto name = L"\\\\.\\pipe\\MSIMEClientListenerTest-" +
+                    std::to_wstring(GetCurrentProcessId());
+  auto listener = PipeListener::create(name, error);
+  require(listener && error == ERROR_SUCCESS);
+  auto timed = listener->accept(20);
+  require(timed.io.status == IoStatus::Timeout && !timed.connection);
+  require(!PipeListener::create(name, error));
+  Handle cancel;
+  cancel.value = CreateEventW(nullptr, TRUE, TRUE, nullptr);
+  require(cancel.value != nullptr);
+  auto cancelled = listener->accept(2000, cancel.value);
+  require(cancelled.io.status == IoStatus::Cancelled && !cancelled.connection);
+  require(ResetEvent(cancel.value));
+  auto canceller = std::async(std::launch::async, [&] {
+    Sleep(30);
+    require(SetEvent(cancel.value));
+  });
+  cancelled = listener->accept(2000, cancel.value);
+  canceller.get();
+  require(cancelled.io.status == IoStatus::Cancelled && !cancelled.connection);
+  auto accepting =
+      std::async(std::launch::async, [&] { return listener->accept(2000); });
+  require(accepting.wait_for(std::chrono::milliseconds(30)) ==
+          std::future_status::timeout);
+  Handle client;
+  client.value =
+      CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                  OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+  require(client.value != INVALID_HANDLE_VALUE);
+  auto accepted = accepting.get();
+  require(accepted.io.complete() && accepted.connection);
+  DWORD flags = 0;
+  require(GetHandleInformation(accepted.connection->handle(), &flags));
+  require(!(flags & HANDLE_FLAG_INHERIT));
+  PACL dacl = nullptr;
+  PSECURITY_DESCRIPTOR security = nullptr;
+  require(GetSecurityInfo(accepted.connection->handle(), SE_KERNEL_OBJECT,
+                          DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl,
+                          nullptr, &security) == ERROR_SUCCESS);
+  // Inspect actual kernel ACL, not just the descriptor string.
+  bool acl_ok = dacl && dacl->AceCount == 3;
+  bool connect_only_appcontainer = false;
+  BYTE app_sid[SECURITY_MAX_SID_SIZE];
+  DWORD sid_size = sizeof(app_sid);
+  acl_ok = acl_ok && CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr,
+                                        app_sid, &sid_size);
+  if (acl_ok) {
+    for (DWORD i = 0; i < dacl->AceCount; ++i) {
+      void *raw = nullptr;
+      if (!GetAce(dacl, i, &raw)) {
+        acl_ok = false;
+        break;
+      }
+      const auto ace = static_cast<ACCESS_ALLOWED_ACE *>(raw);
+      if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE) {
+        acl_ok = false;
+        break;
+      }
+      if (IsWellKnownSid(const_cast<DWORD *>(&ace->SidStart), WinWorldSid)) {
+        acl_ok = false;
+        break;
+      }
+      if (EqualSid(const_cast<DWORD *>(&ace->SidStart), app_sid))
+        connect_only_appcontainer = ace->Mask == 0x12019bu;
+    }
+  }
+  LocalFree(security);
+  require(acl_ok && connect_only_appcontainer);
+  require(!PipeListener::create(name, error));
+  listener.reset();
+  require(
+      !PipeListener::create(name, error)); // Live connection still owns name.
+  accepted.connection.reset();
+  client.close();
+  listener = PipeListener::create(name, error);
+  require(listener && error == ERROR_SUCCESS);
 }
 void handshakes() {
   const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 11u;
@@ -182,6 +251,7 @@ void handshakes() {
 } // namespace
 int main() {
   try {
+    listeners();
     handshakes();
     {
       Pair main, reverse;
