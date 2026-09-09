@@ -1,16 +1,12 @@
 #pragma once
 #include "PipeHandshake.h"
 #include "PipeListener.h"
+#include "PipeTicket.h"
 #include <array>
 #include <mutex>
 #include <unordered_map>
 
 namespace msime::windows {
-// Transport registration generations, not Engine candidate/focus epochs.
-struct PipeTicket {
-  uint64_t client = 0;
-  std::array<uint64_t, 3> generations{};
-};
 enum class RegistryStatus { Ready, Rejected, Capacity, Stale, TransportError };
 struct PipeRegistration {
   RegistryStatus status = RegistryStatus::Rejected;

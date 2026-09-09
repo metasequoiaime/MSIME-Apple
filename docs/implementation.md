@@ -223,3 +223,9 @@ x86/x64 MinGW、pipe-only CMake 构建与本机三项既有 CTest 通过；新�
 依据固定上游 TSF/Server 消费路径，FocusSessionReady 回显 TSF 激活请求的 focus token，而非 Server epoch。新增纯编码器，拒绝零，完整支持 uint64 十进制 UTF-16，并清零帧尾和终止符。焦点授权、注册代次和发送顺序仍由后续路由状态机负责。
 
 本机三项 CTest 通过，编码新增精确字节与 32/64 位边界测试；原生注册器测试增加 worker 确认帧发送/读取，x86/x64 交叉链接通过，未 Windows 执行。继续 Windows 焦点状态与 Engine 输入链路，CI 保持禁用。
+
+### 第三十五条功能：Windows 激活确认门禁
+
+新增可本机执行的 FocusGate，分离传输票据、Server activation epoch 与 TSF token。新激活先 pending，worker 确认回调完整成功后才 ready；失败/异常保持关闭，旧确认/旧失焦不能改变新激活。授权动作与激活切换共用焦点锁，发送仍同时受 Registry 代次检查；输入组合与旧会话取消不移入门禁。
+
+新增本机状态与并发测试，四项 CTest 全部通过；Windows 原生测试组合门禁、实际 worker 确认和回复发送，x86/x64 交叉链接通过，但未 Windows 执行。ClientActivated/FocusRestored 等真实事件策略和 ServerSession 输入队列切换仍待接入，不宣称完成系统焦点授权。继续 Windows，CI 保持禁用。
