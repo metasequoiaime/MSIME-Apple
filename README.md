@@ -6,7 +6,7 @@
 
 ## 模块边界
 
-- `crates/client-core`：配置、账号、同步与资源业务，不依赖 Tauri、UI 或平台宿主。
+- `crates/client-core`：已实现本地配置和固定资源分代安装；账号与同步待迁移，不依赖 Tauri、UI 或平台宿主。
 - `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
@@ -50,3 +50,19 @@ Engine 由 gitlink 固定；CXX 生成互操作代码，CMake 构建原有 C++ �
 `cargo build -p msime-host-api --locked` 产出静态库和动态库。头文件为 `crates/host-api/include/msime_client.h`，C 消费示例为 `crates/host-api/tests/native_smoke.c`。调用链为 C 宿主 → host-api → input-runtime → CXX → C++ Engine，无 Tauri 运行时依赖。
 
 宿主创建会话后须显式传入焦点状态，将 `handled` 映射为系统吃键，将 `commit` 通过系统 API 上屏，将值快照渲染为候选。候选选择携带返回的 generation 和全局 index。全部会话操作在创建线程执行；过期、销毁或错误线程句柄返回错误。每个 UTF-8 JSON 响应必须通过 `msime_client_string_free` 释放一次。此版本优先验证互操作正确性；逐键快照 JSON 的延迟和分配成本尚未测量。
+
+## 固定词库资源
+
+`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v1.0.0` 的来源、长度和 SHA-256，保留日语授权文件。首次下载约 184 MB。开发准备命令：
+
+```sh
+cargo run -p msime-client-core --example install_resources -- target/resources
+```
+
+安装器通过注入的流读取资源，限制长度并校验摘要；全部成功后才发布到内容标识目录。再次使用时检查缓存字节；损坏缓存报错，失败安装不替换旧代。这里只准备不可变发布资源，不激活现有输入法，不迁移用户学习数据。它使用独立文件 Release，不冒充尚未发布的完整 Engine ZIP。
+
+`engine-bridge::prepare_options` 调用 Engine 权威的工作词库准备与学习回放入口，调用方必须先验证资源并暂停相关会话。以下探针使用临时用户目录和缓存，验证已发布词库中的 `nihao` 查询和选词提交：
+
+```sh
+cargo run -p msime-engine-bridge --example query_dictionary -- <上一步返回的资源目录>
+```

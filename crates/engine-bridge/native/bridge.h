@@ -18,4 +18,5 @@ private:
     metasequoia::Session session_;
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
+EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
 }

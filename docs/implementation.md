@@ -57,3 +57,13 @@ macOS 上 2 项 host-api 测试通过，覆盖真实 Unicode 输入链路、错�
 ### 第七条功能：Android JNI 边界
 
 Java NativeClient 经 JNI 调用同一个 C API，避免 JNI modified UTF-8。macOS 系统编译器和 JDK 21 构建本机 JNI 动态库及 Java 消费者，包含非 BMP 字符的资源路径和 Unicode 提交回归通过。尚无 Android NDK 构建、InputMethodService 或 APK 验证；本机 JVM 只证明互操作和编码边界。
+
+### 第八条功能：共享资源安装
+
+ResourceStore 读取受信任产品锁，通过宿主注入的传输流安装平面文件集合。严格长度与摘要、跨平台文件名约束、独立文件锁和临时目录发布防止半安装；不覆盖旧资源代。4 项新增测试覆盖坏摘要/长度、缓存篡改、失败升级和路径别名。client-core 共 8 项测试通过。
+
+真实下载已完成：dict-v1.0.0 的六个文件均匹配提交中的固定长度/摘要，并通过固定 Engine 的 `contracts.dictionary.product.verify_product` 检查。真实数据源是 d0dc0c2b594b5540b5de99ad12085c786410626e，与 Engine 代码来源分别记录。资源仅存放在忽略的 target/resources，未修改现有安装。
+
+### 第九条功能：真实词库准备与输入验收
+
+通过 CXX 暴露 Engine 的 `prepare_runtime_paths`，复用其数据库复制、学习回放与目录发布流程。macOS 上使用已校验的真实 Release 资源和临时用户/缓存目录，`nihao` 查询得到并成功提交“你好”。这比无需词库的 Unicode 探针增加了真实数据库集成证据，但不代表完整词库质量或系统宿主验收。独立 published-dictionary CI 在后台下载、用上游 verifier 校验、执行输入探针并复核不可变资源。
