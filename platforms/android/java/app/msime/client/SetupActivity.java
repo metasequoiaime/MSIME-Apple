@@ -17,9 +17,11 @@ import java.util.concurrent.Executors;
 public final class SetupActivity extends Activity {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state) {
+        WindowLayout.theme(this);
         super.onCreate(state);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
+        WindowLayout.fitSystemBars(layout);
         TextView status = new TextView(this);
         status.setText("MSIME 开发预览：先准备内置词库，再由你手动启用输入法。现有配置不会被覆盖。");
         layout.addView(status);
@@ -34,7 +36,11 @@ public final class SetupActivity extends Activity {
             WORKER.execute(() -> {
                 String outcome;
                 try { outcome = Bootstrap.prepare(context) ? "资源准备完成。可手动启用并选择 MSIME Preview。" : "检测到已有配置，未覆盖；如输入异常，请保留数据并检查配置。"; }
-                catch (Exception | LinkageError error) { outcome = "准备失败，未发布新配置；请检查存储空间与开发包。可重试。"; }
+                catch (Exception | LinkageError error) {
+                    // Bootstrap has no editor/session input; never use this logging for keystrokes.
+                    android.util.Log.e("MSIMEBootstrap", "First-install resource preparation failed", error);
+                    outcome = "准备失败，未发布新配置；请检查存储空间与开发包。可重试。";
+                }
                 final String result = outcome;
                 SetupActivity activity = owner.get();
                 if (activity != null) activity.runOnUiThread(() -> {

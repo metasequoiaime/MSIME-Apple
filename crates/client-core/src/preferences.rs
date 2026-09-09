@@ -98,7 +98,7 @@ impl PreferencesStore {
             .create(true)
             .truncate(false)
             .open(self.directory.join("preferences.lock"))?;
-        lock.lock()?;
+        crate::file_lock::exclusive(&lock)?;
         Ok(lock)
     }
 

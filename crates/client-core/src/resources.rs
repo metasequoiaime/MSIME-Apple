@@ -113,7 +113,7 @@ impl ResourceStore {
             .create(true)
             .truncate(false)
             .open(self.root.join("resources.lock"))?;
-        lock.lock()?;
+        crate::file_lock::exclusive(&lock)?;
         let destination = self.root.join(generation);
         if fs::symlink_metadata(&destination).is_ok() {
             self.verify(&destination, specification)?;
