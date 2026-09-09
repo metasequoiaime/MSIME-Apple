@@ -1,4 +1,5 @@
 #include "PreviewConfig.h"
+#include "CandidateWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
@@ -84,15 +85,36 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     WindowsServer server(
-        options, prepared.at("value").dump(),
-        preview_key_handler(config),
+        options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    CandidateWindow candidates([&] { return server.candidate_view(); });
     std::cout
-        << "Preview Server running; native candidate UI is not connected.\n";
-    while (!stopping.load() && server.failure() == ControllerFailure::None)
-      Sleep(50);
+        << "Preview Server running; read-only native candidates enabled.\n";
+    while (!stopping.load() && server.failure() == ControllerFailure::None &&
+           !candidates.failed()) {
+      MSG message{};
+      // Bound each batch so a message flood cannot starve stop/focus polling.
+      for (size_t i = 0;
+           i < 64 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++i) {
+        if (message.message == WM_QUIT) {
+          stopping.store(true);
+          break;
+        }
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      if (stopping.load())
+        break;
+      candidates.refresh();
+      if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
+                                      MWMO_INPUTAVAILABLE) == WAIT_FAILED)
+        throw std::runtime_error("Candidate message wait failed");
+    }
+    candidates.hide();
     server.stop();
-    return server.failure() == ControllerFailure::None ? 0 : 1;
+    return server.failure() == ControllerFailure::None && !candidates.failed()
+               ? 0
+               : 1;
   } catch (...) {
     std::cerr << "Preview Server failed; verify configuration, resources, "
                  "state ownership and pipe availability.\n";

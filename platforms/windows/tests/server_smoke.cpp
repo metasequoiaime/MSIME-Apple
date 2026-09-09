@@ -1,4 +1,5 @@
 #include "WindowsServer.h"
+#include "CandidateWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "TestHostOptions.h"
@@ -40,6 +41,43 @@ struct ClientPipe {
 } // namespace
 int main() {
   try {
+    {
+      std::optional<CandidatePresentation> value;
+      CandidateWindow window([&] { return value; });
+      require(!IsWindowVisible(window.handle()));
+      require((GetWindowLongPtrW(window.handle(), GWL_EXSTYLE) &
+               WS_EX_NOACTIVATE) != 0);
+      require(SendMessageW(window.handle(), WM_MOUSEACTIVATE, 0, 0) ==
+              MA_NOACTIVATEANDEAT);
+      CandidatePresentation frame{};
+      frame.lease = {{42, {1, 2, 3}}, 1, 1};
+      frame.session = 1;
+      frame.generation = 1;
+      frame.visible = true;
+      frame.preedit = "U4e2d";
+      frame.candidates.push_back({1, 1, 0, "中", true});
+      value = frame;
+      const auto foreground = GetForegroundWindow();
+      window.refresh();
+      UpdateWindow(window.handle());
+      require(IsWindowVisible(window.handle()) && !window.failed());
+      require(GetForegroundWindow() == foreground);
+      window.refresh();
+      require(!GetUpdateRect(window.handle(), nullptr, FALSE));
+      value.reset();
+      InvalidateRect(window.handle(), nullptr, FALSE);
+      UpdateWindow(window.handle());
+      require(!IsWindowVisible(window.handle())); // Paint rechecks the source.
+      value = frame;
+      value->visible = false;
+      window.refresh();
+      require(!IsWindowVisible(window.handle()));
+      value = frame;
+      value->preedit = std::string(1, static_cast<char>(0xff));
+      window.refresh();
+      UpdateWindow(window.handle());
+      require(window.failed() && !IsWindowVisible(window.handle()));
+    }
     const auto suffix = std::to_wstring(GetCurrentProcessId()) + L"-" +
                         std::to_wstring(GetTickCount64());
     const auto root = std::filesystem::temp_directory_path() /
