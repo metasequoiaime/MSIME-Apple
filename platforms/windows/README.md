@@ -198,6 +198,12 @@ WindowsServer 的回调可能在构造返回前运行，捕获依赖须事先初
 
 本机已完成 x64 宿主 DLL、会话测试及完整原生管道集成测试的 PE32+ 链接，产物位于 target/windows-full/x64。脚本只复制宿主 DLL，不打包 MinGW 运行时 DLL，运行前还需同工具链的 libstdc++、libgcc 和 libwinpthread 及系统运行时；这不是安装包或运行验收。x86 完整链接在当前 Homebrew SJLJ MinGW 下失败（Rust 展开符号缺失），脚本提前拒绝该组合；不能通过 panic=abort 改变既有错误隔离契约。x86 的既有 C++ 对象检查仍通过，但完整 Rust 链接须匹配异常展开工具链后重验。MSVC 构建和 Windows 实机 TSF 验收仍未执行。
 
+### 本地原生测试目录
+
+完整 x64 构建后运行 `bash platforms/windows/stage-runtime.sh x64`，脚本从同一 MinGW 工具链定位 libstdc++、libgcc、libwinpthread，复制到 target/windows-full/x64，并逐项检查测试 EXE、宿主 DLL 和递归运行时导入的架构。未分类依赖或缺失运行时立即失败，不从网络或任意系统目录猜 DLL；工具链的额外运行时目录可显式通过 MSIME_MINGW_RUNTIME_DIR 提供。该目录仅用于本地验证，不是带完整许可证/源码交付的发布包，不得据此发布产品。
+
+可将验证目录复制到匹配的 Windows 测试机，在其中运行 `powershell -File .\run-smoke.ps1`。脚本预检十个固定测试程序，逐个执行并限制超时，失败立即停止；不要求 CMake，也不注册 TSF 或修改输入源。仅运行隔离临时目录/唯一管道名的合成测试，不等价于真实编辑器验收。本机只验证目录依赖及构建，PowerShell 脚本和 Windows 二进制尚未实际执行。原生集成测试与本机回归共用完整测试配置，避免遗漏共享宿主必需字段。
+
 ### 配置投递后的自动重试
 
 `InputState::queue_preferences(lease, snapshot)` 供设置通知在输入队列中提交最新快照。无待回复时直接交给共享宿主；有待回复时每个活动会话最多保存一份 16 KiB 以内的快照，较新 revision 替换旧值，相同内容幂等，较旧或同版本冲突拒绝。只有当前焦点的成功投递确认才会自动交付保存的快照，错误确认不能触发；焦点取消和新激活清除尚未交付的旧快照。

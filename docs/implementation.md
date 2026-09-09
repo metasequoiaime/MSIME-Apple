@@ -335,3 +335,9 @@ PreferenceMonitor 以单个设置线程定期调用共享 try_load，最多保�
 新增固定 vcpkg 清单及完整 GNU 构建脚本，架构独立依赖安装根；Rust 桥接为 Windows GNU 限定同架构库搜索前缀并静态链接 SQLite。完整链接发现已知文件夹标识缺少 UUID 库，确认符号后补链。x64 Rust/C++ 宿主 DLL、会话测试及 WindowsServer 原生集成测试均完成 PE32+ 链接，不再仅为对象编译。
 
 30 项 Rust 单元测试、fmt/clippy、八项本机 CTest 与锁定词库回归通过；x86 完整链接实际尝试失败，本机 MinGW 的 SJLJ 展开与 Rust 展开符号不兼容，脚本已添加提前拒绝，未用 panic=abort 绕过。运行时 DLL 未打包，Windows 原生执行、MSVC 和 TSF 系统验收均未完成。继续 Windows 优先，CI 保持禁用。
+
+### 第五十四条功能：Windows 本地原生测试目录
+
+新增运行时准备脚本，为完整构建的 x64 测试目录复制同工具链 MinGW DLL，并递归验证导入依赖与架构；未分类或缺失依赖失败，不假设目标机器 PATH 已配置。PowerShell 入口预检十个合成测试、逐个执行并限制超时，不依赖构建机 CMake 路径，不注册输入法。
+
+发现原生 server_smoke 配置遗漏共享宿主必需的页大小和标点字段，修正并提取共享测试配置；本机验证原缺项被拒绝、完整配置能创建真实宿主。八项本机 CTest、锁定词库回归、x64 完整测试重新链接和运行时依赖检查通过。Windows 程序及 PowerShell 入口尚未执行，目录不含完整发布合规材料，不作为发布包。x86 展开工具链问题及真实 TSF/UI 产品验收仍待处理，继续 Windows 优先且 CI 保持禁用。
