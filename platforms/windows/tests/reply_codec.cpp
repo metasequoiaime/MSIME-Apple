@@ -28,6 +28,38 @@ void error(const EncodedReply &reply, ReplyError expected) {
 } // namespace
 int main() {
   try {
+    {
+      require(!ui_complete_selection(""));
+      require(!ui_complete_selection(std::string(200, 'a')));
+      require(!ui_complete_selection(std::string("a\0b", 3)));
+      require(!ui_complete_selection(std::string(1, static_cast<char>(0xff))));
+      const auto complete = ui_complete_selection("中😀");
+      require(complete && !complete->before_trigger &&
+              complete->worker.size() == 404);
+      require(complete->worker[0] ==
+              FanyImeWorkerReplyType::CommitCurCandidate);
+      require(complete->worker[4] == 0x2d && complete->worker[5] == 0x4e);
+      require(complete->worker[6] == 0x3d && complete->worker[7] == 0xd8);
+      require(complete->worker[8] == 0 && complete->worker[9] == 0xde);
+      for (size_t i = 10; i < complete->worker.size(); ++i)
+        require(complete->worker[i] == 0);
+      const auto partial = ui_partial_selection("hao", "你", "你好");
+      require(partial && partial->before_trigger);
+      auto expected_partial =
+          *wire_bytes(partial_selection(1, "hao", "你", "你好"));
+      expected_partial[8] = 0;
+      require(*partial->before_trigger == expected_partial);
+      require(partial->worker[0] == FanyImeWorkerReplyType::CommitCurCandidate);
+      for (size_t i = 1; i < partial->worker.size(); ++i)
+        require(partial->worker[i] == 0);
+      require(!ui_partial_selection("", "你", "你好"));
+      require(!ui_partial_selection("hao", "你\t", "你好"));
+      const auto rejected = ui_rejected_selection();
+      require(rejected.before_trigger &&
+              rejected.before_trigger->at(0) == FanyImeReplyType::OutofRange);
+      for (size_t i = 1; i < rejected.before_trigger->size(); ++i)
+        require(rejected.before_trigger->at(i) == 0);
+    }
     for (auto [navigation, type] :
          std::vector<std::pair<NavigationReply, uint32_t>>{
              {NavigationReply::Ignored, FanyImeReplyType::NavigationIgnored},

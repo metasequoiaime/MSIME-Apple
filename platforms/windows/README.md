@@ -4,6 +4,8 @@
 
 ## 已确认候选展示接口
 
+点击回复线格式已提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。现有键回复编码仍拒绝零请求号；窗口点击到会话的接线尚未完成，窗口仍只读。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
+
 预览入口现已创建主线程 CandidateWindow，只读显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。窗口使用系统颜色、按 DPI 缩放的 Segoe UI 字体，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭预览。当前未实现鼠标选词、工具栏、无障碍与 TSF 实机定位验收，不能视为产品级窗口完成。原生窗口回归已交叉编译，尚未在 Windows 运行。
 
 窗口使用临时线程 Per-Monitor V2 上下文，创建/布局/绘制结束后恢复调用者设置，不修改进程 DPI 默认值；预览窗口要求 Windows 10 1703 或更新版本。坐标按固定 TSF 上游的物理屏幕锚点消费；换屏时先隐藏迁移，再按 GetDpiForWindow 重新计算宽度、行高、间距和字体。WM_DPICHANGED 使布局失效，下一次刷新按当前锚点重新定位，避免在 SetWindowPos 回调里递归布局。独立布局计算验证 96–384 DPI、多候选页、负屏幕原点、极小工作区和整数极值，接受 48–960 DPI；真实混合 DPI 显示器与应用坐标回退仍须 Windows 实机验证，不以合成消息冒充换屏验收。

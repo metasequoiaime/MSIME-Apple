@@ -215,6 +215,47 @@ EncodedReply partial_selection(uint64_t request, std::string_view raw,
                     std::string(raw) + '\t' + std::string(prefix) + '\t' +
                         std::string(display));
 }
+namespace {
+std::vector<uint8_t> candidate_worker(const EncodedReply &text) {
+  std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
+  for (size_t i = 0; i < 4; ++i)
+    bytes[i] = static_cast<uint8_t>(
+        FanyImeWorkerReplyType::CommitCurCandidate >> (8 * i));
+  for (size_t i = 0; i < FanyImePipeLimits::CandidateTextCapacity; ++i) {
+    const auto unit = static_cast<uint16_t>(text.packet.candidate_string[i]);
+    bytes[4 + 2 * i] = static_cast<uint8_t>(unit);
+    bytes[5 + 2 * i] = static_cast<uint8_t>(unit >> 8);
+  }
+  return bytes;
+}
+UiSelectionFrames triggered_selection(EncodedReply reply) {
+  reply.packet.request_id = 0; // Dedicated UI encoding, never wire_bytes().
+  return {packet_bytes(reply.packet),
+          candidate_worker(candidate_commit(1, {}))};
+}
+} // namespace
+std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text) {
+  // Empty worker text is a trigger to consume id 0, not an empty commit.
+  if (text.empty())
+    return std::nullopt;
+  const auto encoded = candidate_commit(1, text);
+  if (!encoded)
+    return std::nullopt;
+  return UiSelectionFrames{std::nullopt, candidate_worker(encoded)};
+}
+std::optional<UiSelectionFrames>
+ui_partial_selection(std::string_view raw, std::string_view prefix,
+                     std::string_view display) {
+  const auto encoded = partial_selection(1, raw, prefix, display);
+  if (!encoded)
+    return std::nullopt;
+  return triggered_selection(encoded);
+}
+UiSelectionFrames ui_rejected_selection() {
+  auto reply = candidate_commit(1, {});
+  reply.packet.msg_type = FanyImeReplyType::OutofRange;
+  return triggered_selection(reply);
+}
 EncodedReply uiless_reply(uint64_t request, std::string_view display,
                           const std::vector<std::string> &page,
                           size_t highlighted) {

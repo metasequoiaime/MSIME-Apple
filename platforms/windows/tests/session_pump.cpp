@@ -1,4 +1,5 @@
 #include "SessionPump.h"
+#include "UiSelectionDelivery.h"
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
 #include <atomic>
@@ -19,6 +20,7 @@ public:
   std::vector<std::pair<uint32_t, std::vector<uint8_t>>> writes;
   size_t next = 0;
   size_t fail_write = 0;
+  bool throw_write = false;
   const std::thread::id io_thread = std::this_thread::get_id();
   bool current(const PipeTicket &value) override {
     return open && same_ticket(ticket, value);
@@ -35,6 +37,8 @@ public:
     if (!current(value))
       return false;
     writes.emplace_back(role, frame);
+    if (throw_write && writes.size() == fail_write)
+      throw std::runtime_error("Synthetic write exception");
     return writes.size() != fail_write;
   }
   void close(const PipeTicket &value) noexcept override {
@@ -64,6 +68,51 @@ public:
 };
 } // namespace
 void session_pump_tests(const std::string &options) {
+  for (bool throws : {false, true}) {
+    for (bool partial : {false, true}) {
+      for (size_t failure = 0; failure <= (partial ? 2u : 1u); ++failure) {
+        FocusGate gate;
+        FixtureTransport transport;
+        const auto change = gate.begin(transport.ticket, 77);
+        require(change &&
+                gate.acknowledge(change->pending, [] { return true; }));
+        const auto frames = partial ? ui_partial_selection("hao", "你", "你好")
+                                    : ui_complete_selection("你好");
+        require(frames.has_value());
+        transport.fail_write = failure;
+        transport.throw_write = throws;
+        auto stale = change->pending;
+        ++stale.epoch;
+        require(deliver_ui_selection(transport, gate, stale, *frames) ==
+                UiDeliveryResult::Stale);
+        require(transport.writes.empty());
+        const auto result =
+            deliver_ui_selection(transport, gate, change->pending, *frames);
+        require(result == (failure ? UiDeliveryResult::WriteFailed
+                                   : UiDeliveryResult::Sent));
+        require(transport.writes.size() == (failure   ? failure
+                                            : partial ? 2u
+                                                      : 1u));
+        if (partial) {
+          require(transport.writes[0].first == FanyImePipeRole::ToTsf);
+          require(transport.writes[0].second ==
+                  std::vector<uint8_t>(frames->before_trigger->begin(),
+                                       frames->before_trigger->end()));
+        }
+        if (!failure) {
+          require(transport.writes.back().first ==
+                  FanyImePipeRole::ToTsfWorkerThread);
+          require(transport.writes.back().second == frames->worker);
+        } else {
+          require(!transport.open);
+          const auto writes = transport.writes.size();
+          require(deliver_ui_selection(transport, gate, change->pending,
+                                       *frames) == UiDeliveryResult::Stale);
+          require(transport.writes.size() == writes);
+        }
+      }
+    }
+  }
   for (bool local : {false, true}) {
     for (bool uiless : {false, true}) {
       for (bool fail_write : {false, true}) {

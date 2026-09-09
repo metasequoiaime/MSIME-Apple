@@ -57,6 +57,19 @@ enum class WorkerMode {
 };
 // Only six mode commands, never arbitrary opcodes or unsolicited text.
 std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
+// UI selection is not a key reply: complete text travels only on the worker
+// endpoint. Partial/out-of-range replies use id 0 BEFORE an empty worker
+// trigger. Caller must own a pending selection and validate focus for the
+// entire send.
+struct UiSelectionFrames {
+  std::optional<ReplyBytes> before_trigger;
+  std::vector<uint8_t> worker;
+};
+std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text);
+std::optional<UiSelectionFrames>
+ui_partial_selection(std::string_view raw, std::string_view selected_prefix,
+                     std::string_view display);
+UiSelectionFrames ui_rejected_selection();
 std::optional<ReplyBytes>
 protocol_reply_bytes(const FanyImeNamedpipeDataToTsf &packet);
 // Existing DLL expects remaining raw input, the ENTIRE selected prefix and the
