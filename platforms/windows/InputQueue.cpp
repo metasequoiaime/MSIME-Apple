@@ -105,6 +105,14 @@ InputState::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   return owner ? owner->key(lease, packet, path, uiless, std::move(local_text))
                : std::nullopt;
 }
+std::optional<PendingReply>
+InputState::navigate(const FocusLease &lease,
+                     const FanyImeNamedpipeData &packet,
+                     const NavigationBindings &bindings) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->navigate(lease, packet, bindings) : std::nullopt;
+}
 bool InputState::delivered(const FocusLease &lease, uint64_t request) {
   check_thread();
   auto *owner = session(lease.transport);

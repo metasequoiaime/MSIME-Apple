@@ -46,6 +46,19 @@ FocusedSession::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   });
   return result;
 }
+std::optional<PendingReply>
+FocusedSession::navigate(const FocusLease &lease,
+                         const FanyImeNamedpipeData &packet,
+                         const NavigationBindings &bindings) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<PendingReply> result;
+  gate_.with_active(lease, [&] {
+    result = composer_->navigate(session_, packet, lease.epoch, bindings);
+  });
+  return result;
+}
 bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
   check_thread();
   if (!prepared(lease))

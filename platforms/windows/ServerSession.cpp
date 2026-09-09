@@ -108,6 +108,31 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
           action.kind != KeyKind::LocalReset && action.kind != KeyKind::Ignore,
           std::move(result)};
 }
+std::optional<NavigationResult>
+ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
+                        const NavigationBindings &bindings) {
+  check_active(epoch);
+  if (packet.client_id != client_ ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID ||
+      packet.pinyin_length < 0 || packet.pinyin_length >= 128)
+    throw std::invalid_argument("Invalid Windows navigation request");
+  // Do not fetch a full snapshot for keys that cannot use these bindings.
+  auto action = navigation_action(packet, bindings, false);
+  if (!action)
+    return std::nullopt;
+  const auto current = view();
+  if (current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
+  action = navigation_action(packet, bindings,
+                             current.at("local_mode") == "unicode");
+  if (!action)
+    return std::nullopt;
+  auto result = response(msime_client_command(session_, action->command));
+  return NavigationResult{
+      {client_, epoch_, packet.request_id, true, std::move(result)},
+      action->reply};
+}
 nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
                                      size_t index) {
   check_active(epoch);

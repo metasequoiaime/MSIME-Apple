@@ -293,6 +293,34 @@ int main(int argc, char **argv) {
         });
         ++packet.request_id;
       }
+
+      packet.keycode = 0xBB;
+      packet.wch = '+';
+      NavigationBindings navigation_bindings{true, true, true,
+                                             true, true, true};
+      run([&](InputState &state) {
+        require(!state.navigate(*activation.route, packet, navigation_bindings),
+                "Unicode plus was consumed by paging");
+      });
+      packet.keycode = 0x09;
+      packet.wch = 0;
+      run([&](InputState &state) {
+        auto stale = *activation.route;
+        ++stale.epoch;
+        require(!state.navigate(stale, packet, navigation_bindings),
+                "Stale focus navigated candidates");
+        auto result =
+            state.navigate(*activation.route, packet, navigation_bindings);
+        require(result && result->encoded->packet.msg_type ==
+                              FanyImeReplyType::MovePageNext,
+                "Queue navigation did not encode a boundary reply");
+        rejected([&] {
+          state.navigate(*activation.route, packet, navigation_bindings);
+        });
+        require(state.delivered(*activation.route, packet.request_id),
+                "Queue navigation receipt failed");
+      });
+      ++packet.request_id;
       packet.keycode = 0x20;
       packet.wch = 0;
       run([&](InputState &state) {
@@ -490,6 +518,69 @@ int main(int argc, char **argv) {
       };
       for (char c : std::string("nihao"))
         send(c - 'a' + 'A', c, msime::windows::ReplyPath::Composition);
+      {
+        using namespace msime::windows;
+        for (bool uiless : {false, true}) {
+          for (auto keys : {std::pair<uint32_t, uint32_t>{0xBD, 0xBB},
+                            {0xBC, 0xBE},
+                            {0xDB, 0xDD},
+                            {0x21, 0x22},
+                            {0x09, 0x09},
+                            {0x26, 0x28}}) {
+            NavigationBindings bindings;
+            bindings.minus_equal = keys.first == 0xBD;
+            bindings.comma_period = keys.first == 0xBC;
+            bindings.brackets = keys.first == 0xDB;
+            bindings.page_up_down = keys.first == 0x21;
+            bindings.tab = keys.first == 0x09;
+            bindings.arrows = keys.first == 0x26;
+            for (bool previous : {false, true}) {
+              FanyImeNamedpipeData packet{};
+              packet.event_type = FanyImePipeEventType::KeyEvent;
+              packet.client_id = 42;
+              packet.request_id = request++;
+              packet.keycode = previous ? keys.first : keys.second;
+              packet.modifiers_down =
+                  (uiless ? FanyImePipeFlags::UiLess : 0) |
+                  (previous && packet.keycode == 0x09 ? 1u : 0u);
+              const auto before_navigation = session.view();
+              require(!composer.navigate(session, packet, epoch, {}),
+                      "Disabled binding consumed a key");
+              require(session.view() == before_navigation,
+                      "Disabled binding mutated Engine");
+              auto shortcut = packet;
+              shortcut.modifiers_down |= 2;
+              require(!composer.navigate(session, shortcut, epoch, bindings),
+                      "Control shortcut was consumed as navigation");
+              auto result = composer.navigate(session, packet, epoch, bindings);
+              const auto expected_type =
+                  bindings.arrows
+                      ? (previous ? FanyImeReplyType::MoveSelectionPrevious
+                                  : FanyImeReplyType::MoveSelectionNext)
+                      : (previous ? FanyImeReplyType::MovePagePrevious
+                                  : FanyImeReplyType::MovePageNext);
+              require(result && result->encoded && *result->encoded &&
+                          result->encoded->packet.msg_type ==
+                              (uiless ? FanyImeReplyType::UiLessComposition
+                                      : expected_type),
+                      "Configured navigation reply incorrect");
+              require(session.view().at("page") ==
+                              (previous || bindings.arrows ? 0 : 1) &&
+                          session.view().at("editing_text") == "nihao",
+                      "Configured navigation did not use shared paging");
+              if (bindings.arrows)
+                require(session.view()
+                                .at("candidates")
+                                .at(previous ? 0 : 1)
+                                .at("highlighted") == true,
+                        "Configured arrows did not move shared highlight");
+              rejected(
+                  [&] { composer.navigate(session, packet, epoch, bindings); });
+              composer.confirm_delivery(42, epoch, packet.request_id);
+            }
+          }
+        }
+      }
       for (bool uiless : {false, true}) {
         const auto original = session.view();
         auto navigate = [&](uint32_t vk, msime::windows::ReplyPath path,
