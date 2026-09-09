@@ -67,3 +67,7 @@ ResourceStore 读取受信任产品锁，通过宿主注入的传输流安装平
 ### 第九条功能：真实词库准备与输入验收
 
 通过 CXX 暴露 Engine 的 `prepare_runtime_paths`，复用其数据库复制、学习回放与目录发布流程。macOS 上使用已校验的真实 Release 资源和临时用户/缓存目录，`nihao` 查询得到并成功提交“你好”。这比无需词库的 Unicode 探针增加了真实数据库集成证据，但不代表完整词库质量或系统宿主验收。独立 published-dictionary CI 在后台下载、用上游 verifier 校验、执行输入探针并复核不可变资源。
+
+### 第十条功能：宿主准备与结束组合
+
+`prepare_host_configuration` 验证固定资源并调用 Engine 准备工作目录，再读取共享偏好生成 ABI 1 配置。`prepare_host` 开发工具原子写入运行配置，不安装输入法。新增 Finish 动作直接调用 Engine 的 finish(highlighted_index)，保留剩余分段完成逻辑；运行时增加对应回归，4 项测试通过，host-api 2 项测试及 clippy 通过。

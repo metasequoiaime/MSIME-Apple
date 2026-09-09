@@ -64,4 +64,5 @@ EngineResult EngineSession::command(std::uint8_t value) {
     }
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
+EngineResult EngineSession::finish(std::size_t index) { return result_for(session_.finish(index)); }
 }
