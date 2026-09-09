@@ -25,6 +25,21 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
 EngineResult result_for(const metasequoia::KeyResult& value) {
     return {value.handled, value.commit.has_value(), value.commit.value_or(""), value.diagnostic.value_or("")};
 }
+const char* local_mode_name(metasequoia::LocalInputMode mode) {
+    using metasequoia::LocalInputMode;
+    switch (mode) {
+        case LocalInputMode::None: return "none";
+        case LocalInputMode::Unicode: return "unicode";
+        case LocalInputMode::DateTime: return "date_time";
+        case LocalInputMode::QuickPhrase: return "quick_phrase";
+        case LocalInputMode::Emoji: return "emoji";
+        case LocalInputMode::Kaomoji: return "kaomoji";
+        case LocalInputMode::SuperJianpin: return "super_jianpin";
+        case LocalInputMode::TemporaryEnglish: return "temporary_english";
+        case LocalInputMode::TemporaryJapanese: return "temporary_japanese";
+    }
+    throw std::logic_error("Unknown Engine local mode");
+}
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
@@ -38,6 +53,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
+    output.local_mode = local_mode_name(value.local_mode);
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;

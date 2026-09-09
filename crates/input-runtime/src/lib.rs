@@ -68,6 +68,8 @@ pub struct Candidate {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    /// Authoritative Engine mode, never inferred from displayed text.
+    pub local_mode: String,
     pub session: u64,
     pub generation: u64,
     pub focused: bool,
@@ -136,6 +138,7 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            local_mode: self.cached.local_mode.clone(),
             session: self.session,
             generation: self.generation,
             focused: self.focused,
@@ -213,6 +216,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous = std::mem::replace(
             &mut self.cached,
             EngineSnapshot {
+                local_mode: "unknown".into(),
                 preedit: String::new(),
                 editing_text: String::new(),
                 caret_position: 0,
@@ -224,6 +228,7 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
+            && self.cached.local_mode == previous.local_mode
             && self.cached.candidates == previous.candidates
         {
             self.highlighted =
@@ -359,6 +364,7 @@ fn empty_result(handled: bool) -> EngineResult {
 mod tests {
     use super::*;
     struct Fixture {
+        local_mode: String,
         words: Vec<String>,
         text: String,
         snapshot_fails: bool,
@@ -391,6 +397,7 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
+                local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
                 caret_position: self.text.len(),
@@ -425,6 +432,7 @@ mod tests {
     fn runtime() -> Runtime<Fixture> {
         Runtime::new(
             Fixture {
+                local_mode: "none".into(),
                 words: (0..12).map(|n| format!("candidate-{n}")).collect(),
                 text: String::new(),
                 snapshot_fails: false,
@@ -605,6 +613,24 @@ mod tests {
             .unwrap();
         assert!(result.handled && result.commit.is_none());
         assert_eq!(result.view.page, 2);
+    }
+
+    #[test]
+    fn engine_mode_is_authoritative_and_resets_old_highlight() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        runtime.engine.local_mode = "unicode".into();
+        let result = runtime
+            .dispatch(Action::Character {
+                value: b'0',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(result.view.local_mode, "unicode");
+        assert_eq!(result.view.page, 0);
+        assert!(!result.view.editing_text.starts_with('U'));
     }
 
     #[test]

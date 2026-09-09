@@ -58,6 +58,10 @@ enum MsimeCommand {
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
+/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic:
+ * none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin,
+ * temporary_english, temporary_japanese. Treat unknown as unusable state.
+ */
 char *msime_client_view(uint64_t session);
 char *msime_client_destroy(uint64_t session);
 /* value must be NULL or a still-owned pointer returned by this library. */
