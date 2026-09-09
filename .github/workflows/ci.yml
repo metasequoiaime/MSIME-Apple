@@ -62,4 +62,4 @@ jobs:
           "VCPKG_TARGET_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
       - if: runner.os == 'macOS'
         run: echo "CMAKE_PREFIX_PATH=$(brew --prefix)" >> "$GITHUB_ENV"
-      - run: cargo test -p msime-engine-bridge --locked
+      - run: cargo test -p msime-engine-bridge -p msime-input-runtime --locked

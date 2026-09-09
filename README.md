@@ -7,7 +7,7 @@
 ## 模块边界
 
 - `crates/client-core`：配置、账号、同步与资源业务，不依赖 Tauri、UI 或平台宿主。
-- 后续 `crates/input-runtime`：会话编排与候选展示模型；不复制 Engine 组词状态机。
+- `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - 后续 `crates/host-api`：原生宿主入口与明确的对象生命周期。
 - `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，已接入真实本地配置。

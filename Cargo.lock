@@ -1994,6 +1994,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-input-runtime"
+version = "0.1.0"
+dependencies = [
+ "msime-engine-bridge",
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "muda"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
