@@ -1,4 +1,5 @@
 #include "PipeIo.h"
+#include "PipePeer.h"
 #include "windows_ipc.h"
 #include <future>
 #include <iostream>
@@ -71,6 +72,25 @@ struct Pair {
 } // namespace
 int main() {
   try {
+    {
+      Pair main, reverse;
+      const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 7u;
+      DWORD error = ERROR_SUCCESS;
+      auto peer = PipePeer::bind(main.server.value, id, error);
+      require(peer && error == ERROR_SUCCESS);
+      require(peer->matches(main.server.value, id, error));
+      require(peer->matches(reverse.server.value, id, error));
+      require(!peer->matches(reverse.server.value, id + 1, error));
+      require(error == ERROR_ACCESS_DENIED);
+      require(
+          !PipePeer::bind(main.server.value, id ^ (uint64_t{1} << 32), error));
+      require(error == ERROR_ACCESS_DENIED);
+      require(!PipePeer::bind(main.server.value, 0, error));
+      require(!PipePeer::bind(main.client.value, id, error));
+      require(!PipePeer::bind(INVALID_HANDLE_VALUE, id, error));
+      require(DisconnectNamedPipe(main.server.value));
+      require(!peer->matches(main.server.value, id, error));
+    }
     for (auto size : {sizeof(FanyImePipeHello), sizeof(FanyImeNamedpipeData),
                       sizeof(FanyImeNamedpipeDataToTsfWorkerThread),
                       sizeof(FanyImeNamedpipeDataToTsf)}) {
@@ -125,7 +145,8 @@ int main() {
     }
     require(read_frame(INVALID_HANDLE_VALUE, 4, 100).status ==
             IoStatus::InvalidArgument);
-    std::cout << "Windows named-pipe framing, timeout, cancellation and "
+    std::cout << "Windows named-pipe peer binding, framing, timeout, "
+                 "cancellation and "
                  "disconnect tests passed\n";
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

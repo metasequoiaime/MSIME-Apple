@@ -175,3 +175,9 @@ ReplyComposer 为已认证的单次客户端激活保存旧协议尚未上屏的
 新增仅用于独占 overlapped 消息管道的工作线程读写层，校验固定帧长、拒绝短帧和超长帧；超时或取消后等待实际 I/O 结束才释放缓冲区，超时不是硬性返回时限。未成功完成的已提交写入标记 delivery_uncertain，不自动重发或确认 Engine 回复；失败后由后续路由层关闭连接，避免读取残余消息。此层不创建生产管道、不认证客户端、不注册 TSF。
 
 新增使用独立测试管道的 Windows 测试，覆盖上游协议结构体帧长、畸形消息、取消、超时和断连。Windows 可运行 `cmake -S platforms/windows -B target/windows-pipe -DMSIME_WINDOWS_PIPE_ONLY=ON`、`cmake --build target/windows-pipe --config Debug`、`ctest --test-dir target/windows-pipe -C Debug --output-on-failure`，无需先构建 Rust 宿主库。本机三项既有 CTest 和真实词库回归通过，x86/x64 测试 PE 交叉链接通过；新增管道测试未在 Windows 执行，不宣称运行验证通过。后续仍优先 Windows 的认证、路由复核、原生分发与 TSF 系统验收，再推进 macOS、iOS、Linux；CI 保持禁用。
+
+### 第二十七条功能：Windows 管道进程身份绑定
+
+新增 PipePeer：按系统返回的管道客户端进程与会话检查 client_id 高位，比较客户端与 Server 进程的账户 SID，查询失败明确拒绝。绑定后保留不可继承的进程句柄，主/反向端点复核使用完整 client_id、会话和原进程存活状态，不只比较可复用的 PID。它不替代生产 DACL、拒绝远程连接、版本握手、管道角色或焦点代次授权，调用方仍负责端点生命周期。
+
+独立 Windows 测试增加同进程主/反向端点绑定、错误完整 ID、伪造 PID、零 ID、错误方向句柄、无效句柄和断开端点拒绝。x86/x64 MinGW 交叉链接及 pipe-only CMake 构建通过，本机既有三项 CTest 通过；新增 Windows 测试、跨账户/会话、进程退出和提升权限宿主尚未实测，不宣称完整认证或 Windows 输入接入完成。继续 Windows 生产连接、协议握手与路由接入，CI 保持禁用。

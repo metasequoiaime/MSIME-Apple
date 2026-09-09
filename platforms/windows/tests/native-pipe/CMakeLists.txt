@@ -1,5 +1,6 @@
-add_library(msime-windows-pipe STATIC ../../PipeIo.cpp)
+add_library(msime-windows-pipe STATIC ../../PipeIo.cpp ../../PipePeer.cpp)
 target_include_directories(msime-windows-pipe PUBLIC ../..)
+target_link_libraries(msime-windows-pipe PUBLIC advapi32)
 add_executable(windows-pipe-io ../pipe_io.cpp)
 target_include_directories(windows-pipe-io PRIVATE ../../../../vendor/MSIME-Engine/contracts)
 target_link_libraries(windows-pipe-io PRIVATE msime-windows-pipe advapi32)
