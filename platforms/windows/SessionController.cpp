@@ -18,8 +18,10 @@ SessionController::SessionController(
       workers_(
           transport, input_, focus_, clients, std::move(key),
           [this](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
-            if (route.route)
+            if (route.route) {
               candidates_.event(*route.route, packet);
+              modes_.event(*route.route, packet);
+            }
             return event_(route, packet);
           },
           {[this](const FocusLease &lease, const PendingReply &reply,
@@ -30,6 +32,7 @@ SessionController::SessionController(
            },
            [this](const PipeTicket &ticket) {
              candidates_.disconnected(ticket);
+             modes_.disconnected(ticket);
              if (presentation_.disconnected)
                presentation_.disconnected(ticket);
            }},
@@ -132,6 +135,16 @@ std::optional<CandidatePresentation> SessionController::candidate_view() {
     return std::nullopt;
   return value;
 }
+std::optional<ModePresentation> SessionController::mode_view() {
+  if (input_.on_worker_thread() || active_controller == this)
+    throw std::logic_error("Mode read cannot reenter controller callbacks");
+  if (stopping_ || !input_.stats().accepting)
+    return std::nullopt;
+  auto value = modes_.snapshot(focus_, transport_);
+  if (stopping_ || !input_.stats().accepting)
+    return std::nullopt;
+  return value;
+}
 ModeRequestResult SessionController::request_mode(const FocusLease &lease,
                                                   WorkerMode mode) {
   if (input_.on_worker_thread() || active_controller == this)
@@ -167,6 +180,7 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
 void SessionController::request_stop() {
   stopping_ = true;
   candidates_.stop();
+  modes_.stop();
   inbox_.close();
 }
 void SessionController::stop() {

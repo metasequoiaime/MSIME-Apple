@@ -529,3 +529,9 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 使用官方 PowerShell 7.6.6 校验摘要后在 macOS 执行脚本测试，独立 C++ 探针替代 IME 二进制。覆盖默认及带词库参数的调度数量、含空格参数、空目录参数拒绝、缺少 EXE 预检、非零退出与超时；临时副本清理并恢复探针环境变量。超时杀进程后增加有界退出等待。CMake 在非交叉配置可用 PowerShell 时登记回归，交叉配置仅编译探针。
 
 十项本机 CTest、固定词库回归、Windows x64 交叉链接和导入检查通过。这补齐第八十四条缺少的脚本执行证据，但不等于 Windows PowerShell 5.1、Windows 中文路径、真实 IME 二进制或 TSF 验收。CI 保持禁用，继续 Windows 产品实施。
+
+### 第八十六条功能：独立宿主模式视图
+
+增加模式控件可消费的 ModePresentation/ModeMailbox，并通过 SessionController 和 WindowsServer 暴露 mode_view。状态与候选列表分离，空组合也能取得当前焦点；三种模式在未收到通知时保持 unknown。字段含义依据固定上游 StatusSnapshot：keycode 为中文、pinyin_length 为中文标点、modifiers_down 为全角。单项通知独立更新，新 lease 重置，停机和匹配断开清理。读取非等待并复核连接，命令发送成功不伪造状态确认。
+
+回归覆盖无候选时未知状态、完整快照、单项更新、英文通知、发送不改状态、新焦点重置和停机清空。验证包含十项本机 CTest、固定词库回归、Windows x64 交叉链接及导入检查。可见模式控件仍待接线，未执行 Windows/TSF 原生验收，CI 保持禁用。

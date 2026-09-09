@@ -348,6 +348,8 @@ void session_worker_tests(const std::string &options) {
     transport.push(packet);
     transport.wait_started(8);
     const auto disabled = controller.candidate_view();
+    const auto disabled_mode = controller.mode_view();
+    require(disabled_mode && disabled_mode->chinese == false);
     require(disabled && !disabled->visible && disabled->preedit.empty() &&
             disabled->candidates.empty());
     require(controller.request_selection(before->lease, candidate.session,
@@ -553,7 +555,8 @@ void session_worker_tests(const std::string &options) {
               rejected = true;
             }
             require(rejected); // No recursive focus lock from event callback.
-            activated.set_value(*route.route);
+            if (packet.request_id == 77)
+              activated.set_value(*route.route);
           }
           return true;
         },
@@ -572,6 +575,30 @@ void session_worker_tests(const std::string &options) {
             std::future_status::ready);
     const auto lease = activation.get();
     transport.wait_started(2); // Activation transaction has released its lock.
+    const auto initial_mode = controller.mode_view();
+    require(initial_mode && !initial_mode->chinese &&
+            !initial_mode->chinese_punctuation && !initial_mode->fullwidth &&
+            !controller.candidate_view());
+    packet.event_type = FanyImePipeEventType::StatusSnapshot;
+    packet.keycode = 1;
+    packet.modifiers_down = 1;
+    packet.pinyin_length = 1;
+    transport.push(packet);
+    transport.wait_started(3);
+    const auto known_mode = controller.mode_view();
+    require(known_mode && known_mode->chinese == true &&
+            known_mode->chinese_punctuation == true &&
+            known_mode->fullwidth == true);
+    packet.event_type = FanyImePipeEventType::PuncSwitch;
+    packet.keycode = 0;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::DoubleSingleByteSwitch;
+    transport.push(packet);
+    transport.wait_started(5);
+    const auto changed_mode = controller.mode_view();
+    require(changed_mode && changed_mode->chinese == true &&
+            changed_mode->chinese_punctuation == false &&
+            changed_mode->fullwidth == false);
     auto stale = lease;
     ++stale.epoch;
     require(controller.request_mode(stale, WorkerMode::Fullwidth) ==
@@ -596,6 +623,19 @@ void session_worker_tests(const std::string &options) {
                 writes.back().second == *worker_mode_bytes(command));
       }
       require(transport.writes().size() == 7);
+      require(controller.mode_view()->chinese == true &&
+              controller.mode_view()->fullwidth == false);
+      packet.event_type = FanyImePipeEventType::ClientActivated;
+      packet.request_id = 78;
+      packet.keycode = 0;
+      transport.push(packet);
+      transport.wait_started(6);
+      const auto next_mode = controller.mode_view();
+      require(next_mode && next_mode->lease.epoch != lease.epoch &&
+              !next_mode->chinese && !next_mode->chinese_punctuation &&
+              !next_mode->fullwidth);
+      require(controller.request_mode(lease, WorkerMode::Chinese) ==
+              ModeRequestResult::Rejected);
     } else {
       require(controller.request_mode(lease, WorkerMode::Fullwidth) ==
               ModeRequestResult::WriteFailed);
@@ -608,6 +648,7 @@ void session_worker_tests(const std::string &options) {
     controller.stop();
     require(controller.request_mode(lease, WorkerMode::Chinese) ==
             ModeRequestResult::Rejected);
+    require(!controller.mode_view());
   }
   for (int mode = 0; mode < 3; ++mode) {
     IdleTransport supervised;

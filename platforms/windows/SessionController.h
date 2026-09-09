@@ -1,4 +1,5 @@
 #pragma once
+#include "ModeMailbox.h"
 #include "CandidateMailbox.h"
 #include "PreferenceMonitor.h"
 #include "RegistrationInbox.h"
@@ -43,6 +44,7 @@ public:
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
+  std::optional<ModePresentation> mode_view();
   // External I/O thread only, never a window/input callback. Busy is a dropped
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
   SelectionRequestResult request_selection(const FocusLease &lease,
@@ -62,6 +64,7 @@ private:
   std::chrono::milliseconds interval_;
   FocusGate focus_;
   CandidateMailbox candidates_;
+  ModeMailbox modes_;
   std::shared_ptr<std::mutex> transactions_ = std::make_shared<std::mutex>();
   SessionPump::Presentation presentation_;
   SessionPump::EventHandler event_;
