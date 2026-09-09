@@ -27,6 +27,7 @@ public:
   PipeIntake(const PipeIntake &) = delete;
   PipeIntake &operator=(const PipeIntake &) = delete;
   bool submit(std::unique_ptr<PipeConnection> connection, uint32_t role);
+  void request_stop(); // Thread-safe cancellation, without joining workers.
   void
   stop(); // Control thread only; cancels handshakes, discards queue, joins.
   IntakeStats stats() const;
