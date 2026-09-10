@@ -23,6 +23,14 @@ mod ffi {
         pub english_minimum_prefix: u8,
         pub mixed_emoji: bool,
         pub mixed_kaomoji: bool,
+        pub local_unicode: bool,
+        pub local_date_time: bool,
+        pub local_quick_phrase: bool,
+        pub local_emoji: bool,
+        pub local_kaomoji: bool,
+        pub local_super_jianpin: bool,
+        pub local_temporary_english: bool,
+        pub local_temporary_japanese: bool,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
@@ -175,6 +183,14 @@ mod tests {
             english_minimum_prefix: 2,
             mixed_emoji: false,
             mixed_kaomoji: false,
+            local_unicode: true,
+            local_date_time: true,
+            local_quick_phrase: true,
+            local_emoji: true,
+            local_kaomoji: true,
+            local_super_jianpin: true,
+            local_temporary_english: true,
+            local_temporary_japanese: true,
         }
     }
     #[test]

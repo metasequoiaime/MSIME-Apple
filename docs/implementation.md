@@ -639,3 +639,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 按同一 Windows 固定提交的 input.html/input.ts/config.toml，新增三个独立混输开关及中英混输触发字符数 1–8。默认英文开启、阈值 2、emoji 和颜文字关闭，遵循实际配置而非 HTML 占位开关。英文关闭时阈值不可编辑但保留；旧配置缺省读取不重写，非法阈值拒绝覆盖。创建会话和组合结束后的设置更新通过 CXX 传至 Engine 的 EnglishInputOptions/MixedExpressiveOptions，平台不实现混排算法。
 
 37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。
+
+### Windows 实用功能本地模式开关
+
+在独立 worktree 按同一 Windows 固定提交的 tools-settings.html/config.toml 新增实用功能分类和 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启，来源图标许可记于 UI UPSTREAM。设置经共享配置与 CXX 传至 Engine LocalModeOptions；活动组合中不立即切换，结束后重建生效。旧配置缺省读取不重写，各开关独立保存，算法和入口判断继续由 Engine 负责。
+
+39 项 Rust 测试、17 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉构建及导入检查通过。真实固定词库回归覆盖八种模式开启进入、关闭不进入、相邻模式仍可进入；宿主测试覆盖组合期间延迟关闭。仅完成模式配置与入口控制，不代表快捷短语增删改查/导入导出、剪贴板管理或整页视觉复刻完成；未执行 Windows 原生 TSF/安装/逐像素验收，CI 保持禁用。
