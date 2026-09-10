@@ -94,7 +94,7 @@
     actions.axis = UILayoutConstraintAxisHorizontal;
     actions.distribution = UIStackViewDistributionFillEqually;
     actions.spacing = 4;
-    for (NSString *title in @[@"⇧", @"空格", @"⌫", @"回车"]) {
+    for (NSString *title in @[@"⇧", @"空格", @"⌫", @"删除", @"回车"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
@@ -125,6 +125,7 @@
         button.accessibilityValue = self.shiftEnabled ? @"开启" : @"关闭";
     } else if ([button.currentTitle isEqualToString:@"空格"]) [self apply:[self.session command:MSIME_COMMIT_CANDIDATE error:nil]];
     else if ([button.currentTitle isEqualToString:@"⌫"]) [self deleteBackward];
+    else if ([button.currentTitle isEqualToString:@"删除"]) [self apply:[self.session command:MSIME_DELETE_FORWARD error:nil]];
     else [self apply:[self.session command:MSIME_COMMIT_RAW error:nil]];
 }
 
