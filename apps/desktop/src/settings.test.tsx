@@ -144,6 +144,13 @@ test("about page shows project information and links", async () => {
   expect(screen.getByRole("link", { name: "开源项目" }).getAttribute("href")).toBe("https://github.com/metasequoiaime/MSIME-Client");
 });
 
+test("feedback page provides issue and community links", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  expect(await screen.findByText("GitHub Issues")).toBeDefined();
+  expect(screen.getByRole("link", { name: "查看 Issues ↗" }).getAttribute("href")).toContain("MSIME-Windows/issues");
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
