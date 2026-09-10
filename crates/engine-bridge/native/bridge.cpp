@@ -114,6 +114,41 @@ EngineSnapshot EngineSession::snapshot() const {
     }
     return output;
 }
+OnlineQuerySnapshot EngineSession::online_query() const {
+    OnlineQuerySnapshot output;
+    const auto query = session_.online_query();
+    if (!query.has_value()) return output;
+    output.available = true;
+    output.scheme = static_cast<std::uint8_t>(query->scheme);
+    output.generation = query->generation;
+    output.identity = query->identity;
+    output.query_text = query->query_text;
+    output.cache_key = query->cache_key;
+    for (const auto& segment : query->pinyin_segments)
+        output.pinyin_segments.push_back(rust::String(segment));
+    output.cloud_eligible = query->cloud_eligible;
+    output.ai_eligible = query->ai_eligible;
+    output.session_id = query->session_id;
+    return output;
+}
+bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
+                                           rust::Str candidate, std::uint8_t source) {
+    if (!query.available || (source != 0 && source != 1)) return false;
+    metasequoia::OnlineQuery request;
+    request.scheme = static_cast<SchemeType>(query.scheme);
+    request.generation = query.generation;
+    request.identity = std::string(query.identity);
+    request.query_text = std::string(query.query_text);
+    request.cache_key = std::string(query.cache_key);
+    for (const auto& segment : query.pinyin_segments)
+        request.pinyin_segments.emplace_back(std::string(segment));
+    request.cloud_eligible = query.cloud_eligible;
+    request.ai_eligible = query.ai_eligible;
+    request.session_id = query.session_id;
+    const auto kind = source == 0 ? CandidateSource::CloudSuggestion
+                                  : CandidateSource::AiSuggestion;
+    return session_.apply_online_candidate(request, std::string(candidate), kind);
+}
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
     return result_for(session_.character(static_cast<char>(value), shift));
