@@ -97,6 +97,16 @@ test("theme settings use custom dropdowns and persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, theme: "light" });
 });
 
+test("inline preedit style uses the custom dropdown and persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "行内预编辑" }));
+  fireEvent.click(screen.getAllByRole("option", { name: "拼音分词" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, tsf_preedit_style: "pinyin" });
+});
+
 
 test("utility mode switches preserve defaults and drafts across pages", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
