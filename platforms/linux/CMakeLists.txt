@@ -24,8 +24,11 @@ add_executable(msime-client-dictionary dictionary_request.cpp)
 target_compile_options(msime-client-dictionary PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-client-dictionary PRIVATE ../../crates/host-api/include)
 target_link_libraries(msime-client-dictionary PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+add_executable(msime-client-clipboard clipboard_history.cpp)
+target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-clipboard PRIVATE nlohmann_json::nlohmann_json)
 configure_file(msime-client-preview.xml.in msime-client-preview.xml @ONLY)
-install(TARGETS msime-client-ibus msime-client-dictionary
+install(TARGETS msime-client-ibus msime-client-dictionary msime-client-clipboard
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
