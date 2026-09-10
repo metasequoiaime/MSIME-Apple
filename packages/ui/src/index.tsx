@@ -29,6 +29,7 @@ export type Preferences = {
   candidate_page_size: number;
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
+  candidate_text_color?: string | null;
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -74,6 +75,7 @@ function message(error: unknown): string {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
       case "candidate_font_size_invalid": return "候选窗字号必须为 12 到 32。";
+      case "candidate_text_color_invalid": return "候选文字颜色格式无效。";
       case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
       case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
@@ -205,6 +207,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select value={draft.candidate_preedit_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选文字颜色<small>留空时跟随系统主题</small></span><span><input aria-label="候选文字颜色" type="color" value={draft.candidate_text_color ?? "#ffffff"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} /> <button type="button" className="secondary" onClick={() => setDraft({ ...draft, candidate_text_color: null })}>跟随主题</button></span></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>

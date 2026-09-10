@@ -46,6 +46,8 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_preedit_font_size: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_text_color: Option<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -226,6 +228,7 @@ impl Default for Preferences {
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_font_size(),
+            candidate_text_color: None,
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -321,6 +324,12 @@ impl Preferences {
         if !(12..=32).contains(&self.candidate_preedit_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
+        if let Some(color) = &self.candidate_text_color {
+            if color.len() != 7 || color.as_bytes()[0] != b'#' ||
+                !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(PreferencesError::InvalidCandidateTextColor);
+            }
+        }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
             WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
@@ -356,6 +365,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
+    #[error("candidate text color must be #RRGGBB or omitted")]
+    InvalidCandidateTextColor,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
