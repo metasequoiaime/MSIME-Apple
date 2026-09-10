@@ -55,6 +55,10 @@ public:
     check_thread();
     return navigation_;
   }
+  WordCharacterBinding word_character_binding() const {
+    check_thread();
+    return word_character_;
+  }
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -76,6 +80,7 @@ private:
   FocusRouter router_;
   std::string options_;
   NavigationBindings navigation_;
+  WordCharacterBinding word_character_ = WordCharacterBinding::Disabled;
   std::optional<PreferenceSnapshot> preferences_;
   std::unordered_map<uint64_t, Client> clients_;
 };

@@ -30,6 +30,9 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .radio-option { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .check-option { display: flex; align-items: center; gap: 8px; padding: 8px 4px; font-size: 14px; }
 .check-option input { width: 18px; height: 18px; accent-color: #8e8cd8; flex-shrink: 0; }
+.word-to-character-keys-row { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--divider-color); }
+.word-to-character-keys-row .radio-option { padding: 8px 4px; }
+.word-to-character-keys-row .radio-option:has(input:disabled) { opacity: .45; cursor: not-allowed; }
 .radio-option input[type="radio"] { appearance: none; width: 20px; height: 20px; flex: 0 0 20px; border: 2px solid #616161; border-radius: 50%; position: relative; }
 .radio-option input[type="radio"]:checked { border-color: #8e8cd8; }
 .radio-option input[type="radio"]:checked::after { content: ""; position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: #8e8cd8; border-radius: 50%; transform: translate(-50%, -50%); }

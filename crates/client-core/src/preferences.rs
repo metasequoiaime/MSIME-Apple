@@ -44,6 +44,23 @@ pub struct Preferences {
     pub chinese_punctuation: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
+    #[serde(default)]
+    pub word_character: WordCharacterPreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WordCharacterKeys {
+    #[default]
+    Brackets,
+    MinusEqual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct WordCharacterPreferences {
+    pub enabled: bool,
+    pub keys: WordCharacterKeys,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +104,7 @@ impl Default for Preferences {
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
             navigation: NavigationPreferences::default(),
+            word_character: WordCharacterPreferences::default(),
         }
     }
 }
@@ -157,6 +175,13 @@ impl Preferences {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        let paging = match self.word_character.keys {
+            WordCharacterKeys::Brackets => self.navigation.brackets,
+            WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
+        };
+        if self.word_character.enabled && paging {
+            return Err(PreferencesError::ConflictingKeyBindings);
+        }
         Ok(())
     }
 }
@@ -183,6 +208,8 @@ impl Default for PreferencesSnapshot {
 pub enum PreferencesError {
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
+    #[error("word-to-character and paging cannot use the same keys")]
+    ConflictingKeyBindings,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -299,6 +326,49 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_character_legacy_roundtrip_and_conflict_protection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("word_character");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.word_character,
+            WordCharacterPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        for (revision, keys) in [WordCharacterKeys::Brackets, WordCharacterKeys::MinusEqual]
+            .into_iter()
+            .enumerate()
+        {
+            let mut preferences = Preferences {
+                word_character: WordCharacterPreferences {
+                    enabled: true,
+                    keys,
+                },
+                ..Preferences::default()
+            };
+            preferences.navigation.brackets = false;
+            preferences.navigation.minus_equal = false;
+            let saved = store.save(revision as u64, preferences.clone()).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+            match keys {
+                WordCharacterKeys::Brackets => preferences.navigation.brackets = true,
+                WordCharacterKeys::MinusEqual => preferences.navigation.minus_equal = true,
+            }
+            assert!(matches!(
+                store.save(saved.revision, preferences),
+                Err(PreferencesError::ConflictingKeyBindings)
+            ));
+            assert_eq!(store.load().unwrap(), saved);
+        }
+    }
 
     #[test]
     fn navigation_defaults_and_independent_flags_roundtrip() {

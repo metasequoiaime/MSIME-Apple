@@ -266,7 +266,7 @@ key_bindings 可选对象示例：
 {"minus_equal":false,"comma_period":true,"brackets":false,"tab":false,"page_up_down":true,"arrows":true,"word_character":"brackets"}
 ```
 
-对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。显式对象覆盖共享设置，修改启动文件需重启。未提供对象时改为使用共享 preferences.json 的 navigation，并通过现有监听器动态发布；旧设置缺省采用 Windows 默认值（除方括号外全部开启），以词定字仍关闭。绑定在输入队列更新，不读盘、不解析每次按键；它独立于延迟中的 Engine 方案。以词定字优先于同键翻页，Microsoft 分号及 Unicode 编辑优先级不变。此预览配置不替代 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
+对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。显式对象覆盖共享设置，修改启动文件需重启。未提供对象时使用共享 preferences.json 的 navigation 和 word_character，并通过现有监听器动态发布；旧设置缺省采用 Windows 默认值（除方括号外全部开启，以词定字关闭、键组为方括号）。共享设置禁止以词定字与同键翻页同时开启；UI 切换会同时关闭冲突项。绑定在输入队列更新，不读盘、不解析每次按键；它独立于延迟中的 Engine 方案。显式启动配置仍按以词定字优先处理同键绑定，Microsoft 分号及 Unicode 编辑优先级不变。此预览配置不替代 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
 
 这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 

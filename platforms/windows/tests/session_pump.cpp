@@ -297,81 +297,111 @@ void session_pump_tests(const std::string &options) {
     for (bool last : {false, true}) {
       for (bool han : {false, true}) {
         for (bool uiless : {false, true}) {
-          FocusGate gate;
-          InputQueue queue(gate, 2, 8, options);
-          FixtureTransport transport;
-          if (!han) {
-            // U3041 is non-Han and avoids an embedded NUL in intermediate
-            // pages.
-            const std::string code = "3041";
-            for (size_t i = 0; i < code.size(); ++i) {
-              transport.packets[i + 2].keycode = code[i];
-              transport.packets[i + 2].wch = code[i];
+          for (bool shared : {false, true}) {
+            FocusGate gate;
+            InputQueue queue(gate, 2, 8, options);
+            FixtureTransport transport;
+            if (!han) {
+              // U3041 is non-Han and avoids an embedded NUL in intermediate
+              // pages.
+              const std::string code = "3041";
+              for (size_t i = 0; i < code.size(); ++i) {
+                transport.packets[i + 2].keycode = code[i];
+                transport.packets[i + 2].wch = code[i];
+              }
             }
-          }
-          auto &tail = transport.packets.back();
-          tail.keycode = minus ? (last ? 0xBB : 0xBD) : (last ? 0xDD : 0xDB);
-          tail.wch = minus ? (last ? '=' : '-') : (last ? ']' : '[');
-          if (uiless)
-            for (size_t i = 1; i < transport.packets.size(); ++i)
-              transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
-          const auto host = nlohmann::json::parse(options);
-          const nlohmann::json launch{
-              {"format_version", 1},
-              {"resources", host.at("resources")},
-              {"state_root", host.at("user_data")},
-              {"pipe_namespace", "binding-fixture"},
-              {"preedit_style", "pinyin"},
-              {"key_bindings",
-               {{"minus_equal", true},
-                {"brackets", true},
-                {"comma_period", false},
-                {"tab", false},
-                {"page_up_down", false},
-                {"arrows", false},
-                {"word_character", minus ? "minus_equal" : "brackets"}}}};
-          auto config = PreviewConfig::parse(launch.dump());
-          const auto handler = preview_key_handler(config);
-          config.word_character = WordCharacterBinding::Disabled;
-          config.navigation = {}; // Already-created handler owns its snapshot.
-          size_t keys = 0;
-          std::exception_ptr failure;
-          SessionPump pump(
-              transport, queue, gate,
-              [&](InputState &state, const FocusLease &lease,
-                  const FanyImeNamedpipeData &packet) {
-                try {
-                  auto result = handler(state, lease, packet);
-                  if (!result || !result->encoded ||
-                      !static_cast<bool>(*result->encoded))
-                    throw std::runtime_error(
-                        "Word fixture failed: key=" + std::to_string(keys) +
-                        " han=" + std::to_string(han) +
-                        " uiless=" + std::to_string(uiless));
-                  if (++keys == 6) {
-                    require(result->source.transition.at("commit") ==
-                            (han ? "中" : "ぁ"));
-                    require(result->source.transition.at("view").at(
-                                "editing_text") == "");
-                    require(result->encoded->packet.msg_type ==
-                            (han ? FanyImeReplyType::CommitExactText
-                                 : FanyImeReplyType::Normal));
+            auto &tail = transport.packets.back();
+            tail.keycode = minus ? (last ? 0xBB : 0xBD) : (last ? 0xDD : 0xDB);
+            tail.wch = minus ? (last ? '=' : '-') : (last ? ']' : '[');
+            if (uiless)
+              for (size_t i = 1; i < transport.packets.size(); ++i)
+                transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
+            const auto host = nlohmann::json::parse(options);
+            nlohmann::json launch{
+                {"format_version", 1},
+                {"resources", host.at("resources")},
+                {"state_root", host.at("user_data")},
+                {"pipe_namespace", "binding-fixture"},
+                {"preedit_style", "pinyin"},
+                {"key_bindings",
+                 {{"minus_equal", true},
+                  {"brackets", true},
+                  {"comma_period", false},
+                  {"tab", false},
+                  {"page_up_down", false},
+                  {"arrows", false},
+                  {"word_character", minus ? "minus_equal" : "brackets"}}}};
+            std::optional<PreferenceSnapshot> publication;
+            if (shared) {
+              launch.erase("key_bindings");
+              auto preferences = host.at("preferences");
+              preferences["word_character"] = {
+                  {"enabled", true},
+                  {"keys", minus ? "minus_equal" : "brackets"}};
+              preferences["navigation"] = {
+                  {"minus_equal", false}, {"comma_period", true},
+                  {"brackets", false},    {"tab", true},
+                  {"page_up_down", true}, {"arrows", true}};
+              const auto directory =
+                  std::filesystem::u8path(
+                      host.at("user_data").get<std::string>()) /
+                  "word-publication";
+              std::filesystem::create_directories(directory);
+              std::ofstream file(directory / "preferences.json");
+              file << nlohmann::json{{"format_version", 1},
+                                     {"revision", 1},
+                                     {"preferences", preferences}}
+                          .dump();
+              file.close();
+              require(static_cast<bool>(file));
+              publication = PreferenceSnapshot::load(directory.u8string());
+            }
+            auto config = PreviewConfig::parse(launch.dump());
+            const auto handler = preview_key_handler(config);
+            config.word_character = WordCharacterBinding::Disabled;
+            config
+                .navigation = {}; // Already-created handler owns its snapshot.
+            size_t keys = 0;
+            std::exception_ptr failure;
+            SessionPump pump(
+                transport, queue, gate,
+                [&](InputState &state, const FocusLease &lease,
+                    const FanyImeNamedpipeData &packet) {
+                  try {
+                    if (keys == 5 && publication)
+                      state.publish_preferences(*publication);
+                    auto result = handler(state, lease, packet);
+                    if (!result || !result->encoded ||
+                        !static_cast<bool>(*result->encoded))
+                      throw std::runtime_error(
+                          "Word fixture failed: key=" + std::to_string(keys) +
+                          " han=" + std::to_string(han) +
+                          " uiless=" + std::to_string(uiless));
+                    if (++keys == 6) {
+                      require(result->source.transition.at("commit") ==
+                              (han ? "中" : "ぁ"));
+                      require(result->source.transition.at("view").at(
+                                  "editing_text") == "");
+                      require(result->encoded->packet.msg_type ==
+                              (han ? FanyImeReplyType::CommitExactText
+                                   : FanyImeReplyType::Normal));
+                    }
+                    return result;
+                  } catch (...) {
+                    failure = std::current_exception();
+                    throw;
                   }
-                  return result;
-                } catch (...) {
-                  failure = std::current_exception();
-                  throw;
-                }
-              },
-              [](const FocusRoute &, const FanyImeNamedpipeData &) {
-                return true;
-              });
-          const auto completed = pump.run(transport.ticket);
-          if (failure)
-            std::rethrow_exception(failure);
-          require(completed == PumpResult::Disconnected && keys == 6 &&
-                  transport.writes.size() == 13);
-          queue.stop();
+                },
+                [](const FocusRoute &, const FanyImeNamedpipeData &) {
+                  return true;
+                });
+            const auto completed = pump.run(transport.ticket);
+            if (failure)
+              std::rethrow_exception(failure);
+            require(completed == PumpResult::Disconnected && keys == 6 &&
+                    transport.writes.size() == 13);
+            queue.stop();
+          }
         }
       }
     }

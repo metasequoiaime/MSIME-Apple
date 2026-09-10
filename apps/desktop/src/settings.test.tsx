@@ -5,6 +5,29 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const word = await screen.findByRole("checkbox", { name: /以词定字/ }) as HTMLInputElement;
+  const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
+  expect(word.checked).toBe(false);
+  expect(minus.disabled).toBe(true);
+  fireEvent.click(word);
+  fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
+  expect(word.checked).toBe(false);
+  fireEvent.click(word);
+  expect((screen.getByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("checkbox", { name: "- / =" }));
+  expect(minus.disabled).toBe(false);
+  fireEvent.click(minus);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+    word_character: { enabled: true, keys: "minus_equal" },
+    navigation: { minus_equal: false, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true } });
+});
+
 test("paging defaults match Windows and individual edits persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

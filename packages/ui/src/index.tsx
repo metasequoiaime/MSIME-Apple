@@ -12,6 +12,7 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
@@ -26,6 +27,7 @@ export type Preferences = {
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
+const defaultWordCharacter = { enabled: false, keys: "brackets" as const };
 const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equal", "- / ="], ["comma_period", ", / ."], ["brackets", "[ / ]"], ["tab", "Shift+Tab / Tab"], ["page_up_down", "PageUp / PageDown"], ["arrows", "上 / 下（移动候选项）"]];
 export interface SettingsClient {
   load(): Promise<Snapshot>;
@@ -38,6 +40,7 @@ function message(error: unknown): string {
     switch (error.code) {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
+      case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
       case "format": return "配置文件无法读取或版本较新，原文件已保留。";
     }
   }
@@ -81,6 +84,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
+  const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -134,8 +138,25 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="section-title" id="paging-title">翻页方式</div>
           <div className="input-option-content">{navigationOptions.map(([key, label], index) => <div className="input-option-item" key={key}>
             {index > 0 && <div className="input-option-divider" />}
-            <label className="check-option"><input type="checkbox" checked={(draft.navigation ?? defaultNavigation)[key]} onChange={event => setDraft({ ...draft, navigation: { ...(draft.navigation ?? defaultNavigation), [key]: event.target.checked } })} /><span>{label}</span></label>
+            <label className="check-option"><input type="checkbox" checked={(draft.navigation ?? defaultNavigation)[key]} onChange={event => setDraft({ ...draft,
+              ...(event.target.checked && wordCharacter.enabled && wordCharacter.keys === key ? { word_character: { ...wordCharacter, enabled: false } } : {}),
+              navigation: { ...(draft.navigation ?? defaultNavigation), [key]: event.target.checked } })} /><span>{label}</span></label>
           </div>)}</div>
+        </div>
+        <div className="section">
+          <label className="section-header"><span className="section-title">以词定字<small>开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字</small></span>
+            <input className="toggle" type="checkbox" checked={wordCharacter.enabled} onChange={event => setDraft({ ...draft,
+              word_character: { ...wordCharacter, enabled: event.target.checked },
+              ...(event.target.checked ? { navigation: { ...(draft.navigation ?? defaultNavigation), [wordCharacter.keys]: false } } : {}) })} />
+          </label>
+          <div className="word-to-character-keys-row"><div className="section-title" id="word-character-title">以词定字快捷键</div>
+            <div className="input-option-content" role="radiogroup" aria-labelledby="word-character-title">
+              {([["brackets", "[ / ]"], ["minus_equal", "- / ="]] as const).map(([keys, label], index) => <div className="input-option-item" key={keys}>
+                {index > 0 && <div className="input-option-divider" />}<label className="radio-option">
+                <input type="radio" name="word-character-keys" checked={wordCharacter.keys === keys} disabled={(draft.navigation ?? defaultNavigation)[keys]} onChange={() => setDraft({ ...draft, word_character: { ...wordCharacter, keys } })} /><span>{label}</span>
+              </label></div>)}
+            </div>
+          </div>
         </div>
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
