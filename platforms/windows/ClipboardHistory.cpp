@@ -33,6 +33,7 @@ std::vector<std::string> ClipboardHistory::load() const {
   } catch (...) { return {}; }
 }
 bool ClipboardHistory::add(std::string text) {
+  if (!enabled_) return false;
   text = normalize_clipboard_text(std::move(text));
   if (text.empty()) return false;
   auto items = load();
