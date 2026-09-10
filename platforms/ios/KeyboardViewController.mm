@@ -144,8 +144,8 @@
             UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
             [button setTitle:text forState:UIControlStateNormal];
             NSDictionary *binding = @{
-                @"generation": candidate[@"generation"] ?: @0,
-                @"index": candidate[@"index"] ?: @(index),
+                @"generation": candidate[@"id"][@"generation"] ?: @0,
+                @"index": candidate[@"id"][@"index"] ?: @(index),
             };
             [self.candidateBindings setObject:binding forKey:button];
             [button addTarget:self action:@selector(candidatePressed:) forControlEvents:UIControlEventTouchUpInside];
