@@ -330,6 +330,10 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "M",
             "Shift+M did not enter kaomoji mode");
     require(key(IBUS_Escape), "Kaomoji mode could not be canceled");
+    require(key('j', IBUS_SHIFT_MASK), "Shift+J super-jianpin mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "J",
+            "Shift+J did not enter super-jianpin mode");
+    require(key(IBUS_Escape), "Super-jianpin mode could not be canceled");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
