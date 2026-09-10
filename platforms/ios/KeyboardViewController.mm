@@ -108,7 +108,7 @@
     actions.axis = UILayoutConstraintAxisHorizontal;
     actions.distribution = UIStackViewDistributionFillProportionally;
     actions.spacing = 6;
-    for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"上词", @"下词", @"上页", @"下页", @"空格", @"⌫", @"删除", @"取消", @"回车"]) {
+    for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"上词", @"下词", @"上页", @"下页", @"空格", @"⌫", @"删除", @"取消", @"回车", @"切换"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
@@ -161,6 +161,7 @@
     else if ([button.currentTitle isEqualToString:@"⌫"]) [self deleteBackward];
     else if ([button.currentTitle isEqualToString:@"删除"]) [self apply:[self.session command:MSIME_DELETE_FORWARD error:nil]];
     else if ([button.currentTitle isEqualToString:@"取消"]) [self apply:[self.session command:MSIME_CANCEL error:nil]];
+    else if ([button.currentTitle isEqualToString:@"切换"]) [self advanceToNextInputMode];
     else [self apply:[self.session command:MSIME_COMMIT_RAW error:nil]];
 }
 
