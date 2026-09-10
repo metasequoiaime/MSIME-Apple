@@ -107,6 +107,18 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("↑ / ↓")).toBeDefined();
 });
 
+test("dictionary page exposes the quick phrase manager", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: { list: vi.fn().mockResolvedValue({ entries: [], has_more: false }), edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  expect(await screen.findByRole("region", { name: "快捷短语管理" })).toBeDefined();
+  expect(screen.getByText("查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语")).toBeDefined();
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
