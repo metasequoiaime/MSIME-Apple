@@ -42,6 +42,8 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
     pub candidate_page_size: u8,
+    #[serde(default = "default_candidate_font_size")]
+    pub candidate_font_size: u8,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -207,6 +209,7 @@ impl Default for NavigationPreferences {
 fn enabled_by_default() -> bool {
     true
 }
+fn default_candidate_font_size() -> u8 { 16 }
 
 impl Default for Preferences {
     fn default() -> Self {
@@ -219,6 +222,7 @@ impl Default for Preferences {
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
+            candidate_font_size: default_candidate_font_size(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -308,6 +312,9 @@ impl Preferences {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !(12..=32).contains(&self.candidate_font_size) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
             WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
@@ -341,6 +348,8 @@ impl Default for PreferencesSnapshot {
 pub enum PreferencesError {
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
+    #[error("candidate font size must be between 12 and 32")]
+    InvalidCandidateFontSize,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]

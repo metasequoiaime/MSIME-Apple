@@ -27,6 +27,7 @@ export type Preferences = {
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
+  candidate_font_size?: number;
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -71,6 +72,7 @@ function message(error: unknown): string {
     switch (error.code) {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
+      case "candidate_font_size_invalid": return "候选窗字号必须为 12 到 32。";
       case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
       case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
@@ -200,6 +202,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="candidate-preview-card"><span className="candidate-preview-preedit">ni'hao</span><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
           <div className="candidate-preview-card candidate-preview-horizontal"><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
         </div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
