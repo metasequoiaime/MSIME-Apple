@@ -31,6 +31,7 @@ struct State {
   bool blocked = false;
   bool private_input = false;
   bool input_enabled = true;
+  std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
@@ -52,6 +53,8 @@ struct State {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
+    if (scheme_override)
+      options["preferences"]["scheme"] = *scheme_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -131,6 +134,9 @@ State &state(IBusEngine *engine) {
 }
 void publish_mode(IBusEngine *engine, bool registration = false) {
   const auto &s = state(engine);
+  const bool japanese_scheme = s.scheme_override
+                                   ? *s.scheme_override == "japanese"
+                                   : configured.at("preferences").value("scheme", "") == "japanese";
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -147,14 +153,35 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto scheme = ibus_property_new(
+      "Scheme", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("输入方案"), "",
+      ibus_text_new_from_static_string("当前焦点会话的中文或日文方案"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto scheme_menu = ibus_prop_list_new();
+  auto chinese = ibus_property_new(
+      "Scheme/Chinese", PROP_TYPE_RADIO,
+      ibus_text_new_from_static_string("中文"), "",
+      ibus_text_new_from_static_string("使用当前中文方案"), TRUE, TRUE,
+      japanese_scheme ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr);
+  auto japanese = ibus_property_new(
+      "Scheme/Japanese", PROP_TYPE_RADIO,
+      ibus_text_new_from_static_string("日文"), "",
+      ibus_text_new_from_static_string("使用日语罗马字方案"), TRUE, TRUE,
+      japanese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(scheme_menu, chinese);
+  ibus_prop_list_append(scheme_menu, japanese);
+  ibus_property_set_sub_props(scheme, scheme_menu);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
+    ibus_prop_list_append(properties, scheme);
     ibus_engine_register_properties(engine, properties);
   } else {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, scheme);
   }
 }
 void clear(IBusEngine *engine) {
@@ -278,11 +305,35 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
   if (!name ||
       (std::string(name) != "InputMode" &&
-       std::string(name) != "Punctuation") ||
+       std::string(name) != "Punctuation" &&
+       std::string(name) != "Scheme/Chinese" &&
+       std::string(name) != "Scheme/Japanese") ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name).rfind("Scheme/", 0) == 0) {
+      const bool japanese = std::string(name) == "Scheme/Japanese";
+      if ((s.scheme_override && *s.scheme_override == "japanese") == japanese)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      if (japanese) {
+        s.scheme_override = "japanese";
+      } else {
+        auto chinese = configured.at("preferences").value(
+            "last_chinese_scheme", std::string("quanpin"));
+        if (chinese != "quanpin" && chinese != "shuangpin" && chinese != "wubi")
+          chinese = "quanpin";
+        s.scheme_override = chinese;
+      }
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     const bool enabled = value == PROP_STATE_CHECKED;
     if (std::string(name) == "Punctuation") {
       if (!s.input_enabled || !s.session)
