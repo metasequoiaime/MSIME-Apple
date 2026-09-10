@@ -507,6 +507,44 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 mod tests {
     use super::*;
     #[test]
+    fn japanese_mode_switch_defers_and_restores_chinese_profile() {
+        use msime_client_core::preferences::ChineseScheme;
+        let dir = tempfile::tempdir().unwrap();
+        let chinese = Preferences {
+            scheme: InputScheme::Shuangpin,
+            shuangpin_profile: ShuangpinProfile::Microsoft,
+            last_chinese_scheme: Some(ChineseScheme::Shuangpin),
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), chinese.clone());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'b', false));
+        read(msime_client_character(handle, b';', false));
+        let japanese = Preferences {
+            scheme: InputScheme::Japanese,
+            ..chinese.clone()
+        };
+        assert_eq!(update(handle, 1, &japanese)["value"]["deferred"], true);
+        assert_eq!(
+            read(msime_client_command(handle, 2))["value"]["commit"],
+            "b;"
+        );
+        let kana = read(msime_client_character(handle, b'a', false));
+        assert_eq!(kana["ok"], true);
+        assert_eq!(kana["value"]["view"]["preedit"], "a");
+        assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
+        assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
+        assert_eq!(update(handle, 2, &chinese)["value"]["deferred"], true);
+        read(msime_client_command(handle, 3));
+        read(msime_client_character(handle, b'b', false));
+        assert_eq!(
+            read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],
+            "b;"
+        );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn helpcode_settings_switch_independently_after_composition() {
         use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
         let dir = tempfile::tempdir().unwrap();

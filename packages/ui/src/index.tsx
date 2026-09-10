@@ -13,6 +13,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   learning: boolean;
@@ -97,14 +98,34 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
-        <div className="section"><label className="section-header"><span className="section-title">输入方案</span><select value={draft.scheme} onChange={event => setDraft({ ...draft, scheme: event.target.value as Preferences["scheme"] })}>
-          <option value="quanpin">全拼</option><option value="shuangpin">双拼</option>
-          <option value="wubi">五笔</option><option value="japanese">日语</option>
-        </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">双拼方案</span><select disabled={draft.scheme !== "shuangpin"} value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
+        <div className="section" role="group" aria-labelledby="input-mode-title">
+          <div className="section-title" id="input-mode-title">输入模式</div>
+          <div className="input-setting-description">切换中文或日文输入，并保留各模式上次选择的方案</div>
+          <div className="input-option-content input-mode-options">
+            <label className="radio-option"><input type="radio" name="input-mode" value="chinese" checked={draft.scheme !== "japanese"} onChange={() => setDraft({ ...draft, scheme: draft.last_chinese_scheme ?? "quanpin" })} /><span>中文</span></label>
+            <div className="input-option-divider" />
+            <label className="radio-option"><input type="radio" name="input-mode" value="japanese" checked={draft.scheme === "japanese"} onChange={() => setDraft({ ...draft, last_chinese_scheme: draft.scheme === "japanese" ? draft.last_chinese_scheme : draft.scheme, scheme: "japanese" })} /><span>日文</span></label>
+          </div>
+        </div>
+        <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={draft.scheme === "japanese"}>
+          <div className="section-title" id="input-scheme-title">输入方案</div>
+          <div className="input-option-content">
+            {([["quanpin", "全拼"], ["shuangpin", "双拼"], ["wubi", "五笔"]] as const).map(([scheme, label], index) => <div className="input-option-item" key={scheme}>
+              {index > 0 && <div className="input-option-divider" />}
+              <label className="radio-option"><input type="radio" name="input-scheme" value={scheme} checked={draft.scheme === scheme} onChange={() => setDraft({ ...draft, scheme, last_chinese_scheme: scheme })} /><span>{label}</span></label>
+            </div>)}
+          </div>
+        </div>
+        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">双拼方案</span><select value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
           <option value="xiaohe">小鹤双拼</option><option value="ziranma">自然码双拼</option>
           <option value="shoudao">首道双拼</option><option value="microsoft">微软双拼</option>
         </select></label></div>
+        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
+        <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={draft.scheme !== "japanese"}>
+          <div className="section-title" id="japanese-scheme-title">日语方案</div>
+          <div className="input-option-content"><label className="radio-option"><input type="radio" name="japanese-scheme" checked readOnly /><span>罗马字</span></label></div>
+          <div className="input-setting-description japanese-scheme-description">直接输入罗马字，提供平假名、片假名及日语词库候选</div>
+        </div>
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
