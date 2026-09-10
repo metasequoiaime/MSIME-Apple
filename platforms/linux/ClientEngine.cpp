@@ -42,6 +42,7 @@ struct State {
   bool pure_shift_candidate = false;
   std::optional<bool> english_override;
   std::optional<bool> autocorrect_override;
+  std::optional<bool> helpcode_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<std::string> layout_override;
@@ -97,6 +98,11 @@ struct State {
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (autocorrect_override)
       options["preferences"]["autocorrect"] = *autocorrect_override;
+    if (helpcode_override) {
+      const auto scheme = options["preferences"].value("scheme", "quanpin");
+      if (scheme == "quanpin" || scheme == "shuangpin")
+        options["preferences"][scheme + "_helpcode"]["enabled"] = *helpcode_override;
+    }
     if (emoji_override)
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
@@ -368,6 +374,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").at("mixed_input").value("kaomoji", false));
   const bool autocorrect = s.autocorrect_override.value_or(
       configured.at("preferences").value("autocorrect", true));
+  const auto active_scheme = s.scheme_override.value_or(
+      configured.at("preferences").value("scheme", "quanpin"));
+  const bool helpcode = (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
+      s.helpcode_override.value_or(configured.at("preferences")
+          .value(active_scheme + "_helpcode", Json::object()).value("enabled", true));
   const auto layout = s.layout_override.value_or(
       configured.at("preferences").value("candidate_layout", "vertical"));
   const auto preedit = s.preedit_override.value_or(
@@ -440,6 +451,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("启用拼音输入自动纠错"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       autocorrect ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto helpcode_property = ibus_property_new(
+      "Helpcode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("辅助码"), "",
+      ibus_text_new_from_static_string("启用候选辅助码提示"),
+      s.focused && !s.blocked && s.input_enabled &&
+          (active_scheme == "quanpin" || active_scheme == "shuangpin"), TRUE,
+      helpcode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto emoji = ibus_property_new(
       "EmojiCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("Emoji 候选"), "",
@@ -589,6 +607,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, autocorrect_property);
+    ibus_prop_list_append(properties, helpcode_property);
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
     ibus_prop_list_append(properties, clipboard);
@@ -607,6 +626,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, autocorrect_property);
+    ibus_engine_update_property(engine, helpcode_property);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, clipboard);
@@ -792,6 +812,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CharacterMode" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "Autocorrect" &&
+       std::string(name) != "Helpcode" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
@@ -968,6 +989,27 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       s.autocorrect_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    if (std::string(name) == "Helpcode") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      const auto active_scheme = s.scheme_override.value_or(
+          configured.at("preferences").value("scheme", "quanpin"));
+      if (active_scheme != "quanpin" && active_scheme != "shuangpin")
+        return;
+      const bool current = s.helpcode_override.value_or(
+          configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
+              .value("enabled", true));
+      if (current == enabled)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.helpcode_override = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
