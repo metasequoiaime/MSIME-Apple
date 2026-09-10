@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { HostActionButton } from "./HostActionButton";
 import type { KeyboardEvent } from "react";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
@@ -330,7 +331,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section feedback-hero"><div className="section-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
         <div className="feedback-list">
           <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><a className="feedback-link" href="https://github.com/metasequoiaime/MSIME-Windows/issues" target="_blank" rel="noreferrer" onClick={event => { if (client.feedback) { event.preventDefault(); openFeedbackUrl("https://github.com/metasequoiaime/MSIME-Windows/issues"); } }}>查看 Issues ↗</a></div></div>
-          <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><button type="button" className="secondary" disabled={!client.clipboard?.copy} onClick={() => void client.clipboard?.copy?.("829919142")}>复制群号</button></div>
+          <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><HostActionButton label="复制群号" success="已复制" action={client.clipboard?.copy ? () => client.clipboard!.copy!("829919142") : undefined} /></div>
           <div className="section feedback-card"><div className="feedback-icon">TG</div><div className="feedback-body"><div className="feedback-title">Telegram 群组</div><p>面向国际用户和开发者的即时讨论频道。</p><a className="feedback-link" href="https://t.me/msimegroup" target="_blank" rel="noreferrer" onClick={event => { if (client.feedback) { event.preventDefault(); openFeedbackUrl("https://t.me/msimegroup"); } }}>打开群组 ↗</a></div></div>
         </div>
         <div className="section feedback-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
@@ -342,7 +343,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen_keyboard"} aria-label="屏幕键盘">
         <div className="section capability-hero"><div className="section-title">屏幕键盘</div><p>使用屏幕上的虚拟键盘输入字符，适合触控设备或无法使用实体键盘的场景。</p></div>
-        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>{client.screen_keyboard ? "宿主已提供屏幕键盘" : "宿主尚未接入"}</strong><small>当前客户端已预留设置入口，屏幕键盘运行时将在后续平台增量中接入。</small></div>{client.screen_keyboard && <button type="button" className="secondary" onClick={() => void client.screen_keyboard?.open()}>打开</button>}</div>
+        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>{client.screen_keyboard ? "宿主已提供屏幕键盘" : "宿主尚未接入"}</strong><small>当前客户端已预留设置入口，屏幕键盘运行时将在后续平台增量中接入。</small></div>{client.screen_keyboard && <HostActionButton label="打开" action={() => client.screen_keyboard!.open()} />}</div>
         <div className="section"><div className="section-title">屏幕键盘预览</div><div className="screen-keyboard-preview" role="grid" aria-label="屏幕键盘预览">{[["Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "退格"], ["Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ";"], ["Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"], ["中/英", "空格", "回车"]].map((row, rowIndex) => <div className="screen-keyboard-row" role="row" key={rowIndex}>{row.map(key => <button type="button" className="screen-key" disabled key={key} role="gridcell">{key}</button>)}</div>)}</div></div>
         <div className="section"><div className="section-title">使用说明</div><div className="help-list"><div><strong>打开方式</strong><span>接入后可从输入法工具栏或系统托盘打开屏幕键盘。</span></div><div><strong>主题同步</strong><span>屏幕键盘将跟随全局主题和字号设置。</span></div></div></div>
       </fieldset>
@@ -361,7 +362,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别">
         <div className="section capability-hero"><div className="section-title">手写识别</div><p>在手写面板中书写汉字，识别结果将作为候选项插入当前应用。</p></div>
-        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>{client.handwriting ? "宿主已提供手写识别板" : "手写宿主尚未接入"}</strong><small>Windows 版通过系统手写识别面板提供此能力；当前客户端尚未接入原生手写面板。</small></div>{client.handwriting && <button type="button" className="secondary" onClick={() => void client.handwriting?.open()}>打开</button>}</div>
+        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>{client.handwriting ? "宿主已提供手写识别板" : "手写宿主尚未接入"}</strong><small>Windows 版通过系统手写识别面板提供此能力；当前客户端尚未接入原生手写面板。</small></div>{client.handwriting && <HostActionButton label="打开" action={() => client.handwriting!.open()} />}</div>
         <div className="section"><div className="section-title">手写识别板预览</div><div className="handwriting-preview-board" role="img" aria-label="手写识别板预览"><span className="handwriting-crosshair" aria-hidden="true">十</span><svg viewBox="0 0 160 160" aria-hidden="true"><path d="M35 45 Q80 20 125 45 M45 75 Q80 55 115 75 M35 105 Q80 130 125 105 M80 25 L80 135" /></svg><div className="handwriting-candidates"><span>中</span><span>申</span><span>仲</span></div></div></div>
         <div className="section"><div className="section-title">使用准备</div><div className="help-list"><div><strong>安装语言组件</strong><span>Windows 用户需安装“中文手写包”：设置 → 时间和语言 → 语言和区域 → 中文 → 语言选项 → 手写。</span></div><div><strong>打开方式</strong><span>接入后可从输入法工具栏或托盘菜单打开手写识别面板。</span></div><div><strong>识别结果</strong><span>面板返回的候选项会交给输入运行时，确认后提交到当前应用。</span></div></div></div>
       </fieldset>
