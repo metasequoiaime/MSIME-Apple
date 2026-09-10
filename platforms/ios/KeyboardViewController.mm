@@ -23,7 +23,6 @@
     [super viewDidLoad];
     self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:nil];
     [self apply:[self.session setFocused:YES error:nil]];
-    [self buildKeyboard];
     self.candidateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     self.candidateLabel.numberOfLines = 1;
     self.candidateLabel.textAlignment = NSTextAlignmentCenter;
@@ -46,6 +45,7 @@
         [self.candidateStack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-6],
         [self.candidateStack.topAnchor constraintEqualToAnchor:self.candidateLabel.bottomAnchor constant:2],
         [self.candidateStack.heightAnchor constraintEqualToConstant:30]]];
+    [self buildKeyboard];
 }
 
 - (void)buildKeyboard {
@@ -87,7 +87,7 @@
     [NSLayoutConstraint activateConstraints:@[
         [rows.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:6],
         [rows.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-6],
-        [rows.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:6],
+        [rows.topAnchor constraintEqualToAnchor:self.candidateStack.bottomAnchor constant:6],
         [rows.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-6]]];
 }
 
