@@ -2,8 +2,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <fcntl.h>
 #include <iostream>
 #include <string>
+#include <sys/file.h>
 #include <unistd.h>
 #include <vector>
 
@@ -11,6 +13,19 @@ using Json = nlohmann::json;
 namespace {
 constexpr size_t kMaxItems = 50;
 constexpr size_t kMaxChars = 4000;
+class HistoryLock {
+ public:
+  explicit HistoryLock(const std::filesystem::path &history) {
+    fd_ = open((history.string() + ".lock").c_str(), O_CREAT | O_RDWR, 0600);
+    if (fd_ >= 0 && flock(fd_, LOCK_EX) != 0) { close(fd_); fd_ = -1; }
+  }
+  ~HistoryLock() { if (fd_ >= 0) { flock(fd_, LOCK_UN); close(fd_); } }
+  bool acquired() const { return fd_ >= 0; }
+  HistoryLock(const HistoryLock &) = delete;
+  HistoryLock &operator=(const HistoryLock &) = delete;
+ private:
+  int fd_ = -1;
+};
 std::string normalize(std::string text) {
   text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
   std::string out;
@@ -59,6 +74,8 @@ int main(int argc, char **argv) {
   if (argc < 3) return 2;
   const std::filesystem::path path = argv[1];
   const std::string op = argv[2];
+  HistoryLock lock(path);
+  if (!lock.acquired()) return 1;
   auto items = load(path);
   if (op == "list") { std::cout << Json(items).dump() << '\n'; return 0; }
   // A compositor or desktop launcher can use this explicit stream operation to

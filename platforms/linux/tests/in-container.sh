@@ -18,6 +18,7 @@ trap 'rm -rf "$clipboard_fixture"' EXIT
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "second"
 [[ $(stat -c '%a' "$clipboard_fixture/history.json") == 600 ]]
+[[ $(stat -c '%a' "$clipboard_fixture/history.json.lock") == 600 ]]
 ! compgen -G "$clipboard_fixture/history.json.tmp.*" >/dev/null
 [[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 1) == $'first\nentry' ]]
 if /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 2 >/dev/null; then
