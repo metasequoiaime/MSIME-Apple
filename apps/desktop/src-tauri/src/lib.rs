@@ -25,13 +25,54 @@ struct ExternalSkinSummary {
 #[derive(Debug, serde::Deserialize, Default)]
 #[serde(default)]
 struct SkinManifest {
+    schema_version: u32,
+    id: Option<String>,
     name: Option<String>,
     version: Option<String>,
     author: Option<String>,
     description: Option<String>,
     base: Option<String>,
+    toolbar_stylesheet: Option<String>,
+    preview: Option<String>,
+    supports: SkinSupports,
+    candidate_window: Option<SkinWindow>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+#[serde(default)]
+struct SkinSupports {
     layouts: Vec<String>,
     themes: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+#[serde(default)]
+struct SkinWindow {
+    min_width_dip: Option<f64>,
+    decoration: Option<SkinDecoration>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+#[serde(default)]
+struct SkinDecoration {
+    top_inset_dip: Option<f64>,
+    width_dip: Option<f64>,
+}
+
+fn valid_resource(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.contains('\\')
+        && value.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        })
 }
 
 fn skin_directory(app: &tauri::AppHandle) -> Result<PathBuf, HostActionError> {
@@ -119,6 +160,18 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
                 continue;
             }
         };
+        if text.len() > 256 * 1024 {
+            result.push(ExternalSkinSummary {
+                id: id.clone(),
+                name: id,
+                version: None,
+                author: None,
+                description: None,
+                compatible: false,
+                issues: vec!["skin.toml 过大".into()],
+            });
+            continue;
+        }
         let manifest: SkinManifest = match toml::from_str(&text) {
             Ok(manifest) => manifest,
             Err(_) => {
@@ -134,16 +187,55 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
                 continue;
             }
         };
-        let compatible = matches!(
-            manifest.base.as_deref(),
-            Some("fluent" | "wechat" | "graphite" | "willow_green")
-        ) && manifest.layouts.iter().any(|value| value == "horizontal")
-            && manifest.layouts.iter().any(|value| value == "vertical")
-            && manifest.themes.iter().any(|value| value == "dark")
-            && manifest.themes.iter().any(|value| value == "light");
         let mut issues = Vec::new();
+        let basic = manifest.schema_version == 1
+            && manifest.id.as_deref() == Some(id.as_str())
+            && manifest
+                .name
+                .as_deref()
+                .is_some_and(|v| !v.is_empty() && v.len() <= 80)
+            && manifest
+                .version
+                .as_deref()
+                .is_some_and(|v| !v.is_empty() && v.len() <= 32)
+            && matches!(
+                manifest.base.as_deref(),
+                Some("fluent" | "wechat" | "graphite" | "willow_green")
+            );
+        let supports = !manifest.supports.layouts.is_empty()
+            && !manifest.supports.themes.is_empty()
+            && manifest
+                .supports
+                .layouts
+                .iter()
+                .all(|v| matches!(v.as_str(), "horizontal" | "vertical"))
+            && manifest
+                .supports
+                .themes
+                .iter()
+                .all(|v| matches!(v.as_str(), "dark" | "light"));
+        let window = manifest.candidate_window.as_ref().is_some_and(|w| {
+            w.min_width_dip.unwrap_or(0.0).is_finite()
+                && (0.0..=1000.0).contains(&w.min_width_dip.unwrap_or(0.0))
+                && w.decoration.as_ref().is_some_and(|d| {
+                    let top = d.top_inset_dip.unwrap_or(0.0);
+                    let width = d.width_dip.unwrap_or(0.0);
+                    top.is_finite()
+                        && width.is_finite()
+                        && (0.0..=500.0).contains(&top)
+                        && (0.0..=1000.0).contains(&width)
+                        && ((top == 0.0) == (width == 0.0))
+                })
+        });
+        let resources = manifest.toolbar_stylesheet.as_deref().is_none_or(|v| {
+            valid_resource(v, 128) && v.ends_with(".css") && entry.path().join(v).is_file()
+        }) && manifest
+            .preview
+            .as_deref()
+            .is_none_or(|v| valid_resource(v, 256));
+        let compatible = basic && supports && window && resources;
         if !compatible {
-            issues.push("不支持当前基底、布局或主题".into());
+            issues.push("manifest 不符合 schema_version 1 或缺少有效候选窗配置".into());
         }
         result.push(ExternalSkinSummary {
             name: manifest
@@ -167,7 +259,9 @@ fn select_skin(
     state: tauri::State<'_, SkinState>,
     id: String,
 ) -> Result<(), HostActionError> {
-    if id.is_empty()
+    if id == "."
+        || id == ".."
+        || id.is_empty()
         || id.len() > 128
         || !id
             .bytes()
@@ -177,6 +271,17 @@ fn select_skin(
             code: "invalid_skin",
         });
     }
+    if !matches!(
+        id.as_str(),
+        "fluent" | "wechat" | "graphite" | "willow_green"
+    ) {
+        let skin_dir = skin_directory(&app)?;
+        if !skin_dir.join(&id).is_dir() {
+            return Err(HostActionError {
+                code: "unknown_skin",
+            });
+        }
+    }
     let path = app
         .path()
         .app_data_dir()
@@ -184,6 +289,11 @@ fn select_skin(
             code: "unavailable",
         })?
         .join("selected-skin");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    }
     std::fs::write(path, &id).map_err(|_| HostActionError {
         code: "unavailable",
     })?;
