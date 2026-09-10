@@ -15,6 +15,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 export type Preferences = {
   theme?: "dark" | "light" | "system";
   settings_theme?: "follow" | "dark" | "light";
+  ui_backend?: "direct2d" | "webview2";
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
   mixed_input?: MixedInputPreferences;
@@ -191,6 +192,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <div className="section"><label className="section-header"><span className="section-title">主题模式<small>设置界面和候选预览的颜色主题</small></span><select value={draft.theme ?? "dark"} onChange={event => setDraft({ ...draft, theme: event.target.value as Preferences["theme"] })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置界面主题<small>可覆盖全局主题，仅影响当前设置界面</small></span><select value={draft.settings_theme ?? "follow"} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as Preferences["settings_theme"] })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">界面渲染<small>用于候选窗、悬浮工具栏和托盘菜单；更改后需重启输入法进程。</small></span><select value={draft.ui_backend ?? "direct2d"} onChange={event => setDraft({ ...draft, ui_backend: event.target.value as Preferences["ui_backend"] })}><option value="direct2d">Direct2D（原生）</option><option value="webview2">WebView2</option></select></label></div>
         <div className="section candidate-preview-section" aria-label="候选窗口预览">
           <div className="section-title">候选窗口预览</div>
           <div className="candidate-preview-card"><span className="candidate-preview-preedit">ni'hao</span><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
