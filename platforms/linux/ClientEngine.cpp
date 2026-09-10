@@ -43,6 +43,7 @@ struct State {
   std::optional<bool> english_override;
   std::optional<bool> autocorrect_override;
   std::optional<bool> helpcode_override;
+  std::optional<std::string> helpcode_schema_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<std::string> layout_override;
@@ -104,6 +105,11 @@ struct State {
       const auto scheme = options["preferences"].value("scheme", "quanpin");
       if (scheme == "quanpin" || scheme == "shuangpin")
         options["preferences"][scheme + "_helpcode"]["enabled"] = *helpcode_override;
+    }
+    if (helpcode_schema_override) {
+      const auto scheme = options["preferences"].value("scheme", "quanpin");
+      if (scheme == "quanpin" || scheme == "shuangpin")
+        options["preferences"][scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
     }
     if (candidate_page_size_override)
       options["preferences"]["candidate_page_size"] = *candidate_page_size_override;
@@ -464,6 +470,30 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled &&
           (active_scheme == "quanpin" || active_scheme == "shuangpin"), TRUE,
       helpcode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto helpcode_schema = ibus_property_new(
+      "HelpcodeSchema", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("辅助码方案"), "",
+      ibus_text_new_from_static_string("选择辅助码编码方案"),
+      s.focused && !s.blocked && s.input_enabled &&
+          (active_scheme == "quanpin" || active_scheme == "shuangpin"), TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  auto helpcode_schema_menu = ibus_prop_list_new();
+  const auto schema = s.helpcode_schema_override.value_or(
+      configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
+          .value("schema", "ziranma"));
+  for (const auto &[value, label] : {std::pair{"lantian", "蓝天"},
+                                     std::pair{"ziranma", "自然码"},
+                                     std::pair{"shouyou2_0", "搜狗 2.0"},
+                                     std::pair{"shouyouplus", "搜狗 Plus"},
+                                     std::pair{"xiaohe", "小鹤"}}) {
+    auto item = ibus_property_new(
+        (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("切换辅助码方案"), TRUE, TRUE,
+        schema == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(helpcode_schema_menu, item);
+  }
+  ibus_property_set_sub_props(helpcode_schema, helpcode_schema_menu);
   auto emoji = ibus_property_new(
       "EmojiCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("Emoji 候选"), "",
@@ -669,6 +699,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, autocorrect_property);
     ibus_prop_list_append(properties, helpcode_property);
+    ibus_prop_list_append(properties, helpcode_schema);
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
     ibus_prop_list_append(properties, clipboard);
@@ -690,6 +721,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, autocorrect_property);
     ibus_engine_update_property(engine, helpcode_property);
+    ibus_engine_update_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, clipboard);
@@ -878,6 +910,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "Autocorrect" &&
        std::string(name) != "Helpcode" &&
+       property_name.rfind("HelpcodeSchema/", 0) != 0 &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
@@ -899,6 +932,29 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
+      const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
+      if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
+          selected != "shouyouplus" && selected != "xiaohe")
+        return;
+      const auto active_scheme = s.scheme_override.value_or(
+          configured.at("preferences").value("scheme", "quanpin"));
+      if (active_scheme != "quanpin" && active_scheme != "shuangpin")
+        return;
+      if (s.helpcode_schema_override.value_or(
+              configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
+                  .value("schema", "ziranma")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.helpcode_schema_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (property_name.rfind("FrequencyMode/", 0) == 0) {
       const auto selected = property_name.substr(std::string("FrequencyMode/").size());
       if (selected != "disabled" && selected != "pin" && selected != "halve" &&
