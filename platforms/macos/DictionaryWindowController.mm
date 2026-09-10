@@ -25,12 +25,22 @@
 }
 - (void)refresh:(id)sender {
     (void)sender;
-    NSError *error = nil;
     NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @0, @"limit": @100 } };
-    NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&error];
-    if (!result) { self.content.string = error.localizedDescription ?: @"词典读取失败"; return; }
-    NSMutableString *text = [NSMutableString string];
-    for (NSDictionary *entry in result[@"entries"]) [text appendFormat:@"%@\t%@\n", entry[@"key"] ?: @"", entry[@"value"] ?: @""];
-    self.content.string = text.length ? text : @"暂无个人词条";
+    __weak MSIMEDictionaryWindowController *weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *error = nil;
+        NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&error];
+        NSString *message = nil;
+        if (!result) message = error.localizedDescription ?: @"词典读取失败";
+        else {
+            NSMutableString *text = [NSMutableString string];
+            for (NSDictionary *entry in result[@"entries"]) [text appendFormat:@"%@\t%@\n", entry[@"key"] ?: @"", entry[@"value"] ?: @""];
+            message = text.length ? text : @"暂无个人词条";
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEDictionaryWindowController *controller = weakSelf;
+            if (controller) controller.content.string = message;
+        });
+    });
 }
 @end
