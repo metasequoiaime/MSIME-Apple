@@ -455,12 +455,16 @@ fn is_allowed_external_url(url: &str) -> bool {
         "https://github.com/metasequoiaime/MSIME-Windows",
         "https://t.me/msimegroup",
     ];
-    allowed.iter().any(|prefix| url.starts_with(prefix))
-        && !url.chars().any(|character| {
-            character.is_whitespace()
-                || character.is_control()
-                || matches!(character, '&' | '|' | '<' | '>' | '^' | '%')
-        })
+    allowed.iter().any(|prefix| {
+        url == *prefix
+            || url
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('/'))
+    }) && !url.chars().any(|character| {
+        character.is_whitespace()
+            || character.is_control()
+            || matches!(character, '&' | '|' | '<' | '>' | '^' | '%')
+    })
 }
 
 #[cfg(test)]
@@ -474,6 +478,9 @@ mod tests {
         ));
         assert!(is_allowed_external_url("https://t.me/msimegroup"));
         assert!(!is_allowed_external_url("https://example.com"));
+        assert!(!is_allowed_external_url(
+            "https://github.com/metasequoiaime/MSIME-Client.evil.example/releases"
+        ));
         assert!(!is_allowed_external_url(
             "https://github.com/metasequoiaime/MSIME-Client&bad"
         ));
