@@ -12,7 +12,7 @@
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
 - `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
-- `platforms/`：macOS IMK、Android InputMethodService 与 Linux IBus 预览宿主；Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路。真机、Linux 图形桌面、Windows 系统入口及 iOS 扩展仍待验证或实现。
+- `platforms/`：macOS IMK、iOS 键盘控制器、Android InputMethodService 与 Linux IBus 预览宿主；Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路。真机、Linux 图形桌面、Windows 系统入口以及 iOS Xcode target/签名仍待验证或完成。
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
