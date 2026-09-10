@@ -122,8 +122,11 @@
     for (NSUInteger index = 0; index < candidates.count; ++index) {
         NSDictionary *candidate = candidates[index];
         NSString *text = candidate[@"text"];
-        if ([text isKindOfClass:NSString.class])
-            [labels addObject:[NSString stringWithFormat:@"%lu.%@%@", (unsigned long)(index + 1), [candidate[@"highlighted"] boolValue] ? @"[" : @"", text]];
+        if ([text isKindOfClass:NSString.class]) {
+            NSString *marker = [candidate[@"highlighted"] boolValue] ? @"[" : @"";
+            NSString *suffix = [candidate[@"highlighted"] boolValue] ? @"]" : @"";
+            [labels addObject:[NSString stringWithFormat:@"%lu.%@%@%@", (unsigned long)(index + 1), marker, text, suffix]];
+        }
     }
     self.candidateLabel.text = labels.count ? [labels componentsJoinedByString:@"  "] : @"";
 }
