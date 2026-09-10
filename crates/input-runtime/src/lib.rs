@@ -1,8 +1,8 @@
 //! Shared host orchestration; the Engine remains the owner of composition state.
 //! Views are cached values. UI selection carries both session and view identity.
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
-use serde::Serialize;
+use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
@@ -120,6 +120,19 @@ pub struct Transition {
     pub view: View,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OnlineQuery {
+    pub scheme: u8,
+    pub generation: u64,
+    pub identity: String,
+    pub query_text: String,
+    pub cache_key: String,
+    pub pinyin_segments: Vec<String>,
+    pub cloud_eligible: bool,
+    pub ai_eligible: bool,
+    pub session_id: u64,
+}
+
 pub enum Action {
     Character { value: u8, shift: bool },
     Punctuation(u8),
@@ -153,6 +166,58 @@ impl Runtime<Session> {
         self.engine
             .set_chinese_punctuation_enabled(enabled)
             .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+
+    pub fn online_query(&self) -> Result<Option<OnlineQuery>, RuntimeError> {
+        let query = self
+            .engine
+            .online_query()
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        if !query.available {
+            return Ok(None);
+        }
+        Ok(Some(OnlineQuery {
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity,
+            query_text: query.query_text,
+            cache_key: query.cache_key,
+            pinyin_segments: query.pinyin_segments,
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        }))
+    }
+
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuery,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, RuntimeError> {
+        if source > 1 {
+            return Ok(false);
+        }
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity.clone(),
+            query_text: query.query_text.clone(),
+            cache_key: query.cache_key.clone(),
+            pinyin_segments: query.pinyin_segments.clone(),
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        };
+        let applied = self
+            .engine
+            .apply_online_candidate(&query, candidate, source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        if applied {
+            self.refresh().map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        }
+        Ok(applied)
     }
 }
 
