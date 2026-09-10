@@ -35,6 +35,18 @@ test("voice input basics persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ enabled: false, mute_system_audio: true, language: "en" }) }));
 });
 
+test("voice ASR configuration persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await screen.findByRole("textbox", { name: "ASR 模型" });
+  fireEvent.change(screen.getByRole("textbox", { name: "ASR 模型" }), { target: { value: "whisper-1" } });
+  fireEvent.change(screen.getByLabelText("ASR Access Token / API Key"), { target: { value: "asr-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ asr_model: "whisper-1", asr_token: "asr-token" }) }));
+});
+
 test("AI assistant settings expose and persist provider configuration", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

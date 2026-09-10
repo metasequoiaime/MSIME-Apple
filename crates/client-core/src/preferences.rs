@@ -105,6 +105,16 @@ pub struct VoiceInputPreferences {
     pub language: String,
     #[serde(default)]
     pub commit_mode: String,
+    #[serde(default)]
+    pub asr_provider: String,
+    #[serde(default)]
+    pub asr_app_key: String,
+    #[serde(default)]
+    pub asr_token: String,
+    #[serde(default)]
+    pub asr_endpoint: String,
+    #[serde(default)]
+    pub asr_model: String,
 }
 
 impl Default for VoiceInputPreferences {
@@ -117,6 +127,11 @@ impl Default for VoiceInputPreferences {
             mute_system_audio: false,
             language: "zh-cn".into(),
             commit_mode: "tsf".into(),
+            asr_provider: "doubao".into(),
+            asr_app_key: String::new(),
+            asr_token: String::new(),
+            asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
+            asr_model: String::new(),
         }
     }
 }
