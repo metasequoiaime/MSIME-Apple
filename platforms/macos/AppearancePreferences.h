@@ -24,6 +24,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL shuangpinKeymap;
+@property(nonatomic) BOOL wubiAutoCommitUnique;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

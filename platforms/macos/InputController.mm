@@ -10,6 +10,7 @@
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
 #import "ShuangpinKeymapPanel.h"
+#include "WubiCommitPolicy.h"
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
@@ -275,6 +276,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     if (!transition) return NO;
     [self apply:transition];
+    if (command == UINT32_MAX && [transition[@"handled"] boolValue] &&
+        ![transition[@"commit"] isKindOfClass:NSString.class] && event.characters.length == 1 &&
+        [event.characters characterAtIndex:0] >= 'a' && [event.characters characterAtIndex:0] <= 'z' &&
+        MSIMEShouldAutoCommitWubi(_appearance.wubiAutoCommitUnique, transition[@"view"])) {
+        NSDictionary *committed = [_session command:MSIME_COMMIT_CANDIDATE error:nil];
+        if (committed) [self apply:committed];
+    }
     if ([transition[@"handled"] boolValue]) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {

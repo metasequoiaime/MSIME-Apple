@@ -1,7 +1,9 @@
 //! Shared host orchestration; the Engine remains the owner of composition state.
 //! Views are cached values. UI selection carries both session and view identity.
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session};
+use msime_engine_bridge::{
+    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(unix)]
@@ -98,6 +100,7 @@ pub struct View {
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
+    pub answered_by_pinyin_fallback: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
     pub session: u64,
@@ -174,7 +177,8 @@ impl UnixSocketProvider {
             .set_read_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "query": query}).to_string();
-        if request.len() > 16384 || stream.write_all(request.as_bytes()).is_err()
+        if request.len() > 16384
+            || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()
         {
             return None;
@@ -223,7 +227,11 @@ impl OnlineProviderWorker {
                             continue;
                         }
                         if outgoing
-                            .send(OnlineCandidate { query, text, source })
+                            .send(OnlineCandidate {
+                                query,
+                                text,
+                                source,
+                            })
                             .is_err()
                         {
                             break;
@@ -339,7 +347,8 @@ impl Runtime<Session> {
             .apply_online_candidate(&query, candidate, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         if applied {
-            self.refresh().map_err(|error| RuntimeError::Engine(error.to_string()))?;
+            self.refresh()
+                .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         }
         Ok(applied)
     }
@@ -373,6 +382,7 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
+            answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
             generation: self.generation,
@@ -482,6 +492,7 @@ impl<E: InputEngine> Runtime<E> {
                 candidate_annotations: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
+                answered_by_pinyin_fallback: true,
                 local_mode: "unknown".into(),
                 preedit: String::new(),
                 editing_text: String::new(),
@@ -694,6 +705,7 @@ mod tests {
                     .collect(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: "xiaohe".into(),
+                answered_by_pinyin_fallback: false,
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
@@ -774,14 +786,20 @@ mod tests {
             session_id: 9,
         };
         let worker = OnlineProviderWorker::spawn(1, |query| {
-            if query.query_text == "nihao" { Some(("你好".into(), 0)) }
-            else { Some((String::new(), 7)) }
-        }).unwrap();
+            if query.query_text == "nihao" {
+                Some(("你好".into(), 0))
+            } else {
+                Some((String::new(), 7))
+            }
+        })
+        .unwrap();
         assert!(worker.submit(query.clone()));
         let mut result = None;
         for _ in 0..100 {
             result = worker.try_recv();
-            if result.is_some() { break; }
+            if result.is_some() {
+                break;
+            }
             std::thread::sleep(Duration::from_millis(1));
         }
         let result = result.expect("provider result");
@@ -1207,7 +1225,10 @@ mod tests {
             ai_eligible: false,
             session_id: 1,
         };
-        assert_eq!(UnixSocketProvider::new(&path).query(query), Some(("候选".into(), 0)));
+        assert_eq!(
+            UnixSocketProvider::new(&path).query(query),
+            Some(("候选".into(), 0))
+        );
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
     }

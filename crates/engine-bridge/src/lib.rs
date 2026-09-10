@@ -63,6 +63,7 @@ mod ffi {
         pub caret_position: usize,
         pub candidates: Vec<String>,
         pub candidate_annotations: Vec<String>,
+        pub answered_by_pinyin_fallback: bool,
     }
     #[derive(Debug)]
     pub struct EngineResult {
