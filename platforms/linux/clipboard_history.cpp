@@ -45,6 +45,16 @@ int main(int argc, char **argv) {
   const std::string op = argv[2];
   auto items = load(path);
   if (op == "list") { std::cout << Json(items).dump() << '\n'; return 0; }
+  // A compositor or desktop launcher can use this explicit stream operation to
+  // paste a selected entry.  It never touches the system clipboard itself.
+  if (op == "get" && argc == 4) {
+    try {
+      const auto index = std::stoul(argv[3]);
+      if (index >= items.size()) return 1;
+      std::cout << items[index];
+      return static_cast<bool>(std::cout) ? 0 : 1;
+    } catch (...) { return 2; }
+  }
   if (op == "add" && argc == 4) {
     auto text = normalize(argv[3]); if (text.empty() || (!items.empty() && items.front() == text)) return 0;
     items.erase(std::remove(items.begin(), items.end(), text), items.end()); items.insert(items.begin(), std::move(text));
