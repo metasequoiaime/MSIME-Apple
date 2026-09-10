@@ -287,7 +287,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           </div>
         </div>
         <div className="section" hidden={draft.scheme === "japanese"}><div className="section-header"><span className="section-title">双拼方案</span><CustomDropdown ariaLabel="双拼方案" value={draft.shuangpin_profile} options={[["xiaohe", "小鹤双拼"], ["ziranma", "自然码双拼"], ["shoudao", "首道双拼"], ["microsoft", "微软双拼"]]} onChange={value => setDraft({ ...draft, shuangpin_profile: value as Preferences["shuangpin_profile"] })} /></div></div>
-        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
+        <div className="section" hidden={draft.scheme === "japanese"}><div className="section-header"><span className="section-title">五笔方案</span><CustomDropdown ariaLabel="五笔方案" value="wubi86" options={[["wubi86", "86 五笔"]]} onChange={() => {}} /></div></div>
         <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={draft.scheme !== "japanese"}>
           <div className="section-title" id="japanese-scheme-title">日语方案</div>
           <div className="input-option-content"><label className="radio-option"><input type="radio" name="japanese-scheme" checked readOnly /><span>罗马字</span></label></div>

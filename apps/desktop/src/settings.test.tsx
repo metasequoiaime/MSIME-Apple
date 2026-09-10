@@ -119,6 +119,12 @@ test("dictionary page exposes the quick phrase manager", async () => {
   expect(screen.getByText("查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语")).toBeDefined();
 });
 
+test("wubi scheme uses the custom dropdown control", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect((await screen.findByRole("button", { name: "五笔方案" })).textContent).toContain("86 五笔");
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
