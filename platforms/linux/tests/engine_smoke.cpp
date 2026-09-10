@@ -224,6 +224,12 @@ int main(int argc, char **argv) {
     auto mode = [&](guint value) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));
     };
+    require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+E was not consumed");
+    require(!seen.input_enabled, "Ctrl+Shift+E did not enter English mode");
+    require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+E could not restore the input mode");
+    require(seen.input_enabled, "Ctrl+Shift+E did not restore input mode");
     phrase();
     require(key(IBUS_period, IBUS_CONTROL_MASK),
             "Ctrl+. punctuation toggle was not consumed");
