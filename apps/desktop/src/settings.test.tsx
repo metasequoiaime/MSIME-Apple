@@ -46,6 +46,16 @@ test("candidate preview follows the selected layout", async () => {
   expect(preview.querySelector(".candidate-preview-vertical")).toBeNull();
 });
 
+test("candidate preedit style persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: /拼音分词/ }));
+  fireEvent.click(screen.getAllByRole("option", { name: "不显示" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_preedit_style: "empty" });
+});
+
 test("candidate font size defaults to 16 and persists selected size", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

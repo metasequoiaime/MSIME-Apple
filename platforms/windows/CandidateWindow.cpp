@@ -86,10 +86,11 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
                                  std::optional<bool> dark_theme,
-                                 bool horizontal)
+                                 bool horizontal, bool show_preedit)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
-      font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal) {
+      font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal),
+      show_preedit_(show_preedit) {
   if (font_family_.empty() || font_family_.size() > 128)
     throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
@@ -220,7 +221,7 @@ void CandidateWindow::paint() {
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
   };
-  {
+  if (show_preedit_) {
     Font preedit_font(painting.dc, candidate_metrics(
         GetDpiForWindow(window_), preedit_font_size_).font, font_family_.c_str());
     line(wide(value->preedit), 0, false);
