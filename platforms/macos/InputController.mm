@@ -162,6 +162,9 @@
     NSRect visible = screen.visibleFrame;
     NSFont *font = [NSFont systemFontOfSize:18];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
+    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
+    const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
+    const BOOL paging = pageCount > 1;
     CGFloat width = 20;
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
@@ -169,6 +172,7 @@
         width = MAX(width, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 28);
     }
     width = MIN(width, MAX(80, visible.size.width - 20));
+    if (paging) width = MAX(width, 76);
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
@@ -177,7 +181,7 @@
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
-    CGFloat height = candidates.count * rowHeight + 12;
+    CGFloat height = candidates.count * rowHeight + 12 + (paging ? 26 : 0);
     [_panel setContentSize:NSMakeSize(width, height)];
     NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
@@ -185,6 +189,7 @@
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
+        button.tag = (NSInteger)slot;
         button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
         button.font = font;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -192,6 +197,19 @@
         button.bordered = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
+    }
+    if (paging) {
+        for (NSUInteger direction = 0; direction < 2; ++direction) {
+            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
+            button.frame = NSMakeRect(6 + direction * 28, 6, 28, 26);
+            button.bordered = NO;
+            button.tag = direction == 0 ? -1 : -2;
+            button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;
+            button.accessibilityLabel = direction == 0 ? @"上一页候选" : @"下一页候选";
+            // A retained button from an old page cannot navigate a newer view.
+            button.candidateID = _view;
+            [content addSubview:button];
+        }
     }
     _panel.contentView = content;
     [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
@@ -204,5 +222,16 @@
         ![identifier[@"session"] isEqual:_view[@"session"]])
         return;
     [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
+}
+
+- (void)changeCandidatePage:(MSIMECandidateButton *)button {
+    if (!_activeClient || !_panel.isVisible || ![_view[@"focused"] boolValue] || !button.enabled) return;
+    for (NSString *key in @[@"session", @"generation", @"page"]) {
+        if (![button.candidateID[key] isEqual:_view[key]]) return;
+    }
+    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
+    const NSUInteger count = [_view[@"page_count"] unsignedIntegerValue];
+    if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
+    if (button.tag == -2 && count > 0 && page < count - 1) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
 }
 @end

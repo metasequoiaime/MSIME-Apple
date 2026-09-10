@@ -3,11 +3,13 @@
 
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
+@property(nonatomic, copy) NSDictionary *nextTransition;
 @end
 @implementation ShortcutSession
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
+    if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
 }
 @end
@@ -45,9 +47,17 @@
 @property(nonatomic) BOOL requestedVisible;
 @end
 @implementation HiddenCandidatePanel
+- (BOOL)isVisible { return self.requestedVisible; }
 - (void)orderFrontRegardless { self.requestedVisible = YES; }
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
+
+static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
+    for (NSView *view in content.subviews) {
+        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (id)view;
+    }
+    return nil;
+}
 
 int main() {
     @autoreleasepool {
@@ -118,6 +128,62 @@ int main() {
         client.caret = NSZeroRect;
         [controller renderCandidates];
         assert(!layoutPanel.requestedVisible);
+        client.caret = NSMakeRect(NSMidX(NSScreen.mainScreen.visibleFrame), NSMidY(NSScreen.mainScreen.visibleFrame), 1, 20);
+        NSMutableDictionary *pageView = [@{@"session": @1, @"generation": @2, @"focused": @YES, @"page": @0, @"page_count": @3, @"editing_text": @"ceshi", @"caret_position": @5, @"candidates": @[@{@"text": @"测试", @"highlighted": @YES}]} mutableCopy];
+        [controller setValue:[pageView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *previous = (id)PageButton(layoutPanel.contentView, -1);
+        MSIMECandidateButton *next = (id)PageButton(layoutPanel.contentView, -2);
+        assert(previous && next && !previous.enabled && next.enabled);
+        assert([previous.accessibilityLabel isEqual:@"上一页候选"]);
+        assert([next.accessibilityLabel isEqual:@"下一页候选"]);
+        assert(previous.frame.size.height == 26 && next.frame.size.width == 28);
+        pageView[@"page"] = @1;
+        session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [pageView copy]};
+        client.committed = nil;
+        [next performClick:nil];
+        assert(session.lastCommand == MSIME_NEXT_PAGE && client.committed == nil);
+        assert([client.marked isEqual:@"ceshi"]);
+        // A previous page's retained button must not advance the current page.
+        session.lastCommand = UINT32_MAX;
+        [controller changeCandidatePage:next];
+        assert(session.lastCommand == UINT32_MAX);
+        previous = (id)PageButton(layoutPanel.contentView, -1);
+        next = (id)PageButton(layoutPanel.contentView, -2);
+        assert(previous.enabled && next.enabled);
+        pageView[@"page"] = @0;
+        session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [pageView copy]};
+        [previous performClick:nil];
+        assert(session.lastCommand == MSIME_PREVIOUS_PAGE);
+        for (NSString *changed in @[@"session", @"generation", @"focused"]) {
+            [controller setValue:[pageView copy] forKey:@"view"];
+            [controller renderCandidates];
+            next = (id)PageButton(layoutPanel.contentView, -2);
+            NSMutableDictionary *stale = [pageView mutableCopy];
+            stale[changed] = [changed isEqual:@"focused"] ? @NO : @99;
+            [controller setValue:stale forKey:@"view"];
+            session.lastCommand = UINT32_MAX;
+            [controller changeCandidatePage:next];
+            assert(session.lastCommand == UINT32_MAX);
+        }
+        pageView[@"page"] = @2;
+        [controller setValue:[pageView copy] forKey:@"view"];
+        [controller renderCandidates];
+        previous = (id)PageButton(layoutPanel.contentView, -1);
+        next = (id)PageButton(layoutPanel.contentView, -2);
+        assert(previous.enabled && !next.enabled);
+        session.lastCommand = UINT32_MAX;
+        [controller changeCandidatePage:next];
+        assert(session.lastCommand == UINT32_MAX);
+        [layoutPanel orderOut:nil];
+        [controller changeCandidatePage:previous];
+        assert(session.lastCommand == UINT32_MAX);
+        pageView[@"page"] = @0;
+        pageView[@"page_count"] = @1;
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        assert(PageButton(layoutPanel.contentView, -1) == nil);
+        assert(PageButton(layoutPanel.contentView, -2) == nil);
     }
     return 0;
 }
