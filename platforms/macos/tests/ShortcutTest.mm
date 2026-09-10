@@ -110,7 +110,12 @@ show_selected_bar = true
         assert(manifest.good());
     }
     NSBitmapImageRep *image = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:4 pixelsHigh:4 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
-    for (NSInteger y = 0; y < 4; ++y) for (NSInteger x = 0; x < 4; ++x) [image setColor:NSColor.redColor atX:x y:y];
+    for (NSInteger y = 0; y < 4; ++y) for (NSInteger x = 0; x < 4; ++x) {
+        unsigned char *pixel = image.bitmapData + y * image.bytesPerRow + x * 4;
+        pixel[0] = 255; pixel[1] = 0; pixel[2] = 0; pixel[3] = 255;
+    }
+    image = [image bitmapImageRepByRetaggingWithColorSpace:NSColorSpace.sRGBColorSpace];
+    assert(image);
     assert([[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / "decoration.png").c_str()) atomically:YES]);
     MSIMEAppearancePreferences *external = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
     NSGridView *grid = (id)external.window.contentView.subviews.firstObject;
