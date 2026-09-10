@@ -550,7 +550,7 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 后续定位修正：面板显示器选择改为前台宿主窗口所在显示器，避免鼠标移动造成无关跳屏；无法取得前台窗口时回退面板/主显示器。x64 构建与运行时 staging 通过，Windows 原生多显示器验证仍待执行。
 
-跨仓回退契约补充：`MSIME-Windows` 通过 `IsDefinitelyNotSent` 单元测试锁定 `Sent`、`DefinitelyNotSent` 与 `DeliveryAmbiguous` 的区别；歧义投递继续沿既有 epoch 恢复路径处理，不交给第二套路由。该测试不改变线格式或 Server 状态模型，Windows 原生运行验证仍待执行，CI 保持禁用。
+回退契约补充：平台适配层通过 `IsDefinitelyNotSent` 单元测试锁定 `Sent`、`DefinitelyNotSent` 与 `DeliveryAmbiguous` 的区别；歧义投递继续沿既有 epoch 恢复路径处理，不交给第二套路由。该测试不改变线格式或 Server 状态模型，Windows 原生运行验证仍待执行，CI 保持禁用。
 
 ### 第八十八条功能：原生点击取消回归修正
 
