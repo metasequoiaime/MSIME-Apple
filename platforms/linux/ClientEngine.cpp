@@ -1563,6 +1563,40 @@ gboolean reload_preferences(gpointer data) {
             return;
           if (s.private_input)
             snapshot["preferences"]["learning"] = false;
+          if (s.autocorrect_override)
+            snapshot["preferences"]["autocorrect"] = *s.autocorrect_override;
+          const auto active_scheme = s.scheme_override.value_or(
+              snapshot["preferences"].value("scheme", "quanpin"));
+          if (s.scheme_override)
+            snapshot["preferences"]["scheme"] = *s.scheme_override;
+          if (s.shuangpin_profile_override)
+            snapshot["preferences"]["shuangpin_profile"] = *s.shuangpin_profile_override;
+          if (s.helpcode_override &&
+              (active_scheme == "quanpin" || active_scheme == "shuangpin"))
+            snapshot["preferences"][active_scheme + "_helpcode"]["enabled"] =
+                *s.helpcode_override;
+          if (s.helpcode_schema_override &&
+              (active_scheme == "quanpin" || active_scheme == "shuangpin"))
+            snapshot["preferences"][active_scheme + "_helpcode"]["schema"] =
+                *s.helpcode_schema_override;
+          if (s.candidate_page_size_override)
+            snapshot["preferences"]["candidate_page_size"] =
+                *s.candidate_page_size_override;
+          if (s.frequency_mode_override)
+            snapshot["preferences"]["frequency"]["mode"] =
+                *s.frequency_mode_override;
+          if (s.english_override)
+            snapshot["preferences"]["mixed_input"]["english"] = *s.english_override;
+          if (s.emoji_override)
+            snapshot["preferences"]["mixed_input"]["emoji"] = *s.emoji_override;
+          if (s.kaomoji_override)
+            snapshot["preferences"]["mixed_input"]["kaomoji"] = *s.kaomoji_override;
+          if (s.layout_override)
+            snapshot["preferences"]["candidate_layout"] = *s.layout_override;
+          if (s.preedit_override)
+            snapshot["preferences"]["tsf_preedit_style"] = *s.preedit_override;
+          if (s.theme_override)
+            snapshot["preferences"]["candidate_theme"] = *s.theme_override;
           auto bindings = msime::linux_host::NavigationBindings::read(
               snapshot.at("preferences"));
           auto edge_binding = msime::linux_host::WordCharacterBinding::read(
@@ -1581,6 +1615,8 @@ gboolean reload_preferences(gpointer data) {
           s.preedit_style = ::preedit_style(snapshot.at("preferences"));
           s.navigation = bindings;
           s.word_character = edge_binding;
+          if (s.word_character_override)
+            s.word_character.enabled = *s.word_character_override;
           render(IBUS_ENGINE(source), s.view);
         } catch (...) {
           // Bad files and stale revisions preserve the live session. Retry on
