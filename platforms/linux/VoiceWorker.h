@@ -11,6 +11,7 @@ class MsimeVoiceWorker {
  public:
   using Task = std::function<std::string(const std::atomic_bool &)>;
   using Result = std::function<void(std::string)>;
+  MsimeVoiceWorker() = default;
   ~MsimeVoiceWorker() { cancel(); }
   MsimeVoiceWorker(const MsimeVoiceWorker &) = delete;
   void cancel() {
