@@ -2,6 +2,7 @@
 #include "CandidateWindow.h"
 #include "ClipboardHistory.h"
 #include "ClipboardPresentation.h"
+#include "ClipboardWindow.h"
 #include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
@@ -176,11 +177,15 @@ int wmain(int argc, wchar_t **argv) {
         candidate_layout == "horizontal");
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
+    ClipboardWindow clipboard_window(
+        [&] { return clipboard_mailbox.snapshot(); },
+        [&](size_t) { /* Paste routing is added only through the worker boundary. */ });
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() &&
-           !modes.failed() && !mode_clicks.failed()) {
+           !modes.failed() && !mode_clicks.failed() &&
+           !clipboard_window.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -196,12 +201,14 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
+      clipboard_window.refresh();
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
     modes.hide();
+    clipboard_window.hide();
     clicks.request_stop();
     mode_clicks.request_stop();
     server.stop();
@@ -209,7 +216,8 @@ int wmain(int argc, wchar_t **argv) {
     mode_clicks.stop();
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
-                   !modes.failed() && !mode_clicks.failed()
+                   !modes.failed() && !mode_clicks.failed() &&
+                   !clipboard_window.failed()
                ? 0
                : 1;
   } catch (...) {
