@@ -78,6 +78,8 @@ pub struct CandidateId {
 pub struct Candidate {
     pub id: CandidateId,
     pub text: String,
+    /// Engine-derived display suffix, never part of selection or committed text.
+    pub annotation: String,
     pub highlighted: bool,
 }
 
@@ -204,6 +206,12 @@ impl<E: InputEngine> Runtime<E> {
                         index,
                     },
                     text: text.clone(),
+                    annotation: self
+                        .cached
+                        .candidate_annotations
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_default(),
                     highlighted: index == self.highlighted,
                 })
                 .collect(),
@@ -280,6 +288,7 @@ impl<E: InputEngine> Runtime<E> {
             &mut self.cached,
             EngineSnapshot {
                 scheme: 255,
+                candidate_annotations: Vec::new(),
                 microsoft_shuangpin: false,
                 local_mode: "unknown".into(),
                 preedit: String::new(),
@@ -296,6 +305,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
             && self.cached.candidates == previous.candidates
+            && self.cached.candidate_annotations == previous.candidate_annotations
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -483,6 +493,12 @@ mod tests {
             }
             Ok(EngineSnapshot {
                 scheme: 0,
+                candidate_annotations: self
+                    .words
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("({index})"))
+                    .collect(),
                 microsoft_shuangpin: false,
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
@@ -602,6 +618,7 @@ mod tests {
         let page = runtime.dispatch(Action::NextPage).unwrap().view;
         assert_eq!(page.page, 1);
         assert_eq!(page.page_count, 3);
+        assert_eq!(page.candidates[0].annotation, "(5)");
         assert_eq!(page.candidates[0].text, "candidate-5");
         let result = runtime
             .dispatch(Action::Select(page.candidates[2].id))

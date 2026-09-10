@@ -61,6 +61,7 @@ mod ffi {
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub candidate_annotations: Vec<String>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
@@ -291,6 +292,100 @@ mod tests {
         }
         value.helpcode_schema = "unknown".into();
         assert!(Session::new(&value).is_err());
+    }
+
+    #[test]
+    fn candidate_annotations_use_session_keymap_without_changing_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut value = options(dir.path());
+        let maps = std::path::Path::new(&value.resources).join("helpcodes");
+        std::fs::create_dir_all(&maps).unwrap();
+        std::fs::write(maps.join("zrm_helpcode_big_unique.txt"), "测=ab\n试=cd\n").unwrap();
+        // Use the SQLite already linked by Engine, with an isolated synthetic base table.
+        unsafe extern "C" {
+            fn sqlite3_open(path: *const std::ffi::c_char, db: *mut *mut std::ffi::c_void) -> i32;
+            fn sqlite3_exec(
+                db: *mut std::ffi::c_void,
+                sql: *const std::ffi::c_char,
+                callback: *const std::ffi::c_void,
+                arg: *mut std::ffi::c_void,
+                error: *mut *mut std::ffi::c_char,
+            ) -> i32;
+            fn sqlite3_close(db: *mut std::ffi::c_void) -> i32;
+        }
+        let path = std::ffi::CString::new(format!("{}/msime.db", value.dictionaries)).unwrap();
+        let sql = std::ffi::CString::new("CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER); INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);").unwrap();
+        unsafe {
+            let mut db = std::ptr::null_mut();
+            assert_eq!(sqlite3_open(path.as_ptr(), &mut db), 0);
+            let result = sqlite3_exec(
+                db,
+                sql.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            assert_eq!(sqlite3_close(db), 0);
+            assert_eq!(result, 0);
+        }
+        value.helpcode = true;
+        let mut session = Session::new(&value).unwrap();
+        for key in b"ceshi" {
+            session.character(*key, false).unwrap();
+        }
+        let snapshot = session.snapshot().unwrap();
+        let index = snapshot
+            .candidates
+            .iter()
+            .position(|word| word == "测试")
+            .unwrap();
+        assert_eq!(snapshot.candidate_annotations[index], "(aC)");
+        std::fs::write(maps.join("xiaohe_helpcode.txt"), "测=xy\n试=zw\n").unwrap();
+        value.helpcode_schema = "xiaohe".into();
+        let mut other = Session::new(&value).unwrap();
+        for key in b"ceshi" {
+            other.character(*key, false).unwrap();
+        }
+        let other_view = other.snapshot().unwrap();
+        let other_index = other_view
+            .candidates
+            .iter()
+            .position(|word| word == "测试")
+            .unwrap();
+        assert_eq!(other_view.candidate_annotations[other_index], "(xZ)");
+        assert_eq!(
+            session.snapshot().unwrap().candidate_annotations[index],
+            "(aC)"
+        );
+        value.helpcode = false;
+        let mut disabled = Session::new(&value).unwrap();
+        for key in b"ceshi" {
+            disabled.character(*key, false).unwrap();
+        }
+        let disabled = disabled.snapshot().unwrap();
+        assert!(disabled.candidates.iter().any(|word| word == "测试"));
+        assert!(disabled.candidate_annotations.iter().all(String::is_empty));
+        assert_eq!(session.select(index).unwrap().commit, "测试");
+        session.character(b'J', true).unwrap();
+        for key in b"cs" {
+            session.character(*key, false).unwrap();
+        }
+        let jianpin = session.snapshot().unwrap();
+        assert_eq!(jianpin.local_mode, "super_jianpin");
+        let index = jianpin
+            .candidates
+            .iter()
+            .position(|word| word == "测试")
+            .unwrap();
+        assert_eq!(jianpin.candidate_annotations[index], "(aC)");
+        session.select(index).unwrap();
+        session.character(b'U', true).unwrap();
+        for key in b"6d4b" {
+            session.character(*key, false).unwrap();
+        }
+        let snapshot = session.snapshot().unwrap();
+        assert!(snapshot.candidates.iter().any(|word| word == "测"));
+        assert!(snapshot.candidate_annotations.iter().all(String::is_empty));
     }
 
     #[test]

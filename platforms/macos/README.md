@@ -6,6 +6,8 @@
 
 原生菜单提供“简体输出”（默认）与“繁体输出”，保存到新宿主的 `MSIMEClientTraditionalOutput` 偏好。按固定 Apple 来源使用 `CFStringTransform` 的 `Simplified-Traditional` 转换候选显示、完整 tooltip 和最终上屏文本；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
 
+候选辅助码后缀按固定 Apple `CandidateDisplay.h` 接入。桥接层复用 Engine 的 `HelpcodeUtils`，按当前会话自身资源目录与辅助码方案加载不可变映射；仅启用辅助码的全拼/双拼普通模式和超级简拼附加后缀，Unicode、日期、快捷短语等合成模式及五笔/日语不附加。共享 JSON 候选新增 `annotation` 字符串，原 `text` 和候选 ID 不变；macOS 测量、按钮和 tooltip 使用原文加后缀，再执行繁体展示转换，上屏仍只提交 Engine 原文。映射缺失时后缀为空，不读取其他会话的全局映射。共享偏好现有延迟应用机制确保组合期间不切换映射；旧宿主无 annotation 字段仍显示原文。
+
 全角输入按同一固定 Apple 版本的 `FullWidthInput.h` 与控制器回退顺序迁移，默认关闭，存入新宿主 `MSIMEClientFullWidthInput`。候选设置中可勾选，中文模式下 Option + Shift + H 切换；重复按键只消费不反复切换，Command/Control 竞争修饰键及英文模式不触发。按键先交给 Engine，已处理的中文组词、选词与标点不再转换；未处理的按键先完成剩余组合，确认空闲后才将 ASCII 空格变为 U+3000、ASCII 可打印字符变为对应全角字符。无会话、失败响应或组合未完成时不插入全角回退，非 ASCII 字符不转换。原生测试覆盖 95 个字符、快捷键/偏好、Engine 优先、组合提交顺序及失败/未完成排除；测试使用替身会话，不代表已安装输入源验收。实际悬浮工具栏的全角按钮仍随工具栏整体迁移。
 
 共享 JSON 视图新增实际 Engine `scheme`（0 全拼、1 双拼、2 五笔、3 日语、255 未知）。有提交的 transition 携带分派前的 `commit_context`（`scheme`、`local_mode`），无提交时为 null；提交后 `view` 可能已清除局部模式或应用延迟配置，因此不能用它推断本次上屏来源。缺失/未知上下文不转换。Rust 测试覆盖五种选词路径、Unicode 模式重置和延迟切换日语；原生测试覆盖转换、排除路径、偏好与菜单、候选 ID/原文不变。这些本地测试不替代安装后的 IMK 输入源与真实编辑器验收。
