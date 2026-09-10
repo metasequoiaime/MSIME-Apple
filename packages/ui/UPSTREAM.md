@@ -28,3 +28,9 @@ Frequency controls follow the same `input.html`: five modes and numeric choices
 1–6. Shared validation follows `server/assets/config/config.toml` (1–10);
 existing values above 6 stay visible without truncation. Defaults are promote/1/1.
 The existing learning switch remains the Engine's independent master gate.
+
+Mixed English/emoji/kaomoji controls follow `input.html` and `input.ts` at the
+same pinned Windows commit. Persisted defaults follow `config.toml`: English
+enabled with a two-character threshold, emoji and kaomoji disabled. The English
+threshold has eight choices and is disabled (but retained) when English mixing
+is off. Candidate generation and ordering remain owned by Engine.

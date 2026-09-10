@@ -42,6 +42,10 @@ impl HostSession {
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
         options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
+        options.mixed_english = snapshot.preferences.mixed_input.english;
+        options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
+        options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
+        options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
@@ -329,6 +333,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             frequency_mode: options.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: options.preferences.frequency.trigger_count,
             frequency_linear_step: options.preferences.frequency.linear_step,
+            mixed_english: options.preferences.mixed_input.english,
+            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
+            mixed_emoji: options.preferences.mixed_input.emoji,
+            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
@@ -512,6 +520,38 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mixed_input_changes_defer_until_composition_ends() {
+        use msime_client_core::preferences::MixedInputPreferences;
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        let before = read(msime_client_view(handle));
+        let mut preferences = Preferences {
+            mixed_input: MixedInputPreferences {
+                english: false,
+                minimum_prefix: 8,
+                emoji: true,
+                kaomoji: true,
+            },
+            ..Preferences::default()
+        };
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle)), before);
+        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.mixed_english));
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let options = &sessions[&handle].options;
+            assert!(!options.mixed_english);
+            assert_eq!(options.english_minimum_prefix, 8);
+            assert!(options.mixed_emoji && options.mixed_kaomoji);
+        });
+        preferences.mixed_input.minimum_prefix = 9;
+        assert_eq!(update(handle, 2, &preferences)["ok"], false);
+        read(msime_client_destroy(handle));
+    }
     #[test]
     fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
         use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
