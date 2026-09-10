@@ -27,6 +27,8 @@ pub enum ChineseScheme {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
+    #[serde(default)]
+    pub theme: ThemeMode,
     pub scheme: InputScheme,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -55,6 +57,10 @@ pub struct Preferences {
     #[serde(default = "enabled_by_default")]
     pub clipboard_history: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode { #[default] Dark, Light, System }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -191,6 +197,7 @@ fn enabled_by_default() -> bool {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            theme: ThemeMode::default(),
             scheme: InputScheme::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
