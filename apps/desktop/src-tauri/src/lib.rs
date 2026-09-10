@@ -1,10 +1,126 @@
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+use std::io::Write;
 use std::sync::Arc;
 use tauri::Manager;
 
 struct DictionaryHostOptions(Arc<String>);
+
+#[derive(Debug, serde::Serialize)]
+struct HostActionError {
+    code: &'static str,
+}
+
+fn run_external_command(program: &str, args: &[&str]) -> Result<(), HostActionError> {
+    std::process::Command::new(program)
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), HostActionError> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(HostActionError {
+            code: "invalid_url",
+        });
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return run_external_command("open", &[&url]);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return run_external_command("xdg-open", &[&url]);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return run_external_command("cmd", &["/C", "start", "", &url]);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = url;
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), HostActionError> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        child
+            .stdin
+            .take()
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?
+            .write_all(text.as_bytes())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut child = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        child
+            .stdin
+            .take()
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?
+            .write_all(text.as_bytes())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut child = std::process::Command::new("clip")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        child
+            .stdin
+            .take()
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?
+            .write_all(text.as_bytes())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = text;
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
 
 #[derive(serde::Serialize)]
 struct CommandError {
@@ -108,7 +224,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_preferences,
             save_preferences,
-            dictionary_request
+            dictionary_request,
+            open_external_url,
+            copy_text
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
