@@ -12,6 +12,7 @@ const pages = [
   { id: "feedback", title: "反馈", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "help", title: "帮助", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "screen_keyboard", title: "屏幕键盘", icon: new URL("./assets/input.svg", import.meta.url).href },
+  { id: "voice_input", title: "语音输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -304,6 +305,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section capability-hero"><div className="section-title">屏幕键盘</div><p>使用屏幕上的虚拟键盘输入字符，适合触控设备或无法使用实体键盘的场景。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>宿主尚未接入</strong><small>当前客户端已预留设置入口，屏幕键盘运行时将在后续平台增量中接入。</small></div></div>
         <div className="section"><div className="section-title">使用说明</div><div className="help-list"><div><strong>打开方式</strong><span>接入后可从输入法工具栏或系统托盘打开屏幕键盘。</span></div><div><strong>主题同步</strong><span>屏幕键盘将跟随全局主题和字号设置。</span></div></div></div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "voice_input"} aria-label="语音输入">
+        <div className="section capability-hero"><div className="section-title">语音输入</div><p>按住快捷键录音，将语音转换为文字并插入当前应用。</p></div>
+        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>语音宿主尚未接入</strong><small>Windows 版支持豆包、OpenAI、SiliconFlow 和 Groq 等服务；当前客户端尚未接入录音与语音服务配置。</small></div></div>
+        <div className="section"><div className="section-title">接入准备</div><div className="help-list"><div><strong>服务凭据</strong><span>接入后将在此配置 ASR 提供商和 API Token。请勿把凭据提交到日志或代码仓库。</span></div><div><strong>隐私提示</strong><span>启用后录音会上传到所选服务；离线状态下不会产生语音识别结果。</span></div><div><strong>输入方式</strong><span>接入后支持批量识别和流式预编辑，并可取消当前语音会话。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
