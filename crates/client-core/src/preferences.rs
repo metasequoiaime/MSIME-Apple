@@ -28,6 +28,8 @@ pub enum ChineseScheme {
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     #[serde(default)]
+    pub floating_toolbar: FloatingToolbarPreferences,
+    #[serde(default)]
     pub theme: ThemeMode,
     #[serde(default)]
     pub settings_theme: SettingsTheme,
@@ -82,29 +84,83 @@ pub struct Preferences {
     pub clipboard_history: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ThemeMode { #[default] Dark, Light, System }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FloatingToolbarPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    #[serde(default = "default_toolbar_scale")]
+    pub scale_percent: u16,
+    #[serde(default = "default_toolbar_font_size")]
+    pub font_size: u16,
+}
+
+fn default_toolbar_scale() -> u16 {
+    100
+}
+fn default_toolbar_font_size() -> u16 {
+    24
+}
+
+impl Default for FloatingToolbarPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scale_percent: 100,
+            font_size: 24,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum SettingsTheme { #[default] Follow, Dark, Light }
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CandidateLayout { Horizontal, #[default] Vertical }
+pub enum SettingsTheme {
+    #[default]
+    Follow,
+    Dark,
+    Light,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CandidatePreeditStyle { #[default] Pinyin, Empty }
+pub enum CandidateLayout {
+    Horizontal,
+    #[default]
+    Vertical,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum PreeditStyle { #[default] Raw, Pinyin, Empty }
+pub enum CandidatePreeditStyle {
+    #[default]
+    Pinyin,
+    Empty,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum UiBackend { #[default] Direct2d, Webview2 }
+pub enum PreeditStyle {
+    #[default]
+    Raw,
+    Pinyin,
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiBackend {
+    #[default]
+    Direct2d,
+    Webview2,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -237,12 +293,17 @@ impl Default for NavigationPreferences {
 fn enabled_by_default() -> bool {
     true
 }
-fn default_candidate_font_size() -> u8 { 16 }
-fn default_candidate_font_family() -> String { "Segoe UI".to_owned() }
+fn default_candidate_font_size() -> u8 {
+    16
+}
+fn default_candidate_font_family() -> String {
+    "Segoe UI".to_owned()
+}
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            floating_toolbar: FloatingToolbarPreferences::default(),
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
@@ -338,6 +399,11 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !(50..=200).contains(&self.floating_toolbar.scale_percent)
+            || !(12..=48).contains(&self.floating_toolbar.font_size)
+        {
+            return Err(PreferencesError::InvalidFloatingToolbar);
+        }
         if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
             return Err(PreferencesError::InvalidMixedInput);
         }
@@ -356,18 +422,25 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if let Some(color) = &self.candidate_text_color {
-            if color.len() != 7 || color.as_bytes()[0] != b'#' ||
-                !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            if color.len() != 7
+                || color.as_bytes()[0] != b'#'
+                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
-        if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 ||
-            !self.candidate_font_family.is_ascii() {
+        if self.candidate_font_family.is_empty()
+            || self.candidate_font_family.len() > 128
+            || !self.candidate_font_family.is_ascii()
+        {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
-        if self.candidate_fallback_fonts.len() > 8 || self.candidate_fallback_fonts.iter().any(|font| {
-            font.is_empty() || font.len() > 128 || !font.is_ascii()
-        }) {
+        if self.candidate_fallback_fonts.len() > 8
+            || self
+                .candidate_fallback_fonts
+                .iter()
+                .any(|font| font.is_empty() || font.len() > 128 || !font.is_ascii())
+        {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         let paging = match self.word_character.keys {
@@ -401,6 +474,8 @@ impl Default for PreferencesSnapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
+    #[error("floating toolbar settings are invalid")]
+    InvalidFloatingToolbar,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("candidate font size must be between 12 and 32")]
@@ -575,7 +650,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
         let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        for key in ["theme", "settings_theme", "ui_backend", "candidate_follow_cursor"] {
+        for key in [
+            "theme",
+            "settings_theme",
+            "ui_backend",
+            "candidate_follow_cursor",
+        ] {
             legacy["preferences"].as_object_mut().unwrap().remove(key);
         }
         let bytes = serde_json::to_vec(&legacy).unwrap();
@@ -976,12 +1056,26 @@ mod tests {
         let initial = store.save(0, Preferences::default()).unwrap();
         for size in [11, 33, 255] {
             assert!(matches!(
-                store.save(1, Preferences { candidate_font_size: size, ..Preferences::default() }),
+                store.save(
+                    1,
+                    Preferences {
+                        candidate_font_size: size,
+                        ..Preferences::default()
+                    }
+                ),
                 Err(PreferencesError::InvalidCandidateFontSize)
             ));
         }
         for size in [12, 32] {
-            let saved = store.save(1, Preferences { candidate_font_size: size, ..Preferences::default() }).unwrap();
+            let saved = store
+                .save(
+                    1,
+                    Preferences {
+                        candidate_font_size: size,
+                        ..Preferences::default()
+                    },
+                )
+                .unwrap();
             assert_eq!(saved.preferences.candidate_font_size, size);
             std::fs::remove_file(store.path()).unwrap();
             break;
@@ -1000,12 +1094,26 @@ mod tests {
             (0..9).map(|index| format!("Font{index}")).collect(),
         ] {
             assert!(matches!(
-                store.save(1, Preferences { candidate_fallback_fonts: fonts, ..Preferences::default() }),
+                store.save(
+                    1,
+                    Preferences {
+                        candidate_fallback_fonts: fonts,
+                        ..Preferences::default()
+                    }
+                ),
                 Err(PreferencesError::InvalidCandidateFontFamily)
             ));
         }
         let valid = vec!["Noto Sans CJK SC".to_owned(); 8];
-        let saved = store.save(1, Preferences { candidate_fallback_fonts: valid.clone(), ..Preferences::default() }).unwrap();
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    candidate_fallback_fonts: valid.clone(),
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
         assert_eq!(saved.preferences.candidate_fallback_fonts, valid);
         assert_eq!(store.load().unwrap().revision, 2);
         assert_eq!(initial.revision, 1);
