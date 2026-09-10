@@ -3,6 +3,13 @@
 
 use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+#[cfg(unix)]
+use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
@@ -141,6 +148,50 @@ pub struct OnlineCandidate {
     pub text: String,
     /// 0 = cloud suggestion, 1 = AI suggestion.
     pub source: u8,
+}
+
+/// Linux adapter for a user-owned provider over a local Unix socket.
+/// Credentials and network policy remain in the socket service; only a
+/// copied, bounded query crosses this boundary.
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+pub struct UnixSocketProvider {
+    path: PathBuf,
+}
+
+#[cfg(unix)]
+impl UnixSocketProvider {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+        if query.query_text.len() > 4096 || query.identity.len() > 4096 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "query": query}).to_string();
+        if request.len() > 16384 || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+            source: u8,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+            return None;
+        }
+        Some((reply.text, reply.source))
+    }
 }
 
 /// Bounded provider worker. Provider code runs off the host/IBus thread and
@@ -1122,5 +1173,42 @@ mod tests {
             runtime.dispatch(Action::Select(id)),
             Err(RuntimeError::StaleCandidate)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_provider_round_trips_bounded_json() {
+        use std::io::{BufRead, Write};
+        use std::os::unix::net::UnixListener;
+        use std::thread;
+
+        let path = std::env::temp_dir().join(format!("msime-provider-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufReader::new(&mut stream)
+                .read_line(&mut request)
+                .unwrap();
+            assert!(request.contains("\"version\":1"));
+            stream
+                .write_all("{\"text\":\"候选\",\"source\":0}\n".as_bytes())
+                .unwrap();
+        });
+        let query = OnlineQuery {
+            scheme: 0,
+            generation: 1,
+            identity: "id".into(),
+            query_text: "nihao".into(),
+            cache_key: "key".into(),
+            pinyin_segments: vec!["ni".into(), "hao".into()],
+            cloud_eligible: true,
+            ai_eligible: false,
+            session_id: 1,
+        };
+        assert_eq!(UnixSocketProvider::new(&path).query(query), Some(("候选".into(), 0)));
+        server.join().unwrap();
+        let _ = std::fs::remove_file(path);
     }
 }
