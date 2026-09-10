@@ -34,6 +34,15 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data || data.length > 65536) { setError(error, @"词典请求过大"); return nil; }
     return decode(msime_client_dictionary(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
++ (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
+    if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
+        setError(error, @"词库准备目录必须是绝对路径"); return nil;
+    }
+    NSDictionary *request = @{@"resources": resourcesDirectory, @"state_root": stateRoot};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"词库准备请求过大"); return nil; }
+    return decode(msime_client_prepare_host(static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
 - (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
