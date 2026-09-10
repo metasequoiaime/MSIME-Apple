@@ -266,8 +266,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
   useEffect(() => {
-    if (page === "skin" && client.skin?.list) void client.skin.list().then(setExternalSkins).catch(() => setExternalSkins([]));
-    if (page === "skin" && client.skin?.selected) void client.skin.selected().then(setSelectedSkin).catch(() => setSelectedSkin(null));
+    let active = true;
+    if (page === "skin" && client.skin?.list) void client.skin.list().then(value => { if (active) setExternalSkins(value); }).catch(() => { if (active) setExternalSkins([]); });
+    if (page === "skin" && client.skin?.selected) void client.skin.selected().then(value => { if (active) setSelectedSkin(value); }).catch(() => { if (active) setSelectedSkin(null); });
+    return () => { active = false; };
   }, [client, page]);
   useEffect(() => {
     if (page !== "about" || !client.diagnostics?.state) return;
