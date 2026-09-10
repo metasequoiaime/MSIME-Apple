@@ -46,6 +46,8 @@ struct State {
   std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
+  std::string online_provider_socket;
+  bool online_loading = false;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   ~State() { close(); }
@@ -54,11 +56,13 @@ struct State {
       msime_client_string_free(msime_client_destroy(session));
     session = 0;
     view = nullptr;
+    online_loading = false;
   }
   void open() {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
+    online_provider_socket = options.value("online_provider_socket", "");
     if (scheme_override)
       options["preferences"]["scheme"] = *scheme_override;
     if (english_override)
@@ -97,6 +101,8 @@ struct State {
     word_character = edge_binding;
   }
 };
+struct MsimePreviewEngine;
+State &state(IBusEngine *engine);
 std::optional<guint> candidate_text_color(const Json &preferences) {
   const auto value = preferences.value("candidate_text_color", Json(nullptr));
   if (!value.is_string())
@@ -134,6 +140,42 @@ IBusOrientation candidate_orientation(const Json &preferences) {
 std::string preedit_style(const Json &preferences) {
   const auto style = preferences.value("tsf_preedit_style", "raw");
   return style == "pinyin" || style == "empty" ? style : "raw";
+}
+
+struct OnlineTask {
+  uint64_t session;
+  std::string query;
+  std::string socket;
+};
+void online_complete(GObject *source, GAsyncResult *result, gpointer);
+void online_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.online_provider_socket.empty() || s.online_loading || !s.session ||
+      !s.focused || s.blocked)
+    return;
+  try {
+    auto query = response(msime_client_online_query(s.session));
+    if (!query.value("available", false))
+      return;
+    auto *task_data = new OnlineTask{s.session, query.dump(), s.online_provider_socket};
+    s.online_loading = true;
+    auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
+    g_task_set_task_data(task, task_data, [](gpointer value) {
+      delete static_cast<OnlineTask *>(value);
+    });
+    g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+      auto &request = *static_cast<OnlineTask *>(data);
+      auto *raw = msime_client_online_provider_request(
+          reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
+          reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
+      g_task_return_pointer(task, raw, [](gpointer value) {
+        msime_client_string_free(static_cast<char *>(value));
+      });
+    });
+    g_object_unref(task);
+  } catch (...) {
+    s.online_loading = false;
+  }
 }
 } // namespace
 
@@ -384,7 +426,34 @@ bool apply(IBusEngine *engine, char *raw) {
   }
   state(engine).view = result.at("view");
   render(engine, state(engine).view);
+  online_schedule(engine);
   return result.at("handled").get<bool>();
+}
+void online_complete(GObject *source, GAsyncResult *result, gpointer) {
+  auto *engine = IBUS_ENGINE(source);
+  auto &s = state(engine);
+  auto *request = static_cast<OnlineTask *>(g_task_get_task_data(G_TASK(result)));
+  s.online_loading = false;
+  auto *raw = g_task_propagate_pointer(G_TASK(result), nullptr);
+  if (!raw || !request || !s.session || s.session != request->session || !s.focused)
+    return;
+  try {
+    auto reply = response(raw);
+    if (reply.is_null() || !reply.is_object() || !reply.contains("text") ||
+        !reply.at("text").is_string() || !reply.contains("source"))
+      return;
+    auto text = reply.at("text").get<std::string>();
+    auto source_id = reply.at("source").get<uint8_t>();
+    auto query_bytes = request->query;
+    s.online_loading = true;
+    apply(engine, msime_client_apply_online_candidate(
+                       s.session, reinterpret_cast<const uint8_t *>(query_bytes.data()),
+                       query_bytes.size(), reinterpret_cast<const uint8_t *>(text.data()),
+                       text.size(), source_id));
+    s.online_loading = false;
+  } catch (...) {
+    g_warning("MSIME online provider result rejected");
+  }
 }
 template <class F> void guarded(IBusEngine *engine, F action) noexcept {
   try {
