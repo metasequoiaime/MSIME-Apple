@@ -286,10 +286,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>)}
           </div>
         </div>
-        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">双拼方案</span><select value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
-          <option value="xiaohe">小鹤双拼</option><option value="ziranma">自然码双拼</option>
-          <option value="shoudao">首道双拼</option><option value="microsoft">微软双拼</option>
-        </select></label></div>
+        <div className="section" hidden={draft.scheme === "japanese"}><div className="section-header"><span className="section-title">双拼方案</span><CustomDropdown ariaLabel="双拼方案" value={draft.shuangpin_profile} options={[["xiaohe", "小鹤双拼"], ["ziranma", "自然码双拼"], ["shoudao", "首道双拼"], ["microsoft", "微软双拼"]]} onChange={value => setDraft({ ...draft, shuangpin_profile: value as Preferences["shuangpin_profile"] })} /></div></div>
         <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
         <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={draft.scheme !== "japanese"}>
           <div className="section-title" id="japanese-scheme-title">日语方案</div>
