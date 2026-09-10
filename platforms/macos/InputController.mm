@@ -32,6 +32,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     BOOL _preferencesLoading;
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
+    BOOL _skinShowsSelectedBar;
 }
 
 - (void)ensureAppearance {
@@ -221,7 +222,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     const BOOL vertical = _appearance.vertical;
-    const auto geometry = msime::mac::BuiltInSkinTokens(_appearance.skinID.UTF8String, false);
+    NSAppearance *currentAppearance = _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
+    NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    const auto skin = [_appearance resolvedSkinForDark:[currentTheme isEqual:NSAppearanceNameDarkAqua]];
+    const auto geometry = skin.tokens;
+    _skinShowsSelectedBar = geometry.showSelectedBar;
     const CGFloat inset = MAX(2.0, geometry.pad);
     NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
@@ -263,7 +268,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
-    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0);
+    const CGFloat decorationHeight = skin.decorationTopDip;
+    width = MAX(width, MAX(skin.minWidthDip, skin.decorationWidthDip));
+    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight;
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
@@ -274,7 +281,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         button.candidateID = candidate[@"id"];
         button.tag = (NSInteger)slot;
         CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
-        button.frame = NSMakeRect(x, vertical ? height - inset - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
+        button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
         ++slot;
         if (!vertical) x += itemWidth;
         button.font = font;
@@ -298,6 +305,14 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
             [content addSubview:button];
         }
     }
+    if (decorationHeight > 0 && _appearance.decorationImage) {
+        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(width - skin.decorationWidthDip, height - decorationHeight, skin.decorationWidthDip, decorationHeight)];
+        decoration.image = _appearance.decorationImage;
+        decoration.imageScaling = NSImageScaleProportionallyUpOrDown;
+        decoration.imageAlignment = NSImageAlignTopRight;
+        decoration.wantsLayer = YES;
+        [content addSubview:decoration];
+    }
     _panel.contentView = content;
     content.appearanceTarget = self;
     content.appearanceAction = @selector(refreshCandidateSkin);
@@ -310,7 +325,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
     MSIMECandidateChromeView *content = (id)_panel.contentView;
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    const auto tokens = msime::mac::BuiltInSkinTokens(_appearance.skinID.UTF8String, [match isEqual:NSAppearanceNameDarkAqua]);
+    const auto tokens = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
+    if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
     content.fillColor = SkinColor(tokens.surface);
     content.strokeColor = SkinColor(tokens.border);
     content.cornerRadius = tokens.radius;

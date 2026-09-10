@@ -1,5 +1,7 @@
 #import "../InputController.mm"
 #include <cassert>
+#include <fstream>
+
 
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
@@ -73,6 +75,89 @@ static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (id)view;
     }
     return nil;
+}
+
+static void TestExternalSkin(MSIMEInputController *controller, HiddenCandidatePanel *panel, NSUserDefaults *defaults) {
+    char temporary[] = "/tmp/msime-native-skin-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    std::filesystem::create_directory(root / "synthetic");
+    {
+        std::ofstream manifest(root / "synthetic" / "skin.toml");
+        manifest << R"toml(schema_version = 1
+id = "synthetic"
+name = "Synthetic Skin"
+version = "1.0"
+base = "fluent"
+preview = "decoration.png"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+[candidate_window]
+min_width_dip = 240
+[candidate_window.decoration]
+top_inset_dip = 48
+width_dip = 120
+[candidate.light]
+surface = "#fff7fa"
+selected = "#111111"
+show_selected_bar = false
+[candidate.dark]
+surface = "#121314"
+selected = "#ffffff"
+show_selected_bar = true
+)toml";
+        assert(manifest.good());
+    }
+    NSBitmapImageRep *image = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:4 pixelsHigh:4 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+    for (NSInteger y = 0; y < 4; ++y) for (NSInteger x = 0; x < 4; ++x) [image setColor:NSColor.redColor atX:x y:y];
+    assert([[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / "decoration.png").c_str()) atomically:YES]);
+    MSIMEAppearancePreferences *external = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    NSGridView *grid = (id)external.window.contentView.subviews.firstObject;
+    NSPopUpButton *control = (id)[grid cellAtColumnIndex:1 rowIndex:4].contentView;
+    assert(control.numberOfItems == 5 && [control.lastItem.title isEqual:@"Synthetic Skin"]);
+    [control selectItemAtIndex:4];
+    [NSApp sendAction:control.action to:control.target from:control];
+    assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
+    MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:external.skinsRoot];
+    assert([loaded.skinID isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].id == "synthetic");
+    NSDictionary *before = [[controller valueForKey:@"view"] copy];
+    [controller setValue:external forKey:@"appearance"];
+    for (NSNumber *vertical in @[@NO, @YES]) {
+        external.vertical = vertical.boolValue;
+        for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+            panel.appearance = [NSAppearance appearanceNamed:theme];
+            [controller appearanceChanged:nil];
+            MSIMECandidateChromeView *chrome = (id)panel.contentView;
+            NSImageView *decoration = (id)chrome.subviews.lastObject;
+            assert([decoration isKindOfClass:NSImageView.class] && decoration.image);
+            assert(panel.frame.size.width >= 240);
+            assert(decoration.frame.size.width == 120 && decoration.frame.size.height == 48);
+            assert(NSMaxX(decoration.frame) == chrome.bounds.size.width && NSMaxY(decoration.frame) == chrome.bounds.size.height);
+            MSIMECandidateButton *first = PageButton(chrome, 0);
+            assert(NSMaxY(first.frame) <= NSMinY(decoration.frame));
+            assert(first.showSelectedBar == [theme isEqual:NSAppearanceNameDarkAqua]);
+            const auto tokens = [external resolvedSkinForDark:[theme isEqual:NSAppearanceNameDarkAqua]].tokens;
+            assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);
+            assert([first.titleColor isEqual:SkinColor(tokens.selectedText)]);
+            NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
+            [chrome cacheDisplayInRect:chrome.bounds toBitmapImageRep:bitmap];
+            assert(bitmap && [[controller valueForKey:@"view"] isEqual:before]);
+        }
+    }
+    // No disk reads while typing/rendering: removal takes effect only on explicit reload.
+    std::filesystem::remove_all(root / "synthetic");
+    [controller renderCandidates];
+    assert([external resolvedSkinForDark:NO].id == "synthetic" && external.decorationImage);
+    NSButton *reload = (id)[grid cellAtColumnIndex:1 rowIndex:5].contentView;
+    [NSApp sendAction:reload.action to:reload.target from:reload];
+    assert([external.skinID isEqual:@"synthetic"]);
+    assert([external resolvedSkinForDark:NO].id == "fluent" && !external.decorationImage);
+    assert(control.numberOfItems == 4 && [control.selectedItem.representedObject isEqual:@"fluent"]);
+    [controller appearanceChanged:nil];
+    for (NSView *view in panel.contentView.subviews) assert(![view isKindOfClass:NSImageView.class]);
+    panel.appearance = nil;
+    std::filesystem::remove_all(root);
 }
 
 int main() {
@@ -323,6 +408,8 @@ int main() {
                 }
             }
         }
+        TestExternalSkin(controller, layoutPanel, defaults);
+        [controller setValue:appearance forKey:@"appearance"];
         appearance.vertical = NO;
         appearance.skinID = @"fluent";
         [controller appearanceChanged:nil];
