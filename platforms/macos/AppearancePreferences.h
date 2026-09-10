@@ -1,5 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#include "CandidateSkin.h"
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 
@@ -7,6 +8,11 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @interface MSIMEAppearancePreferences : NSWindowController
 + (instancetype)sharedPreferences;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults;
+- (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
+- (void)reloadSkins;
+- (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
+@property(nonatomic, readonly) NSImage *decorationImage;
+@property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic) NSUInteger pageSize;
