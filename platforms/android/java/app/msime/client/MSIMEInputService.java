@@ -223,7 +223,14 @@ public final class MSIMEInputService extends InputMethodService {
         controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         keyboard.addView(controlScroll);
-        Button shiftButton = button(controls, "Shift", () -> { shift = !shift; render(); });
+        final Button[] shiftButtonRef = new Button[1];
+        Button shiftButton = button(controls, "Shift", () -> {
+            shift = !shift;
+            shiftButtonRef[0].setSelected(shift);
+            shiftButtonRef[0].setContentDescription(shift ? "大写已开启" : "切换大写");
+            render();
+        });
+        shiftButtonRef[0] = shiftButton;
         shiftButton.setContentDescription("切换大写");
         button(controls, "首", () -> command(6));
         button(controls, "←", () -> command(4));
