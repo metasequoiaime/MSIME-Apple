@@ -92,8 +92,8 @@
     }
     UIStackView *actions = [[UIStackView alloc] initWithFrame:CGRectZero];
     actions.axis = UILayoutConstraintAxisHorizontal;
-    actions.distribution = UIStackViewDistributionFillEqually;
-    actions.spacing = 4;
+    actions.distribution = UIStackViewDistributionFillProportionally;
+    actions.spacing = 6;
     for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"上词", @"下词", @"上页", @"下页", @"空格", @"⌫", @"删除", @"取消", @"回车"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
