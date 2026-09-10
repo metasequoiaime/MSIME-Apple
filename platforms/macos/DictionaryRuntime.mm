@@ -1,4 +1,5 @@
 #import "DictionaryRuntime.h"
+#import "MSIMEClientSession.h"
 
 static NSString *const MSIMEDictionaryRuntimeError = @"app.msime.client.dictionary-runtime";
 static NSURL *AbsoluteDirectory(NSDictionary *options, NSString *key, NSError **error) {
@@ -11,6 +12,13 @@ static NSURL *AbsoluteDirectory(NSDictionary *options, NSString *key, NSError **
 }
 @implementation MSIMEDictionaryRuntime {
     NSURL *_resourcesDirectory; NSURL *_userDataDirectory; NSURL *_cacheDirectory; NSURL *_dictionariesDirectory;
+}
++ (void)prepareResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot completion:(MSIMEDictionaryPrepareCompletion)completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *error = nil;
+        NSDictionary *options = [MSIMEClientSession prepareHostWithResourcesDirectory:resourcesDirectory stateRoot:stateRoot error:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(options, error); });
+    });
 }
 - (instancetype)initWithHostOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     self = [super init]; if (!self) return nil;
