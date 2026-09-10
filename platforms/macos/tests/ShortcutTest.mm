@@ -1,4 +1,5 @@
 #import "../InputController.mm"
+#import "../InputSourceRegistration.h"
 #include <cassert>
 #include <fstream>
 
@@ -438,6 +439,9 @@ show_selected_bar = true
 }
 
 int main() {
+    assert(!MSIMEShouldRegisterInputSource(1, nullptr));
+    const char *registerArguments[] = {"test", "--register-input-source"};
+    assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
