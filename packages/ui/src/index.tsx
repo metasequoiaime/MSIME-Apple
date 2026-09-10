@@ -5,6 +5,7 @@ export type Preferences = {
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   learning: boolean;
+  autocorrect?: boolean;
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
@@ -82,6 +83,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <label>每页候选数量<select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label>
+        <label className="toggle"><span>全拼纠错<small>自动纠正常见拼音输入错误</small></span><input type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label>
         <label className="toggle"><span>学习选词习惯<small>根据选词调整候选顺序</small></span><input type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label>
         <label className="toggle"><span>中文标点<small>默认使用中文标点符号</small></span><input type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label>
       </fieldset>

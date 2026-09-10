@@ -24,7 +24,13 @@ pub struct Preferences {
     pub shuangpin_profile: ShuangpinProfile,
     pub candidate_page_size: u8,
     pub learning: bool,
+    #[serde(default = "enabled_by_default")]
+    pub autocorrect: bool,
     pub chinese_punctuation: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 impl Default for Preferences {
@@ -34,6 +40,7 @@ impl Default for Preferences {
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
             learning: true,
+            autocorrect: true,
             chinese_punctuation: true,
         }
     }
@@ -196,6 +203,27 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autocorrect_legacy_default_and_disabled_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("autocorrect");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().unwrap().preferences.autocorrect);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let preferences = Preferences {
+            autocorrect: false,
+            ..Preferences::default()
+        };
+        store.save(0, preferences).unwrap();
+        assert!(!store.load().unwrap().preferences.autocorrect);
+    }
 
     #[test]
     fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {

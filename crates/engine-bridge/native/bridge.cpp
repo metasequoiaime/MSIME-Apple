@@ -25,6 +25,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         default: throw std::invalid_argument("Unsupported shuangpin profile");
     }
     options.learning = value.learning;
+    options.autocorrect = value.autocorrect;
     options.chinese_punctuation = value.chinese_punctuation;
     options.helpcode = false;
     return options;
@@ -56,7 +57,7 @@ std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true};
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true};
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
