@@ -15,6 +15,7 @@ const pages = [
   { id: "voice_input", title: "语音输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "handwriting", title: "手写识别", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "ai_assistant", title: "AI 辅助", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "floating_toolbar", title: "悬浮工具栏", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -327,6 +328,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section capability-hero"><div className="section-title">AI 辅助</div><p>使用兼容 Chat Completions 的服务异步生成联想候选，帮助快速完成输入。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>AI 宿主尚未接入</strong><small>Windows 版支持 DeepSeek、OpenAI、SiliconFlow 和 Groq；当前客户端尚未接入在线 AI 请求与候选管线。</small></div></div>
         <div className="section"><div className="section-title">配置项预览</div><div className="help-list"><div><strong>启用 AI 联想</strong><span>接入后可在全拼和双拼输入时异步生成额外候选。</span></div><div><strong>API 配置</strong><span>每个服务商独立保存 Token，并支持自定义模型与接口地址。</span></div><div><strong>提示词</strong><span>可选择预设提示词或编辑自定义提示词；敏感凭据不会写入日志。</span></div></div></div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "floating_toolbar"} aria-label="悬浮工具栏">
+        <div className="section capability-hero"><div className="section-title">悬浮工具栏</div><p>在桌面显示输入法状态和常用功能，便于快速切换输入模式。</p></div>
+        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>工具栏宿主尚未接入</strong><small>Windows 版支持工具栏显示、缩放、位置和组件选择；当前客户端尚未接入原生桌面工具栏。</small></div></div>
+        <div className="section"><div className="section-title">功能预览</div><div className="help-list"><div><strong>显示与缩放</strong><span>接入后可控制工具栏显示状态、相对系统 DPI 的缩放和图标基准大小。</span></div><div><strong>常用组件</strong><span>可选择全角/半角、中英文标点、简繁切换、表情符号、屏幕键盘和设置入口。</span></div><div><strong>工具栏主题同步</strong><span>工具栏将跟随候选窗口主题和系统颜色设置。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
