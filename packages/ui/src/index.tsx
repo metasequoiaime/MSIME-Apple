@@ -9,6 +9,7 @@ const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
+  { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
@@ -368,15 +369,17 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           </div>;
         })}
       </fieldset>
-      <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label></div>
-        {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
+      <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
+        {client.dictionary ? <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 0, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
           <label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
           {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>短语 <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
           {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
-        </div>}
+        </div> : <div className="section"><div className="section-title">用户词库</div><p className="notice">当前宿主未提供词库管理接口。</p></div>}
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label></div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}
