@@ -9,6 +9,7 @@ use tauri::Manager;
 struct DictionaryHostOptions(Arc<String>);
 struct DiagnosticState(std::sync::Mutex<(bool, bool)>);
 struct ClipboardHistoryState(std::sync::Mutex<Vec<String>>);
+struct SkinState(std::sync::Mutex<Option<String>>);
 
 #[derive(Debug, serde::Serialize)]
 struct ExternalSkinSummary {
@@ -106,6 +107,24 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
         });
     }
     Ok(result)
+}
+
+#[tauri::command]
+fn select_skin(state: tauri::State<'_, SkinState>, id: String) -> Result<(), HostActionError> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        return Err(HostActionError {
+            code: "invalid_skin",
+        });
+    }
+    *state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })? = Some(id);
+    Ok(())
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -415,6 +434,7 @@ pub fn run() {
             app.manage(DictionaryHostOptions(Arc::new(host_options)));
             app.manage(DiagnosticState(std::sync::Mutex::new((false, false))));
             app.manage(ClipboardHistoryState(std::sync::Mutex::new(Vec::new())));
+            app.manage(SkinState(std::sync::Mutex::new(None)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -429,7 +449,8 @@ pub fn run() {
             refresh_skin_catalog,
             list_external_skins,
             set_diagnostic_log,
-            clear_clipboard_history
+            clear_clipboard_history,
+            select_skin
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
