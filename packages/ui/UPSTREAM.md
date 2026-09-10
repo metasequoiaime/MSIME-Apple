@@ -16,3 +16,10 @@ revision protocol. Only migrated settings categories are currently shown;
 native titlebar controls, remaining categories, custom dropdown menus, and
 full visual parity remain outstanding. The current palette follows upstream's
 default dark appearance; persisted theme settings remain outstanding.
+
+Input mode and scheme controls follow `src/partials/input.html` and
+`src/modules/input.ts` at the same commit. Radio sizes, colors, dividers, and
+mode layout are adapted from `styles/components/forms.css` and
+`styles/modules/input.css`, retaining keyboard focus and forced-color support.
+The shared active `scheme` remains compatible with existing hosts; optional
+`last_chinese_scheme` preserves the Chinese choice while Japanese is active.

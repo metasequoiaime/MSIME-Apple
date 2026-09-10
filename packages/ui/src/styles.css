@@ -21,6 +21,16 @@ button:disabled, select:disabled, input:disabled { cursor: default; opacity: .5;
 .content-header h1 { font-weight: 500; font-size: 18px; margin: 0; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .helpcode-schema { margin-top: 12px; }
+.input-option-content { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.input-mode-options { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.input-option-item { display: flex; flex-direction: column; gap: 8px; }
+.input-option-divider { width: 100%; height: .8px; background-color: var(--divider-color); }
+.input-setting-description { color: var(--text-muted); font-size: 12px; margin-top: 5px; }
+.japanese-scheme-description { margin-top: 10px; }
+.radio-option { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.radio-option input[type="radio"] { appearance: none; width: 20px; height: 20px; flex: 0 0 20px; border: 2px solid #616161; border-radius: 50%; position: relative; }
+.radio-option input[type="radio"]:checked { border-color: #8e8cd8; }
+.radio-option input[type="radio"]:checked::after { content: ""; position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: #8e8cd8; border-radius: 50%; transform: translate(-50%, -50%); }
 select { background: var(--dropdown-bg); border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; padding: 4px 6px 4px 9px; min-width: 110px; max-width: 100%; }
 select:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--border-strong); }
 small { display: block; font-size: 12px; font-weight: 400; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
@@ -47,6 +57,8 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .section-title { overflow-wrap: anywhere; }
 }
 @media (forced-colors: active) {
+  .radio-option input[type="radio"] { appearance: auto; }
+  .radio-option input[type="radio"]::after { display: none; }
   .toggle { appearance: auto; }
   .toggle::after { display: none; }
   .sidebar .item.active { outline: 1px solid Highlight; }

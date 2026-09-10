@@ -16,10 +16,21 @@ pub enum InputScheme {
     Japanese,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChineseScheme {
+    Quanpin,
+    Shuangpin,
+    Wubi,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     pub scheme: InputScheme,
+    /// Retained when the active scheme is Japanese. Absent in legacy documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
     pub candidate_page_size: u8,
@@ -41,6 +52,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             scheme: InputScheme::default(),
+            last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
             learning: true,
@@ -260,6 +272,42 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_chinese_scheme_roundtrips_without_changing_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+        fs::write(store.path(), &legacy).unwrap();
+        assert_eq!(store.load().unwrap().preferences.last_chinese_scheme, None);
+        assert_eq!(fs::read(store.path()).unwrap(), legacy);
+        for (revision, scheme) in [
+            ChineseScheme::Quanpin,
+            ChineseScheme::Shuangpin,
+            ChineseScheme::Wubi,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let saved = store
+                .save(
+                    revision as u64,
+                    Preferences {
+                        scheme: InputScheme::Japanese,
+                        last_chinese_scheme: Some(scheme),
+                        ..Preferences::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(store.load().unwrap()).unwrap();
+        invalid["preferences"]["last_chinese_scheme"] = "japanese".into();
+        let bytes = serde_json::to_vec(&invalid).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.save(3, Preferences::default()).is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
 
     #[test]
     fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {

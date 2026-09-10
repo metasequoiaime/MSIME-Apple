@@ -29,17 +29,39 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const profile = await screen.findByLabelText("双拼方案") as HTMLSelectElement;
-  expect(profile.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("输入方案"), { target: { value: "shuangpin" } });
-  expect(profile.disabled).toBe(false);
+  await screen.findByRole("radio", { name: "全拼" });
+  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
+  fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
   fireEvent.change(profile, { target: { value: "microsoft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", shuangpin_profile: "microsoft" });
-  fireEvent.change(screen.getByLabelText("输入方案"), { target: { value: "quanpin" } });
-  expect(profile.disabled).toBe(true);
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin", shuangpin_profile: "microsoft" });
+  fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
+  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
   expect(profile.value).toBe("microsoft");
+});
+
+test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] as const)("Japanese mode retains %s across save and reload", async (scheme, label) => {
+  let stored: Snapshot = { ...initial, preferences: { ...initial.preferences, scheme } };
+  const client: SettingsClient = { load: vi.fn(async () => stored), save: vi.fn(async (revision, preferences) => (stored = { ...stored, revision: revision + 1, preferences })) };
+  const mounted = render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  await screen.findByRole("radio", { name: label });
+  fireEvent.click(screen.getByRole("radio", { name: "日文" }));
+  expect(screen.queryByRole("radio", { name: label })).toBeNull();
+  expect((screen.getByRole("radio", { name: "罗马字" }) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(stored.preferences.scheme).toBe("japanese");
+  expect(stored.preferences.last_chinese_scheme).toBe(scheme);
+  mounted.unmount();
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  await screen.findByRole("radio", { name: "罗马字" });
+  fireEvent.click(screen.getByRole("radio", { name: "中文" }));
+  expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.queryByRole("radio", { name: "罗马字" })).toBeNull();
 });
 
 test("saves edited preferences against the loaded revision", async () => {
