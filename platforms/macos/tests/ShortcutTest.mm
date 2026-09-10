@@ -10,8 +10,15 @@
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
 @property(nonatomic) uint8_t requestedPageSize;
+@property(nonatomic) BOOL failFinish;
+@property(nonatomic) NSUInteger focusCalls;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
+    (void)error;
+    ++self.focusCalls;
+    return @{@"handled": @NO, @"commit": NSNull.null, @"view": @{@"focused": @(focused), @"editing_text": @"", @"candidates": @[]}};
+}
 - (NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
     (void)error;
     self.requestedPageSize = size;
@@ -27,6 +34,7 @@
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
+    if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
 }
@@ -69,6 +77,103 @@
 - (void)orderFrontRegardless { self.requestedVisible = YES; }
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
+
+@interface ModeController : MSIMEInputController
+@property(nonatomic) NSUInteger preparationCalls;
+@property(nonatomic) NSUInteger paletteCalls;
+@end
+@implementation ModeController
+- (void)prepareSession {
+    ++self.preparationCalls;
+    if ([self valueForKey:@"session"]) [super prepareSession];
+}
+- (void)showSystemCharacterPalette { ++self.paletteCalls; }
+@end
+
+static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+}
+
+static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    assert(!appearance.englishMode && appearance.inputModeShortcut);
+    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
+    NSButton *shortcut = (id)[grid cellAtColumnIndex:1 rowIndex:7].contentView;
+    shortcut.state = NSControlStateValueOff;
+    [NSApp sendAction:shortcut.action to:shortcut.target from:shortcut];
+    MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot];
+    assert(!reloaded.inputModeShortcut);
+    appearance.inputModeShortcut = YES;
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    [controller setValue:session forKey:@"session"];
+    NSMenu *menu = controller.menu;
+    assert(menu.numberOfItems == 5 && !menu.autoenablesItems);
+    assert([menu itemAtIndex:0].state == NSControlStateValueOn);
+    assert([menu itemAtIndex:1].state == NSControlStateValueOff);
+    assert([[menu itemAtIndex:3].title isEqual:@"表情与符号…"]);
+    client.marked = @"ceshi";
+    panel.visible = YES;
+    [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
+    assert(appearance.englishMode && !panel.visible);
+    assert([client.committed isEqual:@"测试"] && client.marked.length == 0);
+    assert([controller.menu itemAtIndex:1].state == NSControlStateValueOn);
+    assert(reloaded.englishMode); // Persistence is shared, not held only in the controller.
+    session.lastCommand = UINT32_MAX;
+    session.asciiCalls = 0;
+    for (NSNumber *flags in @[@0, @(NSEventModifierFlagCommand), @(NSEventModifierFlagOption)]) {
+        assert(![controller handleEvent:ModeKey(0, flags.unsignedIntegerValue, NO) client:client]);
+    }
+    assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+    assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, YES) client:client]);
+    assert(appearance.englishMode);
+    assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client]);
+    assert(!appearance.englishMode);
+    assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, YES) client:client]);
+    assert(!appearance.englishMode);
+    for (NSUInteger mask = 1; mask < 8; ++mask) {
+        NSEventModifierFlags flags = NSEventModifierFlagShift;
+        if (mask & 1) flags |= NSEventModifierFlagCommand;
+        if (mask & 2) flags |= NSEventModifierFlagControl;
+        if (mask & 4) flags |= NSEventModifierFlagOption;
+        assert(![controller handleEvent:ModeKey(49, flags, NO) client:client]);
+        assert(!appearance.englishMode);
+    }
+    appearance.inputModeShortcut = NO;
+    [controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client];
+    assert(!appearance.englishMode && session.lastCommand == MSIME_COMMIT_CANDIDATE);
+    appearance.inputModeShortcut = YES;
+    session.failFinish = YES;
+    panel.visible = YES;
+    [controller selectEnglishMode:nil];
+    [controller openCharacterPalette:nil];
+    assert(!appearance.englishMode && panel.visible && controller.paletteCalls == 0);
+    session.failFinish = NO;
+    client.marked = @"ceshi";
+    client.committed = nil;
+    [controller openCharacterPalette:nil];
+    assert(controller.paletteCalls == 1 && [client.committed isEqual:@"测试"] && client.marked.length == 0);
+    [controller setValue:nil forKey:@"session"];
+    [controller selectEnglishMode:nil];
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(controller.preparationCalls == 0);
+    [controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client];
+    assert(!appearance.englishMode && controller.preparationCalls == 0);
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(controller.preparationCalls == 1);
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@YES forKey:@"focusPending"];
+    session.focusCalls = 0;
+    [controller handleEvent:ModeKey(0, 0, NO) client:client];
+    assert(session.focusCalls == 1);
+    [controller handleEvent:ModeKey(0, 0, NO) client:client];
+    assert(session.focusCalls == 1);
+    appearance.englishMode = NO;
+}
 
 static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
     for (NSView *view in content.subviews) {
@@ -426,7 +531,7 @@ int main() {
             uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
             assert(session.lastCommand == expected);
         }
-        assert([controller menu].numberOfItems == 1);
+        assert([controller menu].numberOfItems == 5);
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
@@ -465,6 +570,7 @@ int main() {
             assert(![controller handleEvent:event client:client]);
             assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
         }
+        TestInputMode(defaults, appearance);
         [defaults removePersistentDomainForName:suite];
     }
     return 0;

@@ -33,6 +33,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
+    BOOL _focusPending;
 }
 
 - (void)ensureAppearance {
@@ -42,6 +43,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
+    if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    }
     [self syncPageSize];
     if (_activeClient) [self renderCandidates];
 }
@@ -59,10 +63,43 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (NSMenu *)menu {
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    menu.autoenablesItems = NO;
+    for (NSUInteger mode = 0; mode < 2; ++mode) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
+        item.target = self;
+        item.state = _appearance.englishMode == (mode == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
+    palette.target = self;
+    [menu addItem:palette];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
     return menu;
+}
+- (void)setEnglishInputMode:(BOOL)enabled {
+    [self ensureAppearance];
+    if (enabled && !_appearance.englishMode && _session && _activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return; // Do not hide an unsettled composition after an Engine failure.
+        [self apply:finished];
+    }
+    _appearance.englishMode = enabled;
+    [_panel orderOut:nil];
+}
+- (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
+- (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
+- (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
+- (void)openCharacterPalette:(id)sender {
+    (void)sender;
+    if (_session && _activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    [self showSystemCharacterPalette];
 }
 - (void)showAppearance:(id)sender {
     [self ensureAppearance];
@@ -73,6 +110,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
     _activeClient = sender;
+    [self ensureAppearance];
+    _focusPending = _appearance.englishMode;
+    if (!_appearance.englishMode) [self prepareSession];
+}
+
+- (void)prepareSession {
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
@@ -88,7 +131,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         }
     }
     [self syncPageSize];
-    if (_session) [self apply:[_session setFocused:YES error:nil]];
+    if (_session) {
+        [self apply:[_session setFocused:YES error:nil]];
+        _focusPending = NO;
+    }
     if (_session && _preferencesDirectory) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
@@ -136,13 +182,24 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
-    if (!_session || event.type != NSEventTypeKeyDown) return NO;
+    if (event.type != NSEventTypeKeyDown) return NO;
+    [self ensureAppearance];
     if (sender != _activeClient) {
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
-        [self apply:[_session setFocused:YES error:nil]];
+        _focusPending = _appearance.englishMode;
+        if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
+    const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
+    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
+        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        return YES;
+    }
+    if (_appearance.englishMode) return NO;
+    if (!_session) [self prepareSession];
+    if (!_session) return NO;
+    if (_focusPending) [self prepareSession];
     [self syncPageSize];
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
@@ -208,6 +265,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)renderCandidates {
+    if (_appearance.englishMode) { [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) { [_panel orderOut:nil]; return; }
     NSRect cursor = NSZeroRect;
