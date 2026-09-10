@@ -33,6 +33,12 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        NSDictionary *invalidDictionary = [MSIMEClientSession dictionaryRequest:@{@"options": options, @"action": @{@"operation": @"unknown"}} error:&error];
+        assert(!invalidDictionary && error);
+        error = nil;
+        NSMutableDictionary *oversized = [@{} mutableCopy];
+        oversized[@"padding"] = [@"x" stringByPaddingToLength:70000 withString:@"x" startingAtIndex:0];
+        assert(![MSIMEClientSession dictionaryRequest:oversized error:&error] && error);
         assert([session setFocused:YES error:&error]);
         assert([session typeASCII:'U' shift:YES error:&error]);
         for (uint8_t key : {'4', 'e', '2', 'd'}) assert([session typeASCII:key shift:NO error:&error]);
