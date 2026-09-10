@@ -13,6 +13,16 @@ test -f /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
   /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
 python3 platforms/linux/tests/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
+clipboard_fixture=$(mktemp -d /tmp/msime-clipboard.XXXXXX)
+trap 'rm -rf "$clipboard_fixture"' EXIT
+/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
+/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "second"
+[[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 1) == $'first\nentry' ]]
+if /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 2 >/dev/null; then
+  echo "clipboard get accepted an out-of-range index" >&2
+  exit 1
+fi
+echo "Linux clipboard stream acceptance passed"
 /build/ibus/ibus-engine-smoke /resources
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")
