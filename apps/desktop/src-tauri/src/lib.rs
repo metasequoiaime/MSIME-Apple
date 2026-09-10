@@ -476,7 +476,17 @@ fn is_allowed_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_allowed_external_url;
+    use super::{compare_versions, is_allowed_external_url};
+
+    #[test]
+    fn compares_release_versions_without_padding_bugs() {
+        assert_eq!(
+            compare_versions("v1.2.0", "1.1.9"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(compare_versions("1.2", "1.2.0"), std::cmp::Ordering::Equal);
+        assert_eq!(compare_versions("0.9", "1.0"), std::cmp::Ordering::Less);
+    }
 
     #[test]
     fn external_url_allowlist_rejects_shell_metacharacters() {
@@ -496,7 +506,48 @@ mod tests {
 
 #[tauri::command]
 fn check_for_updates() -> Result<(), HostActionError> {
-    open_external_url("https://github.com/metasequoiaime/MSIME-Client/releases".to_string())
+    let manifest = reqwest::blocking::get("https://msime.app/update.json")
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .json::<serde_json::Value>()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    let version = manifest
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    if compare_versions(version, env!("CARGO_PKG_VERSION")) == std::cmp::Ordering::Greater {
+        let url = manifest
+            .get("releaseUrl")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("https://github.com/metasequoiaime/MSIME-Client/releases");
+        return open_external_url(url.to_owned());
+    }
+    Ok(())
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let parse = |value: &str| {
+        value
+            .trim_start_matches('v')
+            .split('.')
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+    let (left, right) = (parse(left), parse(right));
+    (0..left.len().max(right.len()))
+        .map(|index| {
+            (
+                left.get(index).copied().unwrap_or(0),
+                right.get(index).copied().unwrap_or(0),
+            )
+        })
+        .find_map(|(left, right)| (left != right).then_some(left.cmp(&right)))
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 #[tauri::command]

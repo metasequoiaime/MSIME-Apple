@@ -18,6 +18,7 @@ msime-client-core = { path = "../../../crates/client-core" }
 msime-host-api = { path = "../../../crates/host-api" }
 serde_json.workspace = true
 toml.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 
 [lints]
 workspace = true
