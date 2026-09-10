@@ -5,6 +5,8 @@ static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
+static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
+static NSArray<NSString *> *SkinIDs() { return @[@"fluent", @"wechat", @"graphite", @"willow_green"]; }
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
@@ -12,6 +14,7 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     NSPopUpButton *_fontButton;
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
+    NSPopUpButton *_skinButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -45,6 +48,14 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     NSInteger value = [_defaults integerForKey:PageShortcutKey];
     return value == 1 || value == 2 ? value : 0;
 }
+- (NSString *)skinID {
+    NSString *value = [_defaults stringForKey:SkinKey];
+    return value && [SkinIDs() containsObject:value] ? value : @"fluent";
+}
+- (void)setSkinID:(NSString *)value {
+    [_defaults setObject:value && [SkinIDs() containsObject:value] ? value : @"fluent" forKey:SkinKey];
+    [self preferencesChanged];
+}
 - (NSUInteger)pageSize {
     NSInteger value = [_defaults integerForKey:PageSizeKey];
     return value == 5 || value == 7 ? value : 9;
@@ -62,6 +73,7 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
+    [_skinButton selectItemAtIndex:[SkinIDs() indexOfObject:self.skinID]];
 }
 - (NSWindow *)window {
     NSWindow *window = [super window];
@@ -72,7 +84,7 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 440, 240) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 440, 280) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -95,11 +107,17 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);
+    _skinButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_skinButton addItemsWithTitles:@[@"Fluent", @"微信绿", @"石墨 Graphite", @"杨柳青"]];
+    _skinButton.accessibilityLabel = @"候选皮肤";
+    _skinButton.target = self;
+    _skinButton.action = @selector(skinChanged:);
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
-        @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton]
+        @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
+        @[[NSTextField labelWithString:@"候选皮肤"], _skinButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -114,6 +132,10 @@ static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)skinChanged:(NSPopUpButton *)sender {
+    NSInteger index = sender.indexOfSelectedItem;
+    self.skinID = index >= 0 && index < (NSInteger)SkinIDs().count ? SkinIDs()[index] : @"fluent";
+}
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)pageSizeChanged:(NSPopUpButton *)sender {
     self.pageSize = sender.indexOfSelectedItem == 0 ? 5 : sender.indexOfSelectedItem == 1 ? 7 : 9;

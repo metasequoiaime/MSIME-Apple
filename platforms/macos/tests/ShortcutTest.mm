@@ -84,6 +84,9 @@ int main() {
         assert(!appearance.vertical && appearance.fontSize == 18);
         assert(appearance.pageShortcut == 0);
         assert(appearance.pageSize == 9);
+        assert([appearance.skinID isEqual:@"fluent"]);
+        appearance.skinID = @"../invalid";
+        assert([appearance.skinID isEqual:@"fluent"]);
         appearance.pageSize = 6;
         assert(appearance.pageSize == 9);
         appearance.pageShortcut = 99;
@@ -95,6 +98,16 @@ int main() {
         NSPopUpButton *fontControl = (id)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
         NSPopUpButton *shortcutControl = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
         NSPopUpButton *sizeControl = (id)[grid cellAtColumnIndex:1 rowIndex:3].contentView;
+        NSPopUpButton *skinControl = (id)[grid cellAtColumnIndex:1 rowIndex:4].contentView;
+        assert(([skinControl.itemTitles isEqual:@[@"Fluent", @"微信绿", @"石墨 Graphite", @"杨柳青"]]));
+        NSArray<NSString *> *skinIDs = @[@"fluent", @"wechat", @"graphite", @"willow_green"];
+        for (NSInteger option = 0; option < 4; ++option) {
+            [skinControl selectItemAtIndex:option];
+            [NSApp sendAction:skinControl.action to:skinControl.target from:skinControl];
+            MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert([loaded.skinID isEqual:skinIDs[option]]);
+        }
+        appearance.skinID = @"fluent";
         assert(([sizeControl.itemTitles isEqual:@[@"5 个", @"7 个", @"9 个"]]));
         for (NSInteger option = 0; option < 3; ++option) {
             [sizeControl selectItemAtIndex:option];
@@ -255,7 +268,7 @@ int main() {
         [controller renderCandidates];
         assert(PageButton(layoutPanel.contentView, -1) == nil);
         assert(PageButton(layoutPanel.contentView, -2) == nil);
-        pageView[@"candidates"] = @[@{@"text": @"测试", @"highlighted": @YES}, @{@"text": @"布局", @"highlighted": @NO}];
+        pageView[@"candidates"] = @[@{@"text": @"测试", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @2, @"index": @0}}, @{@"text": @"布局", @"highlighted": @NO, @"id": @{@"session": @1, @"generation": @2, @"index": @1}}];
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         CGFloat verticalHeight = layoutPanel.frame.size.height;
@@ -272,6 +285,47 @@ int main() {
         appearance.fontSize = 20;
         [controller appearanceChanged:nil];
         assert(layoutPanel.frame.size.height > normalHeight);
+        // Palette and native drawing coverage: four skins, two layouts and both appearances.
+        NSDictionary *preservedView = [[controller valueForKey:@"view"] copy];
+        session.lastCommand = UINT32_MAX;
+        for (NSString *skinID in skinIDs) {
+            appearance.skinID = skinID;
+            for (NSNumber *vertical in @[@NO, @YES]) {
+                appearance.vertical = vertical.boolValue;
+                [controller appearanceChanged:nil];
+                for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+                    MSIMECandidateChromeView *chrome = (id)layoutPanel.contentView;
+                    chrome.appearance = [NSAppearance appearanceNamed:theme];
+                    // Exercise the same callback AppKit uses for a system appearance change.
+                    [chrome viewDidChangeEffectiveAppearance];
+                    const auto tokens = msime::mac::BuiltInSkinTokens(skinID.UTF8String, [theme isEqual:NSAppearanceNameDarkAqua]);
+                    assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);
+                    assert([chrome.strokeColor isEqual:SkinColor(tokens.border)]);
+                    assert(chrome.cornerRadius == tokens.radius && chrome.lineWidth == tokens.borderWidth);
+                    assert(!chrome.isOpaque && !layoutPanel.isOpaque);
+                    MSIMECandidateButton *selected = (id)chrome.subviews[0];
+                    MSIMECandidateButton *unselected = (id)chrome.subviews[1];
+                    assert(selected.candidateHighlighted && !unselected.candidateHighlighted);
+                    assert([selected.candidateID isEqual:preservedView[@"candidates"][0][@"id"]]);
+                    assert([unselected.candidateID isEqual:preservedView[@"candidates"][1][@"id"]]);
+                    assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
+                    assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
+                    assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
+                    assert([unselected.numberColor isEqual:SkinColor(tokens.number)]);
+                    assert(selected.showSelectedBar == tokens.showSelectedBar);
+                    NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
+                    assert(bitmap);
+                    [chrome cacheDisplayInRect:chrome.bounds toBitmapImageRep:bitmap];
+                    assert(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0);
+                    assert([[controller valueForKey:@"view"] isEqual:preservedView]);
+                    assert(session.lastCommand == UINT32_MAX);
+                    assert(!layoutPanel.canBecomeKeyWindow && !selected.acceptsFirstResponder);
+                }
+            }
+        }
+        appearance.vertical = NO;
+        appearance.skinID = @"fluent";
+        [controller appearanceChanged:nil];
         for (NSNumber *key in @[@123, @124, @125, @126]) {
             layoutPanel.requestedVisible = YES;
             session.lastCommand = UINT32_MAX;
