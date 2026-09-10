@@ -177,6 +177,28 @@ fn check_for_updates() -> Result<(), HostActionError> {
 }
 
 #[tauri::command]
+fn open_screen_keyboard() -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    {
+        return run_external_command("onboard", &[]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"]);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return run_external_command("osk.exe", &[]);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
 fn copy_text(text: String) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
     {
@@ -354,6 +376,7 @@ pub fn run() {
             dictionary_request,
             open_external_url,
             check_for_updates,
+            open_screen_keyboard,
             copy_text,
             open_skin_directory,
             refresh_skin_catalog,
