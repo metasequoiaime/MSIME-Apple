@@ -10,6 +10,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
 - (void)reloadSkins;
+- (NSWindowController *)skinCatalogController;
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
