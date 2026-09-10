@@ -24,6 +24,7 @@ struct State {
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
+  bool input_enabled = true;
   ~State() { close(); }
   void close() {
     if (session)
@@ -184,6 +185,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   bool handled = false;
   guarded(engine, [&] {
     s.open();
+    if ((flags & IBUS_CONTROL_MASK) && key == IBUS_space) {
+      s.input_enabled = !s.input_enabled;
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, s.input_enabled));
+      clear(engine);
+      handled = true;
+      return;
+    }
+    if (!s.input_enabled)
+      return;
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
     if (flags &
