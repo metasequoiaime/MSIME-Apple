@@ -31,6 +31,7 @@ struct State {
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
+  bool fullwidth = false;
   bool input_enabled = true;
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
@@ -103,6 +104,16 @@ struct State {
   }
 };
 State &state(IBusEngine *engine);
+std::string fullwidth_text(const std::string &text) {
+  std::string result;
+  for (unsigned char c : text) {
+    uint32_t code = c == ' ' ? 0x3000 : (c >= 0x21 && c <= 0x7e ? c + 0xfee0 : c);
+    if (code <= 0x7f) result.push_back(static_cast<char>(code));
+    else if (code <= 0x7ff) { result.push_back(static_cast<char>(0xc0 | (code >> 6))); result.push_back(static_cast<char>(0x80 | (code & 0x3f))); }
+    else { result.push_back(static_cast<char>(0xe0 | (code >> 12))); result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3f))); result.push_back(static_cast<char>(0x80 | (code & 0x3f))); }
+  }
+  return result;
+}
 std::optional<guint> candidate_text_color(const Json &preferences) {
   const auto value = preferences.value("candidate_text_color", Json(nullptr));
   if (!value.is_string())
@@ -421,6 +432,8 @@ bool apply(IBusEngine *engine, char *raw) {
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
     auto text = commit.get<std::string>();
+    if (state(engine).fullwidth)
+      text = fullwidth_text(text);
     if (!text.empty())
       ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
   }
@@ -671,6 +684,9 @@ bool modifier(guint key) {
 }
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
+  const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
+                                   IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
+                                   IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   const bool english_toggle =
       key == IBUS_e && (flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK)) ==
                             (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
@@ -680,8 +696,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
        (((flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) == IBUS_CONTROL_MASK) ||
         ((flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
          (IBUS_CONTROL_MASK | IBUS_MOD1_MASK))));
-  if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle) ||
-      (flags & IBUS_RELEASE_MASK) || modifier(key))
+  const bool fullwidth_toggle =
+      key == IBUS_space && modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
+      (flags & IBUS_RELEASE_MASK))
+    return FALSE;
+  if (fullwidth_toggle) {
+    s.fullwidth = !s.fullwidth;
+    return TRUE;
+  }
+  if (modifier(key))
     return FALSE;
   bool handled = false;
   guarded(engine, [&] {
