@@ -7,6 +7,7 @@
 #import "AppearancePreferences.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
+#import "ChineseTextConversion.h"
 
 static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
@@ -71,6 +72,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [menu addItem:item];
     }
     [menu addItem:NSMenuItem.separatorItem];
+    for (NSUInteger script = 0; script < 2; ++script) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:script ? @"繁体输出" : @"简体输出" action:script ? @selector(selectTraditionalOutput:) : @selector(selectSimplifiedOutput:) keyEquivalent:@""];
+        item.target = self;
+        item.state = _appearance.traditionalOutput == (script == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
     palette.target = self;
     [menu addItem:palette];
@@ -90,6 +98,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_panel orderOut:nil];
 }
 - (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
+- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = NO; }
+- (void)selectTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = YES; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)openCharacterPalette:(id)sender {
@@ -259,7 +269,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
-    MSIMEApplyTransition(transition, (id<MSIMETextClient>)_activeClient);
+    NSDictionary *displayTransition = transition;
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
+        NSMutableDictionary *converted = [transition mutableCopy];
+        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
+        displayTransition = converted;
+    }
+    MSIMEApplyTransition(displayTransition, (id<MSIMETextClient>)_activeClient);
     _view = transition[@"view"];
     [self renderCandidates];
 }
@@ -295,8 +311,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
     CGFloat totalWidth = 0;
     NSUInteger index = 0;
+    const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, MSIMEChineseOutputString(candidate[@"text"], traditional)];
         const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
@@ -334,7 +351,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSUInteger slot = 0;
     CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
+        NSString *display = MSIMEChineseOutputString(candidate[@"text"], traditional);
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         button.tag = (NSInteger)slot;
@@ -344,7 +362,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         if (!vertical) x += itemWidth;
         button.font = font;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
-        button.toolTip = candidate[@"text"];
+        button.toolTip = display;
         button.bordered = NO;
         button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;

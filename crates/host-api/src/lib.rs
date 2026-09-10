@@ -682,6 +682,11 @@ mod tests {
         }
         let committed = read(msime_client_command(handle, 1));
         assert_eq!(committed["value"]["commit"], "中");
+        assert_eq!(
+            committed["value"]["commit_context"]["local_mode"],
+            "unicode"
+        );
+        assert_eq!(committed["value"]["view"]["local_mode"], "none");
         assert_eq!(committed["value"]["view"]["page_size"], 9);
         let preferences = Preferences {
             candidate_page_size: 2,
@@ -841,13 +846,14 @@ mod tests {
             ..chinese.clone()
         };
         assert_eq!(update(handle, 1, &japanese)["value"]["deferred"], true);
-        assert_eq!(
-            read(msime_client_command(handle, 2))["value"]["commit"],
-            "b;"
-        );
+        let committed = read(msime_client_command(handle, 2));
+        assert_eq!(committed["value"]["commit"], "b;");
+        assert_eq!(committed["value"]["commit_context"]["scheme"], 1);
+        assert_eq!(committed["value"]["view"]["scheme"], 3);
         let kana = read(msime_client_character(handle, b'a', false));
         assert_eq!(kana["ok"], true);
         assert_eq!(kana["value"]["view"]["preedit"], "a");
+        assert_eq!(kana["value"]["view"]["scheme"], 3);
         assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
         assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
         assert_eq!(update(handle, 2, &chinese)["value"]["deferred"], true);

@@ -53,6 +53,8 @@ mod ffi {
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
+        // Same stable codes as EngineOptions, but from the live Engine snapshot.
+        pub scheme: u8,
         pub local_mode: String,
         pub microsoft_shuangpin: bool,
         pub preedit: String,
@@ -330,6 +332,7 @@ mod tests {
         }
         let snapshot = session.snapshot().unwrap();
         assert_eq!(snapshot.local_mode, "unicode");
+        assert_eq!(snapshot.scheme, 0);
         assert!(snapshot
             .candidates
             .iter()

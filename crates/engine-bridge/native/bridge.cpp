@@ -122,6 +122,13 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
+    switch (value.scheme) {
+        case SchemeType::Quanpin: output.scheme = 0; break;
+        case SchemeType::Shuangpin: output.scheme = 1; break;
+        case SchemeType::Wubi: output.scheme = 2; break;
+        case SchemeType::JapaneseRomaji: output.scheme = 3; break;
+        default: output.scheme = 255; break;
+    }
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
     output.preedit = value.preedit;
