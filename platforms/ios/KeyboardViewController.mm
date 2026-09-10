@@ -8,6 +8,7 @@
 @property(nonatomic, strong) UILabel *candidateLabel;
 @property(nonatomic, strong) UIStackView *candidateStack;
 @property(nonatomic, strong) NSMapTable<UIButton *, NSDictionary *> *candidateBindings;
+@property(nonatomic, assign) BOOL shiftEnabled;
 @end
 
 @implementation MSIMEKeyboardViewController
@@ -88,7 +89,7 @@
     actions.axis = UILayoutConstraintAxisHorizontal;
     actions.distribution = UIStackViewDistributionFillEqually;
     actions.spacing = 4;
-    for (NSString *title in @[@"空格", @"⌫", @"回车"]) {
+    for (NSString *title in @[@"⇧", @"空格", @"⌫", @"回车"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
@@ -109,7 +110,10 @@
 }
 
 - (void)actionPressed:(UIButton *)button {
-    if ([button.currentTitle isEqualToString:@"空格"]) [self apply:[self.session command:MSIME_COMMIT_CANDIDATE error:nil]];
+    if ([button.currentTitle isEqualToString:@"⇧"]) {
+        self.shiftEnabled = !self.shiftEnabled;
+        button.tintColor = self.shiftEnabled ? UIColor.systemBlueColor : UIColor.labelColor;
+    } else if ([button.currentTitle isEqualToString:@"空格"]) [self apply:[self.session command:MSIME_COMMIT_CANDIDATE error:nil]];
     else if ([button.currentTitle isEqualToString:@"⌫"]) [self deleteBackward];
     else [self apply:[self.session command:MSIME_COMMIT_RAW error:nil]];
 }
@@ -178,7 +182,8 @@
 
 - (void)handleCharacter:(NSString *)character {
     if (character.length != 1) return;
-    [self apply:[self.session typeASCII:(uint8_t)[character characterAtIndex:0] shift:NO error:nil]];
+    [self apply:[self.session typeASCII:(uint8_t)[character characterAtIndex:0] shift:self.shiftEnabled error:nil]];
+    self.shiftEnabled = NO;
 }
 
 - (void)deleteBackward {
