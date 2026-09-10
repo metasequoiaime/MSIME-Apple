@@ -1196,7 +1196,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name).rfind("Scheme/", 0) == 0) {
       const bool japanese = std::string(name) == "Scheme/Japanese";
-      if ((s.scheme_override && *s.scheme_override == "japanese") == japanese)
+      const bool explicit_chinese = property_name == "Scheme/Quanpin" ||
+                                    property_name == "Scheme/Shuangpin" ||
+                                    property_name == "Scheme/Wubi";
+      if (!explicit_chinese &&
+          (s.scheme_override && *s.scheme_override == "japanese") == japanese)
         return;
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
