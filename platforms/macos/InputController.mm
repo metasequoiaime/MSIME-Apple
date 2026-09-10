@@ -10,6 +10,7 @@
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
 #import "ShuangpinKeymapPanel.h"
+#import "FloatingToolbarPanel.h"
 #include "WubiCommitPolicy.h"
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
@@ -30,7 +31,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 
-@interface MSIMEInputController : IMKInputController
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 @end
 
 @implementation MSIMEInputController {
@@ -39,6 +40,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSDictionary *_view;
     NSPanel *_panel;
     MSIMEShuangpinKeymapPanel *_keymapPanel;
+    MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
@@ -59,6 +61,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:YES fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
 }
 - (void)syncPageSize {
@@ -131,6 +134,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
+    [self ensureAppearance];
+    _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [_toolbar activateForDelegate:self visible:YES];
     _activeClient = sender;
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
@@ -185,6 +191,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)deactivateServer:(id)sender {
+    [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
@@ -193,6 +200,16 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _activeClient = nil;
     [super deactivateServer:sender];
 }
+
+- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self setEnglishInputMode:!_appearance.englishMode]; }
+- (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; }
+- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.fullWidthInput = !_appearance.fullWidthInput; }
+- (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.traditionalOutput = !_appearance.traditionalOutput; }
+- (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }
+- (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showAppearance:nil]; }
+- (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; }
+- (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; }
+- (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [_toolbar setVisible:NO forDelegate:self]; }
 
 - (void)dealloc {
     [_preferencesTimer invalidate];
