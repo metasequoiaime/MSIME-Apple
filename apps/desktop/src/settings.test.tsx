@@ -75,6 +75,18 @@ test("candidate font size defaults to 16 and persists selected size", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_font_size: 24 });
 });
 
+test("candidate preview reflects candidate and preedit font sizes", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  const preview = await screen.findByLabelText("候选窗口预览");
+  expect((preview.querySelector(".candidate-preview-card") as HTMLElement).style.fontSize).toBe("16px");
+  expect((preview.querySelector(".candidate-preview-preedit") as HTMLElement).style.fontSize).toBe("16px");
+  fireEvent.change(screen.getByRole("combobox", { name: "候选窗字号" }), { target: { value: "24" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "候选窗预编辑字号" }), { target: { value: "20" } });
+  expect((preview.querySelector(".candidate-preview-card") as HTMLElement).style.fontSize).toBe("24px");
+  expect((preview.querySelector(".candidate-preview-preedit") as HTMLElement).style.fontSize).toBe("20px");
+});
+
 
 test("utility mode switches preserve defaults and drafts across pages", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };

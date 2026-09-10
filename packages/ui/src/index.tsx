@@ -251,8 +251,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选窗口跟随光标<small>关闭后保持候选窗口首次位置，直到候选窗口消失。</small></span><input className="toggle" type="checkbox" checked={draft.candidate_follow_cursor ?? true} onChange={event => setDraft({ ...draft, candidate_follow_cursor: event.target.checked })} /></label></div>
         <div className="section candidate-preview-section" aria-label="候选窗口预览">
           <div className="section-title">候选窗口预览</div>
-          <div className={`candidate-preview-card candidate-preview-${draft.candidate_layout ?? "vertical"}`}>
-            {draft.candidate_preedit_style !== "empty" && <span className="candidate-preview-preedit">ni'hao</span>}
+          <div className={`candidate-preview-card candidate-preview-${draft.candidate_layout ?? "vertical"}`} style={{ fontSize: `${draft.candidate_font_size ?? 16}px` }}>
+            {draft.candidate_preedit_style !== "empty" && <span className="candidate-preview-preedit" style={{ fontSize: `${draft.candidate_preedit_font_size ?? 16}px` }}>ni'hao</span>}
             <span className="candidate-preview-item active"><b>1</b> 你好</span>
             <span className="candidate-preview-item"><b>2</b> 你号</span>
             <span className="candidate-preview-item"><b>3</b> 泥好</span>
