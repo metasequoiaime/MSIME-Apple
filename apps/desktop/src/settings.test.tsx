@@ -137,6 +137,13 @@ test("skin page selects and persists candidate theme", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_theme: "dark" });
 });
 
+test("about page shows project information and links", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByRole("heading", { name: "水杉 IME" })).toBeDefined();
+  expect(screen.getByRole("link", { name: "开源项目" }).getAttribute("href")).toBe("https://github.com/metasequoiaime/MSIME-Client");
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

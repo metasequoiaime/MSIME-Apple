@@ -84,6 +84,15 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .skin-swatch-follow { background: linear-gradient(135deg, #292929 50%, #f5f5f5 50%); }
 .skin-swatch-dark { background: #202020; }
 .skin-swatch-light { background: #f5f5f5; }
+.about-hero { display: flex; align-items: center; gap: 16px; padding: 24px; }
+.about-hero img { width: 64px; height: 64px; }
+.about-hero h2 { margin: 0 0 4px; font-size: 22px; font-weight: 500; }
+.about-hero p, .about-disclaimer { color: var(--text-muted); margin: 0; }
+.about-links { padding: 0 16px; }
+.about-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--divider-color); color: var(--text-color); text-decoration: none; }
+.about-row:last-child { border-bottom: 0; }
+.about-link:hover { color: var(--accent-color); }
+.about-disclaimer { margin: 14px 16px; font-size: 12px; line-height: 1.6; }
 @media (max-width: 600px) { .skin-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
