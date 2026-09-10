@@ -236,4 +236,24 @@ final class KeyboardSkinTests: XCTestCase {
       }
     }
   }
+
+  private func packed(_ color: UIColor) -> UInt32 {
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    let channel = { (value: CGFloat) in UInt32((value * 255).rounded()) }
+    return channel(red) << 16 | channel(green) << 8 | channel(blue)
+  }
+
+  func testSchemePickerAccentStaysReadableInBothAppearances() {
+    // The picker used to carry its own orange, which measured 2.6:1 against white in light mode
+    // and 2.1:1 in dark -- below the large-text floor. Both shades of forest are on opposite sides
+    // of that line, so the foreground has to follow the appearance rather than be picked once.
+    for style in [UIUserInterfaceStyle.light, .dark] {
+      let traits = UITraitCollection(userInterfaceStyle: style)
+      let background = packed(MetasequoiaTheme.forestUIColor.resolvedColor(with: traits))
+      let foreground = packed(MetasequoiaTheme.onForestUIColor.resolvedColor(with: traits))
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(foreground, background), 4.5,
+                                  "\(style) 下选中态文字对比度不足")
+    }
+  }
 }

@@ -2,9 +2,11 @@ import UIKit
 
 final class KeyboardSchemePickerView: UIView {
   private var glyphBorders: [(UILabel, Bool)] = []
-  private let accent = UIColor { $0.userInterfaceStyle == .dark
-    ? UIColor(red: 1, green: 0.62, blue: 0.28, alpha: 1)
-    : UIColor(red: 1, green: 0.47, blue: 0.10, alpha: 1) }
+  // The one place in the keyboard that invented its own accent. Orange against a product that is
+  // forest green read as a different app's control, and white on it measured 2.6:1 in light mode
+  // and 2.1:1 in dark -- below the large-text floor, let alone AA.
+  private let accent = MetasequoiaTheme.forestUIColor
+  private let onAccent = MetasequoiaTheme.onForestUIColor
 
   init(selected: ChineseInputScheme, isChineseMode: Bool = true,
        onSelect: @escaping (ChineseInputScheme) -> Void,
@@ -41,7 +43,7 @@ final class KeyboardSchemePickerView: UIView {
       button.setTitleColor(.label, for: .normal)
     }
     keyboardTab.backgroundColor = accent
-    keyboardTab.setTitleColor(.white, for: .normal)
+    keyboardTab.setTitleColor(onAccent, for: .normal)
 
     let settings = UIButton(type: .system)
     settings.setImage(UIImage(systemName: "gearshape"), for: .normal)
@@ -134,8 +136,8 @@ final class KeyboardSchemePickerView: UIView {
       scroll.isHidden = showThemes
       keyboardTab.backgroundColor = showThemes ? .clear : accent
       themeTab.backgroundColor = showThemes ? accent : .clear
-      keyboardTab.setTitleColor(showThemes ? .label : .white, for: .normal)
-      themeTab.setTitleColor(showThemes ? .white : .label, for: .normal)
+      keyboardTab.setTitleColor(showThemes ? .label : onAccent, for: .normal)
+      themeTab.setTitleColor(showThemes ? onAccent : .label, for: .normal)
       keyboardTab.accessibilityTraits = showThemes ? [.button] : [.button, .selected]
       themeTab.accessibilityTraits = showThemes ? [.button, .selected] : [.button]
       content.subviews.filter { $0 !== scroll }.forEach { $0.removeFromSuperview() }

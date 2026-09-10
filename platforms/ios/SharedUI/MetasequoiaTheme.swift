@@ -20,6 +20,15 @@ enum MetasequoiaTheme {
   static let cone = Color(red: 167 / 255, green: 103 / 255, blue: 59 / 255)
   static let ink = Color(red: 20 / 255, green: 35 / 255, blue: 29 / 255)
 
+  // Text and glyphs drawn on top of forestUIColor. The two shades of forest sit on opposite sides
+  // of the contrast line, so a single foreground fails one of them: white reads 7.9:1 on the light
+  // shade but 2.5:1 on the dark one, which is below even the large-text floor.
+  static let onForestUIColor = UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 20 / 255, green: 35 / 255, blue: 29 / 255, alpha: 1)
+      : .white
+  }
+
   static let forestUIColor = UIColor { traits in
     traits.userInterfaceStyle == .dark
       ? UIColor(red: 97 / 255, green: 180 / 255, blue: 145 / 255, alpha: 1)
