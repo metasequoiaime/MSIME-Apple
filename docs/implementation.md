@@ -627,3 +627,7 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 按同一 Windows 固定提交的 input.html/input.ts/config.toml，新增三个独立混输开关及中英混输触发字符数 1–8。默认英文开启、阈值 2、emoji 和颜文字关闭，遵循实际配置而非 HTML 占位开关。英文关闭时阈值不可编辑但保留；旧配置缺省读取不重写，非法阈值拒绝覆盖。创建会话和组合结束后的设置更新通过 CXX 传至 Engine 的 EnglishInputOptions/MixedExpressiveOptions，平台不实现混排算法。
 
 37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。
+
+### Linux IBus 配置热重载（增量）
+
+Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
