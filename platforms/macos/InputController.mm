@@ -8,6 +8,7 @@
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
+#include "FullWidthInput.h"
 
 static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
@@ -207,6 +208,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         return YES;
     }
     if (_appearance.englishMode) return NO;
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
+        if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
+        return YES;
+    }
     if (!_session) [self prepareSession];
     if (!_session) return NO;
     if (_focusPending) [self prepareSession];
@@ -259,7 +264,21 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     if (!transition) return NO;
     [self apply:transition];
-    return [transition[@"handled"] boolValue];
+    if ([transition[@"handled"] boolValue]) return YES;
+    // Match Apple: Engine gets first refusal, then finish any composition before fallback.
+    if ([_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return NO;
+        [self apply:finished];
+    }
+    if (_appearance.fullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+        ![_view[@"editing_text"] length] && event.characters.length == 1 &&
+        msime::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], event.modifierFlags)) {
+        const unichar converted = msime::mac::FullWidthCharacter([event.characters characterAtIndex:0]);
+        [(id<MSIMETextClient>)sender insertText:[NSString stringWithCharacters:&converted length:1] replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        return YES;
+    }
+    return NO;
 }
 
 - (void)commitComposition:(id)sender {
