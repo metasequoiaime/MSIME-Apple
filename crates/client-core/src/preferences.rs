@@ -33,6 +33,8 @@ pub struct Preferences {
     pub settings_theme: SettingsTheme,
     #[serde(default)]
     pub ui_backend: UiBackend,
+    #[serde(default = "enabled_by_default")]
+    pub candidate_follow_cursor: bool,
     pub scheme: InputScheme,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,6 +214,7 @@ impl Default for Preferences {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             ui_backend: UiBackend::default(),
+            candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
