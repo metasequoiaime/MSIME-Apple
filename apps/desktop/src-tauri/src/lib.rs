@@ -506,7 +506,20 @@ mod tests {
 
 #[tauri::command]
 fn check_for_updates() -> Result<(), HostActionError> {
-    let manifest = reqwest::blocking::get("https://msime.app/update.json")
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent(concat!("MSIME-Client/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    let manifest = client
+        .get("https://msime.app/update.json")
+        .send()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .error_for_status()
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?
@@ -525,6 +538,11 @@ fn check_for_updates() -> Result<(), HostActionError> {
             .get("releaseUrl")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("https://github.com/metasequoiaime/MSIME-Client/releases");
+        if !is_allowed_external_url(url) {
+            return Err(HostActionError {
+                code: "invalid_url",
+            });
+        }
         return open_external_url(url.to_owned());
     }
     Ok(())
