@@ -28,12 +28,15 @@ inline std::optional<size_t> candidate_hit(int x, int y, int width, int height,
                                            unsigned font_size = 16,
                                            bool horizontal = false) {
   const auto metrics = candidate_metrics(dpi, font_size);
-  if (count > 9 || x < metrics.padding ||
+  if (count == 0 || count > 9 || x < metrics.padding ||
       int64_t(x) >= int64_t(width) - metrics.padding ||
       y < metrics.padding + metrics.row || y >= height)
     return std::nullopt;
   if (horizontal) {
-    const auto column = static_cast<size_t>((x - metrics.padding) / (metrics.width / 3));
+    const auto inner_width = (width - 2 * metrics.padding);
+    const auto column_width = (inner_width + static_cast<int>(count) - 1) /
+                              static_cast<int>(count);
+    const auto column = static_cast<size_t>((x - metrics.padding) / column_width);
     return y >= metrics.padding + metrics.row && y < metrics.padding + 2 * metrics.row && column < count
       ? std::optional<size_t>(column) : std::nullopt;
   }

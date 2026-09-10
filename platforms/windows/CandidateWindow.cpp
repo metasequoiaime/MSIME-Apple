@@ -227,9 +227,33 @@ void CandidateWindow::paint() {
   }
   {
     Font candidate_font(painting.dc, metrics.font, font_family_.c_str());
-    for (size_t i = 0; i < value->candidates.size(); ++i)
-      line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
-           horizontal_ ? 1 : i + 1, value->candidates[i].highlighted);
+    if (!horizontal_) {
+      for (size_t i = 0; i < value->candidates.size(); ++i)
+        line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
+             i + 1, value->candidates[i].highlighted);
+    } else {
+      const auto inner = bounds.right - 2 * metrics.padding;
+      const auto column = (inner + static_cast<LONG>(value->candidates.size()) - 1) /
+                          static_cast<LONG>(value->candidates.size());
+      for (size_t i = 0; i < value->candidates.size(); ++i) {
+        RECT rect{metrics.padding + static_cast<LONG>(i) * column,
+                  metrics.padding + metrics.row,
+                  metrics.padding + static_cast<LONG>(i + 1) * column,
+                  metrics.padding + 2 * metrics.row};
+        const auto highlighted = value->candidates[i].highlighted;
+        if (highlighted) {
+          HBRUSH brush = CreateSolidBrush(highlight);
+          if (!brush) throw std::runtime_error("Candidate highlight unavailable");
+          FillRect(painting.dc, &rect, brush);
+          DeleteObject(brush);
+        }
+        SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
+        rect.left += metrics.padding;
+        DrawTextW(painting.dc,
+                  (std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text)).c_str(),
+                  -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+      }
+    }
   }
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
