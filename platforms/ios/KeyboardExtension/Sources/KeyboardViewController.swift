@@ -92,6 +92,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let spellingScrollView = UIScrollView()
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
+  private var replyPanelSuppressed = false
   private var visiblePreedit = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
@@ -1256,13 +1257,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func synchronizeReplyKeyboard() {
     guard inputScheme == .thoughtfulReply, isChineseMode else {
       replyModel.resetResults()
-      if let panel = replyPanel {
-        panel.willMove(toParent: nil); panel.view.removeFromSuperview(); panel.removeFromParent()
-        replyPanel = nil
-      }
+      replyPanelSuppressed = false
+      dismissReplyPanel()
       return
     }
-    guard replyPanel == nil else { return }
+    guard replyPanel == nil, !replyPanelSuppressed else { return }
     let panel = UIHostingController(rootView: ReplyKeyboardView(model: replyModel,
       paste: { [weak self] in
         guard let self else { return }
@@ -1285,6 +1284,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     panel.didMove(toParent: self)
+  }
+
+  private func dismissReplyPanel() {
+    guard let panel = replyPanel else { return }
+    panel.willMove(toParent: nil)
+    panel.view.removeFromSuperview()
+    panel.removeFromParent()
+    replyPanel = nil
   }
 
   private func generateReply(style: String) {
@@ -1317,12 +1324,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }, insert: { [weak self] result in
       guard let self, matches() else { return false }
       insertOwnText(result, source: .reply)
+      // The panel is pinned to every edge, so it covers the text that was just inserted and the
+      // backspace that would fix it -- the only delete it leaves on screen edits the pasted source
+      // instead. Its own status asks the reader to go and check the chat app, so it gets out of the
+      // way and behaves like the other pickers, which close once a choice is made. The reply
+      // shortcut brings it back.
+      replyPanelSuppressed = true
+      dismissReplyPanel()
       return true
     })
   }
 
   private func showKeyboardAI() {
-    if inputScheme == .thoughtfulReply { synchronizeReplyKeyboard(); return }
+    if inputScheme == .thoughtfulReply {
+      replyPanelSuppressed = false
+      synchronizeReplyKeyboard()
+      return
+    }
     guard hasFullAccess else { showDiagnostic("AI 需要开启键盘的“允许完全访问”。"); return }
     guard let configuration = KeyboardAIService.configuration() else {
       showDiagnostic("请在水杉 App 的 AI 设置中启用键盘 AI 并保存配置。"); return

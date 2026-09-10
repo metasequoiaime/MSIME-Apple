@@ -111,6 +111,15 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
     XCTAssertEqual(try button("scriptShortcut", in: controller).accessibilityIdentifier, "scriptShortcut")
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
+
+    // Inserting a reply takes the panel away so the text it just wrote, and the backspace that
+    // edits it, are reachable. The reply shortcut is what brings it back, so that path has to work
+    // even when the panel is already gone.
+    InputSchemePreference.enabledSchemes = [.quanpin, .thoughtfulReply]
+    InputSchemePreference.scheme = .thoughtfulReply
+    controller.viewWillAppear(false)
+    try button("replyShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
   }
 
   func testDisabledSchemesAreHiddenAndCurrentSchemeFallsBack() throws {
