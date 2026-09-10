@@ -1,5 +1,6 @@
 #include "ClientEngine.h"
 #include "NavigationBindings.h"
+#include "WordCharacterBinding.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <memory>
@@ -28,6 +29,7 @@ struct State {
   guint preferences_timer = 0;
   bool preferences_loading = false;
   msime::linux_host::NavigationBindings navigation;
+  msime::linux_host::WordCharacterBinding word_character;
   ~State() { close(); }
   void close() {
     if (session)
@@ -44,10 +46,13 @@ struct State {
     auto encoded = options.dump();
     auto bindings =
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
+    auto edge_binding = msime::linux_host::WordCharacterBinding::read(
+        options.at("preferences"));
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
     navigation = bindings;
+    word_character = edge_binding;
   }
 };
 } // namespace
@@ -199,6 +204,25 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     }
     if (!s.view.at("candidates").empty()) {
+      auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0);
+      if (edge && s.view.at("local_mode") != "unknown" &&
+          !s.view.at("editing_text").get<std::string>().empty()) {
+        // Use the displayed highlighted candidate's generation and global
+        // index. Engine owns Han extraction, including non-BMP characters.
+        for (const auto &candidate : s.view.at("candidates")) {
+          if (!candidate.at("highlighted").get<bool>())
+            continue;
+          auto id = candidate.at("id");
+          handled =
+              apply(engine, msime_client_select_edge(
+                                s.session, id.at("generation").get<uint64_t>(),
+                                id.at("index").get<size_t>(), *edge));
+          if (!handled)
+            handled = apply(engine, msime_client_punctuation(
+                                        s.session, static_cast<uint8_t>(key)));
+          return;
+        }
+      }
       auto navigation =
           s.navigation.command(key, (flags & IBUS_SHIFT_MASK) != 0);
       if (navigation) {
@@ -326,12 +350,14 @@ gboolean reload_preferences(gpointer data) {
             snapshot["preferences"]["learning"] = false;
           auto bindings = msime::linux_host::NavigationBindings::read(
               snapshot.at("preferences"));
+          auto edge_binding = msime::linux_host::WordCharacterBinding::read(snapshot.at("preferences"));
           auto encoded = snapshot.dump();
           auto updated = response(msime_client_update_preferences(
               s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
               encoded.size()));
           s.view = updated.at("view");
           s.navigation = bindings;
+          s.word_character = edge_binding;
           render(IBUS_ENGINE(source), s.view);
         } catch (...) {
           // Bad files and stale revisions preserve the live session. Retry on

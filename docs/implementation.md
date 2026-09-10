@@ -16,6 +16,14 @@
 
 ## 当前证据
 
+### Linux 以词定字接入
+
+按固定 Windows develop `0eaa35eed1dd699b28883068f2909afe3a5902da` 的共享配置接入两组以词定字键，启动和有效设置发布同次更新导航及首末字绑定。宿主使用高亮候选代次与全局索引调用 Engine；不复制汉字抽取算法。Linux 无 TSF 标点委托，候选不含汉字时改走共享组合完成及标点路径。冲突配置拒绝后保留原绑定，Shift 符号和关闭功能时保持标点输入。
+
+新增 IBus D-Bus 真实词库回归覆盖两组键、组合中的配置更新、第二页末字、冲突设置拒绝、无汉字回退、关闭恢复、无需设置目录的启动配置、Shift 符号及补充平面汉字。新增测试链接改动前宿主在首字断言失败。原生桌面、安装及全部 Windows 功能验收仍未完成；继续使用独立 worktree，CI 保持禁用。
+
+更新到最新 develop 后，Debian bookworm arm64 / IBus 1.5.27 容器完整检查通过：50 项共享 Rust 测试、C++/Rust 宿主构建、IBus D-Bus 和 daemon/factory 输入上下文测试通过。
+
 ### Linux 导航设置接入
 
 将固定 Windows develop 提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的六组共享导航设置接入 IBus 启动和实时配置发布。按当前布局字符与 IBus 导航键映射，不依赖 Windows 宿主；候选移动仍由共享运行时执行。Shift+Tab 反向翻页，小键盘导航等价处理，Shift 符号及 Unicode `U+` 保持输入。关闭的标点绑定交回 Engine；关闭的 Tab/Page/上下键先完成组合再交还编辑器，避免焦点移动丢失输入。Panel 操作不受键盘绑定限制。按用户要求后续始终使用独立 worktree。

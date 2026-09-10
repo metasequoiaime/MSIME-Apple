@@ -366,6 +366,91 @@ int main(int argc, char **argv) {
       require(key(c), "Unicode digit failed");
     require(seen.preedit == "U+4e2d", "Unicode sequence was not preserved");
     invoke("Reset");
+    auto edge_text = [](const std::string &text, bool last) {
+      auto length = g_utf8_strlen(text.c_str(), -1);
+      require(length >= 1, "Expected a nonempty fixture candidate");
+      gchar *part = g_utf8_substring(text.c_str(), last ? length - 1 : 0,
+                                     last ? length : 1);
+      std::string result(part);
+      g_free(part);
+      return result;
+    };
+    for (bool minus : {false, true}) {
+      const char *group = minus ? "minus_equal" : "brackets";
+      for (const auto &binding : bindings)
+        options["preferences"]["navigation"][binding.name] = false;
+      options["preferences"]["word_character"] = {{"enabled", true},
+                                                  {"keys", group}};
+      phrase();
+      save(revision++, 4);
+      settle();
+      require(seen.preedit == "nihao", "Edge binding update canceled input");
+      auto first = seen.committed + edge_text(seen.candidates.front(), false);
+      require(key(minus ? IBUS_minus : IBUS_bracketleft) &&
+                  seen.committed == first && !seen.preedit_visible,
+              "First Han binding failed");
+      phrase();
+      invoke("PageDown");
+      auto last =
+          seen.committed + edge_text(seen.candidates.at(seen.cursor), true);
+      require(key(minus ? IBUS_equal : IBUS_bracketright) &&
+                  seen.committed == last && !seen.lookup_visible,
+              "Last Han binding did not use the displayed global candidate");
+      // An invalid simultaneous paging binding must not replace live settings.
+      options["preferences"]["navigation"][group] = true;
+      save(revision++, 4);
+      settle();
+      phrase();
+      first = seen.committed + edge_text(seen.candidates.front(), false);
+      require(key(minus ? IBUS_minus : IBUS_bracketleft) &&
+                  seen.committed == first,
+              "Conflicting settings replaced the live edge binding");
+      options["preferences"]["navigation"][group] = false;
+    }
+    // A Unicode Latin candidate contains no Han: finish it, then insert the
+    // requested punctuation through the shared runtime rather than dropping it.
+    options["preferences"]["word_character"]["keys"] = "brackets";
+    save(revision++, 4);
+    settle();
+    require(key('U', IBUS_SHIFT_MASK), "Non-Han fixture entry failed");
+    for (char c : std::string("0041"))
+      require(key(c), "Non-Han fixture digit failed");
+    auto non_han = seen.committed + "A";
+    require(key(IBUS_bracketright) && seen.committed.find(non_han) == 0 &&
+                seen.committed.size() > non_han.size() && !seen.preedit_visible,
+            "Non-Han edge fallback lost candidate or punctuation");
+    options["preferences"]["word_character"]["enabled"] = false;
+    save(revision++, 4);
+    settle();
+    phrase();
+    auto disabled = seen.committed + seen.candidates.front();
+    require(key(IBUS_bracketright) && seen.committed.find(disabled) == 0 &&
+                seen.committed.size() > disabled.size() &&
+                !seen.preedit_visible,
+            "Disabled edge binding did not restore normal punctuation");
+    options["preferences"]["word_character"]["enabled"] = true;
+    options.erase("preferences_directory");
+    msime_preview_configure(options.dump());
+    invoke("Set",
+           g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                         g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM,
+                                       IBUS_INPUT_HINT_PRIVATE)));
+    phrase();
+    auto startup = seen.committed + edge_text(seen.candidates.front(), false);
+    require(key(IBUS_bracketleft) && seen.committed == startup,
+            "Startup edge binding required a preferences reload");
+    require(key('U', IBUS_SHIFT_MASK), "Non-BMP fixture entry failed");
+    for (char c : std::string("20000"))
+      require(key(c), "Non-BMP fixture digit failed");
+    auto supplementary = seen.committed + "𠀀";
+    require(key(IBUS_bracketright) && seen.committed == supplementary,
+            "Supplementary Han selection split a Unicode character");
+    phrase();
+    auto shifted = seen.committed + seen.candidates.front();
+    require(key(IBUS_braceright, IBUS_SHIFT_MASK) &&
+                seen.committed.find(shifted) == 0 &&
+                seen.committed.size() > shifted.size(),
+            "Shifted symbol triggered word-to-character selection");
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);
