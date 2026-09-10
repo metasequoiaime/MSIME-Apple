@@ -1,7 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
-#import "TextClient.h"
+#import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 
 @interface MSIMECandidateButton : NSButton
