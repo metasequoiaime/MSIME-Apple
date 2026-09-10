@@ -92,6 +92,7 @@ export interface SettingsClient {
   handwriting?: { open(): Promise<void> };
   clipboard?: { clear(): Promise<void> };
   about?: { openExternalUrl(url: string): Promise<void> };
+  update?: { check(): Promise<void> };
   feedback?: { openExternalUrl(url: string): Promise<void> };
 }
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
@@ -321,7 +322,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client" target="_blank" rel="noreferrer" onClick={event => { if (client.about) { event.preventDefault(); openExternalUrl("https://github.com/metasequoiaime/MSIME-Client"); } }}><span>开源项目</span><span aria-hidden="true">↗</span></a>
           <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE" target="_blank" rel="noreferrer" onClick={event => { if (client.about) { event.preventDefault(); openExternalUrl("https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE"); } }}><span>开源许可协议</span><span aria-hidden="true">↗</span></a>
         </div>
-        <div className="section help-section"><div className="section-title">版本更新</div><p className="about-disclaimer">Windows 版可检查 GitHub Releases 并在确认后打开下载页面；当前客户端尚未接入版本检查和安全更新提示。</p><button type="button" className="secondary" disabled aria-label="检查更新">检查更新（待宿主接入）</button></div>
+        <div className="section help-section"><div className="section-title">版本更新</div><p className="about-disclaimer">Windows 版可检查 GitHub Releases 并在确认后打开下载页面；当前客户端尚未接入版本检查和安全更新提示。</p><button type="button" className="secondary" disabled={!client.update} aria-label="检查更新" onClick={() => void client.update?.check()}>检查更新{client.update ? "" : "（待宿主接入）"}</button></div>
         <div className="section help-section"><div className="section-title">诊断日志</div><div className="capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>诊断宿主尚未接入</strong><small>Windows 版可分别收集 Server 与 TSF 诊断日志，记录通信、候选窗和焦点状态，但不记录按键、输入内容或候选文本。</small></div></div><p className="about-disclaimer">接入后可在此开启限时诊断并导出日志；请在复现问题后关闭诊断，避免长期收集运行信息。</p></div>
         <p className="about-disclaimer">本客户端仍在持续迁移 Windows 版功能与界面；部分平台能力可能尚未接入。</p>
       </fieldset>

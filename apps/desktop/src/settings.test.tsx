@@ -5,6 +5,15 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("about update button uses the host update action when available", async () => {
+  const check = vi.fn();
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), update: { check } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(check).toHaveBeenCalledTimes(1);
+});
+
 test("feedback links use the host external URL action when available", async () => {
   const openExternalUrl = vi.fn();
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), feedback: { openExternalUrl } };
