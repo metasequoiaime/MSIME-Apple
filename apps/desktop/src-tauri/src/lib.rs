@@ -150,6 +150,11 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
 }
 
 #[tauri::command]
+fn check_for_updates() -> Result<(), HostActionError> {
+    open_external_url("https://github.com/metasequoiaime/MSIME-Client/releases".to_string())
+}
+
+#[tauri::command]
 fn copy_text(text: String) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
     {
@@ -325,6 +330,7 @@ pub fn run() {
             save_preferences,
             dictionary_request,
             open_external_url,
+            check_for_updates,
             copy_text,
             open_skin_directory,
             refresh_skin_catalog,
