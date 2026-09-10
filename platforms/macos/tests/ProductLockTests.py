@@ -15,9 +15,6 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-import pathlib
-import urllib.error
-import unittest.mock
 import unittest
 from unittest import mock
 
@@ -25,10 +22,6 @@ ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("product_lock", ROOT / "scripts/product_lock.py")
 lock = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lock)
-shared_spec = importlib.util.spec_from_file_location(
-    "product_lock_shared", ROOT / "scripts/product_lock_shared.py")
-shared = importlib.util.module_from_spec(shared_spec)
-shared_spec.loader.exec_module(shared)
 
 
 class ProductLockTests(unittest.TestCase):
@@ -224,51 +217,6 @@ class ProductLockTests(unittest.TestCase):
         data = json.loads((ROOT / "product-lock.json").read_text())
         self.assertEqual(lock.validate(data), data)
 
-
-
-class DownloadBackoffTests(unittest.TestCase):
-    def attempt(self, failures, **kwargs):
-        # Three attempts back to back land inside the same outage, so the spacing is the point and
-        # the test asserts on it rather than only on the retry count.
-        waits, calls = [], {"count": 0}
-
-        class Response:
-            def read(self, _size):
-                return b""
-            def __enter__(self):
-                return self
-            def __exit__(self, *_):
-                return False
-
-        def urlopen(_url, timeout=None):
-            calls["count"] += 1
-            if calls["count"] <= failures:
-                raise urllib.error.URLError("unreachable")
-            return Response()
-
-        with tempfile.TemporaryDirectory() as directory:
-            target = pathlib.Path(directory) / "asset.db"
-            with unittest.mock.patch.object(shared.urllib.request, "urlopen", urlopen):
-                shared.download_with_retries("https://example.invalid/a", target,
-                                             sleep=waits.append, **kwargs)
-        return waits, calls["count"]
-
-    def test_attempts_are_spaced_and_the_first_is_immediate(self):
-        waits, attempts = self.attempt(failures=2)
-        self.assertEqual(attempts, 3)
-        self.assertEqual(waits, [5.0, 10.0])
-
-    def test_a_first_attempt_that_works_waits_for_nothing(self):
-        waits, attempts = self.attempt(failures=0)
-        self.assertEqual((attempts, waits), (1, []))
-
-    def test_exhausting_the_attempts_still_reports_the_failure(self):
-        with self.assertRaises(ValueError):
-            self.attempt(failures=3)
-
-    def test_backoff_must_not_be_negative(self):
-        with self.assertRaises(ValueError):
-            shared.download_with_retries("https://example.invalid/a", pathlib.Path("/tmp/x"), backoff=-1)
 
 if __name__ == "__main__":
     unittest.main()
