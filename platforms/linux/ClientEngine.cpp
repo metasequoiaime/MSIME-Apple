@@ -33,6 +33,7 @@ struct State {
   bool private_input = false;
   bool fullwidth = false;
   bool input_enabled = true;
+  bool pure_shift_candidate = false;
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
@@ -766,6 +767,35 @@ bool modifier(guint key) {
 }
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
+  const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
+  if (shift_key && (flags & IBUS_RELEASE_MASK)) {
+    if (!s.pure_shift_candidate)
+      return FALSE;
+    s.pure_shift_candidate = false;
+    if (!s.focused || s.blocked)
+      return FALSE;
+    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
+      return FALSE;
+    guarded(engine, [&] {
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.input_enabled = !s.input_enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, s.input_enabled));
+      clear(engine);
+      publish_mode(engine);
+    });
+    return TRUE;
+  }
+  if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
+    s.pure_shift_candidate = true;
+    return FALSE;
+  }
+  if (!(flags & IBUS_RELEASE_MASK))
+    s.pure_shift_candidate = false;
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
