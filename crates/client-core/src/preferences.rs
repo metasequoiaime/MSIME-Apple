@@ -115,6 +115,20 @@ pub struct VoiceInputPreferences {
     pub asr_endpoint: String,
     #[serde(default)]
     pub asr_model: String,
+    #[serde(default)]
+    pub polish_enabled: bool,
+    #[serde(default)]
+    pub polish_provider: String,
+    #[serde(default)]
+    pub polish_token: String,
+    #[serde(default)]
+    pub polish_endpoint: String,
+    #[serde(default)]
+    pub polish_model: String,
+    #[serde(default)]
+    pub polish_prompt_id: String,
+    #[serde(default)]
+    pub polish_prompt: String,
 }
 
 impl Default for VoiceInputPreferences {
@@ -132,6 +146,13 @@ impl Default for VoiceInputPreferences {
             asr_token: String::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
+            polish_enabled: false,
+            polish_provider: "siliconflow".into(),
+            polish_token: String::new(),
+            polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
+            polish_model: "Qwen/Qwen3-8B".into(),
+            polish_prompt_id: "cleanup".into(),
+            polish_prompt: String::new(),
         }
     }
 }
