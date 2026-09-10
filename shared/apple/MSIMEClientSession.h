@@ -5,6 +5,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// Foundation adapter for macOS input controllers and iOS keyboard extensions.
 /// Construct and use on the main thread. No Tauri process is required.
 @interface MSIMEClientSession : NSObject
+/// The validated creation options, copied for native maintenance UI; never mutable by callers.
+@property(nonatomic, readonly) NSDictionary<NSString *, id> *hostOptions;
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
 - (instancetype)init NS_UNAVAILABLE;
 - (nullable NSDictionary<NSString *, id> *)setFocused:(BOOL)focused error:(NSError **)error;

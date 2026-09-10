@@ -25,7 +25,9 @@ static NSDictionary *decode(char *response, NSError **error) {
 
 @implementation MSIMEClientSession {
     uint64_t _handle;
+    NSDictionary *_hostOptions;
 }
+- (NSDictionary *)hostOptions { return _hostOptions; }
 + (NSDictionary *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"词典请求格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
@@ -42,6 +44,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     self = [super init];
     if (!self) return nil;
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"输入会话配置必须是 JSON 对象"); return nil; }
+    _hostOptions = [options copy];
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
     if (!data) return nil;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(data.bytes), data.length), error);
