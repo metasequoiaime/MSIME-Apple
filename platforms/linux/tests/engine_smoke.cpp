@@ -19,6 +19,7 @@ void require(bool condition, const char *message) {
 struct Observation {
   std::string committed;
   std::string preedit;
+  std::string auxiliary;
   std::vector<std::string> candidates;
   bool lookup_visible = false;
   bool preedit_visible = false;
@@ -34,9 +35,14 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     seen.lookup_visible = false;
     return;
   }
+  if (std::string(name) == "HideAuxiliaryText") {
+    seen.auxiliary.clear();
+    return;
+  }
   if (std::string(name) != "CommitText" &&
       std::string(name) != "UpdatePreeditText" &&
       std::string(name) != "UpdateLookupTable" &&
+      std::string(name) != "UpdateAuxiliaryText" &&
       std::string(name) != "RegisterProperties" &&
       std::string(name) != "UpdateProperty")
     return;
@@ -46,6 +52,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (!object)
     std::abort();
   g_object_ref_sink(object);
+  if (std::string(name) == "UpdateAuxiliaryText")
+    seen.auxiliary = ibus_text_get_text(IBUS_TEXT(object));
   auto observe_property = [&](IBusProperty *property) {
     if (std::string(ibus_property_get_key(property)) == "InputMode") {
       seen.input_enabled =
@@ -425,7 +433,10 @@ int main(int argc, char **argv) {
     for (char c : std::string("4e2d"))
       require(key(c), "Unicode digit failed");
     require(seen.preedit == "U+4e2d", "Unicode sequence was not preserved");
+    require(seen.auxiliary.find("U+") != std::string::npos,
+            "Unicode candidate mode indicator missing");
     invoke("Reset");
+    require(seen.auxiliary.empty(), "Reset left a stale mode indicator");
     auto edge_text = [](const std::string &text, bool last) {
       auto length = g_utf8_strlen(text.c_str(), -1);
       require(length >= 1, "Expected a nonempty fixture candidate");
