@@ -1,6 +1,7 @@
 //! Versioned, thread-confined C interface for native IME hosts.
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
+use msime_client_core::dictionary_access::DictionaryAccess;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
@@ -24,6 +25,8 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
+    // Declared last so the Engine/runtime is dropped before releasing access.
+    _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
@@ -178,6 +181,29 @@ pub fn prepare_host_configuration(
                 .to_owned(),
         ),
     })?)
+}
+
+/// Edit only after every participating host has destroyed its sessions.
+/// Busy is retryable without cancelling any composition. The host must recreate
+/// sessions after success; no native/Tauri management command is exposed yet.
+/// Engine diagnostics are deliberately not returned: they may include user text.
+pub fn edit_personal_dictionary(
+    options: &EngineOptions,
+    previous: Option<&msime_engine_bridge::DictionaryEntry>,
+    replacement: Option<&msime_engine_bridge::DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), &'static str> {
+    let _access = DictionaryAccess::try_maintenance(
+        std::path::Path::new(&options.user_data),
+        std::path::Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    if request_id.is_empty() {
+        return Err("dictionary request id required");
+    }
+    msime_engine_bridge::dictionary_edit(options, previous, replacement, request_id)
+        .map_err(|_| "dictionary edit rejected")
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
@@ -357,6 +383,12 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
         };
+        let dictionary_access = DictionaryAccess::try_session(
+            std::path::Path::new(&options.user_data),
+            std::path::Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable")?
+        .ok_or("dictionary maintenance busy")?;
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
         let view = runtime.view();
@@ -370,6 +402,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
+                    _dictionary_access: dictionary_access,
                 },
             )
         });
@@ -538,6 +571,49 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sessions_hold_access_until_destroy_and_failed_edits_release_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = test_host(dir.path());
+        let second = test_host(dir.path());
+        let user = dir.path().join("user");
+        let dictionaries = dir.path().join("dictionaries");
+        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
+            .unwrap()
+            .is_none());
+        read(msime_client_destroy(first));
+        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
+            .unwrap()
+            .is_none());
+        read(msime_client_destroy(second));
+        let writer = DictionaryAccess::try_maintenance(&user, &dictionaries)
+            .unwrap()
+            .unwrap();
+        let options = json!({ "api_version": 1, "resources": dir.path().join("resources"), "user_data": user, "cache": dir.path().join("cache"), "dictionaries": dictionaries, "preferences": Preferences::default() }).to_string();
+        assert_eq!(
+            read(unsafe { msime_client_create(options.as_ptr(), options.len()) })["error"],
+            "dictionary maintenance busy"
+        );
+        drop(writer);
+        let handle = test_host(dir.path());
+        let engine_options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
+        assert_eq!(
+            edit_personal_dictionary(&engine_options, None, None, "fixture"),
+            Err("dictionary maintenance busy")
+        );
+        read(msime_client_destroy(handle));
+        assert_eq!(
+            edit_personal_dictionary(&engine_options, None, None, ""),
+            Err("dictionary request id required")
+        );
+        assert_eq!(
+            edit_personal_dictionary(&engine_options, None, None, "fixture"),
+            Err("dictionary edit rejected")
+        );
+        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
+            .unwrap()
+            .is_some());
+    }
     #[test]
     fn page_edge_commands_keep_engine_composition() {
         let dir = tempfile::tempdir().unwrap();
