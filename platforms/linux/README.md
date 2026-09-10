@@ -42,4 +42,4 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 
 `candidate_font_size` 同样属于宿主渲染设置。Linux IBus Engine 只能提交候选文本和标签，不能为单个 lookup table 指定字体大小；实际字号由桌面 panel 和用户主题控制。共享设置仍由核心校验并保存，Linux 不会把字号误写成候选文本或辅助信息，也不声称覆盖 panel 的主题配置。
 
-`preedit_font_size` 遵循同一平台边界。IBus 的 `UpdatePreeditText` 只携带文本、光标和可见性，不携带字体或字号；预编辑显示由应用程序和桌面输入上下文主题绘制。Linux 会保留共享设置的校验与持久化，但不会把字号编码进预编辑字符串，也不声称可以覆盖 GTK/Qt 应用的字体设置。
+`candidate_preedit_font_size` 遵循同一平台边界。IBus 的 `UpdatePreeditText` 只携带文本、光标和可见性，不携带字体或字号；预编辑显示由应用程序和桌面输入上下文主题绘制。Linux 会保留共享设置的校验与持久化，但不会把字号编码进预编辑字符串，也不声称可以覆盖 GTK/Qt 应用的字体设置。
