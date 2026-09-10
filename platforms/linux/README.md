@@ -39,3 +39,5 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
+
+`candidate_font_size` 同样属于宿主渲染设置。Linux IBus Engine 只能提交候选文本和标签，不能为单个 lookup table 指定字体大小；实际字号由桌面 panel 和用户主题控制。共享设置仍由核心校验并保存，Linux 不会把字号误写成候选文本或辅助信息，也不声称覆盖 panel 的主题配置。
