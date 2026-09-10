@@ -1184,4 +1184,17 @@ mod tests {
         let restored: Preferences = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.floating_toolbar, defaults);
     }
+
+    #[test]
+    fn legacy_preferences_without_toolbar_use_component_defaults() {
+        let mut value = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        value["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("floating_toolbar");
+        let restored: PreferencesSnapshot = serde_json::from_value(value).unwrap();
+        assert!(restored.preferences.floating_toolbar.enabled);
+        assert!(restored.preferences.floating_toolbar.fullwidth);
+        assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    }
 }
