@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
@@ -104,19 +104,24 @@ function FallbackFontInput({ value, onChange }: { value: string[]; onChange: (fo
 
 function CustomDropdown({ value, options, onChange, ariaLabel, disabled = false }: { value: string; options: [string, string][]; onChange: (value: string) => void; ariaLabel?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(() => Math.max(0, options.findIndex(([option]) => option === value)));
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selected = options.find(([option]) => option === value) ?? options[0];
   const choose = (next: string) => { onChange(next); setOpen(false); };
+  useEffect(() => { setActive(Math.max(0, options.findIndex(([option]) => option === value))); }, [value, options]);
+  useEffect(() => { if (open) optionRefs.current[active]?.focus(); }, [open, active]);
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(current => !current); }
     else if (event.key === "Escape") setOpen(false);
-    else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setActive(index => (index + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length); }
+    else if (event.key === "Home" || event.key === "End") { event.preventDefault(); setOpen(true); setActive(event.key === "Home" ? 0 : options.length - 1); }
   };
   return <div className="custom-dropdown">
     <button type="button" className="dropdown-toggle" aria-label={ariaLabel} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(current => !current)} onKeyDown={onKeyDown}>
       {selected?.[1] ?? value}<span aria-hidden="true" className="dropdown-chevron">⌄</span>
     </button>
     {open && <div className="dropdown-menu" role="listbox" aria-label={ariaLabel}>
-      {options.map(([option, label]) => <button type="button" role="option" aria-selected={option === value} className="dropdown-item" key={option} onClick={() => choose(option)}>{label}</button>)}
+      {options.map(([option, label], index) => <button type="button" role="option" aria-selected={option === value} className="dropdown-item" key={option} ref={element => { optionRefs.current[index] = element; }} onMouseEnter={() => setActive(index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(option); } else if (event.key === "Escape") { event.preventDefault(); setOpen(false); } else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((index + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length); } else if (event.key === "Home" || event.key === "End") { event.preventDefault(); setActive(event.key === "Home" ? 0 : options.length - 1); } }} onClick={() => choose(option)}>{label}</button>)}
     </div>}
   </div>;
 }
