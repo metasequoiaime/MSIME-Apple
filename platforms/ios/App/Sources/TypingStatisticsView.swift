@@ -16,6 +16,24 @@ struct TypingStatisticsView: View {
   @State private var selectedDay: Date?
   private let store = TypingStatisticsStore()
   private let colors: [Color] = [.teal, .blue, .indigo, .orange, .pink, .purple, .brown, .gray]
+  @State private var availability = TypingStatisticsStore.Availability.neverWritten
+  // The old copy asked for Full Access unconditionally, so it said the same thing whether the
+  // setting was the problem or not and carried no information. Each case here is a different
+  // answer to "why is this empty", and a run that is working says nothing at all.
+  private var storageAdvice: String? {
+    switch availability {
+    case .containerUnavailable:
+      return "无法访问共享存储，键盘与本 app 之间没有可用的数据通道。重装水杉输入法可以重建它。"
+    case .neverWritten:
+      return "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，"
+        + "然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
+    case .ready(let lastWritten):
+      guard statistics.total == 0 else { return nil }
+      guard let lastWritten else { return "统计文件存在但还没有计数，请用水杉键盘输入几个字再刷新。" }
+      return "统计文件最后写入于 \(lastWritten.formatted(.dateTime.month().day().hour().minute()))，但计数为零。"
+        + "若此前清空过统计，这是正常的；否则请附上这条信息反馈。"
+    }
+  }
   private var dates: [Date] {
     (0..<(period == 0 ? 30 : period)).reversed().compactMap {
       Calendar.current.date(byAdding: .day, value: -$0, to: Calendar.current.startOfDay(for: Date()))
@@ -95,11 +113,13 @@ struct TypingStatisticsView: View {
       } footer: {
         Text("仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。")
       }
-      Section("开启统计") {
-        Text("请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，以便键盘将统计写入本机。未开启时仍可正常打字，但不会记录统计。")
-        Button("前往系统设置") {
-          guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-          UIApplication.shared.open(url)
+      if let advice = storageAdvice {
+        Section("统计没有数据") {
+          Text(advice)
+          Button("前往系统设置") {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+          }
         }
       }
       if !errorMessage.isEmpty { Section { Text(errorMessage).foregroundStyle(.secondary) } }
@@ -179,10 +199,15 @@ struct TypingStatisticsView: View {
   }
   private func reload() { update {} }
   private func update(_ operation: () throws -> Void) {
+    availability = store.availability()
     do {
       try operation()
       statistics = try store.load()
       errorMessage = ""
-    } catch { errorMessage = "暂时无法读取或保存统计，请解锁设备后重试。" }
+    } catch {
+      // A locked device is one reason among several, and naming only that one sent a reader
+      // looking in the wrong place. Carry what actually failed.
+      errorMessage = "无法读取或保存统计：\(error.localizedDescription)"
+    }
   }
 }

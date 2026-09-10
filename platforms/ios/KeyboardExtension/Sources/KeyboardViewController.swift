@@ -92,6 +92,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let spellingScrollView = UIScrollView()
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
+  private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
@@ -1830,7 +1831,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func insertOwnText(_ text: String, source: TypingSource? = nil) {
     pendingOwnEdits += 1
     textDocumentProxy.insertText(text)
-    if hasFullAccess { try? TypingStatisticsStore().record(text, source: source ?? typingSource) }
+    recordTypingStatistics(text, source: source ?? typingSource)
+  }
+
+  // Swallowing this left the settings screen showing zeros with nothing to explain them, which is
+  // how it reached a bug report rather than the person typing. The reason does not change between
+  // keystrokes and a banner on each one would bury the composition, so it is said once per session.
+  private func recordTypingStatistics(_ text: String, source: TypingSource) {
+    guard hasFullAccess else { return }
+    do {
+      try TypingStatisticsStore().record(text, source: source)
+    } catch {
+      guard !reportedStatisticsFailure else { return }
+      reportedStatisticsFailure = true
+      showDiagnostic("统计未能写入：\(error.localizedDescription)")
+    }
   }
 
   private func deleteOwnBackward() {

@@ -91,4 +91,24 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(snapshot.detail.characters["han"], 470)
     XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
   }
+
+  func testAvailabilityTellsAnEmptyRunApartFromABrokenOne() throws {
+    // The three answers to "why is this empty" are different actions for the reader, so the store
+    // has to distinguish them rather than return one emptiness.
+    XCTAssertEqual(TypingStatisticsStore(directory: nil).availability(), .containerUnavailable)
+
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-availability-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let store = TypingStatisticsStore(directory: directory)
+    XCTAssertEqual(store.availability(), .neverWritten)
+
+    try store.record("水杉")
+    guard case .ready(let lastWritten) = store.availability() else {
+      return XCTFail("A written store still reported that the keyboard had never written.")
+    }
+    XCTAssertNotNil(lastWritten)
+  }
 }
