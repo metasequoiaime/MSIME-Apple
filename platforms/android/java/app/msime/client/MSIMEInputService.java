@@ -218,7 +218,11 @@ public final class MSIMEInputService extends InputMethodService {
             for (char key : letters.toCharArray()) button(row, String.valueOf(key), () -> type(key));
         }
         LinearLayout controls = new LinearLayout(this);
-        keyboard.addView(controls);
+        HorizontalScrollView controlScroll = new HorizontalScrollView(this);
+        controlScroll.setHorizontalScrollBarEnabled(false);
+        controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        keyboard.addView(controlScroll);
         Button shiftButton = button(controls, "Shift", () -> { shift = !shift; render(); });
         shiftButton.setContentDescription("切换大写");
         button(controls, "首", () -> command(6));
@@ -231,6 +235,13 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
         button(controls, "回车", this::enter);
         button(controls, "切换", () -> switchToNextInputMethod(false));
+        for (int index = 0; index < controls.getChildCount(); index++) {
+            View child = controls.getChildAt(index);
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
+            params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+            params.weight = 0;
+            child.setLayoutParams(params);
+        }
         render();
         return keyboard;
     }
