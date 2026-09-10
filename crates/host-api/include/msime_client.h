@@ -36,6 +36,18 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * not participate; preparation/upgrades still require stopped sessions.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
+/* Management JSON (<=65536 bytes), trusted native caller only:
+ * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
+ * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
+ * Entry:{kind:"pinyin"|"wubi"|"quick_phrase"|"english",key,value,weight}.
+ * List returns {entries,has_more}; edit returns {applied:true}. Errors are redacted.
+ * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
+ * Run on a worker thread. Edit returns busy until all participating sessions are
+ * destroyed, then holds exclusive access; recreate sessions after success.
+ * Do not automatically cancel user input to obtain access. Retry ambiguous writes
+ * with the identical nonempty request ID and content.
+ */
+char *msime_client_dictionary(const uint8_t *request, size_t length);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.

@@ -673,3 +673,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 共享核心新增用户目录和工作词库目录的双路径访问锁：规范化绝对路径、去重排序、稳定锁文件，非阻塞尝试获取。所有 host-api 会话从创建到 Engine 销毁持有共享锁；Rust 维护编辑入口获取独占锁，存在任一参与会话即返回 busy，既不等待按键线程也不取消组合。编辑失败返回不含词条的固定错误，成功或失败均释放维护锁，之后可重建会话。
 
 21 项核心测试、19 项 host-api 测试、fmt/clippy、10 项本机 Windows 边界 CTest、x64 交叉构建和导入检查通过。覆盖双目录冲突、多个读者、跨进程读写互斥、会话销毁释放及维护错误释放。锁为协作协议，不约束旧宿主、直接 Engine 使用者或外部编辑器；资源准备/升级仍要求事先停止相关会话。Windows Server 管理请求、停用/重建调度和 Tauri/UI 尚未接入；未执行 Windows 原生锁竞争或 TSF 验证，完整迁移继续，CI 保持禁用。
+
+### Windows 词库管理 Native Host 请求
+
+在上述访问锁基础上增加 host-api 的受限 JSON 管理入口，支持分页读取与新增、替换、删除个人词库。入口复用同一 HostOptions 资源校验和 Engine 事务接口，编辑只有在所有参与会话销毁后取得独占锁才能执行；重复 request_id 可安全重试，响应只返回固定错误或 `applied`，不回显 Engine 诊断和词条。C 头文件记录长度限制、调用线程、路径授权、停用/重建和隐私契约。
+
+独立请求示例覆盖活跃会话 busy、销毁后新增、重复新增、列表、重建会话提交快捷短语、删除及重复删除；20 项 host-api 测试（含 malformed/oversized request）和 21 项核心测试、fmt/clippy、10 项 Windows 边界 CTest、x64 交叉链接与导入检查通过。该入口仍是 native host API，不是 Windows Server 管理消息、Tauri 命令或 UI；导入导出、搜索、批量编辑、跨进程自动停用仍待完成。未执行 Windows 原生验证，CI 保持禁用。
