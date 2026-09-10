@@ -129,6 +129,16 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_id: String,
     #[serde(default)]
     pub polish_prompt: String,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_ralt: bool,
+    #[serde(default)]
+    pub hotkey_ctrl_win: bool,
+    #[serde(default)]
+    pub hotkey_rctrl_ralt: bool,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_hold_space_lock: bool,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_ctrl_f9: bool,
 }
 
 impl Default for VoiceInputPreferences {
@@ -153,6 +163,11 @@ impl Default for VoiceInputPreferences {
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
+            hotkey_ralt: true,
+            hotkey_ctrl_win: false,
+            hotkey_rctrl_ralt: false,
+            hotkey_hold_space_lock: true,
+            hotkey_ctrl_f9: true,
         }
     }
 }

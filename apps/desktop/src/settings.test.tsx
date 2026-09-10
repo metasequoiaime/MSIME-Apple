@@ -58,6 +58,16 @@ test("voice text polishing settings persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ polish_enabled: true, polish_model: "gpt-4o-mini" }) }));
 });
 
+test("voice hotkey choices persist", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Ctrl + Win（长按录音）" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ hotkey_ctrl_win: true }) }));
+});
+
 test("AI assistant settings expose and persist provider configuration", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
