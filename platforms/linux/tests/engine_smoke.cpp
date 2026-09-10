@@ -220,6 +220,10 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
     auto mode = [&](guint value) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));

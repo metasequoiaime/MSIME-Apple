@@ -243,6 +243,12 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto character_mode = ibus_property_new(
+      "CharacterMode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string("切换 ASCII 全角或半角输出"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
@@ -340,6 +346,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
+    ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
@@ -351,6 +358,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
   } else {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
@@ -509,8 +517,9 @@ void focus_out(IBusEngine *engine) {
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
   if (!name ||
-      (std::string(name) != "InputMode" &&
+       (std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
+       std::string(name) != "CharacterMode" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
@@ -528,6 +537,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name) == "CharacterMode") {
+      s.fullwidth = value == PROP_STATE_CHECKED;
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name).rfind("CandidateTheme/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("CandidateTheme/").size());
       if (s.theme_override.value_or(
