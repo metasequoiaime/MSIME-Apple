@@ -179,6 +179,11 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
+    const auto annotation = candidate.value("annotation", std::string{});
+    if (!annotation.empty()) {
+      value += "  ";
+      value += annotation;
+    }
     auto text = ibus_text_new_from_string(value.c_str());
     if (state(engine).candidate_text_color)
       ibus_text_append_attribute(
