@@ -19,7 +19,7 @@ void ClipboardWindow::refresh() {
 void ClipboardWindow::paint() {
   PAINTSTRUCT ps{}; const auto dc = BeginPaint(window_, &ps); RECT client{}; GetClientRect(window_, &client);
   FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-  if (shown_) { SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(32, 32, 32)); int y = 8; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { std::wstring text(shown_->items[i].begin(), shown_->items[i].end()); RECT row{8, y, client.right - 8, y + 24}; DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += 26; } }
+  if (shown_) { SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(32, 32, 32)); RECT clear{8, 4, client.right - 8, 26}; DrawTextW(dc, L"清空剪贴板历史", -1, &clear, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); int y = 32; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { std::wstring text(shown_->items[i].begin(), shown_->items[i].end()); RECT row{8, y, client.right - 8, y + 24}; DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += 26; } }
   EndPaint(window_, &ps);
 }
 LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
@@ -27,8 +27,8 @@ LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wp
   if (message == WM_NCCREATE) { auto *create = reinterpret_cast<CREATESTRUCTW *>(lparam); self = static_cast<ClipboardWindow *>(create->lpCreateParams); SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self)); }
   if (!self) return DefWindowProcW(window, message, wparam, lparam);
   if (message == WM_PAINT) { self->paint(); return 0; }
-  if (message == WM_LBUTTONUP && self->shown_) { const size_t index = static_cast<size_t>(GET_Y_LPARAM(lparam) / 26); if (index < self->shown_->items.size() && self->click_) self->click_(index); return 0; }
-  if (message == WM_RBUTTONUP && self->shown_) { const size_t index = static_cast<size_t>(GET_Y_LPARAM(lparam) / 26); if (index < self->shown_->items.size() && self->remove_) self->remove_(index); return 0; }
+  if (message == WM_LBUTTONUP && self->shown_) { const int y = GET_Y_LPARAM(lparam); if (y < 30) { if (self->clear_) self->clear_(); return 0; } const size_t index = static_cast<size_t>((y - 32) / 26); if (y >= 32 && index < self->shown_->items.size() && self->click_) self->click_(index); return 0; }
+  if (message == WM_RBUTTONUP && self->shown_) { const int y = GET_Y_LPARAM(lparam); if (y < 32) return 0; const size_t index = static_cast<size_t>((y - 32) / 26); if (index < self->shown_->items.size() && self->remove_) self->remove_(index); return 0; }
   if (message == WM_KEYDOWN && wparam == VK_DELETE && (GetKeyState(VK_CONTROL) & 0x8000) && self->clear_) { self->clear_(); return 0; }
   if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
   return DefWindowProcW(window, message, wparam, lparam);
