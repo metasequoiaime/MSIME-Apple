@@ -8,6 +8,7 @@
 #include <stdexcept>
 
 using Json = nlohmann::json;
+struct MsimePreviewEngine;
 namespace {
 Json configured;
 Json response(char *raw) {
@@ -101,7 +102,6 @@ struct State {
     word_character = edge_binding;
   }
 };
-struct MsimePreviewEngine;
 State &state(IBusEngine *engine);
 std::optional<guint> candidate_text_color(const Json &preferences) {
   const auto value = preferences.value("candidate_text_color", Json(nullptr));
@@ -438,7 +438,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   if (!raw || !request || !s.session || s.session != request->session || !s.focused)
     return;
   try {
-    auto reply = response(raw);
+    auto reply = response(static_cast<char *>(raw));
     if (reply.is_null() || !reply.is_object() || !reply.contains("text") ||
         !reply.at("text").is_string() || !reply.contains("source"))
       return;
@@ -697,8 +697,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_focus(s.session, true));
     if ((flags & IBUS_CONTROL_MASK) && key == IBUS_period) {
       s.chinese_punctuation = !s.chinese_punctuation;
-      handled = apply(engine, msime_client_set_chinese_punctuation(
-                                  s.session, s.chinese_punctuation));
+      s.view = response(msime_client_set_chinese_punctuation(
+          s.session, s.chinese_punctuation));
+      render(engine, s.view);
+      publish_mode(engine);
+      handled = true;
       return;
     }
     if (flags &
