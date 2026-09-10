@@ -302,6 +302,12 @@ int main(int argc, char **argv) {
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
+    require(!key(IBUS_Shift_L) && key(IBUS_Shift_L, IBUS_RELEASE_MASK),
+            "Pure Shift did not toggle input mode off");
+    require(!seen.input_enabled, "Pure Shift did not enter direct mode");
+    require(!key(IBUS_Shift_L) && key(IBUS_Shift_L, IBUS_RELEASE_MASK),
+            "Pure Shift did not toggle input mode on");
+    require(seen.input_enabled, "Pure Shift did not restore input mode");
     phrase();
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
