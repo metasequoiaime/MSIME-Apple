@@ -99,6 +99,14 @@ test("theme settings use custom dropdowns and persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, theme: "light" });
 });
 
+test("shortcut page reflects enabled navigation shortcuts", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("候选操作")).toBeDefined();
+  expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
+  expect(screen.getByText("↑ / ↓")).toBeDefined();
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
