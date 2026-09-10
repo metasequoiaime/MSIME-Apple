@@ -5,6 +5,15 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("feedback links use the host external URL action when available", async () => {
+  const openExternalUrl = vi.fn();
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), feedback: { openExternalUrl } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(await screen.findByRole("link", { name: /查看 Issues/ }));
+  expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues");
+});
+
 test("about links use the host external URL action when available", async () => {
   const openExternalUrl = vi.fn();
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), about: { openExternalUrl } };
