@@ -139,6 +139,14 @@ pub struct VoiceInputPreferences {
     pub hotkey_hold_space_lock: bool,
     #[serde(default = "enabled_by_default")]
     pub hotkey_ctrl_f9: bool,
+    #[serde(default = "enabled_by_default")]
+    pub doubao_enable_itn: bool,
+    #[serde(default = "enabled_by_default")]
+    pub doubao_enable_punc: bool,
+    #[serde(default)]
+    pub doubao_enable_ddc: bool,
+    #[serde(default)]
+    pub doubao_boosting_table_id: String,
 }
 
 impl Default for VoiceInputPreferences {
@@ -168,6 +176,10 @@ impl Default for VoiceInputPreferences {
             hotkey_rctrl_ralt: false,
             hotkey_hold_space_lock: true,
             hotkey_ctrl_f9: true,
+            doubao_enable_itn: true,
+            doubao_enable_punc: true,
+            doubao_enable_ddc: false,
+            doubao_boosting_table_id: String::new(),
         }
     }
 }
