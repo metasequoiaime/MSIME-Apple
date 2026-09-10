@@ -8,7 +8,8 @@ class ClipboardWindow final {
 public:
   using Reader = std::function<std::optional<ClipboardPresentation>()>;
   using Click = std::function<void(size_t)>;
-  ClipboardWindow(Reader reader, Click click);
+  using Remove = std::function<void(size_t)>;
+  ClipboardWindow(Reader reader, Click click, Remove remove = {});
   ~ClipboardWindow();
   ClipboardWindow(const ClipboardWindow &) = delete;
   ClipboardWindow &operator=(const ClipboardWindow &) = delete;
@@ -18,7 +19,7 @@ public:
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
-  Reader reader_; Click click_; HWND window_ = nullptr;
+  Reader reader_; Click click_; Remove remove_; HWND window_ = nullptr;
   std::optional<ClipboardPresentation> shown_; bool failed_ = false;
 };
 } // namespace msime::windows
