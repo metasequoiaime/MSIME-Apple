@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { SettingsPage, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
+import { SettingsPage, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type ExternalSkinSummary } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 const dictionary: DictionaryClient = {
@@ -15,5 +15,21 @@ const client: SettingsClient = {
   },
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
   dictionary,
+  about: { openExternalUrl: url => invoke("open_external_url", { url }) },
+  feedback: { openExternalUrl: url => invoke("open_external_url", { url }) },
+  update: { check: () => invoke("check_for_updates") },
+  diagnostics: {
+    server: enabled => invoke("set_diagnostic_log", { scope: "server", enabled }),
+    tsf: enabled => invoke("set_diagnostic_log", { scope: "tsf", enabled }),
+  },
+  clipboard: { clear: () => invoke("clear_clipboard_history"), copy: text => invoke("copy_text", { text }) },
+  screen_keyboard: { open: () => invoke("open_screen_keyboard") },
+  handwriting: { open: () => invoke("open_handwriting") },
+  skin: {
+    openDirectory: () => invoke("open_skin_directory"),
+    refresh: () => invoke("refresh_skin_catalog"),
+    list: () => invoke<ExternalSkinSummary[]>("list_external_skins"),
+    select: id => invoke("select_skin", { id }),
+  },
 };
 createRoot(document.getElementById("root")!).render(<StrictMode><SettingsPage client={client} /></StrictMode>);
