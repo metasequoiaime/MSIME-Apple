@@ -52,18 +52,23 @@
 - (void)startSession {
     if (self.session) {
         [self apply:[self.session setFocused:YES error:nil]];
-        return;
+    } else {
+        NSError *error = nil;
+        self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:&error];
+        if (!self.session) return;
+        [self apply:[self.session setFocused:YES error:&error]];
     }
-    NSError *error = nil;
-    self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:&error];
-    if (!self.session) return;
-    [self apply:[self.session setFocused:YES error:&error]];
+    [self reloadPreferences];
+}
+
+- (void)reloadPreferences {
+    MSIMEClientSession *session = self.session;
     NSString *directory = [self runtimeOptions][@"preferences_directory"];
     if ([directory isKindOfClass:NSString.class] && directory.length) {
         __weak MSIMEKeyboardViewController *weakSelf = self;
-        [self.session reloadPreferencesDirectory:directory completion:^(NSDictionary *result, NSError *reloadError) {
+        [session reloadPreferencesDirectory:directory completion:^(NSDictionary *result, NSError *reloadError) {
             MSIMEKeyboardViewController *strongSelf = weakSelf;
-            if (!strongSelf || reloadError || !result) return;
+            if (!strongSelf || strongSelf.session != session || reloadError || !result) return;
             [strongSelf apply:result];
         }];
     }
