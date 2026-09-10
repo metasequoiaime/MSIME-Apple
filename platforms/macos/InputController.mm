@@ -5,6 +5,7 @@
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "UpdateController.h"
+#import "DictionaryWindowController.h"
 #import "AppearancePreferences.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
@@ -49,6 +50,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     BOOL _focusPending;
+    MSIMEDictionaryWindowController *_dictionaryWindow;
 }
 
 - (void)ensureAppearance {
@@ -104,6 +106,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
+    NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"个人词典…" action:@selector(showDictionary:) keyEquivalent:@""];
+    dictionary.target = self;
+    [menu addItem:dictionary];
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
     updates.target = self;
@@ -145,6 +150,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_appearance showWindow:sender];
     [NSApp activateIgnoringOtherApps:YES];
 }
+- (void)showDictionary:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
