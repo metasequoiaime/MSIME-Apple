@@ -66,8 +66,10 @@ struct Painting {
   ~Painting() { EndPaint(window, &state); }
 };
 } // namespace
-CandidateWindow::CandidateWindow(Reader reader, Click click)
-    : reader_(std::move(reader)), click_(std::move(click)) {
+CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size)
+    : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size) {
+  if (font_size_ < 12 || font_size_ > 32)
+    throw std::invalid_argument("Invalid candidate font size");
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;
@@ -136,7 +138,7 @@ void CandidateWindow::refresh() {
   const auto dpi = GetDpiForWindow(window_);
   const auto bounds =
       candidate_bounds(value->x, value->y, work.left, work.top, work.right,
-                       work.bottom, dpi, value->candidates.size());
+      work.bottom, dpi, value->candidates.size(), font_size_);
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
@@ -159,7 +161,7 @@ void CandidateWindow::paint() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  const auto metrics = candidate_metrics(GetDpiForWindow(window_));
+  const auto metrics = candidate_metrics(GetDpiForWindow(window_), font_size_);
   Font font(painting.dc, metrics.font);
   SetBkMode(painting.dc, TRANSPARENT);
   auto line = [&](const std::wstring &text, size_t row, bool highlighted) {
@@ -189,7 +191,8 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
   const auto row = candidate_hit(x, y, bounds.right, bounds.bottom,
-                                 painted_dpi_, painted_->candidates.size());
+                                 painted_dpi_, painted_->candidates.size(),
+                                 font_size_);
   if (!row)
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];

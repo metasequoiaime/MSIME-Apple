@@ -90,6 +90,8 @@ int wmain(int argc, wchar_t **argv) {
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     const bool follow_cursor = prepared.at("value").at("preferences").value(
         "candidate_follow_cursor", true);
+    const auto candidate_font_size = prepared.at("value").at("preferences").value(
+        "candidate_font_size", 16u);
     std::optional<std::pair<int, int>> fixed_candidate_anchor;
     auto candidate_reader = [&]() -> std::optional<CandidatePresentation> {
       auto value = server.candidate_view();
@@ -129,7 +131,8 @@ int wmain(int argc, wchar_t **argv) {
     } click_shutdown{server, clicks, mode_clicks};
     CandidateWindow candidates(
         candidate_reader,
-        [&](const CandidateClick &click) { (void)clicks.submit(click); });
+        [&](const CandidateClick &click) { (void)clicks.submit(click); },
+        candidate_font_size);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout

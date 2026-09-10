@@ -12,7 +12,7 @@ class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
   using Click = std::function<void(const CandidateClick &)>;
-  explicit CandidateWindow(Reader reader, Click click = {});
+  explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -34,5 +34,6 @@ private:
   std::optional<CandidateClick> pressed_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
+  unsigned font_size_ = 16;
 };
 } // namespace msime::windows
