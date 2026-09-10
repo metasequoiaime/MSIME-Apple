@@ -1,6 +1,7 @@
 #include "PreviewConfig.h"
 #include "CandidateWindow.h"
 #include "ClipboardHistory.h"
+#include "ClipboardPresentation.h"
 #include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
@@ -93,7 +94,11 @@ int wmain(int argc, wchar_t **argv) {
     ClipboardHistory clipboard(config.state_root / "clipboard_history.json");
     clipboard.set_enabled(prepared.at("value").at("preferences").value(
         "clipboard_history", true));
-    ClipboardMonitor clipboard_monitor(clipboard, {});
+    ClipboardMailbox clipboard_mailbox;
+    clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
+    ClipboardMonitor clipboard_monitor(clipboard, [&](std::string) {
+      clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
+    });
     if (clipboard.enabled() && !clipboard_monitor.start())
       throw std::runtime_error("Clipboard monitor unavailable");
     const bool follow_cursor = prepared.at("value").at("preferences").value(
