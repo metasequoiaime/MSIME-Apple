@@ -24,6 +24,7 @@ public:
 private:
     metasequoia::Session session_;
     bool microsoft_shuangpin_;
+    std::string shuangpin_profile_;
     HelpcodeUtils::SharedKeymap helpcode_keymap_;
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);

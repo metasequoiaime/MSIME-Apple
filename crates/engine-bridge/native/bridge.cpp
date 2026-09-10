@@ -93,6 +93,7 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
     microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3),
+    shuangpin_profile_(options_for(options).shuangpin_profile.name),
     helpcode_keymap_(options.helpcode ? HelpcodeUtils::load_helpcode_keymap(paths_for(options).resources, std::string(options.helpcode_schema)) : nullptr) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
@@ -132,6 +133,7 @@ EngineSnapshot EngineSession::snapshot() const {
     }
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
+    output.shuangpin_profile = shuangpin_profile_;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;

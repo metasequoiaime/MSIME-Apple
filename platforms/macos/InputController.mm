@@ -9,6 +9,7 @@
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
+#import "ShuangpinKeymapPanel.h"
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
@@ -36,6 +37,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
+    MSIMEShuangpinKeymapPanel *_keymapPanel;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
@@ -104,6 +106,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     _appearance.englishMode = enabled;
     [_panel orderOut:nil];
+    [_keymapPanel orderOut:nil];
 }
 - (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
 - (void)selectSimplifiedOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = NO; }
@@ -181,6 +184,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)deactivateServer:(id)sender {
+    [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];
@@ -306,7 +310,32 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self renderCandidates];
 }
 
+- (void)updateKeymapPanel {
+    NSString *preedit = _view[@"preedit"];
+    NSNumber *scheme = _view[@"scheme"];
+    NSString *profile = _view[@"shuangpin_profile"];
+    if (!_session || !_activeClient || _appearance.englishMode ||
+        ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
+        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, [preedit isKindOfClass:NSString.class] && preedit.length > 0)) {
+        [_keymapPanel orderOut:nil];
+        return;
+    }
+    NSRect cursor = NSZeroRect;
+    [_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&cursor];
+    if (!MSIMEValidCaret(cursor)) { [_keymapPanel orderOut:nil]; return; }
+    if (!_keymapPanel) _keymapPanel = [[MSIMEShuangpinKeymapPanel alloc] init];
+    [_keymapPanel setProfileName:profile];
+    const unichar last = [preedit characterAtIndex:preedit.length - 1];
+    NSString *key = ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') ? [NSString stringWithCharacters:&last length:1] : @"";
+    [_keymapPanel updateHighlightedKey:key];
+    CGFloat clearance = _appearance.fontSize + 42.0;
+    if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
+    [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
+}
+
 - (void)renderCandidates {
+    [self updateKeymapPanel];
     if (_appearance.englishMode) { [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) { [_panel orderOut:nil]; return; }

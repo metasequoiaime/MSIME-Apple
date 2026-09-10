@@ -57,6 +57,7 @@ mod ffi {
         pub scheme: u8,
         pub local_mode: String,
         pub microsoft_shuangpin: bool,
+        pub shuangpin_profile: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
@@ -400,6 +401,21 @@ mod tests {
         value.shuangpin_profile = 0;
         value.resources = "relative".into();
         assert!(Session::new(&value).is_err());
+    }
+
+    #[test]
+    fn live_snapshot_carries_all_shuangpin_profile_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut value = options(dir.path());
+        value.scheme = 1;
+        for (code, name) in ["xiaohe", "ziranma", "shoudao", "microsoft"]
+            .iter()
+            .enumerate()
+        {
+            value.shuangpin_profile = code as u8;
+            let session = Session::new(&value).unwrap();
+            assert_eq!(session.snapshot().unwrap().shuangpin_profile, *name);
+        }
     }
     #[test]
     fn microsoft_profile_accepts_semicolon_as_an_ing_final() {
