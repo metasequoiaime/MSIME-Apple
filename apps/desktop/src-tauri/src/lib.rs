@@ -19,6 +19,7 @@ struct ExternalSkinSummary {
     author: Option<String>,
     description: Option<String>,
     compatible: bool,
+    issues: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -92,15 +93,46 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
         let id = entry.file_name().to_string_lossy().into_owned();
         let manifest = entry.path().join("skin.toml");
         if !manifest.is_file() {
+            result.push(ExternalSkinSummary {
+                id: id.clone(),
+                name: id,
+                version: None,
+                author: None,
+                description: None,
+                compatible: false,
+                issues: vec!["缺少 skin.toml".into()],
+            });
             continue;
         }
         let text = match std::fs::read_to_string(manifest) {
             Ok(text) => text,
-            Err(_) => continue,
+            Err(_) => {
+                result.push(ExternalSkinSummary {
+                    id: id.clone(),
+                    name: id,
+                    version: None,
+                    author: None,
+                    description: None,
+                    compatible: false,
+                    issues: vec!["无法读取 skin.toml".into()],
+                });
+                continue;
+            }
         };
         let manifest: SkinManifest = match toml::from_str(&text) {
             Ok(manifest) => manifest,
-            Err(_) => continue,
+            Err(_) => {
+                result.push(ExternalSkinSummary {
+                    id: id.clone(),
+                    name: id,
+                    version: None,
+                    author: None,
+                    description: None,
+                    compatible: false,
+                    issues: vec!["skin.toml 格式无效".into()],
+                });
+                continue;
+            }
         };
         let compatible = matches!(
             manifest.base.as_deref(),
@@ -109,6 +141,10 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             && manifest.layouts.iter().any(|value| value == "vertical")
             && manifest.themes.iter().any(|value| value == "dark")
             && manifest.themes.iter().any(|value| value == "light");
+        let mut issues = Vec::new();
+        if !compatible {
+            issues.push("不支持当前基底、布局或主题".into());
+        }
         result.push(ExternalSkinSummary {
             name: manifest
                 .name
@@ -119,6 +155,7 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             author: manifest.author,
             description: manifest.description,
             compatible,
+            issues,
         });
     }
     Ok(result)
