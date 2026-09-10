@@ -353,6 +353,15 @@ int main(int argc, char **argv) {
             "Ctrl+Shift+F character mode toggle was not consumed");
     require(key('f', IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+F character mode toggle could not restore mode");
+    committed = seen.committed;
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Could not enable fullwidth mode for UTF-8 regression");
+    phrase();
+    require(key(IBUS_space) && seen.committed == committed + "你好",
+            "Fullwidth mode corrupted non-ASCII commit text");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Could not disable fullwidth mode after UTF-8 regression");
+    committed = seen.committed;
     phrase();
     invoke("FocusOut");
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
