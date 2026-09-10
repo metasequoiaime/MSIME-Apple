@@ -1152,4 +1152,20 @@ mod tests {
         assert_eq!(read(msime_client_command(0, 999))["ok"], false);
         unsafe { msime_client_string_free(std::ptr::null_mut()) };
     }
+
+    #[test]
+    fn candidate_page_edge_commands_reach_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let first = read(msime_client_command(handle, 104));
+        assert_eq!(first["value"]["handled"], false);
+        assert!(first["value"]["view"]["candidates"].as_array().unwrap().is_empty());
+        let last = read(msime_client_command(handle, 105));
+        assert_eq!(last["value"]["handled"], false);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
 }
