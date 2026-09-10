@@ -38,6 +38,7 @@ impl HostSession {
         options.scheme = scheme_code(snapshot.preferences.scheme);
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.learning = snapshot.preferences.learning;
+        options.autocorrect = snapshot.preferences.autocorrect;
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         // Build and validate first; errors leave the original session usable.
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
@@ -317,6 +318,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             scheme: scheme_code(options.preferences.scheme),
             shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
             learning: options.preferences.learning,
+            autocorrect: options.preferences.autocorrect,
             chinese_punctuation: options.preferences.chinese_punctuation,
         };
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
@@ -498,6 +500,30 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn autocorrect_update_waits_for_composition_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        let before = read(msime_client_view(handle))["value"].clone();
+        let preferences = Preferences {
+            autocorrect: false,
+            ..Preferences::default()
+        };
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle))["value"], before);
+        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.autocorrect));
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.autocorrect));
+        assert_eq!(
+            update(handle, 2, &Preferences::default())["value"]["deferred"],
+            false
+        );
+        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.autocorrect));
+        read(msime_client_destroy(handle));
+    }
+
     #[test]
     #[cfg(not(target_os = "android"))]
     fn try_preferences_reader_reports_contention_without_defaults() {

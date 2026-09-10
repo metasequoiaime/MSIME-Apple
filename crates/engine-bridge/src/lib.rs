@@ -12,6 +12,7 @@ mod ffi {
         pub scheme: u8,
         pub shuangpin_profile: u8,
         pub learning: bool,
+        pub autocorrect: bool,
         pub chinese_punctuation: bool,
     }
     #[derive(Debug)]
@@ -154,6 +155,7 @@ mod tests {
             scheme: 0,
             shuangpin_profile: 0,
             learning: false,
+            autocorrect: true,
             chinese_punctuation: true,
         }
     }

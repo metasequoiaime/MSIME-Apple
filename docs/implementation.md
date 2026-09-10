@@ -561,3 +561,9 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 ### 第八十九条功能：模式面板跨显示器刷新
 
 模式面板将当前鼠标所在显示器纳入展示身份；即使宿主模式状态和 DPI 不变，鼠标跨显示器后下一次刷新也会重新读取目标工作区并停靠右下角。无法读取鼠标位置时回退主显示器。十项本机 CTest 与 Windows x64 交叉构建通过，未执行 Windows 原生多显示器验证，CI 保持禁用。
+
+### Windows 功能复刻：全拼纠错设置
+
+在 MSIME-Client 共享设置新增 autocorrect，默认开启，对应 Windows 配置的全拼纠错。旧 JSON 缺省字段仍按开启读取且读取不改写原文件。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 传至 Engine SessionOptions.autocorrect；活动组合结束前不应用变更。React 提供可保存的开关。
+
+本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
