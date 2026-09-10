@@ -98,6 +98,94 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
 }
 
+@interface HiddenKeymapPanel : MSIMEShuangpinKeymapPanel
+@property(nonatomic) BOOL requestedVisible;
+@property(nonatomic) CGFloat clearance;
+@end
+@implementation HiddenKeymapPanel
+- (void)showNearCaretRect:(NSRect)rect candidateClearance:(CGFloat)clearance {
+    (void)rect; self.requestedVisible = YES; self.clearance = clearance;
+}
+- (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
+@end
+
+static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    assert(!appearance.shuangpinKeymap);
+    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
+    NSButton *toggle = (id)[grid cellAtColumnIndex:1 rowIndex:9].contentView;
+    toggle.state = NSControlStateValueOn;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(appearance.shuangpinKeymap);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] shuangpinKeymap]);
+    HiddenKeymapPanel *panel = [[HiddenKeymapPanel alloc] init];
+    assert(panel.ignoresMouseEvents && panel.floatingPanel);
+    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"]) {
+        NSArray *rows = MSIMEShuangpinKeymapRows(profile);
+        assert(rows.count == 3 && [rows[0] count] == 10 && [rows[2] count] == 7);
+        assert([rows[1] count] == ([profile isEqual:@"microsoft"] ? 10 : 9));
+        [panel setProfileName:profile];
+        [panel.contentView layoutSubtreeIfNeeded];
+        assert([panel.contentView.accessibilityLabel containsString:@"键位提示"]);
+        assert([MSIMEShuangpinZeroInitialText(profile) containsString:@"零声母"]);
+        if ([profile isEqual:@"microsoft"]) {
+            assert([rows[1][9][@"key"] isEqual:@";"]);
+            assert([rows[1][9][@"codes"] containsString:@"ing"]);
+        }
+        [panel updateHighlightedKey:@"a"];
+        assert([panel.contentView.accessibilityValue containsString:@"当前按键 A"]);
+        for (NSAppearanceName theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+            panel.contentView.appearance = [NSAppearance appearanceNamed:theme];
+            NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
+            assert(bitmap != nil);
+            [panel.contentView cacheDisplayInRect:panel.contentView.bounds toBitmapImageRep:bitmap];
+            assert(bitmap.pixelsWide >= 620 && bitmap.pixelsHigh >= 203);
+            NSString *directory = NSProcessInfo.processInfo.environment[@"MSIME_KEYMAP_SNAPSHOT_DIR"];
+            if (directory) {
+                NSString *file = [directory stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@.png", profile, theme]];
+                assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:file atomically:YES]);
+            }
+        }
+        [panel updateHighlightedKey:@""];
+        assert(![panel.contentView.accessibilityValue containsString:@"当前按键"]);
+    }
+    NSRect frame = MSIMEShuangpinKeymapPanelFrame(NSMakeRect(30, 400, 1, 20), NSMakeSize(620, 203), 60, NSMakeRect(0, 0, 1000, 800));
+    assert(frame.origin.x == 30 && frame.origin.y == 129);
+    frame = MSIMEShuangpinKeymapPanelFrame(NSMakeRect(990, 20, 1, 20), NSMakeSize(620, 203), 60, NSMakeRect(0, 0, 1000, 800));
+    assert(frame.origin.x == 364 && frame.origin.y == 108);
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(20, 400, 1, 20);
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"keymapPanel"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    NSDictionary *view = @{@"scheme": @1, @"shuangpin_profile": @"microsoft", @"preedit": @"b;", @"candidates": @[]};
+    [controller setValue:view forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
+    assert(panel.clearance == (appearance.vertical ? 24 : appearance.fontSize + 42));
+    for (NSDictionary *excluded in @[@{}, @{@"scheme": @0}, @{@"scheme": @3}, @{@"preedit": @""}, @{@"shuangpin_profile": @""}]) {
+        NSMutableDictionary *next = [view mutableCopy];
+        [next addEntriesFromDictionary:excluded];
+        if (!excluded.count) [next removeObjectForKey:@"scheme"];
+        [controller setValue:next forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(!panel.requestedVisible);
+    }
+    [controller setValue:view forKey:@"view"];
+    client.caret = NSZeroRect;
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
+    client.caret = NSMakeRect(20, 400, 1, 20);
+    appearance.englishMode = YES;
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
+    appearance.englishMode = NO;
+    appearance.shuangpinKeymap = NO;
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible && toggle.state == NSControlStateValueOff);
+}
+
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.fullWidthInput);
     NSGridView *grid = (id)appearance.window.contentView.subviews[0];
@@ -700,6 +788,7 @@ int main() {
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         TestFullWidth(defaults, appearance);
+        TestKeymap(defaults, appearance);
         [defaults removePersistentDomainForName:suite];
     }
     return 0;

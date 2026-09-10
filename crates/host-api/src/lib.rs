@@ -1026,6 +1026,7 @@ mod tests {
         let before = read(msime_client_view(handle))["value"].clone();
         let queued = update(handle, 1, &xiaohe);
         assert_eq!(before["microsoft_shuangpin"], true);
+        assert_eq!(before["shuangpin_profile"], "microsoft");
         assert_eq!(queued["value"]["deferred"], true);
         assert_eq!(queued["value"]["view"], before);
         // The old composition completes under Microsoft before replacing Engine.
@@ -1034,6 +1035,10 @@ mod tests {
             "b;"
         );
         assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["shuangpin_profile"],
+            "xiaohe"
+        );
         assert_eq!(
             read(msime_client_view(handle))["value"]["microsoft_shuangpin"],
             false

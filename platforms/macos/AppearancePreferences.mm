@@ -11,6 +11,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
+static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 
 @implementation MSIMEAppearancePreferences {
@@ -30,6 +31,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
     NSWindowController *_skinWindow;
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthButton;
+    NSButton *_keymapButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -72,6 +74,11 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
+- (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
+- (void)setShuangpinKeymap:(BOOL)value {
+    [_defaults setBool:value forKey:KeymapKey];
+    [self preferencesChanged];
+}
 - (void)setFullWidthInput:(BOOL)value {
     [_defaults setBool:value forKey:FullWidthKey];
     [self preferencesChanged];
@@ -134,6 +141,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 }
 - (void)refreshControls {
     _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
@@ -190,6 +198,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
     _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
+    _keymapButton = [NSButton checkboxWithTitle:@"输入时显示双拼键位提示" target:self action:@selector(keymapChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
@@ -199,7 +208,8 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
         @[[NSTextField labelWithString:@"皮肤卡片"], browse],
         @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
-        @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton]
+        @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
+        @[[NSTextField labelWithString:@"双拼提示"], _keymapButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -242,6 +252,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
+- (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];

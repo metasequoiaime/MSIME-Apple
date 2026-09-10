@@ -88,6 +88,7 @@ pub struct View {
     pub scheme: u8,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub microsoft_shuangpin: bool,
+    pub shuangpin_profile: String,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
     pub session: u64,
@@ -182,6 +183,7 @@ impl<E: InputEngine> Runtime<E> {
         View {
             scheme: self.cached.scheme,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
+            shuangpin_profile: self.cached.shuangpin_profile.clone(),
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
             generation: self.generation,
@@ -290,6 +292,7 @@ impl<E: InputEngine> Runtime<E> {
                 scheme: 255,
                 candidate_annotations: Vec::new(),
                 microsoft_shuangpin: false,
+                shuangpin_profile: String::new(),
                 local_mode: "unknown".into(),
                 preedit: String::new(),
                 editing_text: String::new(),
@@ -500,6 +503,7 @@ mod tests {
                     .map(|(index, _)| format!("({index})"))
                     .collect(),
                 microsoft_shuangpin: false,
+                shuangpin_profile: "xiaohe".into(),
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
