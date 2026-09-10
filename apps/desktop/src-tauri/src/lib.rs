@@ -390,13 +390,19 @@ fn get_diagnostic_log(
 }
 
 fn run_external_command(program: &str, args: &[&str]) -> Result<(), HostActionError> {
-    std::process::Command::new(program)
+    let status = std::process::Command::new(program)
         .args(args)
-        .spawn()
-        .map(|_| ())
+        .status()
         .map_err(|_| HostActionError {
             code: "unavailable",
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(HostActionError {
+            code: "unavailable",
         })
+    }
 }
 
 #[tauri::command]
