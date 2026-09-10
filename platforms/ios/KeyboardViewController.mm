@@ -6,6 +6,7 @@
 @interface MSIMEKeyboardViewController : UIInputViewController <MSIMETextClient>
 @property(nonatomic, strong) MSIMEClientSession *session;
 @property(nonatomic, strong) UILabel *candidateLabel;
+@property(nonatomic, strong) UIStackView *candidateStack;
 @end
 
 @implementation MSIMEKeyboardViewController
@@ -32,6 +33,17 @@
         [self.candidateLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-8],
         [self.candidateLabel.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:4],
         [self.candidateLabel.heightAnchor constraintEqualToConstant:24]]];
+    self.candidateStack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    self.candidateStack.axis = UILayoutConstraintAxisHorizontal;
+    self.candidateStack.distribution = UIStackViewDistributionFillEqually;
+    self.candidateStack.spacing = 4;
+    self.candidateStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.candidateStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.candidateStack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:6],
+        [self.candidateStack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-6],
+        [self.candidateStack.topAnchor constraintEqualToAnchor:self.candidateLabel.bottomAnchor constant:2],
+        [self.candidateStack.heightAnchor constraintEqualToConstant:30]]];
 }
 
 - (void)buildKeyboard {
@@ -119,6 +131,7 @@
     if (transition) MSIMEApplyTransition(transition, self);
     NSArray *candidates = transition[@"view"][@"candidates"];
     NSMutableArray *labels = [NSMutableArray array];
+    for (UIView *view in self.candidateStack.arrangedSubviews) [view removeFromSuperview];
     for (NSUInteger index = 0; index < candidates.count; ++index) {
         NSDictionary *candidate = candidates[index];
         NSString *text = candidate[@"text"];
@@ -126,9 +139,24 @@
             NSString *marker = [candidate[@"highlighted"] boolValue] ? @"[" : @"";
             NSString *suffix = [candidate[@"highlighted"] boolValue] ? @"]" : @"";
             [labels addObject:[NSString stringWithFormat:@"%lu.%@%@%@", (unsigned long)(index + 1), marker, text, suffix]];
+            UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+            [button setTitle:text forState:UIControlStateNormal];
+            button.tag = (NSInteger)index;
+            [button addTarget:self action:@selector(candidatePressed:) forControlEvents:UIControlEventTouchUpInside];
+            [self.candidateStack addArrangedSubview:button];
         }
     }
     self.candidateLabel.text = labels.count ? [labels componentsJoinedByString:@"  "] : @"";
+}
+
+- (void)candidatePressed:(UIButton *)button {
+    NSDictionary *view = [self.session viewWithError:nil];
+    NSArray *candidates = view[@"candidates"];
+    if ((NSUInteger)button.tag >= candidates.count) return;
+    NSDictionary *candidate = candidates[(NSUInteger)button.tag];
+    [self apply:[self.session selectGeneration:[candidate[@"generation"] unsignedLongLongValue]
+                                             index:[candidate[@"index"] unsignedIntegerValue]
+                                             error:nil]];
 }
 
 - (void)handleCharacter:(NSString *)character {
