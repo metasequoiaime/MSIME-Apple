@@ -32,6 +32,8 @@ struct State {
   bool private_input = false;
   bool input_enabled = true;
   std::optional<bool> english_override;
+  std::optional<bool> emoji_override;
+  std::optional<bool> kaomoji_override;
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
@@ -58,6 +60,10 @@ struct State {
       options["preferences"]["scheme"] = *scheme_override;
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
+    if (emoji_override)
+      options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
+    if (kaomoji_override)
+      options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -142,6 +148,10 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
                                    : configured.at("preferences").value("scheme", "") == "japanese";
   const bool english_candidates = s.english_override.value_or(
       configured.at("preferences").at("mixed_input").value("english", false));
+  const bool emoji_candidates = s.emoji_override.value_or(
+      configured.at("preferences").at("mixed_input").value("emoji", false));
+  const bool kaomoji_candidates = s.kaomoji_override.value_or(
+      configured.at("preferences").at("mixed_input").value("kaomoji", false));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -164,6 +174,18 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       ibus_text_new_from_static_string("在中文方案中补充英文候选"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       english_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto emoji = ibus_property_new(
+      "EmojiCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("Emoji 候选"), "",
+      ibus_text_new_from_static_string("在中文方案中补充 Emoji 候选"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      emoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto kaomoji = ibus_property_new(
+      "KaomojiCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("颜文字候选"), "",
+      ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
@@ -188,12 +210,16 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, english);
+    ibus_prop_list_append(properties, emoji);
+    ibus_prop_list_append(properties, kaomoji);
     ibus_prop_list_append(properties, scheme);
     ibus_engine_register_properties(engine, properties);
   } else {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, english);
+    ibus_engine_update_property(engine, emoji);
+    ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, scheme);
   }
 }
@@ -320,12 +346,32 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "EnglishCandidates" &&
+       std::string(name) != "EmojiCandidates" &&
+       std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese") ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name) == "EmojiCandidates" ||
+        std::string(name) == "KaomojiCandidates") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      auto &setting_override = std::string(name) == "EmojiCandidates"
+                           ? s.emoji_override : s.kaomoji_override;
+      const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
+      if (setting_override.value_or(configured.at("preferences").at("mixed_input").value(key, false)) == enabled)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      setting_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "EnglishCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.english_override.value_or(
