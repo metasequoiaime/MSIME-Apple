@@ -5,6 +5,18 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("skin page exposes Windows built-in skin choices", async () => {
+  const select = vi.fn().mockResolvedValue(undefined);
+  const skin = { openDirectory: vi.fn(), refresh: vi.fn(), select, selected: vi.fn().mockResolvedValue("fluent") };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), skin };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  await screen.findByText("候选窗口皮肤");
+  expect(screen.getByRole("button", { name: "应用 Fluent" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "应用 Graphite" }));
+  await waitFor(() => expect(select).toHaveBeenCalledWith("graphite"));
+});
+
 test("skin page marks the persisted selected external skin", async () => {
   const skin = { openDirectory: vi.fn(), refresh: vi.fn(), list: vi.fn().mockResolvedValue([{ id: "ocean", name: "海蓝", compatible: true }]), selected: vi.fn().mockResolvedValue("ocean") };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), skin };
