@@ -607,3 +607,11 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 InputState 在启动或设置发布时更新 word_character，与 navigation 同次发布；默认预览分派读取该值，显式启动配置仍按原逻辑覆盖。实际首末汉字抽取复用 Engine，平台只维护绑定，不增加组合状态。
 
 本地验证：client-core 15、host-api 14 项测试通过，desktop Rust 测试目标、fmt/clippy 通过；前端 12 项测试及 TypeScript/Vite 构建通过；10 项 Windows 边界 CTest、x64 交叉构建和导入检查通过。会话泵覆盖组合中发布后下一键首/末字、两种键组、普通/UILess、非汉字回退和显式覆盖，监听器覆盖新值及旧版本拒绝。未执行 Windows 原生 TSF 或逐像素验收，完整迁移仍在进行，CI 保持禁用。
+
+### Windows 拼音调频设置与 Engine 持久化
+
+依据 Windows develop 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 input.html 和 config.toml，新增关闭、一次置顶、折半、线性、一次置前五种模式及触发频次、线性步长。默认 promote/1/1，旧配置缺省读取不重写；后端两项数值限定 1–10，UI 按上游提供 1–6，已保存的 7–10 原值仍可见且不截断。保留学习总开关，调频算法及数据持久化继续由 Engine 负责。
+
+共享配置通过 host-api/CXX 在创建会话或组合结束后的延迟更新时传入 Engine。测试覆盖五模式保存/读取、非法范围拒绝且不覆盖文件、活动组合延迟应用、UI 默认值及保存。真实固定词库回归 `frequency_dictionary` 使用临时用户目录和合成选词操作，验证触发阈值为两次时首次不变，重开会话后五种模式的候选索引分别由 5 变为 5/0/2/3/4；原资源不被修改。
+
+本地验证：35 项 Rust 测试及 desktop 测试目标、fmt/clippy、14 项前端测试与 TypeScript/Vite 构建、10 项 Windows 边界 CTest、Windows x64 交叉构建及运行时导入检查通过。未执行 Windows 原生 TSF、安装或逐像素验收；完整 Windows 功能/UI 复刻仍未完成，CI 保持手动禁用。

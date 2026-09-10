@@ -5,6 +5,52 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("frequency values above the upstream dropdown range remain visible", async () => {
+  const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const trigger = await screen.findByLabelText("触发频次(第几次上屏触发)") as HTMLSelectElement;
+  expect(trigger.value).toBe("10");
+  expect((screen.getByLabelText("线性调频步长") as HTMLSelectElement).value).toBe("7");
+  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), { target: { value: "pin" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...snapshot.preferences, frequency: { mode: "pin", trigger_count: 10, linear_step: 7 } });
+});
+
+test("frequency modes, threshold and step persist independently", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const mode = await screen.findByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
+  expect(mode.value).toBe("promote");
+  expect(mode.options.length).toBe(4);
+  fireEvent.change(mode, { target: { value: "linear" } });
+  fireEvent.change(screen.getByLabelText("触发频次(第几次上屏触发)"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("线性调频步长"), { target: { value: "2" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, frequency: { mode: "linear", trigger_count: 3, linear_step: 2 } });
+});
+
+test("learning controls frequency settings and only linear mode enables its step", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const learning = await screen.findByRole("checkbox", { name: /学习选词习惯/ }) as HTMLInputElement;
+  const mode = screen.getByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
+  const trigger = screen.getByLabelText("触发频次(第几次上屏触发)") as HTMLSelectElement;
+  const step = screen.getByLabelText("线性调频步长") as HTMLSelectElement;
+  expect(step.disabled).toBe(true);
+  fireEvent.change(mode, { target: { value: "linear" } });
+  expect(step.disabled).toBe(false);
+  fireEvent.click(learning);
+  expect(mode.disabled).toBe(true);
+  expect(trigger.disabled).toBe(true);
+  expect(step.disabled).toBe(true);
+});
+
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
