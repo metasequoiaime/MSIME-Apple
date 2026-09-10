@@ -14,6 +14,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+mod dictionary;
+pub use dictionary::msime_client_dictionary;
 
 thread_local! {
     static SESSIONS: RefCell<HashMap<u64, HostSession>> = RefCell::new(HashMap::new());
@@ -140,6 +142,40 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+}
+
+impl HostOptions {
+    fn into_engine_options(self) -> EngineOptions {
+        let helpcode = self.preferences.active_helpcode();
+        EngineOptions {
+            resources: self.resources,
+            user_data: self.user_data,
+            cache: self.cache,
+            dictionaries: self.dictionaries,
+            scheme: scheme_code(self.preferences.scheme),
+            shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
+            learning: self.preferences.learning,
+            autocorrect: self.preferences.autocorrect,
+            frequency_mode: self.preferences.frequency.mode.as_str().into(),
+            frequency_trigger_count: self.preferences.frequency.trigger_count,
+            frequency_linear_step: self.preferences.frequency.linear_step,
+            mixed_english: self.preferences.mixed_input.english,
+            english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
+            mixed_emoji: self.preferences.mixed_input.emoji,
+            mixed_kaomoji: self.preferences.mixed_input.kaomoji,
+            local_unicode: self.preferences.local_modes.unicode,
+            local_date_time: self.preferences.local_modes.date_time,
+            local_quick_phrase: self.preferences.local_modes.quick_phrase,
+            local_emoji: self.preferences.local_modes.emoji,
+            local_kaomoji: self.preferences.local_modes.kaomoji,
+            local_super_jianpin: self.preferences.local_modes.super_jianpin,
+            local_temporary_english: self.preferences.local_modes.temporary_english,
+            local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
+            helpcode: helpcode.enabled,
+            helpcode_schema: helpcode.schema.as_str().into(),
+            chinese_punctuation: self.preferences.chinese_punctuation,
+        }
+    }
 }
 
 /// Bootstrap a new host using the reviewed desktop data and Engine-owned replay.
@@ -354,35 +390,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
-        let helpcode = options.preferences.active_helpcode();
-        let options = EngineOptions {
-            resources: options.resources,
-            user_data: options.user_data,
-            cache: options.cache,
-            dictionaries: options.dictionaries,
-            scheme: scheme_code(options.preferences.scheme),
-            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
-            learning: options.preferences.learning,
-            autocorrect: options.preferences.autocorrect,
-            frequency_mode: options.preferences.frequency.mode.as_str().into(),
-            frequency_trigger_count: options.preferences.frequency.trigger_count,
-            frequency_linear_step: options.preferences.frequency.linear_step,
-            mixed_english: options.preferences.mixed_input.english,
-            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
-            mixed_emoji: options.preferences.mixed_input.emoji,
-            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
-            local_unicode: options.preferences.local_modes.unicode,
-            local_date_time: options.preferences.local_modes.date_time,
-            local_quick_phrase: options.preferences.local_modes.quick_phrase,
-            local_emoji: options.preferences.local_modes.emoji,
-            local_kaomoji: options.preferences.local_modes.kaomoji,
-            local_super_jianpin: options.preferences.local_modes.super_jianpin,
-            local_temporary_english: options.preferences.local_modes.temporary_english,
-            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
-            helpcode: helpcode.enabled,
-            helpcode_schema: helpcode.schema.as_str().into(),
-            chinese_punctuation: options.preferences.chinese_punctuation,
-        };
+        let options = options.into_engine_options();
         let dictionary_access = DictionaryAccess::try_session(
             std::path::Path::new(&options.user_data),
             std::path::Path::new(&options.dictionaries),
@@ -1238,7 +1246,7 @@ mod tests {
         );
         read(msime_client_destroy(handle));
     }
-    fn read(pointer: *mut c_char) -> Value {
+    pub(super) fn read(pointer: *mut c_char) -> Value {
         // SAFETY: all callers pass a fresh response allocation.
         let string = unsafe { CString::from_raw(pointer) };
         serde_json::from_slice(string.as_bytes()).unwrap()
