@@ -90,6 +90,7 @@ export interface SettingsClient {
   dictionary?: DictionaryClient;
   screen_keyboard?: { open(): Promise<void> };
   handwriting?: { open(): Promise<void> };
+  clipboard?: { clear(): Promise<void> };
 }
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
 export interface DictionaryClient {
@@ -479,7 +480,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div> : <div className="section"><div className="section-title">用户词库</div><p className="notice">当前宿主未提供词库管理接口。</p></div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) void client.clipboard?.clear(); }} /></label></div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}

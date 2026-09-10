@@ -346,6 +346,15 @@ test("screen keyboard page reports host capability status", async () => {
   expect(screen.getByText("主题同步")).toBeDefined();
 });
 
+test("disabling clipboard history clears host records", async () => {
+  const clear = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), clipboard: { clear } }} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  const toggle = await screen.findByLabelText("剪贴板管理");
+  fireEvent.click(toggle);
+  expect(clear).toHaveBeenCalledTimes(1);
+});
+
 test("screen keyboard page opens host capability when provided", async () => {
   const open = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), screen_keyboard: { open } }} />);
