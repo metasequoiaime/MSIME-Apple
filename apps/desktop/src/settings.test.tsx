@@ -8,6 +8,7 @@ afterEach(cleanup);
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   const quanpin = await screen.findByLabelText("全拼辅助码方案") as HTMLSelectElement;
   expect(quanpin.value).toBe("ziranma");
   expect(quanpin.options.length).toBe(5);
@@ -27,6 +28,7 @@ const initial: Snapshot = { format_version: 1, revision: 7, preferences: { schem
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const profile = await screen.findByLabelText("双拼方案") as HTMLSelectElement;
   expect(profile.disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("输入方案"), { target: { value: "shuangpin" } });
@@ -74,9 +76,10 @@ test("failed initial load never enables saving fabricated defaults", async () =>
   expect(client.save).not.toHaveBeenCalled();
 });
 
- test("legacy autocorrect defaults on and can be saved off", async () => {
+test("legacy autocorrect defaults on and can be saved off", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const control = await screen.findByRole("checkbox", { name: /全拼纠错/ }) as HTMLInputElement;
   expect(control.checked).toBe(true);
   fireEvent.click(control);
@@ -84,4 +87,22 @@ test("failed initial load never enables saving fabricated defaults", async () =>
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, autocorrect: false });
   expect(control.checked).toBe(false);
+});
+
+test("category navigation preserves one draft and saves edits across pages", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  const appearance = screen.getByRole("button", { name: "外观" });
+  expect(appearance.getAttribute("aria-current")).toBe("page");
+  fireEvent.change(await screen.findByLabelText("每页候选数量"), { target: { value: "9" } });
+  fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
+  expect(screen.queryByRole("combobox", { name: "每页候选数量" })).toBeNull();
+  fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
+  fireEvent.click(appearance);
+  expect((screen.getByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement).value).toBe("9");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma" } });
+  expect(client.load).toHaveBeenCalledTimes(1);
 });
