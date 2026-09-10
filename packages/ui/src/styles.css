@@ -79,6 +79,8 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .skin-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--button-secondary-bg); color: var(--text-color); text-align: left; }
 .skin-card:hover, .skin-card.selected { border-color: var(--accent-color); background: var(--surface-raised); }
 .skin-card[aria-checked="true"] { box-shadow: 0 0 0 2px var(--accent-soft-border); }
+.skin-card.skin-preview-light { background: #f6f8fb; color: #172033; }
+.skin-card.skin-preview-dark { background: #20242c; color: #f3f5f8; }
 .skin-card-title { font-weight: 600; }
 .skin-swatch { height: 54px; border-radius: 6px; border: 1px solid var(--border-color); }
 .skin-swatch-follow { background: linear-gradient(135deg, #292929 50%, #f5f5f5 50%); }
