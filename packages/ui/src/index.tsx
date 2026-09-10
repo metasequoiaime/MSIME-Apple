@@ -335,6 +335,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "floating_toolbar"} aria-label="悬浮工具栏">
         <div className="section capability-hero"><div className="section-title">悬浮工具栏</div><p>在桌面显示输入法状态和常用功能，便于快速切换输入模式。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>工具栏宿主尚未接入</strong><small>Windows 版支持工具栏显示、缩放、位置和组件选择；当前客户端尚未接入原生桌面工具栏。</small></div></div>
+        <div className="section"><div className="section-title">悬浮工具栏预览</div><div className="candidate-preview-card" aria-label="悬浮工具栏预览"><span className="candidate-preview-item active">中</span><span className="candidate-preview-item">全角</span><span className="candidate-preview-item">标点</span><span className="candidate-preview-item">简繁</span><span className="candidate-preview-item">设置</span></div></div>
         <div className="section"><div className="section-title">功能预览</div><div className="help-list"><div><strong>显示与缩放</strong><span>接入后可控制工具栏显示状态、相对系统 DPI 的缩放和图标基准大小。</span></div><div><strong>常用组件</strong><span>可选择全角/半角、中英文标点、简繁切换、表情符号、屏幕键盘和设置入口。</span></div><div><strong>工具栏主题同步</strong><span>工具栏将跟随候选窗口主题和系统颜色设置。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
