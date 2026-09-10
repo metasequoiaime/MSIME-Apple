@@ -58,6 +58,18 @@ test("voice text polishing settings persist", async () => {
   expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ polish_enabled: true, polish_model: "gpt-4o-mini" }) }));
 });
 
+test("voice polishing provider selection persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await screen.findByRole("button", { name: "润色服务提供商" });
+  fireEvent.click(screen.getByRole("button", { name: "润色服务提供商" }));
+  fireEvent.click(screen.getByRole("option", { name: "OpenAI" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ voice_input: expect.objectContaining({ polish_provider: "openai" }) }));
+});
+
 test("voice hotkey choices persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
