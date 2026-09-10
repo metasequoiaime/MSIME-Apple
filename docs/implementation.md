@@ -645,3 +645,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 在独立 worktree 按同一 Windows 固定提交的 tools-settings.html/config.toml 新增实用功能分类和 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启，来源图标许可记于 UI UPSTREAM。设置经共享配置与 CXX 传至 Engine LocalModeOptions；活动组合中不立即切换，结束后重建生效。旧配置缺省读取不重写，各开关独立保存，算法和入口判断继续由 Engine 负责。
 
 39 项 Rust 测试、17 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉构建及导入检查通过。真实固定词库回归覆盖八种模式开启进入、关闭不进入、相邻模式仍可进入；宿主测试覆盖组合期间延迟关闭。仅完成模式配置与入口控制，不代表快捷短语增删改查/导入导出、剪贴板管理或整页视觉复刻完成；未执行 Windows 原生 TSF/安装/逐像素验收，CI 保持禁用。
+
+### Windows 词库管理迁移：Engine 编辑桥接
+
+为后续词库页和快捷短语管理接入，暴露固定 Engine 的 personal_dictionary 接口：拼音、五笔、快捷短语、英文的类型化词条，有限分页，以及带旧值校验和请求 ID 的新增/替换/删除。数据校验、事务、回放日志和重试去重仍由 Engine 实现，不在 Rust 或 UI 复制 SQL。接口文档明确要求宿主写入前停用所有相关会话、写入后重建，并禁止记录真实词条及原始 Engine 错误。
+
+本批只提供桥接能力，尚未在 host-api/Windows Server/Tauri 中开放管理请求；跨进程停用与缓存失效协调、快捷短语管理 UI、搜索和批量导入导出仍未完成。新增 personal_dictionary 固定生产词库隔离回归覆盖四种类型、稳定分页、边界拒绝、重复请求、请求 ID 冲突、过期旧值、非法修改不覆盖，以及重开 K 模式后的修改/删除可见性。5 项桥接测试、host-api 测试、fmt/clippy、10 项本机边界 CTest、Windows x64 交叉链接与导入检查通过；无 UI 变更，未执行 Windows 原生宿主验证。全程独立 worktree，CI 保持禁用。

@@ -3,6 +3,25 @@
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DictionaryKind {
+        Pinyin,
+        Wubi,
+        QuickPhrase,
+        English,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryEntry {
+        kind: DictionaryKind,
+        key: String,
+        value: String,
+        weight: i64,
+    }
+    #[derive(Debug)]
+    struct DictionaryPage {
+        entries: Vec<DictionaryEntry>,
+        has_more: bool,
+    }
     #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
@@ -52,6 +71,17 @@ mod ffi {
         include!("bridge.h");
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        fn dictionary_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_edit(
+            options: &EngineOptions,
+            previous: &[DictionaryEntry],
+            replacement: &[DictionaryEntry],
+            request_id: &str,
+        ) -> Result<()>;
         fn prepare_options(
             resources: &str,
             user_data: &str,
@@ -77,7 +107,38 @@ mod ffi {
     }
 }
 
+pub use ffi::{DictionaryEntry, DictionaryKind, DictionaryPage};
 pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
+
+/// Read a bounded page of user-inserted entries, not the bundled dictionary.
+/// Entries retain Engine's stable kind/key/value ordering. Limits are validated by Engine.
+pub fn dictionary_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Atomically add, replace or remove an entry and its replay journal.
+///
+/// The host must quiesce all sessions using these paths before writing, then recreate
+/// them to invalidate caches. This bridge does not coordinate other threads/processes.
+/// Previous values are optimistic concurrency guards. Use a stable nonempty request ID
+/// for retries across process boundaries; do not log entries or raw Engine errors.
+pub fn dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&DictionaryEntry>,
+    replacement: Option<&DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit(
+        options,
+        previous.map_or(&[], std::slice::from_ref),
+        replacement.map_or(&[], std::slice::from_ref),
+        request_id,
+    )
+}
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
 /// Caller verifies resources first and quiesces all users of these data paths.
@@ -158,6 +219,25 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dictionary_bridge_rejects_invalid_bounds_and_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = options(dir.path());
+        for (offset, limit) in [(0, 0), (0, 1001), (1_000_001, 1)] {
+            assert!(dictionary_entries(&options, offset, limit).is_err());
+        }
+        assert!(dictionary_edit(&options, None, None, "empty-fixture").is_err());
+        let entry = DictionaryEntry {
+            kind: DictionaryKind::QuickPhrase,
+            key: "!".into(),
+            value: "fixture".into(),
+            weight: 1,
+        };
+        assert!(dictionary_edit(&options, None, Some(&entry), "invalid-fixture").is_err());
+        assert!(
+            ffi::dictionary_edit(&options, &[], &[entry.clone(), entry], "many-fixture").is_err()
+        );
+    }
     fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
