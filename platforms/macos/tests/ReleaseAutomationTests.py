@@ -58,7 +58,7 @@ class BuildNumberTests(unittest.TestCase):
 
     def test_push_creates_unique_draft_at_exact_source_commit(self):
         result, output = self.run_step(
-            "Create automatic build draft",
+            "Create the build draft",
             prefix='cat() { printf "0.48.6\\n"; }; gh() { printf "%s\\n" "$*"; }',
             BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -67,15 +67,36 @@ class BuildNumberTests(unittest.TestCase):
         self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.2.23.1\ntarget_sha=" + HEAD_SHA + "\n")
 
     def test_manual_version_bump_and_draft_selection_are_exclusive(self):
+        # Leaving both empty is the third mode: it creates its own draft rather than promoting a
+        # version or rebuilding an existing one.
         for bump, tag, valid in [("true", "", True), ("false", "v0.48.6", True),
-                                 ("true", "v0.48.6", False), ("false", "", False)]:
+                                 ("true", "v0.48.6", False), ("false", "", True)]:
             result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
                                      GITHUB_EVENT_NAME="workflow_dispatch",
-                                     BUMP_VERSION=bump, REQUESTED_TAG=tag)
+                                     BUMP_VERSION=bump, REQUESTED_TAG=tag,
+                                     REQUESTED_PLATFORM="both")
             self.assertEqual(result.returncode == 0, valid)
         result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/develop",
                                  GITHUB_EVENT_NAME="push")
         self.assertNotEqual(result.returncode, 0)
+
+    def test_only_a_run_creating_its_own_draft_may_choose_its_platforms(self):
+        # A promotion is the complete release under the bare name release-please and Sparkle read,
+        # and an existing draft was named when it was created. Accepting a platform that disagrees
+        # with either would upload one platform's assets under a name promising the other.
+        for bump, tag, platform, valid in [("false", "", "macos", True),
+                                           ("false", "", "ios", True),
+                                           ("false", "", "both", True),
+                                           ("true", "", "macos", False),
+                                           ("true", "", "both", True),
+                                           ("false", "v0.48.6-build.2.23.1", "ios", False),
+                                           ("false", "ios-v0.48.6-build.2.23.1", "ios", False),
+                                           ("false", "ios-v0.48.6-build.2.23.1", "both", True)]:
+            result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
+                                     GITHUB_EVENT_NAME="workflow_dispatch",
+                                     BUMP_VERSION=bump, REQUESTED_TAG=tag,
+                                     REQUESTED_PLATFORM=platform)
+            self.assertEqual(result.returncode == 0, valid, f"{bump}/{tag}/{platform}")
 
     def test_ios_uses_ci_build_and_rejects_tag_mismatch(self):
         root = MACOS_ROOT.parents[1]
@@ -101,12 +122,13 @@ class BuildNumberTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout, expected, name)
 
-    def platforms_for(self, *paths, event="push", before=BASE_SHA):
+    def platforms_for(self, *paths, event="push", before=BASE_SHA, platform="both", tag=""):
         quoted = " ".join('"' + path + '"' for path in paths)
         stub = 'gh() { printf "%s\\n" ' + quoted + '; }' if paths else "gh() { :; }"
         result, output = self.run_step(
             "Select the platforms this release covers", prefix=stub,
-            GITHUB_EVENT_NAME=event, BEFORE_SHA=before, AFTER_SHA=HEAD_SHA)
+            GITHUB_EVENT_NAME=event, BEFORE_SHA=before, AFTER_SHA=HEAD_SHA,
+            REQUESTED_PLATFORM=platform, REQUESTED_TAG=tag)
         self.assertEqual(result.returncode, 0, result.stderr)
         values = dict(line.split("=", 1) for line in output.strip().split("\n"))
         return values["macos"], values["ios"]
@@ -131,11 +153,86 @@ class BuildNumberTests(unittest.TestCase):
         # leaving the draft this run already created with nothing attached to it.
         self.assertEqual(self.platforms_for("README.md", "docs/guide.md", "LICENSE"), ("true", "true"))
 
-    def test_unclassifiable_ranges_publish_both(self):
-        self.assertEqual(self.platforms_for(event="workflow_dispatch"), ("true", "true"))
-        self.assertEqual(self.platforms_for("platforms/ios/a.swift", event="workflow_dispatch"), ("true", "true"))
+    def test_a_first_push_publishes_both(self):
+        # Without a predecessor there is no range to classify.
         self.assertEqual(self.platforms_for("platforms/ios/a.swift", before="0" * 40), ("true", "true"))
         self.assertEqual(self.platforms_for(), ("true", "true"))
+
+    def test_a_manual_run_takes_its_platforms_from_the_input(self):
+        # A dispatch carries no range of paths, so the paths a stubbed compare would report must not
+        # reach the decision: it is the operator, not the diff, that names a manual build.
+        for platform, expected in [("both", ("true", "true")), ("macos", ("true", "false")),
+                                   ("ios", ("false", "true"))]:
+            self.assertEqual(
+                self.platforms_for("platforms/ios/a.swift", event="workflow_dispatch",
+                                   platform=platform),
+                expected, platform)
+
+    def test_a_requested_tag_outranks_the_platform_input(self):
+        # The packaging and publishing scripts read the platform off the tag, so a draft named
+        # ios-v... must not be handed macOS assets even if the input somehow said otherwise.
+        for tag, expected in [("ios-v0.48.6-build.2.23.1", ("false", "true")),
+                              ("macos-v0.48.6-build.2.23.1", ("true", "false")),
+                              ("v0.48.6-build.2.23.1", ("true", "true"))]:
+            self.assertEqual(
+                self.platforms_for(event="workflow_dispatch", platform="both", tag=tag),
+                expected, tag)
+
+    def test_a_single_platform_build_names_its_platform_in_the_tag(self):
+        for macos, ios, expected in [("true", "true", "v0.48.6-build.2.23.1"),
+                                     ("true", "false", "macos-v0.48.6-build.2.23.1"),
+                                     ("false", "true", "ios-v0.48.6-build.2.23.1")]:
+            _, output = self.run_step(
+                "Create the build draft",
+                prefix='cat() { printf "0.48.6\\n"; }; gh() { :; }',
+                BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA,
+                RELEASE_MACOS=macos, RELEASE_IOS=ios)
+            self.assertIn(f"tag_name={expected}\n", output, f"{macos}/{ios}")
+
+    def test_the_version_survives_a_platform_prefix(self):
+        # The prefix sits ahead of the v, so ${tag#v} alone leaves macos-v0.48.6 and ships that as
+        # a version. A truncated version has reached a real build once already.
+        for script, variable in [("platforms/ios/scripts/package_ios_archive.sh", "version"),
+                                 ("platforms/ios/scripts/package_ios_testflight.sh", "version"),
+                                 ("platforms/macos/scripts/package_release.sh", "version"),
+                                 ("platforms/macos/scripts/generate-sparkle-appcast.sh", "version")]:
+            body = (MACOS_ROOT.parents[1] / script).read_text()
+            self.assertIn("version=${tag_name#macos-}", body, script)
+            self.assertIn("version=${version#ios-}", body, script)
+            for tag, expected in [("macos-v0.48.6-build.2.23.1", "0.48.6"),
+                                  ("ios-v0.48.6-build.2.23.1", "0.48.6"),
+                                  ("v0.48.6-build.2.23.1", "0.48.6")]:
+                result = subprocess.run(
+                    ["bash", "-c", f'tag_name={tag}\n' + "\n".join(
+                        line for line in body.splitlines()
+                        if line.startswith(("version=${tag_name#", "version=${version#"))
+                    ) + f'\nversion=${{version%%-build.*}}\nprintf %s "${variable}"'],
+                    capture_output=True, text=True)
+                self.assertEqual(result.stdout, expected, f"{script} {tag}")
+
+    def test_artifact_names_carry_the_platform_once(self):
+        # Every artifact name already ends in a platform segment, so building it from the prefixed
+        # tag produced MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. Worse, the packaging
+        # and publishing sides derive the name separately: fixing one and not the other would have
+        # the upload look for a file that packaging no longer writes.
+        root = MACOS_ROOT.parents[1]
+        for script in ["platforms/macos/scripts/package_release.sh",
+                       "platforms/macos/scripts/publish-release.sh",
+                       "platforms/macos/scripts/generate-sparkle-appcast.sh",
+                       "platforms/ios/scripts/package_ios_archive.sh",
+                       "platforms/ios/scripts/package_ios_testflight.sh"]:
+            body = (root / script).read_text()
+            self.assertNotIn("MetasequoiaIME-$TAG_NAME", body, script)
+            self.assertNotIn("MetasequoiaIME-$tag_name", body, script)
+            self.assertIn("MetasequoiaIME-$asset_tag", body, script)
+        workflow = (root / ".github/workflows/release.yml").read_text()
+        self.assertNotIn("MetasequoiaIME-$TAG_NAME", workflow)
+
+    def test_a_promoted_release_still_refuses_a_platform_prefix(self):
+        # Promotions feed Sparkle and release-please, which key on the bare vX.Y.Z name.
+        body = (MACOS_ROOT / "scripts/create-promoted-release.sh").read_text()
+        self.assertIn(r"^v[0-9]+\.[0-9]+\.[0-9]+$", body)
+        self.assertNotIn("macos-", body)
 
     def test_invalid_build_is_rejected(self):
         for tag in ["v0.48.6-build.1.100.1", "v0.48.6-build.x", "v0.48.6-build.0.1.1"]:
@@ -575,32 +672,37 @@ fi
             fake_gh.chmod(0o755)
             dist = temporary / "dist"
             dist.mkdir()
+            # Stage only what the covered platforms produce. The real job gates each packaging step
+            # on its platform, so a dist holding both is a dist no single-platform release ever sees
+            # and it hides anything the script does to a file it was not given.
             stem = f"MetasequoiaIME-v1.2.3-macos-universal{asset_suffix}"
-            for extension in (".zip", ".pkg"):
-                artifact = dist / f"{stem}{extension}"
-                artifact.write_bytes(f"test {extension} artifact\n".encode())
-                digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-                if corrupt_checksum and extension == ".pkg":
-                    digest = "0" * 64
-                (dist / f"{stem}{extension}.sha256").write_text(f"{digest}  {artifact.name}\n")
-            update_archive = dist / f"{stem}-update.zip"
-            update_archive.write_bytes(b"test Sparkle update artifact\n")
-            update_digest = hashlib.sha256(update_archive.read_bytes()).hexdigest()
-            (dist / f"{stem}-update.zip.sha256").write_text(
-                f"{update_digest}  {update_archive.name}\n"
-            )
-            (dist / "appcast.xml").write_text(
-                "<?xml version=\"1.0\"?><rss><channel><item>test</item></channel></rss>\n"
-            )
+            if release_macos:
+                for extension in (".zip", ".pkg"):
+                    artifact = dist / f"{stem}{extension}"
+                    artifact.write_bytes(f"test {extension} artifact\n".encode())
+                    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    if corrupt_checksum and extension == ".pkg":
+                        digest = "0" * 64
+                    (dist / f"{stem}{extension}.sha256").write_text(f"{digest}  {artifact.name}\n")
+                update_archive = dist / f"{stem}-update.zip"
+                update_archive.write_bytes(b"test Sparkle update artifact\n")
+                update_digest = hashlib.sha256(update_archive.read_bytes()).hexdigest()
+                (dist / f"{stem}-update.zip.sha256").write_text(
+                    f"{update_digest}  {update_archive.name}\n"
+                )
+                (dist / "appcast.xml").write_text(
+                    "<?xml version=\"1.0\"?><rss><channel><item>test</item></channel></rss>\n"
+                )
             ios_suffix = "testflight" if ios_testflight else "unsigned"
-            for ios_name in (
-                f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.xcarchive.zip",
-                f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.ipa",
-            ):
-                ios_artifact = dist / ios_name
-                ios_artifact.write_bytes(f"test {ios_name} artifact\n".encode())
-                ios_digest = hashlib.sha256(ios_artifact.read_bytes()).hexdigest()
-                (dist / f"{ios_name}.sha256").write_text(f"{ios_digest}  {ios_name}\n")
+            if release_ios:
+                for ios_name in (
+                    f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.xcarchive.zip",
+                    f"MetasequoiaIME-v1.2.3-ios-{ios_suffix}.ipa",
+                ):
+                    ios_artifact = dist / ios_name
+                    ios_artifact.write_bytes(f"test {ios_name} artifact\n".encode())
+                    ios_digest = hashlib.sha256(ios_artifact.read_bytes()).hexdigest()
+                    (dist / f"{ios_name}.sha256").write_text(f"{ios_digest}  {ios_name}\n")
             if misdirected_checksum:
                 archive = dist / f"{stem}.zip"
                 archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
