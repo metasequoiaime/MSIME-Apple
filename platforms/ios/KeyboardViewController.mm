@@ -7,6 +7,7 @@
 @property(nonatomic, strong) MSIMEClientSession *session;
 @property(nonatomic, strong) UILabel *candidateLabel;
 @property(nonatomic, strong) UIStackView *candidateStack;
+@property(nonatomic, strong) NSMapTable<UIButton *, NSDictionary *> *candidateBindings;
 @end
 
 @implementation MSIMEKeyboardViewController
@@ -34,6 +35,7 @@
         [self.candidateLabel.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:4],
         [self.candidateLabel.heightAnchor constraintEqualToConstant:24]]];
     self.candidateStack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    self.candidateBindings = [NSMapTable weakToStrongObjectsMapTable];
     self.candidateStack.axis = UILayoutConstraintAxisHorizontal;
     self.candidateStack.distribution = UIStackViewDistributionFillEqually;
     self.candidateStack.spacing = 4;
@@ -141,7 +143,11 @@
             [labels addObject:[NSString stringWithFormat:@"%lu.%@%@%@", (unsigned long)(index + 1), marker, text, suffix]];
             UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
             [button setTitle:text forState:UIControlStateNormal];
-            button.tag = (NSInteger)index;
+            NSDictionary *binding = @{
+                @"generation": candidate[@"generation"] ?: @0,
+                @"index": candidate[@"index"] ?: @(index),
+            };
+            [self.candidateBindings setObject:binding forKey:button];
             [button addTarget:self action:@selector(candidatePressed:) forControlEvents:UIControlEventTouchUpInside];
             [self.candidateStack addArrangedSubview:button];
         }
@@ -150,12 +156,10 @@
 }
 
 - (void)candidatePressed:(UIButton *)button {
-    NSDictionary *view = [self.session viewWithError:nil];
-    NSArray *candidates = view[@"candidates"];
-    if ((NSUInteger)button.tag >= candidates.count) return;
-    NSDictionary *candidate = candidates[(NSUInteger)button.tag];
-    [self apply:[self.session selectGeneration:[candidate[@"generation"] unsignedLongLongValue]
-                                             index:[candidate[@"index"] unsignedIntegerValue]
+    NSDictionary *binding = [self.candidateBindings objectForKey:button];
+    if (![binding isKindOfClass:NSDictionary.class]) return;
+    [self apply:[self.session selectGeneration:[binding[@"generation"] unsignedLongLongValue]
+                                             index:[binding[@"index"] unsignedIntegerValue]
                                              error:nil]];
 }
 
