@@ -107,10 +107,17 @@ State &state(IBusEngine *engine);
 std::string fullwidth_text(const std::string &text) {
   std::string result;
   for (unsigned char c : text) {
-    uint32_t code = c == ' ' ? 0x3000 : (c >= 0x21 && c <= 0x7e ? c + 0xfee0 : c);
-    if (code <= 0x7f) result.push_back(static_cast<char>(code));
-    else if (code <= 0x7ff) { result.push_back(static_cast<char>(0xc0 | (code >> 6))); result.push_back(static_cast<char>(0x80 | (code & 0x3f))); }
-    else { result.push_back(static_cast<char>(0xe0 | (code >> 12))); result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3f))); result.push_back(static_cast<char>(0x80 | (code & 0x3f))); }
+    if (c >= 0x21 && c <= 0x7e) {
+      const uint32_t code = c + 0xfee0;
+      result.push_back(static_cast<char>(0xe0 | (code >> 12)));
+      result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3f)));
+      result.push_back(static_cast<char>(0x80 | (code & 0x3f)));
+    } else if (c == ' ') {
+      result.append("\xe3\x80\x80");
+    } else {
+      // Preserve complete UTF-8 sequences byte-for-byte.
+      result.push_back(static_cast<char>(c));
+    }
   }
   return result;
 }
