@@ -260,6 +260,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         LinearLayout paging = new LinearLayout(this);
         candidates.addView(paging);
+        button(paging, "上词", () -> command(103));
+        button(paging, "下词", () -> command(102));
         button(paging, "上一页", () -> command(101));
         button(paging, "下一页", () -> command(100));
     }
