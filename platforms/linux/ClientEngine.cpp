@@ -610,6 +610,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     s.open();
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    if ((flags & IBUS_CONTROL_MASK) && key == IBUS_period) {
+      s.chinese_punctuation = !s.chinese_punctuation;
+      handled = apply(engine, msime_client_set_chinese_punctuation(
+                                  s.session, s.chinese_punctuation));
+      return;
+    }
     if (flags &
         (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
          IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK)) {

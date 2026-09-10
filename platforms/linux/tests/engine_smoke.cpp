@@ -28,6 +28,7 @@ struct Observation {
   bool mode_registered = false;
   bool input_enabled = false;
   bool mode_sensitive = false;
+  bool punctuation_enabled = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -61,6 +62,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
     }
+    if (std::string(ibus_property_get_key(property)) == "Punctuation")
+      seen.punctuation_enabled =
+          ibus_property_get_state(property) == PROP_STATE_CHECKED;
   };
   if (std::string(name) == "RegisterProperties") {
     auto properties = IBUS_PROP_LIST(object);
@@ -216,10 +220,15 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
+    require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
     auto mode = [&](guint value) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));
     };
     phrase();
+    require(key(IBUS_period, IBUS_CONTROL_MASK),
+            "Ctrl+. punctuation toggle was not consumed");
+    require(!seen.punctuation_enabled,
+            "Ctrl+. did not toggle punctuation state");
     invoke("CursorDown");
     auto mode_commit = seen.candidates.at(seen.cursor);
     mode(PROP_STATE_UNCHECKED);
