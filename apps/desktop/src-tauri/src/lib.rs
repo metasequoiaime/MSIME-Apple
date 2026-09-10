@@ -2,10 +2,93 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
 
 struct DictionaryHostOptions(Arc<String>);
+
+#[derive(Debug, serde::Serialize)]
+struct ExternalSkinSummary {
+    id: String,
+    name: String,
+    version: Option<String>,
+    author: Option<String>,
+    description: Option<String>,
+    compatible: bool,
+}
+
+fn skin_directory(app: &tauri::AppHandle) -> Result<PathBuf, HostActionError> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("skins"))
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[tauri::command]
+fn open_skin_directory(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    let path = skin_directory(&app)?;
+    std::fs::create_dir_all(&path).map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let value = path.to_string_lossy().into_owned();
+    #[cfg(target_os = "macos")]
+    {
+        return run_external_command("open", &[&value]);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return run_external_command("xdg-open", &[&value]);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return run_external_command("explorer", &[&value]);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = value;
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
+fn refresh_skin_catalog(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    std::fs::create_dir_all(skin_directory(&app)?).map_err(|_| HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[tauri::command]
+fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>, HostActionError> {
+    let path = skin_directory(&app)?;
+    let mut result = Vec::new();
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(result),
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if !entry.path().join("skin.toml").is_file() {
+            continue;
+        }
+        result.push(ExternalSkinSummary {
+            name: id.clone(),
+            id,
+            version: None,
+            author: None,
+            description: None,
+            compatible: true,
+        });
+    }
+    Ok(result)
+}
 
 #[derive(Debug, serde::Serialize)]
 struct HostActionError {
@@ -226,7 +309,10 @@ pub fn run() {
             save_preferences,
             dictionary_request,
             open_external_url,
-            copy_text
+            copy_text,
+            open_skin_directory,
+            refresh_skin_catalog,
+            list_external_skins
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
