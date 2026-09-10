@@ -5,6 +5,7 @@
 #include "ClipboardWindow.h"
 #include "ClipboardPaste.h"
 #include "ClipboardRemove.h"
+#include "ClipboardClear.h"
 #include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
@@ -166,24 +167,30 @@ int wmain(int argc, wchar_t **argv) {
       if (clipboard.remove(remove.text))
         clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
     });
+    ClipboardClearWorker clear_worker([&](const ClipboardClear &) {
+      if (clipboard.clear()) clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
+    });
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
       ModeClickWorker &modes;
       ClipboardPasteWorker &paste;
       ClipboardRemoveWorker &remove;
+      ClipboardClearWorker &clear;
       ~ClickShutdown() {
         clicks.request_stop();
         modes.request_stop();
         paste.request_stop();
         remove.request_stop();
+        clear.request_stop();
         server.request_stop();
         clicks.stop();
         modes.stop();
         paste.stop();
         remove.stop();
+        clear.stop();
       }
-    } click_shutdown{server, clicks, mode_clicks, paste_worker, remove_worker};
+    } click_shutdown{server, clicks, mode_clicks, paste_worker, remove_worker, clear_worker};
     CandidateWindow candidates(
         candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
@@ -203,14 +210,15 @@ int wmain(int argc, wchar_t **argv) {
           const auto snapshot = clipboard_mailbox.snapshot();
           if (snapshot && index < snapshot->items.size())
             (void)remove_worker.submit(ClipboardRemove{snapshot->items[index]});
-        });
+        },
+        [&] { (void)clear_worker.submit(ClipboardClear{}); });
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() &&
            !modes.failed() && !mode_clicks.failed() &&
            !clipboard_window.failed() && !paste_worker.failed() &&
-           !remove_worker.failed()) {
+           !remove_worker.failed() && !clear_worker.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -243,7 +251,7 @@ int wmain(int argc, wchar_t **argv) {
                    !candidates.failed() && !clicks.failed() &&
                    !modes.failed() && !mode_clicks.failed() &&
                    !clipboard_window.failed() && !paste_worker.failed() &&
-                   !remove_worker.failed()
+                   !remove_worker.failed() && !clear_worker.failed()
                ? 0
                : 1;
   } catch (...) {
