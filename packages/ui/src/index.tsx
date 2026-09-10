@@ -88,6 +88,7 @@ export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   dictionary?: DictionaryClient;
+  screen_keyboard?: { open(): Promise<void> };
 }
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
 export interface DictionaryClient {
@@ -329,7 +330,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen_keyboard"} aria-label="屏幕键盘">
         <div className="section capability-hero"><div className="section-title">屏幕键盘</div><p>使用屏幕上的虚拟键盘输入字符，适合触控设备或无法使用实体键盘的场景。</p></div>
-        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>宿主尚未接入</strong><small>当前客户端已预留设置入口，屏幕键盘运行时将在后续平台增量中接入。</small></div></div>
+        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>{client.screen_keyboard ? "宿主已提供屏幕键盘" : "宿主尚未接入"}</strong><small>当前客户端已预留设置入口，屏幕键盘运行时将在后续平台增量中接入。</small></div>{client.screen_keyboard && <button type="button" className="secondary" onClick={() => void client.screen_keyboard?.open()}>打开</button>}</div>
         <div className="section"><div className="section-title">屏幕键盘预览</div><div className="screen-keyboard-preview" role="grid" aria-label="屏幕键盘预览">{[["Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "退格"], ["Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ";"], ["Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"], ["中/英", "空格", "回车"]].map((row, rowIndex) => <div className="screen-keyboard-row" role="row" key={rowIndex}>{row.map(key => <button type="button" className="screen-key" disabled key={key} role="gridcell">{key}</button>)}</div>)}</div></div>
         <div className="section"><div className="section-title">使用说明</div><div className="help-list"><div><strong>打开方式</strong><span>接入后可从输入法工具栏或系统托盘打开屏幕键盘。</span></div><div><strong>主题同步</strong><span>屏幕键盘将跟随全局主题和字号设置。</span></div></div></div>
       </fieldset>

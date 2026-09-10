@@ -346,6 +346,14 @@ test("screen keyboard page reports host capability status", async () => {
   expect(screen.getByText("主题同步")).toBeDefined();
 });
 
+test("screen keyboard page opens host capability when provided", async () => {
+  const open = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), screen_keyboard: { open } }} />);
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打开" }));
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
