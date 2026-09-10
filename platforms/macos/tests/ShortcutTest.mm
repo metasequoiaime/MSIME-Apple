@@ -13,9 +13,17 @@
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
 @property(nonatomic) NSUInteger focusCalls;
+@property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error;
+    self.chinesePunctuation = enabled;
+    ++self.punctuationCalls;
+    return nil;
+}
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
     (void)error;
     ++self.focusCalls;
@@ -185,6 +193,35 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     appearance.shuangpinKeymap = NO;
     [controller updateKeymapPanel];
     assert(!panel.requestedVisible && toggle.state == NSControlStateValueOff);
+}
+
+static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    assert(appearance.chinesePunctuation);
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text": @"test", @"candidates": @[]} forKey:@"view"];
+    const BOOL english = appearance.englishMode;
+    const BOOL fullWidth = appearance.fullWidthInput;
+    const BOOL traditional = appearance.traditionalOutput;
+    session.failFinish = YES;
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(appearance.chinesePunctuation && session.punctuationCalls == 0);
+    session.failFinish = NO;
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+    assert([client.committed isEqual:@"测试"]);
+    assert(!appearance.chinesePunctuation && !session.chinesePunctuation);
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
+    session.chinesePunctuation = YES;
+    [controller prepareSession];
+    assert(!session.chinesePunctuation);
+    assert(appearance.englishMode == english && appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(appearance.chinesePunctuation && session.chinesePunctuation);
 }
 
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -792,6 +829,7 @@ int main() {
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         TestFullWidth(defaults, appearance);
+        TestPunctuation(defaults, appearance);
         TestKeymap(defaults, appearance);
         [defaults removePersistentDomainForName:suite];
     }
