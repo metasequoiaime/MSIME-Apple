@@ -14,6 +14,14 @@ on:
         description: Prepare and publish the next semantic version with release-please (leave tag empty)
         type: boolean
         default: false
+      platform:
+        description: Platforms a new build covers (leave tag empty to create one; an existing tag already names its own)
+        type: choice
+        default: both
+        options:
+          - both
+          - macos
+          - ios
 
 permissions:
   contents: read
@@ -44,13 +52,20 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
           BUMP_VERSION: ${{ inputs.bump_version }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             if [[ "$BUMP_VERSION" == true ]]; then
               test -z "$REQUESTED_TAG"
-            else
-              test -n "$REQUESTED_TAG"
+            fi
+            # A release carries its platforms in its name, so only a run that creates its own draft
+            # still has that choice to make. A promotion is always the complete release under the
+            # bare vX.Y.Z that release-please and Sparkle key on, and an existing draft was named
+            # when it was created; letting the input disagree with either would publish one
+            # platform's assets into a release whose name promises the other.
+            if [[ "$BUMP_VERSION" == true || -n "$REQUESTED_TAG" ]]; then
+              test "$REQUESTED_PLATFORM" = both
             fi
           fi
       - name: Allocate build number
@@ -81,38 +96,55 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
         run: |
-          # A release builds the platforms whose sources moved. Everything both of them compile --
+          # A push builds the platforms whose sources moved. Everything both of them compile --
           # shared code, the engine, the build system, the release automation itself -- reaches
           # both, and so does anything unrecognised. The bias is deliberate: publishing a platform
           # that did not change costs one build, while skipping one that did ships a fix that never
           # reaches its users.
           macos=false
           ios=false
-          changed=""
-          if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
-                "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
-              --jq '.files[].filename'); then
-              printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
-              changed=""
-            fi
-          fi
-          if [[ -z "$changed" ]]; then
-            # A manual run names a tag rather than a range, and a first push has no predecessor.
-            # Neither can be classified, so both platforms are built.
-            macos=true
-            ios=true
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            # A manual run has no range of paths to classify, so it is told rather than inferred.
+            # An existing draft already carries its platforms in its name, and the packaging and
+            # publishing scripts read that name, so the tag decides whenever there is one.
+            selection=$REQUESTED_PLATFORM
+            case "$REQUESTED_TAG" in
+              macos-*) selection=macos ;;
+              ios-*) selection=ios ;;
+            esac
+            case "$selection" in
+              macos) macos=true ;;
+              ios) ios=true ;;
+              *) macos=true; ios=true ;;
+            esac
           else
-            while IFS= read -r path; do
-              [[ -n "$path" ]] || continue
-              case "$path" in
-                platforms/ios/*) ios=true ;;
-                platforms/macos/*) macos=true ;;
-                docs/*|licenses/*|*.md|LICENSE|.mailmap|.gitignore) ;;
-                *) macos=true; ios=true ;;
-              esac
-            done <<< "$changed"
+            changed=""
+            if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
+                  "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+              if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
+                --jq '.files[].filename'); then
+                printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
+                changed=""
+              fi
+            fi
+            if [[ -z "$changed" ]]; then
+              # A first push has no predecessor to compare against, so it cannot be classified.
+              macos=true
+              ios=true
+            else
+              while IFS= read -r path; do
+                [[ -n "$path" ]] || continue
+                case "$path" in
+                  platforms/ios/*) ios=true ;;
+                  platforms/macos/*) macos=true ;;
+                  docs/*|licenses/*|*.md|LICENSE|.mailmap|.gitignore) ;;
+                  *) macos=true; ios=true ;;
+                esac
+              done <<< "$changed"
+            fi
           fi
           if [[ "$macos" != true && "$ios" != true ]]; then
             # A push to main is a deliberate promotion, so publish both rather than nothing.
@@ -121,8 +153,8 @@ jobs:
           fi
           printf 'Publishing macOS: %s\nPublishing iOS: %s\n' "$macos" "$ios"
           printf 'macos=%s\nios=%s\n' "$macos" "$ios" >> "$GITHUB_OUTPUT"
-      - name: Create automatic build draft
-        if: ${{ github.event_name == 'push' }}
+      - name: Create the build draft
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag == '') }}
         id: build_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -206,7 +238,7 @@ jobs:
           TAG_NAME: ${{ steps.promote_release_commit.outputs.tag_name }}
         run: bash platforms/macos/scripts/create-promoted-release.sh
       - name: Validate requested draft release
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag != '' }}
         id: requested_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

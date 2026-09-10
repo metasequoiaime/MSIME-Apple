@@ -6,9 +6,10 @@ set -euo pipefail
 : "${SIGNING_ENABLED:?SIGNING_ENABLED is required}"
 # push means an automatic per-merge build, anything else means somebody asked for this one. GitHub has no channel concept, so the two states it does have carry the two channels: automatic builds are prereleases, deliberate ones are ordinary releases and the newest of those takes the Latest badge. Before this the two were indistinguishable and the badge simply followed whatever merged last. Kept in step with MSIME-Windows#167.
 : "${RELEASE_TRIGGER:?RELEASE_TRIGGER is required}"
-# Which platforms this run publishes. The release workflow decides from the paths that changed;
-# a platform that is not covered contributes no artifacts and no release notes, while a covered
-# one still requires all of its files so a silently failed packaging step is caught here.
+# Which platforms this run publishes. A push classifies the paths that changed and a manual run is
+# told; either way a platform that is not covered contributes no artifacts and no release notes,
+# while a covered one still requires all of its files so a silently failed packaging step is caught
+# here.
 : "${RELEASE_MACOS:?RELEASE_MACOS is required}"
 : "${RELEASE_IOS:?RELEASE_IOS is required}"
 for flag in "$RELEASE_MACOS" "$RELEASE_IOS"; do
@@ -119,9 +120,13 @@ done
             return 1
         fi
     }
-    verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
-    verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
-    verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
+    # Only what this release covers: a platform that was never packaged has no file here to hash,
+    # and shasum would fail on the missing name rather than report anything about the release.
+    if [[ "$RELEASE_MACOS" == true ]]; then
+        verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
+        verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
+        verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
+    fi
     if [[ "$RELEASE_IOS" == true ]]; then
         verify_checksum_manifest "$(basename "$ios_archive")" "$(basename "$ios_archive.sha256")"
         verify_checksum_manifest "$(basename "$ios_ipa")" "$(basename "$ios_ipa.sha256")"
