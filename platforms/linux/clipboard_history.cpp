@@ -48,7 +48,8 @@ int main(int argc, char **argv) {
   if (op == "add" && argc == 4) {
     auto text = normalize(argv[3]); if (text.empty() || (!items.empty() && items.front() == text)) return 0;
     items.erase(std::remove(items.begin(), items.end(), text), items.end()); items.insert(items.begin(), std::move(text));
-    if (items.size() > kMaxItems) items.resize(kMaxItems); return save(path, items) ? 0 : 1;
+    if (items.size() > kMaxItems) items.resize(kMaxItems);
+    return save(path, items) ? 0 : 1;
   }
   if (op == "remove" && argc == 4) { auto old = items.size(); items.erase(std::remove(items.begin(), items.end(), argv[3]), items.end()); return old == items.size() ? 0 : (save(path, items) ? 0 : 1); }
   if (op == "clear") { std::error_code error; return std::filesystem::remove(path, error) || !std::filesystem::exists(path) ? 0 : 1; }
