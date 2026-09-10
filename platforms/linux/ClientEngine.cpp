@@ -35,6 +35,7 @@ struct State {
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<std::string> layout_override;
+  std::optional<std::string> preedit_override;
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
@@ -67,6 +68,8 @@ struct State {
       options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
     if (layout_override)
       options["preferences"]["candidate_layout"] = *layout_override;
+    if (preedit_override)
+      options["preferences"]["tsf_preedit_style"] = *preedit_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -157,6 +160,8 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       configured.at("preferences").at("mixed_input").value("kaomoji", false));
   const auto layout = s.layout_override.value_or(
       configured.at("preferences").value("candidate_layout", "vertical"));
+  const auto preedit = s.preedit_override.value_or(
+      configured.at("preferences").value("tsf_preedit_style", "raw"));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -212,6 +217,24 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
   ibus_prop_list_append(layout_menu, vertical);
   ibus_prop_list_append(layout_menu, horizontal);
   ibus_property_set_sub_props(layout_property, layout_menu);
+  auto preedit_property = ibus_property_new(
+      "PreeditStyle", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("预编辑显示"), "",
+      ibus_text_new_from_static_string("当前焦点会话的预编辑显示方式"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto preedit_menu = ibus_prop_list_new();
+  const std::pair<const char *, const char *> preedit_options[] = {
+      {"raw", "编码"}, {"pinyin", "拼音"}, {"empty", "隐藏"}};
+  for (const auto &[value, label] : preedit_options) {
+    auto item = ibus_property_new(
+        (std::string("PreeditStyle/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("选择预编辑显示方式"), TRUE, TRUE,
+        preedit == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(preedit_menu, item);
+  }
+  ibus_property_set_sub_props(preedit_property, preedit_menu);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
@@ -239,6 +262,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
     ibus_prop_list_append(properties, layout_property);
+    ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, scheme);
     ibus_engine_register_properties(engine, properties);
   } else {
@@ -248,6 +272,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, layout_property);
+    ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, scheme);
   }
 }
@@ -378,12 +403,30 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
+       std::string(name) != "PreeditStyle/raw" &&
+       std::string(name) != "PreeditStyle/pinyin" &&
+       std::string(name) != "PreeditStyle/empty" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese") ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name).rfind("PreeditStyle/", 0) == 0) {
+      const auto selected = std::string(name).substr(std::string("PreeditStyle/").size());
+      if (s.preedit_override.value_or(
+              configured.at("preferences").value("tsf_preedit_style", "raw")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.preedit_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "CandidateLayout/Vertical" ||
         std::string(name) == "CandidateLayout/Horizontal") {
       const auto selected = std::string(name) == "CandidateLayout/Horizontal"
