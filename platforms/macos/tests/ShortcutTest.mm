@@ -28,6 +28,13 @@
 }
 @end
 
+@interface TestCandidatePanel : NSObject
+@property(nonatomic, getter=isVisible) BOOL visible;
+@end
+@implementation TestCandidatePanel
+- (void)orderOut:(id)sender { (void)sender; self.visible = NO; }
+@end
+
 int main() {
     @autoreleasepool {
         // Inject a session and client without registering a system input source.
@@ -45,6 +52,21 @@ int main() {
             assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
             assert([client.committed isEqualToString:@"测试"]);
             assert(client.marked.length == 0);
+        }
+        TestCandidatePanel *panel = [TestCandidatePanel new];
+        [controller setValue:panel forKey:@"panel"];
+        for (NSNumber *key in @[@123, @124]) {
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
+            panel.visible = YES;
+            session.lastCommand = UINT32_MAX;
+            client.committed = nil;
+            client.marked = @"ceshi";
+            assert([controller handleEvent:event client:client]);
+            assert(session.lastCommand == UINT32_MAX);
+            assert(client.committed == nil && [client.marked isEqualToString:@"ceshi"]);
+            panel.visible = NO;
+            assert([controller handleEvent:event client:client]);
+            assert(session.lastCommand == (key.unsignedShortValue == 123 ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT));
         }
     }
     return 0;
