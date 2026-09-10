@@ -26,6 +26,7 @@
 #include "CandidateSelectionState.h"
 #include "InputControllerKeyRouting.h"
 #include <metasequoia/session.h>
+#include "quanpin/quanpin_utils.h"
 #include "../../../vendor/MetasequoiaImeEngine/contracts/punctuation/policy.h"
 
 #import <Carbon/Carbon.h>
@@ -37,6 +38,17 @@
 namespace
 {
 constexpr NSTimeInterval kDictionaryRetryDelay = 2.0;
+
+// The Engine split its single autocorrect flag into a per-type mask. The one preference this app
+// exposes is still a checkbox, and the flag it replaced corrected transpositions and neighbour
+// substitutions together, so an enabled checkbox means every type the Engine offers. Leaving a type
+// out here would silently narrow what an existing user already had switched on.
+constexpr unsigned kAllQuanpinAutocorrectTypes = quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor;
+
+constexpr unsigned QuanpinAutocorrectTypesFor(bool enabled)
+{
+    return enabled ? kAllQuanpinAutocorrectTypes : 0u;
+}
 
 struct SessionPreferences
 {
@@ -102,7 +114,7 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
     const bool wubiMixedPinyinMatches =
         preferences.scheme != SchemeType::Wubi || options.wubi.mixed_pinyin == preferences.wubiMixedPinyinEnabled;
     return options.scheme == preferences.scheme && shuangpinMatches &&
-           options.autocorrect == preferences.autocorrectEnabled && helpcodeMatches &&
+           options.autocorrect_types == QuanpinAutocorrectTypesFor(preferences.autocorrectEnabled) && helpcodeMatches &&
            options.chinese_punctuation == preferences.chinesePunctuationEnabled &&
            options.learning == preferences.candidateLearningEnabled && wubiMixedPinyinMatches &&
            options.frequency.mode == preferences.frequency.mode &&
@@ -292,7 +304,7 @@ static NSHashTable *LiveDictionaryControllers()
     options.paths = paths;
     options.scheme = preferences.scheme;
     options.shuangpin_profile = GetShuangpinProfile(preferences.shuangpinSchema);
-    options.autocorrect = preferences.autocorrectEnabled;
+    options.autocorrect_types = QuanpinAutocorrectTypesFor(preferences.autocorrectEnabled);
     options.helpcode = preferences.helpcodeEnabled;
     options.helpcode_schema = preferences.helpcodeSchema;
     options.chinese_punctuation = preferences.chinesePunctuationEnabled;

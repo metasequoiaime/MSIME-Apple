@@ -312,6 +312,23 @@ class ReleaseConfigurationTests(unittest.TestCase):
         )
         self.assertGreater(len(engine_characters), 10, "the Engine punctuation contract was not parsed")
 
+    def test_every_quanpin_autocorrect_type_reaches_both_apple_products(self):
+        header = (PROJECT_ROOT / "vendor/MetasequoiaImeEngine/quanpin/quanpin_utils.h").read_text()
+        engine_types = set(re.findall(r"inline constexpr unsigned (kAutocorrect\w+)", header))
+        self.assertGreaterEqual(len(engine_types), 2, "the Engine autocorrect mask was not parsed")
+
+        # The Engine replaced one autocorrect flag with a per-type mask whose default is 0. Both
+        # products decide that mask from their own preference, in two places that cannot see each
+        # other, and a type added upstream would be silently dropped by whichever one forgot it --
+        # switching a correction off for users who never changed a setting. Neither site may name a
+        # subset of what the pinned Engine offers.
+        controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
+        bridge = (PROJECT_ROOT / "shared/apple-bridge/InputSessionAdapter.cpp").read_text()
+        for name, source in (("macOS controller", controller), ("Apple bridge", bridge)):
+            named = set(re.findall(r"quanpin::(kAutocorrect\w+)", source))
+            self.assertEqual(named, engine_types, f"{name} does not cover every autocorrect type")
+            self.assertNotIn("options.autocorrect ", source, name)
+
     def test_release_automation_bumps_tags_and_uploads_installable_assets(self):
         config = json.loads((PROJECT_ROOT / "release-please-config.json").read_text())
         package = config["packages"]["."]

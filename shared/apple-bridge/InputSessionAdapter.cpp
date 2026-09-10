@@ -1,6 +1,7 @@
 #include "InputSessionAdapter.h"
 
 #include <metasequoia/session.h>
+#include "quanpin/quanpin_utils.h"
 
 #include <utility>
 
@@ -24,6 +25,11 @@ class InputSessionAdapter::Impl
         session_options.paths = paths;
         session_options.scheme = scheme;
         session_options.shuangpin_profile = GetShuangpinProfile(profile);
+        // This used to ride on SessionOptions::autocorrect, which defaulted to true. The Engine
+        // replaced it with a per-type mask that defaults to 0, so leaving it unset would quietly
+        // switch quanpin autocorrection off for every iOS user who has it today. State the types
+        // the old flag covered instead.
+        session_options.autocorrect_types = quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor;
         session_options.learning = learning;
         session_options.fuzzy_pinyin.rules = fuzzy;
         session_options.frequency = learning ? frequency : FrequencyAdjustmentOptions{};
