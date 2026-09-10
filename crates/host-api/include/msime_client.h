@@ -29,6 +29,11 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
  * The host must prepare and validate its dictionary generation before creation.
+ * Creation acquires cooperative shared access to user_data and dictionaries until
+ * destroy. It fails immediately while a participating maintenance writer holds
+ * exclusive access. Existing sessions are never cancelled for maintenance.
+ * Do not delete .msime-dictionary-access.lock files. Legacy/external writers do
+ * not participate; preparation/upgrades still require stopped sessions.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
