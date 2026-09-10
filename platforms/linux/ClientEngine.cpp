@@ -41,6 +41,7 @@ struct State {
   std::optional<std::string> theme_override;
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
+  std::string punctuation_lock = "follow";
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
@@ -243,6 +244,25 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto punctuation_lock = ibus_property_new(
+      "PunctuationLock", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("标点锁定"), "",
+      ibus_text_new_from_static_string("跟随输入模式或固定中文/英文标点"),
+      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
+  auto punctuation_lock_menu = ibus_prop_list_new();
+  for (const auto &[value, label] : {std::pair{"follow", "跟随"},
+                                     std::pair{"chinese", "固定中文"},
+                                     std::pair{"english", "固定英文"}}) {
+    auto item = ibus_property_new(
+        (std::string("PunctuationLock/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("选择标点锁定策略"), TRUE, TRUE,
+        s.punctuation_lock == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(punctuation_lock_menu, item);
+  }
+  ibus_property_set_sub_props(punctuation_lock, punctuation_lock_menu);
   auto character_mode = ibus_property_new(
       "CharacterMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("全角字符"), "",
@@ -346,6 +366,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
+    ibus_prop_list_append(properties, punctuation_lock);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, emoji);
@@ -358,6 +379,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
   } else {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, punctuation_lock);
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
@@ -519,6 +541,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (!name ||
        (std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
+       std::string(name) != "PunctuationLock/follow" &&
+       std::string(name) != "PunctuationLock/chinese" &&
+       std::string(name) != "PunctuationLock/english" &&
        std::string(name) != "CharacterMode" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
@@ -645,6 +670,18 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     const bool enabled = value == PROP_STATE_CHECKED;
+    if (std::string(name).rfind("PunctuationLock/", 0) == 0) {
+      const auto selected = std::string(name).substr(std::string("PunctuationLock/").size());
+      s.punctuation_lock = selected;
+      if (selected != "follow") {
+        const bool chinese = selected == "chinese";
+        if (s.session)
+          apply(engine, msime_client_set_chinese_punctuation(s.session, chinese));
+        s.chinese_punctuation = chinese;
+      }
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "Punctuation") {
       if (!s.input_enabled || !s.session)
         return;
