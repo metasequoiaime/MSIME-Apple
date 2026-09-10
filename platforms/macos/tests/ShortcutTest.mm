@@ -12,6 +12,7 @@
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
 @property(nonatomic) NSUInteger focusCalls;
+@property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
@@ -35,6 +36,7 @@
     (void)error;
     self.lastCommand = command;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
+    if (self.finishTransition && command == MSIME_FINISH_COMPOSITION) return self.finishTransition;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
 }
@@ -44,6 +46,7 @@
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
 @property(nonatomic) NSRect caret;
+@property(nonatomic, strong) NSMutableArray<NSString *> *insertions;
 @end
 @implementation ShortcutClient
 - (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
@@ -54,6 +57,7 @@
 - (void)insertText:(id)text replacementRange:(NSRange)range {
     (void)range;
     self.committed = text;
+    [self.insertions addObject:text];
 }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     (void)selection;
@@ -92,6 +96,81 @@
 
 static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL repeat) {
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:code == 49 ? @" " : @"a" charactersIgnoringModifiers:code == 49 ? @" " : @"a" isARepeat:repeat keyCode:code];
+}
+
+static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    assert(!appearance.fullWidthInput);
+    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
+    NSButton *control = (id)[grid cellAtColumnIndex:1 rowIndex:8].contentView;
+    control.state = NSControlStateValueOn;
+    [NSApp sendAction:control.action to:control.target from:control];
+    assert(appearance.fullWidthInput);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] fullWidthInput]);
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    const NSEventModifierFlags chord = NSEventModifierFlagOption | NSEventModifierFlagShift;
+    assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(!appearance.fullWidthInput);
+    assert([controller handleEvent:ModeKey(4, chord, YES) client:client]);
+    assert(!appearance.fullWidthInput);
+    assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.fullWidthInput && session.asciiCalls == 0);
+    for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagControl}) {
+        assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
+        assert(appearance.fullWidthInput);
+    }
+    appearance.englishMode = YES;
+    assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(appearance.fullWidthInput);
+    appearance.englishMode = NO;
+    NSDictionary *idle = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    session.nextTransition = idle;
+    for (unichar character = 32; character <= 126; ++character) {
+        NSString *text = [NSString stringWithCharacters:&character length:1];
+        NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:text charactersIgnoringModifiers:text isARepeat:NO keyCode:character == 32 ? 49 : 0];
+        assert([controller handleEvent:key client:client]);
+        assert(client.committed.length == 1);
+        assert([client.committed characterAtIndex:0] == (character == 32 ? 0x3000 : character + 0xFEE0));
+    }
+    client.committed = nil;
+    session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"a", @"candidates": @[]}};
+    NSUInteger calls = session.asciiCalls;
+    assert([controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(session.asciiCalls == calls + 1 && client.committed == nil && [client.marked isEqual:@"a"]);
+    session.nextTransition = @{@"handled": @NO, @"view": @{@"editing_text": @"a", @"candidates": @[]}};
+    session.failFinish = YES;
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(client.committed == nil);
+    session.failFinish = NO;
+    // A partial finish must not insert the fallback inside the remaining composition.
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(client.committed == nil);
+    session.finishTransition = @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    client.insertions = [NSMutableArray array];
+    assert([controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert([client.committed isEqual:@"ａ"] && client.marked.length == 0);
+    assert(([client.insertions isEqual:@[@"测试", @"ａ"]]));
+    session.nextTransition = idle;
+    for (NSString *text in @[@"\t", @"汉", @"😀"]) {
+        NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:text charactersIgnoringModifiers:text isARepeat:NO keyCode:0];
+        client.committed = nil;
+        assert(![controller handleEvent:key client:client]);
+        assert(client.committed == nil);
+    }
+    session.nextTransition = nil;
+    client.committed = nil;
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(client.committed == nil);
+    session.nextTransition = idle;
+    appearance.fullWidthInput = NO;
+    client.committed = nil;
+    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(client.committed == nil && control.state == NSControlStateValueOff);
 }
 
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -607,6 +686,7 @@ int main() {
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
+        TestFullWidth(defaults, appearance);
         [defaults removePersistentDomainForName:suite];
     }
     return 0;

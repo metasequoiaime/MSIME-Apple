@@ -22,6 +22,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL englishMode;
 @property(nonatomic) BOOL inputModeShortcut;
 @property(nonatomic) BOOL traditionalOutput;
+@property(nonatomic) BOOL fullWidthInput;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end
