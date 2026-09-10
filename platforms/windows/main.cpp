@@ -88,6 +88,23 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    const bool follow_cursor = prepared.at("value").at("preferences").value(
+        "candidate_follow_cursor", true);
+    std::optional<std::pair<int, int>> fixed_candidate_anchor;
+    auto candidate_reader = [&]() -> std::optional<CandidatePresentation> {
+      auto value = server.candidate_view();
+      if (!value || !value->visible) {
+        fixed_candidate_anchor.reset();
+        return value;
+      }
+      if (follow_cursor)
+        return value;
+      if (!fixed_candidate_anchor)
+        fixed_candidate_anchor = std::make_pair(value->x, value->y);
+      value->x = fixed_candidate_anchor->first;
+      value->y = fixed_candidate_anchor->second;
+      return value;
+    };
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (server.request_selection(click.lease, click.session, click.generation,
                                    click.index) ==
@@ -111,7 +128,7 @@ int wmain(int argc, wchar_t **argv) {
       }
     } click_shutdown{server, clicks, mode_clicks};
     CandidateWindow candidates(
-        [&] { return server.candidate_view(); },
+        candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); });
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
