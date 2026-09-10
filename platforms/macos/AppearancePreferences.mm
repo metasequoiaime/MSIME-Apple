@@ -15,6 +15,7 @@ static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
+static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
@@ -80,6 +81,8 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (BOOL)chinesePunctuation { return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
+- (BOOL)floatingToolbarEnabled { return [_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]; }
+- (void)setFloatingToolbarEnabled:(BOOL)value { [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
 - (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
 - (void)setShuangpinKeymap:(BOOL)value {
     [_defaults setBool:value forKey:KeymapKey];

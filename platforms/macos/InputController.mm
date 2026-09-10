@@ -140,7 +140,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [super activateServer:sender];
     [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
-    [_toolbar activateForDelegate:self visible:YES];
+    [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
@@ -229,7 +229,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     (void)toolbar;
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]];
 }
-- (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [_toolbar setVisible:NO forDelegate:self]; }
+- (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    _appearance.floatingToolbarEnabled = NO;
+    [_toolbar setVisible:NO forDelegate:self];
+}
 
 - (void)dealloc {
     [_preferencesTimer invalidate];
