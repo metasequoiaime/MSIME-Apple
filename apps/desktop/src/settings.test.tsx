@@ -5,6 +5,18 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("candidate text color follows theme by default and can be reset", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  const color = await screen.findByLabelText("候选文字颜色") as HTMLInputElement;
+  expect(color.value).toBe("#ffffff");
+  fireEvent.change(color, { target: { value: "#123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_text_color: null });
+});
+
 test("candidate font size defaults to 16 and persists selected size", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
