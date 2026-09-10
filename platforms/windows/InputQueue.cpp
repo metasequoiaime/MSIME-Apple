@@ -28,6 +28,7 @@ InputState::InputState(FocusGate &gate, size_t clients, std::string options)
     throw std::invalid_argument("Invalid input queue configuration");
   const auto document = nlohmann::json::parse(options_);
   navigation_ = preference_navigation(document.value("preferences", nlohmann::json::object()));
+  word_character_ = preference_word_character(document.value("preferences", nlohmann::json::object()));
 }
 InputState::~InputState() { shutdown(); }
 void InputState::shutdown() noexcept {
@@ -195,10 +196,12 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
                        (snapshot.revision() == preferences_->revision() &&
                         snapshot.serialized() != preferences_->serialized())))
     throw std::invalid_argument("Stale or conflicting published preferences");
-  const auto navigation = preference_navigation(
-      nlohmann::json::parse(snapshot.serialized()).at("preferences"));
+  const auto document = nlohmann::json::parse(snapshot.serialized()).at("preferences");
+  const auto navigation = preference_navigation(document);
+  const auto word = preference_word_character(document);
   preferences_ = snapshot;
   navigation_ = navigation;
+  word_character_ = word;
   for (auto &[id, client] : clients_) {
     (void)id;
     client.session->queue_current_preferences(snapshot.serialized());

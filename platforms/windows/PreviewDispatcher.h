@@ -14,7 +14,7 @@ preview_key_handler(const PreviewConfig &config) {
         return state.configured_key(focus, packet, style,
                                     explicit_keys ? navigation
                                                   : state.navigation_bindings(),
-                                    std::nullopt, word);
+                                    std::nullopt, explicit_keys ? word : state.word_character_binding());
       };
 }
 } // namespace msime::windows
