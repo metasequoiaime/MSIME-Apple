@@ -472,6 +472,30 @@ fn open_screen_keyboard() -> Result<(), HostActionError> {
 }
 
 #[tauri::command]
+fn open_handwriting() -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        // The Windows touch keyboard hosts the handwriting panel; launching it keeps
+        // the action independent from the TSF process boundary.
+        return run_external_command("tabtip.exe", &[]);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return run_external_command("onboard", &["--layout", "Handwriting"]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"]);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
 fn copy_text(text: String) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
     {
@@ -658,6 +682,7 @@ pub fn run() {
             open_external_url,
             check_for_updates,
             open_screen_keyboard,
+            open_handwriting,
             copy_text,
             open_skin_directory,
             refresh_skin_catalog,
