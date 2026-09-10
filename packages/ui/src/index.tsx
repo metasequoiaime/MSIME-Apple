@@ -94,6 +94,7 @@ export interface SettingsClient {
   clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void> };
   about?: { openExternalUrl(url: string): Promise<void> };
   update?: { check(): Promise<void> };
+  diagnostics?: { server(enabled: boolean): Promise<void>; tsf(enabled: boolean): Promise<void> };
   feedback?: { openExternalUrl(url: string): Promise<void> };
 }
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
@@ -169,6 +170,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [serverDiagnostics, setServerDiagnostics] = useState(false);
+  const [tsfDiagnostics, setTsfDiagnostics] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState("");
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [phraseError, setPhraseError] = useState("");
@@ -259,6 +263,17 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const openFeedbackUrl = (url: string) => {
     if (client.feedback) void client.feedback.openExternalUrl(url);
   };
+  async function setDiagnostic(kind: "server" | "tsf", enabled: boolean) {
+    const action = kind === "server" ? client.diagnostics?.server : client.diagnostics?.tsf;
+    if (!action) return;
+    setDiagnosticError("");
+    try {
+      await action(enabled);
+      (kind === "server" ? setServerDiagnostics : setTsfDiagnostics)(enabled);
+    } catch {
+      setDiagnosticError("诊断日志设置失败，请重试。");
+    }
+  }
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
@@ -324,7 +339,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE" target="_blank" rel="noreferrer" onClick={event => { if (client.about) { event.preventDefault(); openExternalUrl("https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE"); } }}><span>开源许可协议</span><span aria-hidden="true">↗</span></a>
         </div>
         <div className="section help-section"><div className="section-title">版本更新</div><p className="about-disclaimer">Windows 版可检查 GitHub Releases 并在确认后打开下载页面；当前客户端尚未接入版本检查和安全更新提示。</p><button type="button" className="secondary" disabled={!client.update} aria-label="检查更新" onClick={() => void client.update?.check()}>检查更新{client.update ? "" : "（待宿主接入）"}</button></div>
-        <div className="section help-section"><div className="section-title">诊断日志</div><div className="capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>诊断宿主尚未接入</strong><small>Windows 版可分别收集 Server 与 TSF 诊断日志，记录通信、候选窗和焦点状态，但不记录按键、输入内容或候选文本。</small></div></div><p className="about-disclaimer">接入后可在此开启限时诊断并导出日志；请在复现问题后关闭诊断，避免长期收集运行信息。</p></div>
+        <div className="section help-section"><div className="section-title">诊断日志</div><p className="about-disclaimer">记录通信、候选窗和焦点状态，不记录按键、输入内容或候选文本。请在复现问题后关闭诊断。</p>{diagnosticError && <p role="alert" className="error">{diagnosticError}</p>}<label className="section-header"><span className="section-title">Server 日志</span><input aria-label="Server 诊断日志" type="checkbox" checked={serverDiagnostics} disabled={!client.diagnostics} onChange={event => void setDiagnostic("server", event.target.checked)} /></label><label className="section-header"><span className="section-title">TSF 日志</span><input aria-label="TSF 诊断日志" type="checkbox" checked={tsfDiagnostics} disabled={!client.diagnostics} onChange={event => void setDiagnostic("tsf", event.target.checked)} /></label>{!client.diagnostics && <p className="capability-status-inline">诊断宿主尚未接入</p>}</div>
         <p className="about-disclaimer">本客户端仍在持续迁移 Windows 版功能与界面；部分平台能力可能尚未接入。</p>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">

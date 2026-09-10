@@ -5,6 +5,31 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("about diagnostic switches call host actions and persist state", async () => {
+  const diagnostics = { server: vi.fn().mockResolvedValue(undefined), tsf: vi.fn().mockResolvedValue(undefined) };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), diagnostics };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Server 诊断日志" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "TSF 诊断日志" }));
+  await waitFor(() => {
+    expect(diagnostics.server).toHaveBeenCalledWith(true);
+    expect(diagnostics.tsf).toHaveBeenCalledWith(true);
+  });
+  expect((screen.getByRole("checkbox", { name: "Server 诊断日志" }) as HTMLInputElement).checked).toBe(true);
+});
+
+test("diagnostic failure does not enable the switch and is redacted", async () => {
+  const diagnostics = { server: vi.fn().mockRejectedValue(new Error("private path")), tsf: vi.fn() };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), diagnostics };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Server 诊断日志" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("诊断日志设置失败，请重试。");
+  expect(screen.queryByText(/private path/)).toBeNull();
+  expect((screen.getByRole("checkbox", { name: "Server 诊断日志" }) as HTMLInputElement).checked).toBe(false);
+});
+
 test("feedback QQ card copies the group number through the host", async () => {
   const copy = vi.fn();
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), clipboard: { clear: vi.fn(), copy } };
