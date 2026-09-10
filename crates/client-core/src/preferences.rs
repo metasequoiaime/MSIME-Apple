@@ -36,6 +36,8 @@ pub struct Preferences {
     #[serde(default)]
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
+    pub candidate_preedit_style: CandidatePreeditStyle,
+    #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
     pub ui_backend: UiBackend,
@@ -91,6 +93,10 @@ pub enum SettingsTheme { #[default] Follow, Dark, Light }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateLayout { Horizontal, #[default] Vertical }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidatePreeditStyle { #[default] Pinyin, Empty }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -241,6 +247,7 @@ impl Default for Preferences {
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
             candidate_layout: CandidateLayout::default(),
+            candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,

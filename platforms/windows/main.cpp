@@ -132,6 +132,10 @@ int wmain(int argc, wchar_t **argv) {
         "candidate_layout", std::string("vertical"));
     if (candidate_layout != "vertical" && candidate_layout != "horizontal")
       throw std::invalid_argument("Invalid candidate layout");
+    const auto candidate_preedit_style = prepared.at("value").at("preferences").value(
+        "candidate_preedit_style", std::string("pinyin"));
+    if (candidate_preedit_style != "pinyin" && candidate_preedit_style != "empty")
+      throw std::invalid_argument("Invalid candidate preedit style");
     std::optional<COLORREF> candidate_text_color;
     if (const auto color = prepared.at("value").at("preferences").value(
             "candidate_text_color", std::string{}); !color.empty()) {
@@ -203,7 +207,7 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         candidate_font_size, preedit_font_size, candidate_text_color,
         candidate_font_family, fallback_fonts, candidate_dark_theme,
-        candidate_layout == "horizontal");
+        candidate_layout == "horizontal", candidate_preedit_style == "pinyin");
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     ClipboardWindow clipboard_window(

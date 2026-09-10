@@ -18,7 +18,7 @@ public:
                            std::string font_family = "Segoe UI",
                            std::vector<std::string> fallback_fonts = {},
                            std::optional<bool> dark_theme = std::nullopt,
-                           bool horizontal = false);
+                           bool horizontal = false, bool show_preedit = true);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -46,5 +46,6 @@ private:
   std::wstring font_family_;
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
+  bool show_preedit_ = true;
 };
 } // namespace msime::windows
