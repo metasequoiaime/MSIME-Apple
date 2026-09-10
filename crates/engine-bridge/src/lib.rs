@@ -13,6 +13,8 @@ mod ffi {
         pub shuangpin_profile: u8,
         pub learning: bool,
         pub autocorrect: bool,
+        pub helpcode: bool,
+        pub helpcode_schema: String,
         pub chinese_punctuation: bool,
     }
     #[derive(Debug)]
@@ -156,9 +158,29 @@ mod tests {
             shuangpin_profile: 0,
             learning: false,
             autocorrect: true,
+            helpcode: false,
+            helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
         }
     }
+    #[test]
+    fn helpcode_settings_reach_the_real_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut value = options(dir.path());
+        for schema in ["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"] {
+            value.helpcode_schema = schema.into();
+            for enabled in [false, true] {
+                value.helpcode = enabled;
+                let mut session = Session::new(&value).unwrap();
+                session.character(b'n', false).unwrap();
+                session.character(b'i', false).unwrap();
+                assert_eq!(session.character(b'H', true).unwrap().handled, enabled);
+            }
+        }
+        value.helpcode_schema = "unknown".into();
+        assert!(Session::new(&value).is_err());
+    }
+
     #[test]
     fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
         let dir = tempfile::tempdir().unwrap();
