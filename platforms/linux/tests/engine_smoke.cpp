@@ -1,10 +1,14 @@
 #include "ClientEngine.h"
 #include "msime_client.h"
+#include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <sys/file.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -123,6 +127,10 @@ int main(int argc, char **argv) {
     auto options = result.at("value");
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
+    std::ofstream(root / "preferences.json") << nlohmann::json{
+        {"format_version", 1},
+        {"revision", 0},
+        {"preferences", options.at("preferences")}}.dump();
     msime_preview_configure(options.dump());
     ibus_init();
     auto bus = g_test_dbus_new(G_TEST_DBUS_NONE);
@@ -221,6 +229,76 @@ int main(int argc, char **argv) {
     phrase();
     require(key(IBUS_space) && seen.committed == committed + "你好",
             "Private text focus did not recover");
+    auto settle = [&] {
+      const auto deadline = g_get_monotonic_time() + 2200000;
+      while (g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+    };
+    auto save = [&](uint64_t revision, size_t page_size) {
+      auto preferences = options.at("preferences");
+      preferences["candidate_page_size"] = page_size;
+      preferences["learning"] = true;
+      preferences["frequency"]["mode"] = "pin";
+      preferences["frequency"]["trigger_count"] = 1;
+      auto snapshot = nlohmann::json{{"format_version", 1},
+                                     {"revision", revision},
+                                     {"preferences", preferences}};
+      std::ofstream(root / "preferences.next") << snapshot.dump();
+      std::filesystem::rename(root / "preferences.next", root / "preferences.json");
+    };
+    phrase();
+    save(1, 3);
+    settle();
+    require(seen.preedit == "nihao" && seen.candidates.size() == 2,
+            "Preferences interrupted the active composition");
+    invoke("Reset");
+    phrase();
+    require(seen.candidates.size() == 3,
+            "Deferred preferences did not apply after reset");
+    std::ofstream(root / "preferences.json") << "invalid";
+    settle();
+    require(seen.preedit == "nihao" && seen.candidates.size() == 3,
+            "Malformed preferences disturbed composition");
+    invoke("Reset");
+    save(0, 4);
+    settle();
+    phrase();
+    require(seen.candidates.size() == 3,
+            "Stale revision replaced live settings");
+    invoke("Reset");
+    int lock =
+        open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+    require(lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) == 0,
+            "Cannot lock synthetic preferences");
+    save(2, 4);
+    settle();
+    phrase();
+    require(seen.candidates.size() == 3, "Reader ignored the writer lock");
+    invoke("Reset");
+    flock(lock, LOCK_UN);
+    close(lock);
+    settle();
+    phrase();
+    require(seen.candidates.size() == 4,
+            "Settings did not recover after writer unlock");
+    auto private_candidates = seen.candidates;
+    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    phrase();
+    require(seen.candidates == private_candidates,
+            "Reload enabled frequency learning in a private session");
+    invoke("Reset");
+    invoke("Set",
+           g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                         g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
+    settle();
+    phrase();
+    auto learned = seen.candidates.at(1);
+    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    phrase();
+    require(seen.candidates.front() == learned,
+            "Normal session did not restore configured frequency learning");
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);

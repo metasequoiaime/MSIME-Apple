@@ -24,6 +24,8 @@ struct State {
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
+  guint preferences_timer = 0;
+  bool preferences_loading = false;
   ~State() { close(); }
   void close() {
     if (session)
@@ -281,8 +283,78 @@ void page(IBusEngine *engine, uint32_t command) {
       apply(engine, msime_client_command(s.session, command));
   });
 }
+struct PreferencesRead {
+  std::string directory;
+  uint64_t session;
+};
+gboolean reload_preferences(gpointer data) {
+  auto engine = IBUS_ENGINE(data);
+  auto &s = state(engine);
+  if (!s.focused || !s.session || s.preferences_loading)
+    return G_SOURCE_CONTINUE;
+  auto directory = configured.find("preferences_directory");
+  if (directory == configured.end() || !directory->is_string())
+    return G_SOURCE_CONTINUE;
+  auto path = directory->get<std::string>();
+  if (path.empty() || path.front() != '/')
+    return G_SOURCE_CONTINUE;
+  s.preferences_loading = true;
+  auto task = g_task_new(
+      engine, nullptr,
+      +[](GObject *source, GAsyncResult *result, gpointer) {
+        auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+        std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+            static_cast<char *>(
+                g_task_propagate_pointer(G_TASK(result), nullptr)),
+            msime_client_string_free);
+        // Explicit IBus destruction can precede completion of the worker.
+        if (!self->state)
+          return;
+        auto &s = *self->state;
+        s.preferences_loading = false;
+        auto request = static_cast<PreferencesRead *>(
+            g_task_get_task_data(G_TASK(result)));
+        if (s.session != request->session || !s.focused || s.blocked)
+          return;
+        try {
+          auto snapshot = response(raw.release());
+          if (snapshot.is_null()) // Writer holds the shared store lock.
+            return;
+          if (s.private_input)
+            snapshot["preferences"]["learning"] = false;
+          auto encoded = snapshot.dump();
+          auto updated = response(msime_client_update_preferences(
+              s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
+              encoded.size()));
+          s.view = updated.at("view");
+          render(IBUS_ENGINE(source), s.view);
+        } catch (...) {
+          // Bad files and stale revisions preserve the live session. Retry on
+          // the next tick without logging configuration, paths, or input.
+        }
+      },
+      nullptr);
+  g_task_set_task_data(
+      task, new PreferencesRead{std::move(path), s.session},
+      +[](gpointer p) { delete static_cast<PreferencesRead *>(p); });
+  g_task_run_in_thread(
+      task, +[](GTask *task, gpointer, gpointer data, GCancellable *) {
+        const auto &path = static_cast<PreferencesRead *>(data)->directory;
+        g_task_return_pointer(
+            task,
+            msime_client_try_load_preferences(
+                reinterpret_cast<const uint8_t *>(path.data()), path.size()),
+            +[](gpointer p) {
+              msime_client_string_free(static_cast<char *>(p));
+            });
+      });
+  g_object_unref(task);
+  return G_SOURCE_CONTINUE;
+}
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimePreviewEngine *>(object);
+  if (self->state && self->state->preferences_timer)
+    g_source_remove(self->state->preferences_timer);
   delete self->state;
   self->state = nullptr;
   IBUS_OBJECT_CLASS(msime_preview_engine_parent_class)->destroy(object);
@@ -291,6 +363,8 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
+  engine->state->preferences_timer =
+      g_timeout_add(1000, reload_preferences, engine);
 }
 static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);

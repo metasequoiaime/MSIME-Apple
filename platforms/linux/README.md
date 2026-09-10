@@ -24,6 +24,8 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 
 `engine_smoke` 使用真实共享库与固定 Release 词库，通过 D-Bus 调用实际 IBusEngine：验证预编辑与候选信号、上屏、第二页全局索引点击、标点、修饰键/key-up、快捷键取消、失焦、密码隔离与私密文本恢复。另启动实际宿主可执行文件，由独立 Python IBus 输入上下文通过 daemon/factory 输入合成拼音并接收提交。共享核心/运行时/宿主 25 项 Rust 测试纳入本地脚本。
 
-已验证 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包以及 Tauri 设置自动重读。当前运行配置是启动快照，尚未连接 Linux 设置文件监听；不是完整 Linux 产品迁移完成。CI 保持禁用。
+配置包含绝对路径 `preferences_directory` 时，活动会话每秒在后台通过共享 PreferencesStore 尝试读取设置，写锁占用、损坏文件及旧版本保留当前状态并重试。GLib 主线程复核会话后发布设置，Engine 相关更改由共享运行时延迟到组合结束；私密会话始终覆盖 learning=false。失焦时不发布，关闭或重建会话后丢弃旧读取结果；无此配置字段时保留启动快照行为。后台任务不调用线程绑定的输入会话接口。
+
+已验证的基础环境为 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包及完整 Windows 功能对照；不是完整 Linux 产品迁移完成。CI 保持禁用。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
