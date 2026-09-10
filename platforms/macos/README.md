@@ -15,7 +15,7 @@ ctest --test-dir target/macos-isolated --output-on-failure
 
 原生测试使用不显示窗口的面板子类验证布局、完整 tooltip 和无效光标隐藏，以及纯几何边界和焦点方法；它不是系统安装后编辑器验收或逐像素外观验收。
 
-当前竖排候选可见时，左右键按 Apple `CandidatePanelStyle.h` 和控制器分派规则消费且不改变组合；候选隐藏后仍可移动编辑光标。测试覆盖可见/隐藏两种状态。横排候选、Home/End 页内导航和可配置翻页快捷键尚待迁移。
+当前竖排候选可见时，左右键按 Apple `CandidatePanelStyle.h` 和控制器分派规则消费且不改变组合；候选隐藏后仍可移动编辑光标。Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。横排候选和可配置翻页快捷键尚待迁移。
 
 迁移对照固定为 MSIME-Apple 远端默认分支 develop 的提交 `b637828e15eafcb5e459edd270a962dd14517285`。Command、Control、Option 快捷键沿用其 `MetasequoiaInputController.mm` 行为：先通过 Engine finish 提交当前高亮对应组合，再放行快捷键。原生控制器测试覆盖三个修饰键的分派、提交、清空预编辑和返回未处理；使用替身会话，不代表系统安装后的端到端验收。
 

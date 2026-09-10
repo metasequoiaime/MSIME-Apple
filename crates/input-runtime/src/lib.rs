@@ -119,6 +119,8 @@ pub enum Action {
     PreviousPage,
     NextCandidate,
     PreviousCandidate,
+    FirstCandidateOnPage,
+    LastCandidateOnPage,
 }
 
 pub struct Runtime<E: InputEngine = Session> {
@@ -343,6 +345,12 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
             Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
+            Action::FirstCandidateOnPage if len > 0 => {
+                Some(self.highlighted / self.page_size * self.page_size)
+            }
+            Action::LastCandidateOnPage if len > 0 => {
+                Some(((self.highlighted / self.page_size + 1) * self.page_size).min(len) - 1)
+            }
             _ => None,
         };
         if let Some(index) = next_highlight {
@@ -556,6 +564,61 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn page_edges_preserve_composition_and_select_global_candidate() {
+        for (page, first, last) in [(0, 0, 4), (1, 5, 9), (2, 10, 11)] {
+            let mut active = runtime();
+            assert!(
+                !active
+                    .dispatch(Action::LastCandidateOnPage)
+                    .unwrap()
+                    .handled
+            );
+            active.focus(true).unwrap();
+            assert!(
+                !active
+                    .dispatch(Action::FirstCandidateOnPage)
+                    .unwrap()
+                    .handled
+            );
+            let typed = type_key(&mut active).view;
+            for _ in 0..page {
+                active.dispatch(Action::NextPage).unwrap();
+            }
+            for (action, expected) in [
+                (Action::LastCandidateOnPage, last),
+                (Action::FirstCandidateOnPage, first),
+                (Action::LastCandidateOnPage, last),
+            ] {
+                let stale = active.view().candidates[0].id;
+                let moved = active.dispatch(action).unwrap();
+                assert!(moved.handled && moved.commit.is_none());
+                assert_eq!(moved.view.page, page);
+                assert_eq!(moved.view.editing_text, typed.editing_text);
+                assert_eq!(moved.view.caret_position, typed.caret_position);
+                assert_eq!(
+                    moved
+                        .view
+                        .candidates
+                        .iter()
+                        .find(|c| c.highlighted)
+                        .unwrap()
+                        .id
+                        .index,
+                    expected
+                );
+                assert!(matches!(
+                    active.dispatch(Action::Select(stale)),
+                    Err(RuntimeError::StaleCandidate)
+                ));
+            }
+            assert_eq!(
+                active.dispatch(Action::SelectHighlighted).unwrap().commit,
+                Some(format!("candidate-{last}"))
+            );
+        }
     }
 
     #[test]

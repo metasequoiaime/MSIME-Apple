@@ -415,6 +415,8 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,
         103 => Action::PreviousCandidate,
+        104 => Action::FirstCandidateOnPage,
+        105 => Action::LastCandidateOnPage,
         _ => return response(|| Err("unknown input command".into())),
     };
     dispatch(handle, action)
@@ -520,6 +522,37 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn page_edge_commands_keep_engine_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        for byte in b"4e2d" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let before = read(msime_client_view(handle))["value"].clone();
+        assert!(!before["candidates"].as_array().unwrap().is_empty());
+        for command in [105, 104] {
+            let moved = read(msime_client_command(handle, command));
+            assert_eq!(moved["ok"], true);
+            assert_eq!(moved["value"]["handled"], true);
+            assert!(moved["value"]["commit"].is_null());
+            assert_eq!(
+                moved["value"]["view"]["editing_text"],
+                before["editing_text"]
+            );
+            assert_eq!(
+                moved["value"]["view"]["caret_position"],
+                before["caret_position"]
+            );
+        }
+        assert_eq!(
+            read(msime_client_command(handle, 1))["value"]["commit"],
+            "中"
+        );
+        read(msime_client_destroy(handle));
+    }
     #[test]
     fn mixed_input_changes_defer_until_composition_ends() {
         use msime_client_core::preferences::MixedInputPreferences;
