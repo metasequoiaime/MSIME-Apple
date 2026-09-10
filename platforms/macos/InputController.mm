@@ -104,6 +104,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
+    updates.target = self;
+    [menu addItem:updates];
+    NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"官方网站" action:@selector(openWebsite:) keyEquivalent:@""];
+    website.target = self;
+    [menu addItem:website];
     return menu;
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
@@ -122,6 +129,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)selectTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = YES; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
+- (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
+- (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
