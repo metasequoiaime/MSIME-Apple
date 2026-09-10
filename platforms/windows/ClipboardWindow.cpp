@@ -29,8 +29,8 @@ void ClipboardWindow::refresh() {
 }
 void ClipboardWindow::paint() {
   PAINTSTRUCT ps{}; const auto dc = BeginPaint(window_, &ps); RECT client{}; GetClientRect(window_, &client);
-  FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-  if (shown_) { const int top = scale(dpi_, 32); const int row_height = scale(dpi_, 26); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(32, 32, 32)); RECT clear{scale(dpi_, 8), scale(dpi_, 4), client.right - scale(dpi_, 8), top - scale(dpi_, 6)}; DrawTextW(dc, L"清空剪贴板历史", -1, &clear, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); int y = top; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { const auto text = utf16(shown_->items[i]); RECT row{scale(dpi_, 8), y, client.right - scale(dpi_, 8), y + scale(dpi_, 24)}; if (!text.empty()) DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += row_height; } }
+  FillRect(dc, &client, static_cast<HBRUSH>(GetSysColorBrush(COLOR_WINDOW)));
+  if (shown_) { const int top = scale(dpi_, 32); const int row_height = scale(dpi_, 26); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT)); RECT clear{scale(dpi_, 8), scale(dpi_, 4), client.right - scale(dpi_, 8), top - scale(dpi_, 6)}; SetTextColor(dc, GetSysColor(COLOR_BTNTEXT)); DrawTextW(dc, L"清空剪贴板历史", -1, &clear, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT)); int y = top; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { const auto text = utf16(shown_->items[i]); RECT row{scale(dpi_, 8), y, client.right - scale(dpi_, 8), y + scale(dpi_, 24)}; if (!text.empty()) DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += row_height; } }
   EndPaint(window_, &ps);
 }
 LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
