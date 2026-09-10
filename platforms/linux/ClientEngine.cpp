@@ -671,11 +671,6 @@ void render(IBusEngine *engine, const Json &view) {
           *state(engine).candidate_background_color, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
-    const auto annotation = candidate.value("annotation", "");
-    if (!annotation.empty()) {
-      label += " ";
-      label += annotation;
-    }
     ibus_lookup_table_append_label(table,
                                    ibus_text_new_from_string(label.c_str()));
     if (candidate.at("highlighted").get<bool>())
