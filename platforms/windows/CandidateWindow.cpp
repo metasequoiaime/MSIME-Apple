@@ -66,9 +66,12 @@ struct Painting {
   ~Painting() { EndPaint(window, &state); }
 };
 } // namespace
-CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size)
-    : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size) {
-  if (font_size_ < 12 || font_size_ > 32)
+CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
+                                 unsigned preedit_font_size)
+    : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
+      preedit_font_size_(preedit_font_size) {
+  if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
+      preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
@@ -162,7 +165,6 @@ void CandidateWindow::paint() {
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
   const auto metrics = candidate_metrics(GetDpiForWindow(window_), font_size_);
-  Font font(painting.dc, metrics.font);
   SetBkMode(painting.dc, TRANSPARENT);
   auto line = [&](const std::wstring &text, size_t row, bool highlighted) {
     RECT rect{metrics.padding,
@@ -177,10 +179,17 @@ void CandidateWindow::paint() {
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
   };
-  line(wide(value->preedit), 0, false);
-  for (size_t i = 0; i < value->candidates.size(); ++i)
-    line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
-         i + 1, value->candidates[i].highlighted);
+  {
+    Font preedit_font(painting.dc, candidate_metrics(
+        GetDpiForWindow(window_), preedit_font_size_).font);
+    line(wide(value->preedit), 0, false);
+  }
+  {
+    Font candidate_font(painting.dc, metrics.font);
+    for (size_t i = 0; i < value->candidates.size(); ++i)
+      line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
+           i + 1, value->candidates[i].highlighted);
+  }
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
 }
