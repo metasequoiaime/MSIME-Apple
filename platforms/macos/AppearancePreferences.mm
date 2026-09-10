@@ -36,6 +36,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_fullWidthButton;
     NSButton *_keymapButton;
     NSButton *_wubiButton;
+    NSButton *_toolbarButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -156,6 +157,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
@@ -214,6 +216,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
     _keymapButton = [NSButton checkboxWithTitle:@"输入时显示双拼键位提示" target:self action:@selector(keymapChanged:)];
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
+    _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
@@ -225,7 +228,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
         @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
-        @[[NSTextField labelWithString:@"五笔输入"], _wubiButton]
+        @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
+        @[[NSTextField labelWithString:@"工具栏"], _toolbarButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -270,6 +274,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
+- (void)toolbarChanged:(NSButton *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
