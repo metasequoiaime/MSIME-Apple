@@ -32,6 +32,8 @@ pub struct Preferences {
     #[serde(default)]
     pub settings_theme: SettingsTheme,
     #[serde(default)]
+    pub candidate_theme: SettingsTheme,
+    #[serde(default)]
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
@@ -225,6 +227,7 @@ impl Default for Preferences {
         Self {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
+            candidate_theme: SettingsTheme::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
