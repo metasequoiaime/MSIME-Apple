@@ -86,6 +86,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [phraseError, setPhraseError] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
+  const [phraseSearch, setPhraseSearch] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -138,6 +139,25 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     try { await client.dictionary.edit(phraseForm.previous, replacement, `${phraseForm.previous ? "ui-edit" : "ui-add"}-${replacement.key}-${replacement.value}`); setPhraseForm(null); await loadPhrases(); }
     catch { setPhraseError("快捷短语保存失败，请稍后重试。"); }
     finally { setPhraseBusy(false); }
+  }
+  async function importPhrases(file: File) {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      const rows = (await file.text()).split(/\r?\n/).filter(Boolean);
+      for (const [index, row] of rows.entries()) {
+        const [key, value, weightText] = row.split("\t");
+        const weight = weightText === undefined ? 0 : Number(weightText);
+        if (!/^[A-Za-z]+$/.test(key ?? "") || !value || !Number.isFinite(weight) || weight < 0) throw new Error(`row ${index + 1}`);
+        await client.dictionary.edit(null, { kind: "quick_phrase", key, value, weight }, `ui-import-${index}-${key}`);
+      }
+      await loadPhrases();
+    } catch { setPhraseError("批量导入失败，请检查格式（编码<Tab>短语<Tab>权重）。"); setPhraseBusy(false); }
+  }
+  function exportPhrases() {
+    const body = phrases.map(entry => `${entry.key}\t${entry.value}\t${entry.weight}`).join("\n");
+    const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "quick-phrases.txt"; anchor.click(); URL.revokeObjectURL(url);
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
@@ -259,10 +279,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
-          <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑和删除 Engine 用户词库中的快捷短语</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 0, previous: null })}>新增短语</button></span></div>
+          <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 0, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
+          <label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
           {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>短语 <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
-          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
+          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
         </div>}
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
