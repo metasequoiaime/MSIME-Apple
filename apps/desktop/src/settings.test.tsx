@@ -5,6 +5,19 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("skin external directory actions use the host capability", async () => {
+  const skin = { openDirectory: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined) };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), skin };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打开目录" }));
+  fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" }));
+  await waitFor(() => {
+    expect(skin.openDirectory).toHaveBeenCalledTimes(1);
+    expect(skin.refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
 test("about diagnostic switches call host actions and persist state", async () => {
   const diagnostics = { server: vi.fn().mockResolvedValue(undefined), tsf: vi.fn().mockResolvedValue(undefined) };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), diagnostics };
