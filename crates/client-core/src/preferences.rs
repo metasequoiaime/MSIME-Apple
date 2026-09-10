@@ -966,6 +966,28 @@ mod tests {
     }
 
     #[test]
+    fn candidate_fallback_fonts_reject_invalid_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let initial = store.save(0, Preferences::default()).unwrap();
+        for fonts in [
+            vec!["".to_owned()],
+            vec!["字体".to_owned()],
+            (0..9).map(|index| format!("Font{index}")).collect(),
+        ] {
+            assert!(matches!(
+                store.save(1, Preferences { candidate_fallback_fonts: fonts, ..Preferences::default() }),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+        }
+        let valid = vec!["Noto Sans CJK SC".to_owned(); 8];
+        let saved = store.save(1, Preferences { candidate_fallback_fonts: valid.clone(), ..Preferences::default() }).unwrap();
+        assert_eq!(saved.preferences.candidate_fallback_fonts, valid);
+        assert_eq!(store.load().unwrap().revision, 2);
+        assert_eq!(initial.revision, 1);
+    }
+
+    #[test]
     fn malformed_future_and_unknown_documents_are_preserved() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
