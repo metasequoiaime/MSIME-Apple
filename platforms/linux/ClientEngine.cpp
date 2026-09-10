@@ -575,6 +575,20 @@ void publish_mode(IBusEngine *engine, bool registration) {
       japanese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(scheme_menu, chinese);
   ibus_prop_list_append(scheme_menu, japanese);
+  const auto active_chinese_scheme = s.scheme_override.value_or(
+      configured.at("preferences").value("last_chinese_scheme", std::string("quanpin")));
+  for (const auto &[value, label] : {std::pair{"quanpin", "全拼"},
+                                     std::pair{"shuangpin", "双拼"},
+                                     std::pair{"wubi", "五笔"}}) {
+    auto item = ibus_property_new(
+        (std::string("Scheme/") + (value == "quanpin" ? "Quanpin" : value == "shuangpin" ? "Shuangpin" : "Wubi")).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("直接选择中文输入方案"), TRUE, TRUE,
+        !japanese_scheme && active_chinese_scheme == value
+            ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(scheme_menu, item);
+  }
   ibus_property_set_sub_props(scheme, scheme_menu);
   auto profile = ibus_property_new(
       "ShuangpinProfile", PROP_TYPE_MENU,
@@ -825,6 +839,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateTheme/dark" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese" &&
+       property_name != "Scheme/Quanpin" && property_name != "Scheme/Shuangpin" &&
+       property_name != "Scheme/Wubi" &&
        property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
@@ -1026,8 +1042,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (japanese) {
         s.scheme_override = "japanese";
       } else {
-        auto chinese = configured.at("preferences").value(
-            "last_chinese_scheme", std::string("quanpin"));
+        auto chinese = property_name == "Scheme/Quanpin"
+                           ? std::string("quanpin")
+                           : property_name == "Scheme/Shuangpin"
+                                 ? std::string("shuangpin")
+                                 : property_name == "Scheme/Wubi"
+                                       ? std::string("wubi")
+                                       : configured.at("preferences").value(
+                                             "last_chinese_scheme", std::string("quanpin"));
         if (chinese != "quanpin" && chinese != "shuangpin" && chinese != "wubi")
           chinese = "quanpin";
         s.scheme_override = chinese;
