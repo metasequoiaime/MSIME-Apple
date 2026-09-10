@@ -77,7 +77,10 @@ int main(int argc, char **argv) {
                        gpointer data) {
           if (event == G_FILE_MONITOR_EVENT_CHANGED ||
               event == G_FILE_MONITOR_EVENT_CREATED ||
-              event == G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT)
+              event == G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT ||
+              event == G_FILE_MONITOR_EVENT_MOVED_IN ||
+              event == G_FILE_MONITOR_EVENT_MOVED ||
+              event == G_FILE_MONITOR_EVENT_RENAMED)
             reload_options(static_cast<const char *>(data));
         }),
         argv[1]);
