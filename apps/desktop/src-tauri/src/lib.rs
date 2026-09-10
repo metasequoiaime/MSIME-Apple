@@ -95,6 +95,10 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
                 Some(value.trim().trim_matches('"').to_string())
             })
         };
+        let compatible = matches!(
+            field("base").as_deref(),
+            Some("fluent" | "wechat" | "graphite" | "willow_green")
+        );
         result.push(ExternalSkinSummary {
             name: field("name")
                 .filter(|value| !value.is_empty())
@@ -103,7 +107,7 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             version: field("version"),
             author: field("author"),
             description: field("description"),
-            compatible: true,
+            compatible,
         });
     }
     Ok(result)
