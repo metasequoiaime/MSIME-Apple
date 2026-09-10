@@ -230,6 +230,12 @@ int main(int argc, char **argv) {
     require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+E could not restore the input mode");
     require(seen.input_enabled, "Ctrl+Shift+E did not restore input mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Ctrl+Alt+Space was not consumed");
+    require(!seen.input_enabled, "Ctrl+Alt+Space did not enter English mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Ctrl+Alt+Space could not restore input mode");
+    require(seen.input_enabled, "Ctrl+Alt+Space did not restore input mode");
     phrase();
     require(key(IBUS_period, IBUS_CONTROL_MASK),
             "Ctrl+. punctuation toggle was not consumed");

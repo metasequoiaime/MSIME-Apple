@@ -674,12 +674,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   const bool english_toggle =
       key == IBUS_e && (flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK)) ==
                             (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
-  if (!s.focused || s.blocked || (!s.input_enabled && !english_toggle) ||
+  const bool mode_toggle =
+      english_toggle ||
+      (key == IBUS_space && (flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
+                                 (IBUS_CONTROL_MASK | IBUS_MOD1_MASK));
+  if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle) ||
       (flags & IBUS_RELEASE_MASK) || modifier(key))
     return FALSE;
   bool handled = false;
   guarded(engine, [&] {
-    if (english_toggle) {
+    if (mode_toggle) {
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
