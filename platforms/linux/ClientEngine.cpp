@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "NavigationBindings.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <memory>
@@ -26,6 +27,7 @@ struct State {
   bool private_input = false;
   guint preferences_timer = 0;
   bool preferences_loading = false;
+  msime::linux_host::NavigationBindings navigation;
   ~State() { close(); }
   void close() {
     if (session)
@@ -40,9 +42,12 @@ struct State {
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
+    auto bindings =
+        msime::linux_host::NavigationBindings::read(options.at("preferences"));
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    navigation = bindings;
   }
 };
 } // namespace
@@ -86,8 +91,7 @@ void render(IBusEngine *engine, const Json &view) {
     return;
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
-                std::to_string(view.at("page_count").get<size_t>()) +
-                "  PgUp / PgDn";
+                std::to_string(view.at("page_count").get<size_t>());
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_string(paging.c_str()), TRUE);
   auto table = ibus_lookup_table_new(static_cast<guint>(candidates.size()), 0,
@@ -194,6 +198,20 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
+    if (!s.view.at("candidates").empty()) {
+      auto navigation =
+          s.navigation.command(key, (flags & IBUS_SHIFT_MASK) != 0);
+      if (navigation) {
+        handled = apply(engine, msime_client_command(s.session, *navigation));
+        return;
+      }
+    }
+    if (msime::linux_host::navigation_key(key)) {
+      // Disabled bindings and empty candidate lists return native navigation
+      // to the editor. Finish pending input before the editor moves focus.
+      apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      return;
+    }
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
@@ -228,22 +246,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     case IBUS_Delete:
     case IBUS_KP_Delete:
       command = MSIME_DELETE_FORWARD;
-      break;
-    case IBUS_Page_Up:
-    case IBUS_KP_Page_Up:
-      command = MSIME_PREVIOUS_PAGE;
-      break;
-    case IBUS_Page_Down:
-    case IBUS_KP_Page_Down:
-      command = MSIME_NEXT_PAGE;
-      break;
-    case IBUS_Up:
-    case IBUS_KP_Up:
-      command = MSIME_PREVIOUS_CANDIDATE;
-      break;
-    case IBUS_Down:
-    case IBUS_KP_Down:
-      command = MSIME_NEXT_CANDIDATE;
       break;
     }
     if (command != UINT32_MAX)
@@ -322,11 +324,14 @@ gboolean reload_preferences(gpointer data) {
             return;
           if (s.private_input)
             snapshot["preferences"]["learning"] = false;
+          auto bindings = msime::linux_host::NavigationBindings::read(
+              snapshot.at("preferences"));
           auto encoded = snapshot.dump();
           auto updated = response(msime_client_update_preferences(
               s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
               encoded.size()));
           s.view = updated.at("view");
+          s.navigation = bindings;
           render(IBUS_ENGINE(source), s.view);
         } catch (...) {
           // Bad files and stale revisions preserve the live session. Retry on
