@@ -10,7 +10,8 @@ SessionController::SessionController(
     size_t input_capacity, std::string options, SessionPump::KeyHandler key,
     SessionPump::EventHandler event, std::function<bool()> healthy,
     std::function<void()> stop_service, std::chrono::milliseconds interval,
-    std::string preferences_directory, SessionPump::Presentation presentation)
+    std::string preferences_directory, SessionPump::Presentation presentation,
+    PreferenceMonitor::Published published)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
       presentation_(std::move(presentation)), event_(std::move(event)),
@@ -42,7 +43,8 @@ SessionController::SessionController(
     throw std::invalid_argument("Invalid session supervision configuration");
   if (!preferences_directory.empty())
     preferences_ = std::make_unique<PreferenceMonitor>(
-        input_, std::move(preferences_directory));
+        input_, std::move(preferences_directory), std::chrono::milliseconds(250),
+        std::move(published));
   control_ = std::thread(&SessionController::run, this);
 }
 SessionController::~SessionController() { stop(); }

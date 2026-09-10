@@ -29,7 +29,8 @@ WindowsServer::WindowsServer(WindowsServerOptions options,
       std::move(host_options), std::move(key), std::move(event),
       [this] { return service_->failure() == ERROR_SUCCESS; },
       [this] { service_->stop(); }, std::chrono::milliseconds(100),
-      std::move(options.preferences_directory), std::move(presentation));
+      std::move(options.preferences_directory), std::move(presentation),
+      std::move(options.preferences_published));
 }
 WindowsServer::~WindowsServer() { stop(); }
 } // namespace msime::windows

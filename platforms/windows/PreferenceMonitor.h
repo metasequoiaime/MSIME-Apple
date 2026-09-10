@@ -19,9 +19,11 @@ enum class PreferenceMonitorStatus {
 // stop(). Disk I/O can still block; no file lock wait or detached thread.
 class PreferenceMonitor final {
 public:
+  using Published = std::function<void(const PreferenceSnapshot &)>;
   PreferenceMonitor(
       InputQueue &input, std::string directory,
-      std::chrono::milliseconds interval = std::chrono::milliseconds(250));
+      std::chrono::milliseconds interval = std::chrono::milliseconds(250),
+      Published published = {});
   ~PreferenceMonitor();
   PreferenceMonitor(const PreferenceMonitor &) = delete;
   PreferenceMonitor &operator=(const PreferenceMonitor &) = delete;
@@ -39,6 +41,7 @@ private:
   InputQueue &input_;
   std::string directory_;
   std::chrono::milliseconds interval_;
+  Published published_;
   std::atomic<PreferenceMonitorStatus> status_{
       PreferenceMonitorStatus::Starting};
   std::mutex mutex_, join_mutex_;
