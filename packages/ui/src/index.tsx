@@ -252,7 +252,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section candidate-preview-section" aria-label="候选窗口预览">
           <div className="section-title">候选窗口预览</div>
           <div className={`candidate-preview-card candidate-preview-${draft.candidate_layout ?? "vertical"}`}>
-            <span className="candidate-preview-preedit">ni'hao</span>
+            {draft.candidate_preedit_style !== "empty" && <span className="candidate-preview-preedit">ni'hao</span>}
             <span className="candidate-preview-item active"><b>1</b> 你好</span>
             <span className="candidate-preview-item"><b>2</b> 你号</span>
             <span className="candidate-preview-item"><b>3</b> 泥好</span>

@@ -56,6 +56,13 @@ test("candidate preedit style persists", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_preedit_style: "empty" });
 });
 
+test("candidate preview hides preedit when disabled", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences: { ...initial.preferences, candidate_preedit_style: "empty" } }), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  const preview = await screen.findByLabelText("候选窗口预览");
+  expect(preview.querySelector(".candidate-preview-preedit")).toBeNull();
+});
+
 test("candidate font size defaults to 16 and persists selected size", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
