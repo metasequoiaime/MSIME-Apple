@@ -26,6 +26,10 @@ static NSDictionary *decode(char *response, NSError **error) {
 @implementation MSIMEClientSession {
     uint64_t _handle;
 }
+- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
+}
 
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     if (![NSThread isMainThread]) { setError(error, @"输入会话必须在主线程创建"); return nil; }

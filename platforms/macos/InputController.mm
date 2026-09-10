@@ -61,7 +61,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
-    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:YES fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+    [self syncPunctuation];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
 }
 - (void)syncPageSize {
@@ -74,6 +75,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         _requestedPageSize = size;
         _view = result[@"view"];
     }
+}
+- (void)syncPunctuation {
+    if (_session) [self apply:[_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil]];
 }
 - (NSMenu *)menu {
     [self ensureAppearance];
@@ -138,6 +142,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar activateForDelegate:self visible:YES];
     _activeClient = sender;
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
@@ -160,6 +165,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     [self syncPageSize];
     if (_session) {
+        [self syncPunctuation];
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
     }
@@ -202,7 +208,18 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self setEnglishInputMode:!_appearance.englishMode]; }
-- (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; }
+- (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [self ensureAppearance];
+    if (_session && _activeClient && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    _appearance.chinesePunctuation = !_appearance.chinesePunctuation;
+    [self syncPunctuation];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+}
 - (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.fullWidthInput = !_appearance.fullWidthInput; }
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.traditionalOutput = !_appearance.traditionalOutput; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }

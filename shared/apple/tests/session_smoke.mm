@@ -55,15 +55,21 @@ int main() {
         assert(!reload(session, root, YES));
         assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
         __block BOOL rejected = NO;
+        assert([session setChinesePunctuationEnabled:NO error:&error]);
+        assert([[session typeASCII:',' shift:NO error:&error][@"handled"] isEqual:@NO]);
+        assert([session setChinesePunctuationEnabled:YES error:&error]);
+        assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
             NSError *threadError = nil;
             rejected = ![session viewWithError:&threadError] && threadError != nil;
+            rejected = rejected && ![session setChinesePunctuationEnabled:NO error:&threadError] && threadError != nil;
             dispatch_semaphore_signal(done);
         });
         assert(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
         assert(rejected);
         assert([session closeWithError:&error]);
+        assert(![session setChinesePunctuationEnabled:NO error:&error]);
         assert(![session viewWithError:&error]);
         assert(error);
         [[NSFileManager defaultManager] removeItemAtPath:root error:nil];

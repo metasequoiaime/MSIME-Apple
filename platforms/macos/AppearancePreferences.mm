@@ -11,6 +11,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
+static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
@@ -76,6 +77,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
+- (BOOL)chinesePunctuation { return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
 - (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
@@ -85,6 +87,10 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 }
 - (void)setFullWidthInput:(BOOL)value {
     [_defaults setBool:value forKey:FullWidthKey];
+    [self preferencesChanged];
+}
+- (void)setChinesePunctuation:(BOOL)value {
+    [_defaults setBool:value forKey:ChinesePunctuationKey];
     [self preferencesChanged];
 }
 - (void)setTraditionalOutput:(BOOL)value {
