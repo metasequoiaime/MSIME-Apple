@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
+include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
@@ -23,3 +24,8 @@ add_executable(msime-client-dictionary dictionary_request.cpp)
 target_compile_options(msime-client-dictionary PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-client-dictionary PRIVATE ../../crates/host-api/include)
 target_link_libraries(msime-client-dictionary PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+configure_file(msime-client-preview.xml.in msime-client-preview.xml @ONLY)
+install(TARGETS msime-client-ibus msime-client-dictionary
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")

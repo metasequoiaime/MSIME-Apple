@@ -16,6 +16,12 @@
 
 ## 当前证据
 
+### Linux IBus 安装组件
+
+为 IBus 宿主补齐 CMake 安装产物：安装 `msime-client-ibus`、个人词典入口和标准 `msime-client-preview.xml` component。component 指向发行版配置文件路径，由安装器生成资源、用户数据和缓存路径；构建系统不自动切换用户输入法，也不携带开发机绝对路径。
+
+Debian bookworm arm64 staging 验证通过：CMake 构建、`cmake --install`、两个可执行文件权限、component 目录位置及 XML 中 bindir/sysconfdir 路径均检查通过。仍需发行版打包、配置生成、GTK/Qt 和真实 IBus panel 验收；CI 保持禁用。
+
 ### Linux 个人词典原生入口
 
 将已有共享词典请求契约接入 Linux 原生 `msime-client-dictionary`。工具只从标准输入读取最多 65536 字节 JSON，调用 `msime_client_dictionary` 后输出规范化 JSON；不把词条放在命令行、日志或错误文本中。共享访问锁、分页、请求幂等、乐观替换和 Engine 原子写入仍由共享 Host/Engine 负责，IBus 输入线程不执行维护操作。GTK/Qt 设置页可复用相同 C ABI。
