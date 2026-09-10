@@ -306,6 +306,9 @@ int main(int argc, char **argv) {
     require(key(','), "Punctuation not consumed");
     require(seen.committed == "你好" + selected + "，",
             "Chinese punctuation not applied");
+    require(key(IBUS_quotedbl), "Paired quote was not consumed");
+    require(seen.committed == "你好" + selected + "，“”",
+            "Paired quote output mismatch");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));

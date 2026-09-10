@@ -725,6 +725,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     s.open();
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    if (s.chinese_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
+        (key == IBUS_quotedbl || key == IBUS_apostrophe)) {
+      const char *pair = key == IBUS_quotedbl ? "“”" : "‘’";
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(pair));
+      handled = true;
+      return;
+    }
     if ((flags & IBUS_CONTROL_MASK) && key == IBUS_period) {
       s.chinese_punctuation = !s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
