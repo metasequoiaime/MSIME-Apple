@@ -98,7 +98,12 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
         let compatible = matches!(
             field("base").as_deref(),
             Some("fluent" | "wechat" | "graphite" | "willow_green")
-        );
+        ) && field("layouts")
+            .map(|value| value.contains("horizontal") && value.contains("vertical"))
+            .unwrap_or(false)
+            && field("themes")
+                .map(|value| value.contains("dark") && value.contains("light"))
+                .unwrap_or(false);
         result.push(ExternalSkinSummary {
             name: field("name")
                 .filter(|value| !value.is_empty())
