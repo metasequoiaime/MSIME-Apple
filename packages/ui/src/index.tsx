@@ -64,6 +64,7 @@ const voicePromptPresets: Record<string, string> = { cleanup: "去掉口语填�
 export type AiAssistantPreferences = { enabled: boolean; provider: string; model: string; token: string; tokens?: Record<string, string>; endpoint: string; candidate_limit: number; prompt_id: string; prompt: string; prompt_custom_1?: string; prompt_custom_2?: string; prompt_custom_3?: string };
 const aiProviderDefaults: Record<string, { model: string; endpoint: string }> = { deepseek: { model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions" }, openai: { model: "gpt-4o-mini", endpoint: "https://api.openai.com/v1/chat/completions" }, siliconflow: { model: "Qwen/Qwen3-8B", endpoint: "https://api.siliconflow.cn/v1/chat/completions" }, groq: { model: "llama-3.3-70b-versatile", endpoint: "https://api.groq.com/openai/v1/chat/completions" } };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: aiProviderDefaults.deepseek.model, token: "", tokens: {}, endpoint: aiProviderDefaults.deepseek.endpoint, candidate_limit: 3, prompt_id: "custom_1", prompt: "", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+export type ExternalSkinSummary = { id: string; name: string; version?: string; author?: string; description?: string; compatible: boolean };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
@@ -95,7 +96,7 @@ export interface SettingsClient {
   about?: { openExternalUrl(url: string): Promise<void> };
   update?: { check(): Promise<void> };
   diagnostics?: { server(enabled: boolean): Promise<void>; tsf(enabled: boolean): Promise<void> };
-  skin?: { openDirectory(): Promise<void>; refresh(): Promise<void> };
+  skin?: { openDirectory(): Promise<void>; refresh(): Promise<void>; list?(): Promise<ExternalSkinSummary[]> };
   feedback?: { openExternalUrl(url: string): Promise<void> };
 }
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
@@ -171,6 +172,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [externalSkins, setExternalSkins] = useState<ExternalSkinSummary[]>([]);
   const [serverDiagnostics, setServerDiagnostics] = useState(false);
   const [tsfDiagnostics, setTsfDiagnostics] = useState(false);
   const [diagnosticError, setDiagnosticError] = useState("");
@@ -258,6 +260,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
+  useEffect(() => {
+    if (page === "skin" && client.skin?.list) void client.skin.list().then(setExternalSkins).catch(() => setExternalSkins([]));
+  }, [client, page]);
   const openExternalUrl = (url: string) => {
     if (client.about) void client.about.openExternalUrl(url);
   };
@@ -330,7 +335,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="skin-grid" role="radiogroup" aria-label="候选窗口皮肤">
           {([['follow', '跟随全局', '使用主题模式的颜色'], ['dark', '深色', '深色背景与浅色文字'], ['light', '浅色', '浅色背景与深色文字']] as const).map(([value, label, description]) => <button type="button" className={`skin-card${(draft.candidate_theme ?? "follow") === value ? " selected" : ""}`} role="radio" aria-checked={(draft.candidate_theme ?? "follow") === value} key={value} onClick={() => setDraft({ ...draft, candidate_theme: value })}><span className={`skin-swatch skin-swatch-${value}`} aria-hidden="true" /><span className="skin-card-title">{label}</span><small>{description}</small></button>)}
         </div>
-        <div className="section help-section"><div className="section-title">外部皮肤</div><p className="about-disclaimer">将包含 skin.toml 的皮肤文件夹复制到宿主皮肤目录，然后刷新皮肤。</p><div className="section-header"><span className="section-title">皮肤目录</span><span><HostActionButton label="打开目录" action={client.skin ? () => client.skin!.openDirectory() : undefined} /><HostActionButton label="刷新皮肤" action={client.skin ? () => client.skin!.refresh() : undefined} /></span></div>{!client.skin && <p className="capability-status-inline">皮肤宿主尚未接入</p>}</div>
+        <div className="section help-section"><div className="section-title">外部皮肤</div><p className="about-disclaimer">将包含 skin.toml 的皮肤文件夹复制到宿主皮肤目录，然后刷新皮肤。</p><div className="section-header"><span className="section-title">皮肤目录</span><span><HostActionButton label="打开目录" action={client.skin ? () => client.skin!.openDirectory() : undefined} /><HostActionButton label="刷新皮肤" action={client.skin ? async () => { await client.skin!.refresh(); if (client.skin!.list) setExternalSkins(await client.skin!.list()); } : undefined} /></span></div>{externalSkins.map(skin => <div className="section" key={skin.id}><strong>{skin.name}</strong><small>{[skin.id, skin.version && `v${skin.version}`, skin.author].filter(Boolean).join(" · ")}</small><p>{skin.compatible ? (skin.description || "外部皮肤") : "当前客户端不兼容此皮肤"}</p></div>)}{client.skin && externalSkins.length === 0 && <p className="capability-status-inline">尚未扫描到外部皮肤</p>}{!client.skin && <p className="capability-status-inline">皮肤宿主尚未接入</p>}</div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
         <div className="section about-hero"><img src={logo} alt="水杉 IME" /><div><h2>水杉 IME</h2><p>跨平台中文输入法客户端预览版</p></div></div>
