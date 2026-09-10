@@ -92,6 +92,18 @@ pub struct FloatingToolbarPreferences {
     pub scale_percent: u16,
     #[serde(default = "default_toolbar_font_size")]
     pub font_size: u16,
+    #[serde(default = "enabled_by_default")]
+    pub fullwidth: bool,
+    #[serde(default = "enabled_by_default")]
+    pub punctuation: bool,
+    #[serde(default = "enabled_by_default")]
+    pub character_set: bool,
+    #[serde(default = "enabled_by_default")]
+    pub emoji: bool,
+    #[serde(default)]
+    pub screen_keyboard: bool,
+    #[serde(default = "enabled_by_default")]
+    pub settings: bool,
 }
 
 fn default_toolbar_scale() -> u16 {
@@ -107,6 +119,12 @@ impl Default for FloatingToolbarPreferences {
             enabled: true,
             scale_percent: 100,
             font_size: 24,
+            fullwidth: true,
+            punctuation: true,
+            character_set: true,
+            emoji: true,
+            screen_keyboard: false,
+            settings: true,
         }
     }
 }
