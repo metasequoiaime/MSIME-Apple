@@ -13,7 +13,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nth(1)
             .ok_or("usage: frequency_dictionary <verified-resources>")?,
     )?;
-    for mode in ["pin", "halve", "linear", "promote"] {
+    for (mode, learning) in [
+        ("disabled", true),
+        ("pin", true),
+        ("halve", true),
+        ("linear", true),
+        ("promote", true),
+        ("promote", false),
+    ] {
         let temporary = tempfile::tempdir()?;
         let mut options = prepare_options(
             resources.to_str().unwrap(),
@@ -21,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             temporary.path().join("cache").to_str().unwrap(),
             "frequency-fixture",
         )?;
-        options.learning = true;
+        options.learning = learning;
         options.helpcode = false;
         options.frequency_mode = mode.into();
         options.frequency_trigger_count = 2;
@@ -49,6 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .position(|word| word == "拟")
             .unwrap();
         let expected = match mode {
+            _ if !learning => before,
+            "disabled" => before,
             "pin" => 0,
             "halve" => before / 2,
             "linear" => before.saturating_sub(2),
@@ -56,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => unreachable!(),
         };
         assert_eq!(after, expected, "{mode} persisted the wrong candidate rank");
-        println!("{mode}: threshold and persisted candidate order passed ({before} -> {after})");
+        println!("{mode}, learning={learning}: threshold and persisted candidate order passed ({before} -> {after})");
     }
     Ok(())
 }

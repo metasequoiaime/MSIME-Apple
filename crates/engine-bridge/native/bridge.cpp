@@ -31,14 +31,14 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.helpcode_schema = std::string(value.helpcode_schema);
     const std::string frequency(value.frequency_mode);
     using metasequoia::FrequencyAdjustmentMode;
-    if (frequency == "pin") options.frequency.mode = FrequencyAdjustmentMode::Pin;
+    if (frequency == "disabled") options.frequency.mode = FrequencyAdjustmentMode::Disabled;
+    else if (frequency == "pin") options.frequency.mode = FrequencyAdjustmentMode::Pin;
     else if (frequency == "halve") options.frequency.mode = FrequencyAdjustmentMode::Halve;
     else if (frequency == "linear") options.frequency.mode = FrequencyAdjustmentMode::Linear;
     else if (frequency == "promote") options.frequency.mode = FrequencyAdjustmentMode::Promote;
     else throw std::invalid_argument("Unsupported frequency mode");
     options.frequency.trigger_count = value.frequency_trigger_count;
     options.frequency.linear_step = value.frequency_linear_step;
-    if (!value.learning) options.frequency = {};
     return options;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {

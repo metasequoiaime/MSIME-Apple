@@ -26,7 +26,7 @@ export type Preferences = {
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
-export type FrequencyPreferences = { mode: "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
+export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
 const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count: 1, linear_step: 1 };
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
@@ -43,7 +43,7 @@ function message(error: unknown): string {
     switch (error.code) {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
-      case "frequency_invalid": return "调频触发频次和步长必须为 1 到 6。";
+      case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
       case "format": return "配置文件无法读取或版本较新，原文件已保留。";
     }
@@ -169,13 +169,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section" role="group" aria-labelledby="frequency-title">
           <div className="section-title" id="frequency-title">拼音方案调频</div>
           <div className="frequency-option-content">
-            <label className="section-header frequency-option-row"><span className="section-title">调频方式</span><select disabled={!draft.learning} value={frequency.mode} onChange={event => setDraft({ ...draft, frequency: { ...frequency, mode: event.target.value as FrequencyPreferences["mode"] } })}>
-              <option value="pin">一次置顶</option><option value="halve">折半调频</option><option value="linear">线性调频</option><option value="promote">一次置前</option>
+            <label className="section-header frequency-option-row"><span className="section-title">调频方式</span><select value={frequency.mode} onChange={event => setDraft({ ...draft, frequency: { ...frequency, mode: event.target.value as FrequencyPreferences["mode"] } })}>
+              <option value="disabled">关闭</option><option value="pin">一次置顶</option><option value="halve">折半调频</option><option value="linear">线性调频</option><option value="promote">一次置前</option>
             </select></label>
             {([["trigger_count", "触发频次(第几次上屏触发)"], ["linear_step", "线性调频步长"]] as const).map(([key, label]) => <div key={key}>
               <div className="input-option-divider" />
-              <label className="section-header frequency-option-row"><span className="section-title">{label}</span><select disabled={!draft.learning || key === "linear_step" && frequency.mode !== "linear"} value={frequency[key]} onChange={event => setDraft({ ...draft, frequency: { ...frequency, [key]: Number(event.target.value) } })}>
-                {[1, 2, 3, 4, 5, 6].map(value => <option key={value} value={value}>{value}</option>)}
+              <label className="section-header frequency-option-row"><span className="section-title">{label}</span><select value={frequency[key]} onChange={event => setDraft({ ...draft, frequency: { ...frequency, [key]: Number(event.target.value) } })}>
+                {[1, 2, 3, 4, 5, 6, ...(frequency[key] > 6 ? [frequency[key]] : [])].map(value => <option key={value} value={value}>{value}</option>)}
               </select></label>
             </div>)}
           </div>

@@ -53,6 +53,7 @@ pub struct Preferences {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FrequencyMode {
+    Disabled,
     Pin,
     Halve,
     Linear,
@@ -63,6 +64,7 @@ pub enum FrequencyMode {
 impl FrequencyMode {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Disabled => "disabled",
             Self::Pin => "pin",
             Self::Halve => "halve",
             Self::Linear => "linear",
@@ -214,8 +216,8 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
-        if !(1..=6).contains(&self.frequency.trigger_count)
-            || !(1..=6).contains(&self.frequency.linear_step)
+        if !(1..=10).contains(&self.frequency.trigger_count)
+            || !(1..=10).contains(&self.frequency.linear_step)
         {
             return Err(PreferencesError::InvalidFrequency);
         }
@@ -257,7 +259,7 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
-    #[error("frequency trigger count and linear step must be between 1 and 6")]
+    #[error("frequency trigger count and linear step must be between 1 and 10")]
     InvalidFrequency,
     #[error("preferences changed; reload before saving")]
     Conflict,
@@ -393,6 +395,7 @@ mod tests {
         );
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
         for (revision, mode) in [
+            FrequencyMode::Disabled,
             FrequencyMode::Pin,
             FrequencyMode::Halve,
             FrequencyMode::Linear,
@@ -417,7 +420,7 @@ mod tests {
             assert_eq!(store.load().unwrap(), saved);
         }
         let saved = store.load().unwrap();
-        for value in [0, 7, 255] {
+        for value in [0, 11, 255] {
             for trigger in [true, false] {
                 let mut preferences = Preferences::default();
                 if trigger {

@@ -615,3 +615,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 共享配置通过 host-api/CXX 在创建会话或组合结束后的延迟更新时传入 Engine。测试覆盖五模式保存/读取、非法范围拒绝且不覆盖文件、活动组合延迟应用、UI 默认值及保存。真实固定词库回归 `frequency_dictionary` 使用临时用户目录和合成选词操作，验证触发阈值为两次时首次不变，重开会话后五种模式的候选索引分别由 5 变为 5/0/2/3/4；原资源不被修改。
 
 本地验证：35 项 Rust 测试及 desktop 测试目标、fmt/clippy、14 项前端测试与 TypeScript/Vite 构建、10 项 Windows 边界 CTest、Windows x64 交叉构建及运行时导入检查通过。未执行 Windows 原生 TSF、安装或逐像素验收；完整 Windows 功能/UI 复刻仍未完成，CI 保持手动禁用。
+
+### Windows 调频契约纠偏
+
+重新核查实际 develop 基线发现：共享枚举和 CXX 缺少 disabled，范围限制为 1–6，UI 还按学习开关和线性模式禁用控件，与上述 Windows 来源及记录不符。基线 `frequency_legacy_defaults_modes_and_bounds` 实测因拒绝合法值 10 而失败。恢复 Windows 的五模式及配置范围 1–10；UI 保持上游六个常规数值选项，同时保留合法的已有 7–10 值，并按 input.ts 保持控件独立可编辑。不将其他平台的交互约定替代 Windows 目标。
+
+恢复 disabled 持久化和桥接回归，UI 精确断言五项枚举及学习关闭时仍可编辑；词库回归增加 learning=false 场景，确认总开关由 Engine 控制，不需桥接清空调频配置。35 项 Rust 测试、15 项 UI 测试、fmt/clippy、TypeScript/Vite、10 项本机边界 CTest、x64 交叉构建和导入检查均通过。六组真实 Engine 隔离排序回归通过；未执行 Windows 原生宿主或逐像素验收，CI 仍禁用，完整迁移目标继续。
