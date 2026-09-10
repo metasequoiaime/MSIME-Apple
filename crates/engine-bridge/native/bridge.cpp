@@ -132,6 +132,7 @@ EngineSnapshot EngineSession::snapshot() const {
         default: output.scheme = 255; break;
     }
     output.local_mode = local_mode_name(value.local_mode);
+    output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.microsoft_shuangpin = microsoft_shuangpin_;
     output.shuangpin_profile = shuangpin_profile_;
     output.preedit = value.preedit;

@@ -12,6 +12,7 @@ static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
+static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 
 @implementation MSIMEAppearancePreferences {
@@ -32,6 +33,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthButton;
     NSButton *_keymapButton;
+    NSButton *_wubiButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -75,6 +77,8 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
+- (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
+- (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
 - (void)setShuangpinKeymap:(BOOL)value {
     [_defaults setBool:value forKey:KeymapKey];
     [self preferencesChanged];
@@ -142,6 +146,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (void)refreshControls {
     _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
+    _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
@@ -167,7 +172,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 680) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 760) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -199,6 +204,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
     _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
     _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
     _keymapButton = [NSButton checkboxWithTitle:@"输入时显示双拼键位提示" target:self action:@selector(keymapChanged:)];
+    _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
@@ -209,7 +215,8 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
         @[[NSTextField labelWithString:@"皮肤卡片"], browse],
         @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
         @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
-        @[[NSTextField labelWithString:@"双拼提示"], _keymapButton]
+        @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
+        @[[NSTextField labelWithString:@"五笔输入"], _wubiButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -253,6 +260,7 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
+- (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];

@@ -554,6 +554,10 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
 
 /// Query a user-owned Unix-socket provider off the session thread.
 /// Returns null when the provider has no candidate or is unavailable.
+///
+/// # Safety
+/// The caller must provide readable buffers of the stated lengths, or null pointers only with
+/// zero lengths; buffers are read for the duration of this call and never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_online_provider_request(
@@ -586,6 +590,10 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
 
 /// Apply a provider result returned for a previously copied OnlineQuery.
 /// The query and candidate buffers are UTF-8 and are never retained.
+///
+/// # Safety
+/// The caller must provide readable buffers of the stated lengths, or null pointers only with
+/// zero lengths; buffers are read for the duration of this call and never retained.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_apply_online_candidate(
     handle: u64,
