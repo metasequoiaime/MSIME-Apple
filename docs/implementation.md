@@ -685,3 +685,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 共享 React 设置客户端新增可选 dictionary capability。Native host 提供该能力时，实用功能页可查询第一页（最多 100 项）快捷短语并通过 request ID 删除；没有能力时页面保持原有八个模式开关，不直接访问文件。加载和删除失败只显示脱敏提示。新增样式和类型检查/构建验证通过。
 
 这只是 UI 初接：Tauri client 尚未绑定 `msime_client_dictionary`，新增/编辑表单、分页按钮、搜索、批量导入导出、剪贴板管理和 Windows Server 管理消息仍待完成。未执行 Windows 原生 UI 验收，CI 保持禁用。
+
+### Windows Tauri 快捷短语 Native Host 绑定
+
+桌面端现在接入可选 dictionary capability：启动时只接受由安装/资源准备流程提供的 `MSIME_CLIENT_HOST_OPTIONS` 已验证 HostOptions JSON，WebView 只能传 list/edit action，不能传资源、状态或词库路径。Tauri 命令在阻塞线程调用 host-api 的安全 Rust 包装，固定错误不回显 Engine 诊断；Native Host 继续负责访问锁和事务。
+
+验证：desktop Rust 测试目标、17 项 UI 测试、TypeScript/Vite 构建通过。此绑定要求安装流程先生成并注入 HostOptions；未提供变量时启动失败而不会回退到不受保护的路径。新增/编辑表单、分页/搜索、导入导出、Windows Server 停用调度和 Windows 原生验收仍待完成，CI 保持禁用。
