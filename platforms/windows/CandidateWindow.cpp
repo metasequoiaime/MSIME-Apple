@@ -85,10 +85,11 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::optional<COLORREF> text_color,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
-                                 std::optional<bool> dark_theme)
+                                 std::optional<bool> dark_theme,
+                                 bool horizontal)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
-      font_family_(wide(font_family)), dark_theme_(dark_theme) {
+      font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal) {
   if (font_family_.empty() || font_family_.size() > 128)
     throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
@@ -171,7 +172,7 @@ void CandidateWindow::refresh() {
   const auto dpi = GetDpiForWindow(window_);
   const auto bounds =
       candidate_bounds(value->x, value->y, work.left, work.top, work.right,
-      work.bottom, dpi, value->candidates.size(), font_size_);
+      work.bottom, dpi, value->candidates.size(), font_size_, horizontal_);
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
@@ -208,11 +209,12 @@ void CandidateWindow::paint() {
               static_cast<LONG>(metrics.padding + row * metrics.row),
               bounds.right - metrics.padding,
               static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
-    if (highlighted)
+    if (highlighted) {
       HBRUSH brush = CreateSolidBrush(highlight);
       if (!brush) throw std::runtime_error("Candidate highlight unavailable");
       FillRect(painting.dc, &rect, brush);
       DeleteObject(brush);
+    }
     SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
     rect.left += metrics.padding;
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
@@ -227,7 +229,7 @@ void CandidateWindow::paint() {
     Font candidate_font(painting.dc, metrics.font, font_family_.c_str());
     for (size_t i = 0; i < value->candidates.size(); ++i)
       line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
-           i + 1, value->candidates[i].highlighted);
+           horizontal_ ? 1 : i + 1, value->candidates[i].highlighted);
   }
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
@@ -240,7 +242,7 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
     return std::nullopt;
   const auto row = candidate_hit(x, y, bounds.right, bounds.bottom,
                                  painted_dpi_, painted_->candidates.size(),
-                                 font_size_);
+                                 font_size_, horizontal_);
   if (!row)
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];

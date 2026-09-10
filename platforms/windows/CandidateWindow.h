@@ -17,7 +17,8 @@ public:
                            std::optional<COLORREF> text_color = std::nullopt,
                            std::string font_family = "Segoe UI",
                            std::vector<std::string> fallback_fonts = {},
-                           std::optional<bool> dark_theme = std::nullopt);
+                           std::optional<bool> dark_theme = std::nullopt,
+                           bool horizontal = false);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -44,5 +45,6 @@ private:
   std::optional<COLORREF> text_color_;
   std::wstring font_family_;
   std::optional<bool> dark_theme_;
+  bool horizontal_ = false;
 };
 } // namespace msime::windows

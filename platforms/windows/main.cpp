@@ -105,6 +105,10 @@ int wmain(int argc, wchar_t **argv) {
     if (candidate_theme == "dark") candidate_dark_theme = true;
     else if (candidate_theme == "light") candidate_dark_theme = false;
     else if (candidate_theme != "follow") throw std::invalid_argument("Invalid candidate theme");
+    const auto candidate_layout = prepared.at("value").at("preferences").value(
+        "candidate_layout", std::string("vertical"));
+    if (candidate_layout != "vertical" && candidate_layout != "horizontal")
+      throw std::invalid_argument("Invalid candidate layout");
     std::optional<COLORREF> candidate_text_color;
     if (const auto color = prepared.at("value").at("preferences").value(
             "candidate_text_color", std::string{}); !color.empty()) {
@@ -156,7 +160,8 @@ int wmain(int argc, wchar_t **argv) {
         candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         candidate_font_size, preedit_font_size, candidate_text_color,
-        candidate_font_family, fallback_fonts, candidate_dark_theme);
+        candidate_font_family, fallback_fonts, candidate_dark_theme,
+        candidate_layout == "horizontal");
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout
