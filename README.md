@@ -40,7 +40,7 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 
 Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
 
-当前优先推进 [Windows Server 适配](platforms/windows/README.md)，已完成键包到共享会话的边界；Named Pipe 与 TSF 系统消费仍在后续阶段。平台顺序按 Windows → macOS → iOS → Linux，暂停追加 Android/Linux 功能。
+平台宿主按 Windows → macOS → iOS → Linux 渐进迁移；Client 侧当前集中完善 macOS、iOS 与 Android 的共享宿主边界，并保留 Linux IBus 预览宿主。Windows 目录属于独立平台实现，不是本轮 Client 共享层的依赖；各平台的真实系统入口、签名、安装和设备验收按宿主条件分别推进。
 
 ## Engine 桥接
 
