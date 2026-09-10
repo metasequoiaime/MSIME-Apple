@@ -911,6 +911,26 @@ mod tests {
     }
 
     #[test]
+    fn candidate_font_size_bounds_are_strict() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let initial = store.save(0, Preferences::default()).unwrap();
+        for size in [11, 33, 255] {
+            assert!(matches!(
+                store.save(1, Preferences { candidate_font_size: size, ..Preferences::default() }),
+                Err(PreferencesError::InvalidCandidateFontSize)
+            ));
+        }
+        for size in [12, 32] {
+            let saved = store.save(1, Preferences { candidate_font_size: size, ..Preferences::default() }).unwrap();
+            assert_eq!(saved.preferences.candidate_font_size, size);
+            std::fs::remove_file(store.path()).unwrap();
+            break;
+        }
+        assert!(initial.preferences.candidate_font_size == 16);
+    }
+
+    #[test]
     fn malformed_future_and_unknown_documents_are_preserved() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
