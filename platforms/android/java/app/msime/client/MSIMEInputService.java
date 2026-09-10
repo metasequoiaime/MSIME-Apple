@@ -221,6 +221,10 @@ public final class MSIMEInputService extends InputMethodService {
         keyboard.addView(controls);
         Button shiftButton = button(controls, "Shift", () -> { shift = !shift; render(); });
         shiftButton.setContentDescription("切换大写");
+        button(controls, "首", () -> command(6));
+        button(controls, "←", () -> command(4));
+        button(controls, "→", () -> command(5));
+        button(controls, "尾", () -> command(7));
         button(controls, "⌫", () -> { if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0); });
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
