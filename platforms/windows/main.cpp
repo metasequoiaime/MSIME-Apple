@@ -1,5 +1,6 @@
 #include "PreviewConfig.h"
 #include "CandidateWindow.h"
+#include "ClipboardHistory.h"
 #include "ModeWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
@@ -89,6 +90,12 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    ClipboardHistory clipboard(config.state_root / "clipboard_history.json");
+    clipboard.set_enabled(prepared.at("value").at("preferences").value(
+        "clipboard_history", true));
+    ClipboardMonitor clipboard_monitor(clipboard, {});
+    if (clipboard.enabled() && !clipboard_monitor.start())
+      throw std::runtime_error("Clipboard monitor unavailable");
     const bool follow_cursor = prepared.at("value").at("preferences").value(
         "candidate_follow_cursor", true);
     const auto candidate_font_size = prepared.at("value").at("preferences").value(
