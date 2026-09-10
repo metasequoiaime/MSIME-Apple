@@ -235,6 +235,10 @@ int main(int argc, char **argv) {
             "Ctrl+. punctuation toggle was not consumed");
     require(!seen.punctuation_enabled,
             "Ctrl+. did not toggle punctuation state");
+    require(key(IBUS_period, IBUS_CONTROL_MASK),
+            "Ctrl+. punctuation restore was not consumed");
+    require(seen.punctuation_enabled,
+            "Ctrl+. did not restore punctuation state");
     invoke("CursorDown");
     auto mode_commit = seen.candidates.at(seen.cursor);
     mode(PROP_STATE_UNCHECKED);
