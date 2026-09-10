@@ -129,10 +129,15 @@ else
 fi
 mkdir -p "$output_dir"
 staging_root=$(mktemp -d "$output_dir/.package.XXXXXX")
-package_root="$staging_root/MetasequoiaIME-$tag_name"
-archive_name="MetasequoiaIME-$tag_name-macos-universal$asset_suffix.zip"
-update_archive_name="MetasequoiaIME-$tag_name-macos-universal$asset_suffix-update.zip"
-installer_name="MetasequoiaIME-$tag_name-macos-universal$asset_suffix.pkg"
+# The platform already appears later in every artifact name, so a prefixed tag would repeat it:
+# MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. The prefix belongs to the tag, which
+# distinguishes releases from each other, not to files inside one release.
+asset_tag=${tag_name#macos-}
+asset_tag=${asset_tag#ios-}
+package_root="$staging_root/MetasequoiaIME-$asset_tag"
+archive_name="MetasequoiaIME-$asset_tag-macos-universal$asset_suffix.zip"
+update_archive_name="MetasequoiaIME-$asset_tag-macos-universal$asset_suffix-update.zip"
+installer_name="MetasequoiaIME-$asset_tag-macos-universal$asset_suffix.pkg"
 archive_path="$staging_root/$archive_name"
 checksum_path="$archive_path.sha256"
 update_archive_path="$staging_root/$update_archive_name"

@@ -58,27 +58,31 @@ if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]
     exit 1
 fi
 
-archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.zip"
-update_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX-update.zip"
-installer="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.pkg"
+# Must match how the packaging scripts name their output: the platform prefix stays on the tag and
+# out of the file names, which already carry a platform segment of their own.
+asset_tag=${TAG_NAME#macos-}
+asset_tag=${asset_tag#ios-}
+archive="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX.zip"
+update_archive="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX-update.zip"
+installer="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX.pkg"
 appcast="$dist_dir/appcast.xml"
 if [[ "$IOS_TESTFLIGHT_ENABLED" == true ]]; then
-    ios_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip"
-    ios_ipa="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa"
+    ios_archive="$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip"
+    ios_ipa="$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa"
     opposite_ios_artifacts=(
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip.sha256"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa.sha256"
     )
 else
-    ios_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip"
-    ios_ipa="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa"
+    ios_archive="$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
+    ios_ipa="$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
     opposite_ios_artifacts=(
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip.sha256"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa.sha256"
     )
 fi
 artifacts=()

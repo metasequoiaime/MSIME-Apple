@@ -142,7 +142,12 @@ if [[ "$extension_version" != "$version" ]]; then
     exit 1
 fi
 
-bundle="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.xcarchive.zip"
+# The platform already appears later in every artifact name, so a prefixed tag would repeat it:
+# MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. The prefix belongs to the tag, which
+# distinguishes releases from each other, not to files inside one release.
+asset_tag=${tag_name#macos-}
+asset_tag=${asset_tag#ios-}
+bundle="$output_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
 rm -f -- "$bundle" "$bundle.sha256"
 ditto -c -k --keepParent "$archive_path" "$bundle"
 
@@ -164,7 +169,7 @@ if [[ ! -x "$staged_extension/MetasequoiaKeyboard" || ! -s "$staged_extension/ms
     exit 1
 fi
 
-ipa="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.ipa"
+ipa="$output_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
 rm -f -- "$ipa" "$ipa.sha256"
 # zip rather than ditto: ditto writes AppleDouble ._ entries beside the payload, and an .ipa is
 # consumed by tools that do not expect them.

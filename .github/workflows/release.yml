@@ -510,7 +510,9 @@ jobs:
             "$sparkle_archive" | shasum -a 256 --check
           mkdir -p "$sparkle_root"
           tar -xJf "$sparkle_archive" -C "$sparkle_root"
-          update_archive="dist/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX-update.zip"
+          asset_tag=${TAG_NAME#macos-}
+          asset_tag=${asset_tag#ios-}
+          update_archive="dist/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX-update.zip"
           SPARKLE_TOOLS_DIR="$sparkle_root/bin" \
             exec "$RUNNER_TEMP/generate-sparkle-appcast.sh" "$TAG_NAME" "$update_archive" dist/appcast.xml
       - name: Skip Sparkle appcast without an update key

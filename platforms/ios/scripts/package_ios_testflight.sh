@@ -196,8 +196,10 @@ fi
 
 if [[ -n "${METASEQUOIA_IOS_RELEASE_DIR:-}" ]]; then
     release_dir=$(cd "$METASEQUOIA_IOS_RELEASE_DIR" && pwd)
-    signed_archive="$release_dir/MetasequoiaIME-$tag_name-ios-testflight.xcarchive.zip"
-    signed_ipa="$release_dir/MetasequoiaIME-$tag_name-ios-testflight.ipa"
+    asset_tag=${tag_name#macos-}
+    asset_tag=${asset_tag#ios-}
+    signed_archive="$release_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip"
+    signed_ipa="$release_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa"
     ditto -c -k --keepParent "$archive_path" "$signed_archive"
     cp "$ipa" "$signed_ipa"
     (

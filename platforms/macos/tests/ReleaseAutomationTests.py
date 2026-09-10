@@ -169,6 +169,24 @@ class BuildNumberTests(unittest.TestCase):
                     capture_output=True, text=True)
                 self.assertEqual(result.stdout, expected, f"{script} {tag}")
 
+    def test_artifact_names_carry_the_platform_once(self):
+        # Every artifact name already ends in a platform segment, so building it from the prefixed
+        # tag produced MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. Worse, the packaging
+        # and publishing sides derive the name separately: fixing one and not the other would have
+        # the upload look for a file that packaging no longer writes.
+        root = MACOS_ROOT.parents[1]
+        for script in ["platforms/macos/scripts/package_release.sh",
+                       "platforms/macos/scripts/publish-release.sh",
+                       "platforms/macos/scripts/generate-sparkle-appcast.sh",
+                       "platforms/ios/scripts/package_ios_archive.sh",
+                       "platforms/ios/scripts/package_ios_testflight.sh"]:
+            body = (root / script).read_text()
+            self.assertNotIn("MetasequoiaIME-$TAG_NAME", body, script)
+            self.assertNotIn("MetasequoiaIME-$tag_name", body, script)
+            self.assertIn("MetasequoiaIME-$asset_tag", body, script)
+        workflow = (root / ".github/workflows/release.yml").read_text()
+        self.assertNotIn("MetasequoiaIME-$TAG_NAME", workflow)
+
     def test_a_promoted_release_still_refuses_a_platform_prefix(self):
         # Promotions feed Sparkle and release-please, which key on the bare vX.Y.Z name.
         body = (MACOS_ROOT / "scripts/create-promoted-release.sh").read_text()

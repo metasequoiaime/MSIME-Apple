@@ -33,9 +33,11 @@ if [[ "$tag_name" == *-build.* ]]; then
 fi
 
 archive_name=$(basename "$archive_path")
+asset_tag=${tag_name#macos-}
+asset_tag=${asset_tag#ios-}
 case "$archive_name" in
-    "MetasequoiaIME-$tag_name-macos-universal-update.zip" | \
-        "MetasequoiaIME-$tag_name-macos-universal-unsigned-update.zip") ;;
+    "MetasequoiaIME-$asset_tag-macos-universal-update.zip" | \
+        "MetasequoiaIME-$asset_tag-macos-universal-unsigned-update.zip") ;;
     *)
         printf 'Update archive does not match release tag %s: %s\n' "$tag_name" "$archive_name" >&2
         exit 1
