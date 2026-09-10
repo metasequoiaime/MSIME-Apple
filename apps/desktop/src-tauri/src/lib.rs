@@ -294,9 +294,16 @@ fn select_skin(
             code: "unavailable",
         })?;
     }
-    std::fs::write(path, &id).map_err(|_| HostActionError {
+    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&temporary, &id).map_err(|_| HostActionError {
         code: "unavailable",
     })?;
+    if std::fs::rename(&temporary, &path).is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     *state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })? = Some(id);
