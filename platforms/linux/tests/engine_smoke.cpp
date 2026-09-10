@@ -22,6 +22,7 @@ struct Observation {
   std::vector<std::string> candidates;
   bool lookup_visible = false;
   bool preedit_visible = false;
+  guint cursor = 0;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -51,6 +52,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (std::string(name) == "UpdateLookupTable") {
     seen.candidates.clear();
     auto table = IBUS_LOOKUP_TABLE(object);
+    seen.cursor = ibus_lookup_table_get_cursor_pos(table);
     for (guint i = 0; i < ibus_lookup_table_get_number_of_candidates(table);
          ++i)
       seen.candidates.emplace_back(
@@ -299,6 +301,71 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.front() == learned,
             "Normal session did not restore configured frequency learning");
+    invoke("Reset");
+    struct Binding {
+      const char *name;
+      guint next;
+      guint previous;
+      bool candidate;
+    };
+    const std::vector<Binding> bindings = {
+        {"minus_equal", IBUS_equal, IBUS_minus, false},
+        {"comma_period", IBUS_period, IBUS_comma, false},
+        {"brackets", IBUS_bracketright, IBUS_bracketleft, false},
+        {"tab", IBUS_Tab, IBUS_ISO_Left_Tab, false},
+        {"page_up_down", IBUS_KP_Page_Down, IBUS_KP_Page_Up, false},
+        {"arrows", IBUS_KP_Down, IBUS_KP_Up, true}};
+    uint64_t revision = 3;
+    for (const auto &binding : bindings) {
+      for (const auto &item : bindings)
+        options["preferences"]["navigation"][item.name] = false;
+      options["preferences"]["navigation"][binding.name] = true;
+      phrase();
+      auto first_page = seen.candidates;
+      auto before_commit = seen.committed;
+      save(revision++, 4);
+      settle();
+      require(seen.preedit == "nihao", "Binding update canceled composition");
+      require(key(binding.next), "Configured forward binding was not handled");
+      require(binding.candidate ? seen.cursor == 1
+                                : seen.candidates != first_page,
+              "Configured forward binding did not move candidates");
+      require(key(binding.previous,
+                  binding.previous == IBUS_ISO_Left_Tab ? IBUS_SHIFT_MASK : 0),
+              "Configured backward binding was not handled");
+      require(
+          seen.candidates == first_page && seen.cursor == 0 &&
+              seen.committed == before_commit,
+          "Navigation changed input or failed to return to first candidate");
+      invoke("Reset");
+    }
+    for (const auto &binding : bindings)
+      options["preferences"]["navigation"][binding.name] = false;
+    save(revision++, 4);
+    settle();
+    for (guint native_key : {IBUS_Tab, IBUS_ISO_Left_Tab, IBUS_Page_Down,
+                             IBUS_Page_Up, IBUS_Down, IBUS_Up}) {
+      require(!key(native_key), "Idle native navigation was consumed");
+      phrase();
+      auto expected = seen.committed + seen.candidates.front();
+      require(!key(native_key) && seen.committed == expected &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Disabled navigation lost input or intercepted the editor key");
+    }
+    phrase();
+    auto expected_punctuation = seen.committed + seen.candidates.front() + "。";
+    require(key(IBUS_period) && seen.committed == expected_punctuation,
+            "Disabled period paging did not restore punctuation");
+    options["preferences"]["navigation"]["minus_equal"] = true;
+    save(revision++, 4);
+    settle();
+    require(key('U', IBUS_SHIFT_MASK), "Unicode entry failed");
+    require(key('+', IBUS_SHIFT_MASK) && seen.preedit == "U+",
+            "Equal-key paging intercepted Unicode plus");
+    for (char c : std::string("4e2d"))
+      require(key(c), "Unicode digit failed");
+    require(seen.preedit == "U+4e2d", "Unicode sequence was not preserved");
+    invoke("Reset");
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);
