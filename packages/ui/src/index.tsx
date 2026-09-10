@@ -363,9 +363,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           const value = draft[key] ?? defaultHelpcode;
           return <div className="section" key={key}>
             <label className="section-header"><span className="section-title">{label}辅助码</span><input className="toggle" type="checkbox" checked={value.enabled} onChange={event => setDraft({ ...draft, [key]: { ...value, enabled: event.target.checked } })} /></label>
-            <label className="section-header helpcode-schema"><span className="section-title">{label}辅助码方案</span><select disabled={!value.enabled} value={value.schema} onChange={event => setDraft({ ...draft, [key]: { ...value, schema: event.target.value as HelpcodeSchema } })}>
-              {helpcodeSchemas.map(([schema, name]) => <option key={schema} value={schema}>{name}</option>)}
-            </select></label>
+            <div className="section-header helpcode-schema"><span className="section-title">{label}辅助码方案</span><CustomDropdown ariaLabel={`${label}辅助码方案`} disabled={!value.enabled} value={value.schema} options={helpcodeSchemas} onChange={schema => setDraft({ ...draft, [key]: { ...value, schema: schema as HelpcodeSchema } })} /></div>
           </div>;
         })}
       </fieldset>

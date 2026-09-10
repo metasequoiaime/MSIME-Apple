@@ -263,14 +263,15 @@ test("helpcode schemes save independently and retain disabled selections", async
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
-  const quanpin = await screen.findByLabelText("全拼辅助码方案") as HTMLSelectElement;
-  expect(quanpin.value).toBe("ziranma");
-  expect(quanpin.options.length).toBe(5);
-  fireEvent.change(quanpin, { target: { value: "xiaohe" } });
+  const quanpin = await screen.findByRole("button", { name: "全拼辅助码方案" }) as HTMLButtonElement;
+  expect(quanpin.textContent).toContain("自然码");
+  fireEvent.click(quanpin);
+  fireEvent.click(screen.getByRole("option", { name: "小鹤" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
-  expect(quanpin.value).toBe("xiaohe");
-  fireEvent.change(screen.getByLabelText("双拼辅助码方案"), { target: { value: "shouyou2_0" } });
+  expect(quanpin.textContent).toContain("小鹤");
+  fireEvent.click(screen.getByRole("button", { name: "双拼辅助码方案" }));
+  fireEvent.click(screen.getByRole("option", { name: "首右2.0" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
