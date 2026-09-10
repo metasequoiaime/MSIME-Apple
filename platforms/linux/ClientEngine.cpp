@@ -602,11 +602,27 @@ bool modifier(guint key) {
 }
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
-  if (!s.focused || s.blocked || !s.input_enabled ||
+  const bool english_toggle =
+      key == IBUS_e && (flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK)) ==
+                            (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  if (!s.focused || s.blocked || (!s.input_enabled && !english_toggle) ||
       (flags & IBUS_RELEASE_MASK) || modifier(key))
     return FALSE;
   bool handled = false;
   guarded(engine, [&] {
+    if (english_toggle) {
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.input_enabled = !s.input_enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, s.input_enabled));
+      clear(engine);
+      publish_mode(engine);
+      handled = true;
+      return;
+    }
     s.open();
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
