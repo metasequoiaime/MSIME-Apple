@@ -843,11 +843,13 @@ mod tests {
         fs::write(store.path(), &bytes).unwrap();
         assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
-        let mut preferences = Preferences::default();
-        preferences.theme = ThemeMode::Light;
-        preferences.settings_theme = SettingsTheme::Dark;
-        preferences.ui_backend = UiBackend::Webview2;
-        preferences.candidate_follow_cursor = false;
+        let preferences = Preferences {
+            theme: ThemeMode::Light,
+            settings_theme: SettingsTheme::Dark,
+            ui_backend: UiBackend::Webview2,
+            candidate_follow_cursor: false,
+            ..Preferences::default()
+        };
         let saved = store.save(0, preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
     }
@@ -1263,20 +1265,29 @@ mod tests {
                 Err(PreferencesError::InvalidCandidateFontSize)
             ));
         }
-        for size in [12, 32] {
-            let saved = store
-                .save(
-                    1,
-                    Preferences {
-                        candidate_font_size: size,
-                        ..Preferences::default()
-                    },
-                )
-                .unwrap();
-            assert_eq!(saved.preferences.candidate_font_size, size);
-            std::fs::remove_file(store.path()).unwrap();
-            break;
-        }
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    candidate_font_size: 12,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.candidate_font_size, 12);
+        let other_dir = tempfile::tempdir().unwrap();
+        let other = PreferencesStore::new(other_dir.path());
+        other.save(0, Preferences::default()).unwrap();
+        let saved = other
+            .save(
+                1,
+                Preferences {
+                    candidate_font_size: 32,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.candidate_font_size, 32);
         assert!(initial.preferences.candidate_font_size == 16);
     }
 
