@@ -9,10 +9,16 @@
 
 @implementation MSIMEKeyboardViewController
 
+- (NSDictionary *)runtimeOptions {
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
+    NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    return [value isKindOfClass:NSDictionary.class] ? value : @{};
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    NSDictionary *options = @{};
-    self.session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
+    self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:nil];
     [self apply:[self.session setFocused:YES error:nil]];
 }
 
