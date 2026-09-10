@@ -247,7 +247,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void render() {
-        if (status != null) status.setText(message + preferencesNotice + (shift ? " · Shift" : ""));
+        String page = "";
+        if (view != null && view.optInt("page_count", 0) > 0)
+            page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
+        if (status != null) status.setText(message + preferencesNotice + page + (shift ? " · Shift" : ""));
         if (candidates == null) return;
         candidates.removeAllViews();
         if (view == null) return;
