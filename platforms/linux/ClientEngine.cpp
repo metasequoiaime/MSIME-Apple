@@ -27,6 +27,8 @@ struct State {
   bool blocked = false;
   bool private_input = false;
   bool input_enabled = true;
+  bool chinese_punctuation = true;
+  std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
   msime::linux_host::NavigationBindings navigation;
@@ -52,6 +54,10 @@ struct State {
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    chinese_punctuation = punctuation_override.value_or(
+        options.at("preferences").value("chinese_punctuation", true));
+    view = response(
+        msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
     word_character = edge_binding;
   }
@@ -82,12 +88,21 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_property_set_symbol(
       property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
+  auto punctuation = ibus_property_new(
+      "Punctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string("切换中文或英文标点"),
+      s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
+      s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
+    ibus_prop_list_append(properties, punctuation);
     ibus_engine_register_properties(engine, properties);
   } else {
     ibus_engine_update_property(engine, property);
+    ibus_engine_update_property(engine, punctuation);
   }
 }
 void clear(IBusEngine *engine) {
@@ -179,14 +194,28 @@ void focus_out(IBusEngine *engine) {
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
-  if (!name || std::string(name) != "InputMode" || !s.focused || s.blocked ||
+  if (!name ||
+      (std::string(name) != "InputMode" &&
+       std::string(name) != "Punctuation") ||
+      !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
     const bool enabled = value == PROP_STATE_CHECKED;
+    if (std::string(name) == "Punctuation") {
+      if (!s.input_enabled || !s.session)
+        return;
+      s.view =
+          response(msime_client_set_chinese_punctuation(s.session, enabled));
+      s.chinese_punctuation = enabled;
+      s.punctuation_override = enabled;
+      publish_mode(engine);
+      return;
+    }
     if (enabled != s.input_enabled) {
       if (!enabled && s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+        apply(engine,
+              msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.input_enabled = enabled;
       s.open();
       if (s.session)
@@ -395,7 +424,8 @@ gboolean reload_preferences(gpointer data) {
             snapshot["preferences"]["learning"] = false;
           auto bindings = msime::linux_host::NavigationBindings::read(
               snapshot.at("preferences"));
-          auto edge_binding = msime::linux_host::WordCharacterBinding::read(snapshot.at("preferences"));
+          auto edge_binding = msime::linux_host::WordCharacterBinding::read(
+              snapshot.at("preferences"));
           auto encoded = snapshot.dump();
           auto updated = response(msime_client_update_preferences(
               s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
