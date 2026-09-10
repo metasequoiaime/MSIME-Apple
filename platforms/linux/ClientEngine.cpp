@@ -26,6 +26,7 @@ struct State {
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
+  bool input_enabled = true;
   guint preferences_timer = 0;
   bool preferences_loading = false;
   msime::linux_host::NavigationBindings navigation;
@@ -38,7 +39,7 @@ struct State {
     view = nullptr;
   }
   void open() {
-    if (session || blocked || !focused)
+    if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
     if (private_input)
@@ -69,6 +70,25 @@ G_DEFINE_TYPE(MsimePreviewEngine, msime_preview_engine, IBUS_TYPE_ENGINE)
 namespace {
 State &state(IBusEngine *engine) {
   return *reinterpret_cast<MsimePreviewEngine *>(engine)->state;
+}
+void publish_mode(IBusEngine *engine, bool registration = false) {
+  const auto &s = state(engine);
+  auto property = ibus_property_new(
+      "InputMode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入法模式"), "",
+      ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
+                                                       : "直接输入（不转换）"),
+      s.focused && !s.blocked, TRUE,
+      s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_property_set_symbol(
+      property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
+  if (registration) {
+    auto properties = ibus_prop_list_new();
+    ibus_prop_list_append(properties, property);
+    ibus_engine_register_properties(engine, properties);
+  } else {
+    ibus_engine_update_property(engine, property);
+  }
 }
 void clear(IBusEngine *engine) {
   ibus_engine_update_preedit_text_with_mode(
@@ -134,6 +154,7 @@ template <class F> void guarded(IBusEngine *engine, F action) noexcept {
     g_warning("MSIME preview host operation failed");
     state(engine).close();
     clear(engine);
+    publish_mode(engine);
   }
 }
 void focus_in(IBusEngine *engine) {
@@ -142,7 +163,8 @@ void focus_in(IBusEngine *engine) {
     s.focused = true;
     s.open();
     if (s.session)
-      apply(engine, msime_client_focus(s.session, true));
+      apply(engine, msime_client_focus(s.session, s.input_enabled));
+    publish_mode(engine, true);
   });
 }
 void focus_out(IBusEngine *engine) {
@@ -152,6 +174,26 @@ void focus_out(IBusEngine *engine) {
     if (s.session)
       apply(engine, msime_client_focus(s.session, false));
     clear(engine);
+    publish_mode(engine);
+  });
+}
+void property_activate(IBusEngine *engine, const gchar *name, guint value) {
+  auto &s = state(engine);
+  if (!name || std::string(name) != "InputMode" || !s.focused || s.blocked ||
+      (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+    return;
+  guarded(engine, [&] {
+    const bool enabled = value == PROP_STATE_CHECKED;
+    if (enabled != s.input_enabled) {
+      if (!enabled && s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.input_enabled = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, enabled));
+      clear(engine);
+    }
+    publish_mode(engine);
   });
 }
 void reset(IBusEngine *engine) {
@@ -181,6 +223,7 @@ void content_type(IBusEngine *engine, guint purpose, guint hints) {
     s.open();
     if (s.session)
       apply(engine, msime_client_focus(s.session, true));
+    publish_mode(engine);
   });
 }
 bool modifier(guint key) {
@@ -190,7 +233,8 @@ bool modifier(guint key) {
 }
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
-  if (!s.focused || s.blocked || (flags & IBUS_RELEASE_MASK) || modifier(key))
+  if (!s.focused || s.blocked || !s.input_enabled ||
+      (flags & IBUS_RELEASE_MASK) || modifier(key))
     return FALSE;
   bool handled = false;
   guarded(engine, [&] {
@@ -290,7 +334,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
 }
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
-  if (button != 1 || flags || !state(engine).focused || state(engine).blocked)
+  if (button != 1 || flags || !state(engine).focused || state(engine).blocked ||
+      !state(engine).input_enabled)
     return;
   guarded(engine, [&] {
     auto &s = state(engine);
@@ -305,7 +350,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
 void page(IBusEngine *engine, uint32_t command) {
   guarded(engine, [&] {
     auto &s = state(engine);
-    if (s.session && s.focused && !s.blocked)
+    if (s.session && s.focused && !s.blocked && s.input_enabled)
       apply(engine, msime_client_command(s.session, command));
   });
 }
@@ -400,6 +445,7 @@ static void msime_preview_engine_init(MsimePreviewEngine *engine) {
 static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
   engine->process_key_event = process_key;
+  engine->property_activate = property_activate;
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
   engine->disable = focus_out;
