@@ -50,6 +50,7 @@ struct State {
   std::optional<std::string> theme_override;
   std::optional<std::string> scheme_override;
   std::optional<std::string> shuangpin_profile_override;
+  std::optional<uint8_t> candidate_page_size_override;
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
@@ -103,6 +104,8 @@ struct State {
       if (scheme == "quanpin" || scheme == "shuangpin")
         options["preferences"][scheme + "_helpcode"]["enabled"] = *helpcode_override;
     }
+    if (candidate_page_size_override)
+      options["preferences"]["candidate_page_size"] = *candidate_page_size_override;
     if (emoji_override)
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
@@ -522,6 +525,24 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_prop_list_append(layout_menu, vertical);
   ibus_prop_list_append(layout_menu, horizontal);
   ibus_property_set_sub_props(layout_property, layout_menu);
+  auto page_size_property = ibus_property_new(
+      "CandidatePageSize", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("候选数量"), "",
+      ibus_text_new_from_static_string("选择每页显示的候选数量"),
+      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
+  auto page_size_menu = ibus_prop_list_new();
+  const auto page_size = s.candidate_page_size_override.value_or(
+      configured.at("preferences").value("candidate_page_size", 5));
+  for (uint8_t value = 1; value <= 9; ++value) {
+    auto item = ibus_property_new(
+        (std::string("CandidatePageSize/") + std::to_string(value)).c_str(),
+        PROP_TYPE_RADIO, ibus_text_new_from_string(std::to_string(value).c_str()),
+        "", ibus_text_new_from_static_string("设置候选页大小"), TRUE, TRUE,
+        page_size == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(page_size_menu, item);
+  }
+  ibus_property_set_sub_props(page_size_property, page_size_menu);
   auto preedit_property = ibus_property_new(
       "PreeditStyle", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("预编辑显示"), "",
@@ -626,6 +647,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, kaomoji);
     ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, layout_property);
+    ibus_prop_list_append(properties, page_size_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
     ibus_prop_list_append(properties, scheme);
@@ -645,6 +667,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, clipboard);
     ibus_engine_update_property(engine, layout_property);
+    ibus_engine_update_property(engine, page_size_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, scheme);
@@ -831,6 +854,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
+       property_name.rfind("CandidatePageSize/", 0) != 0 &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
        std::string(name) != "PreeditStyle/empty" &&
@@ -846,6 +870,19 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name.rfind("CandidatePageSize/", 0) == 0) {
+      try {
+        const auto selected = std::stoul(property_name.substr(18));
+        if (selected < 1 || selected > 9 || !s.session)
+          return;
+        s.candidate_page_size_override = static_cast<uint8_t>(selected);
+        apply(engine, msime_client_set_candidate_page_size(
+                         s.session, static_cast<uint8_t>(selected)));
+        publish_mode(engine);
+      } catch (...) {
+      }
+      return;
+    }
     if (property_name.rfind("ShuangpinProfile/", 0) == 0) {
       const auto selected = property_name.substr(std::string("ShuangpinProfile/").size());
       if (selected != "xiaohe" && selected != "ziranma" && selected != "shoudao" &&
