@@ -145,7 +145,7 @@ fn run_external_command(program: &str, args: &[&str]) -> Result<(), HostActionEr
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), HostActionError> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
+    if !is_allowed_external_url(&url) {
         return Err(HostActionError {
             code: "invalid_url",
         });
@@ -168,6 +168,37 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
         Err(HostActionError {
             code: "unavailable",
         })
+    }
+}
+
+fn is_allowed_external_url(url: &str) -> bool {
+    let allowed = [
+        "https://github.com/metasequoiaime/MSIME-Client",
+        "https://github.com/metasequoiaime/MSIME-Windows",
+        "https://t.me/msimegroup",
+    ];
+    allowed.iter().any(|prefix| url.starts_with(prefix))
+        && !url.chars().any(|character| {
+            character.is_whitespace()
+                || character.is_control()
+                || matches!(character, '&' | '|' | '<' | '>' | '^' | '%')
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_external_url;
+
+    #[test]
+    fn external_url_allowlist_rejects_shell_metacharacters() {
+        assert!(is_allowed_external_url(
+            "https://github.com/metasequoiaime/MSIME-Client/releases"
+        ));
+        assert!(is_allowed_external_url("https://t.me/msimegroup"));
+        assert!(!is_allowed_external_url("https://example.com"));
+        assert!(!is_allowed_external_url(
+            "https://github.com/metasequoiaime/MSIME-Client&bad"
+        ));
     }
 }
 
