@@ -28,6 +28,8 @@ pub enum ChineseScheme {
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     #[serde(default)]
+    pub ai_assistant: AiAssistantPreferences,
+    #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub theme: ThemeMode,
@@ -82,6 +84,45 @@ pub struct Preferences {
     pub local_modes: LocalModePreferences,
     #[serde(default = "enabled_by_default")]
     pub clipboard_history: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiAssistantPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default = "default_ai_candidate_limit")]
+    pub candidate_limit: u8,
+    #[serde(default)]
+    pub prompt_id: String,
+    #[serde(default)]
+    pub prompt: String,
+}
+
+fn default_ai_candidate_limit() -> u8 {
+    1
+}
+
+impl Default for AiAssistantPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "deepseek".into(),
+            model: String::new(),
+            token: String::new(),
+            endpoint: String::new(),
+            candidate_limit: 1,
+            prompt_id: "custom_1".into(),
+            prompt: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,6 +362,7 @@ fn default_candidate_font_family() -> String {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            ai_assistant: AiAssistantPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),

@@ -25,6 +25,7 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  ai_assistant?: AiAssistantPreferences;
   floating_toolbar?: { enabled: boolean; scale_percent: number; font_size: number; fullwidth?: boolean; punctuation?: boolean; character_set?: boolean; emoji?: boolean; screen_keyboard?: boolean; settings?: boolean };
   theme?: "dark" | "light" | "system";
   settings_theme?: "follow" | "dark" | "light";
@@ -55,6 +56,8 @@ export type Preferences = {
   shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
 };
+export type AiAssistantPreferences = { enabled: boolean; provider: string; model: string; token: string; endpoint: string; candidate_limit: number; prompt_id: string; prompt: string };
+const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "", token: "", endpoint: "", candidate_limit: 1, prompt_id: "custom_1", prompt: "" };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
@@ -242,6 +245,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
+  const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const updateAi = (patch: Partial<AiAssistantPreferences>) => setDraft({ ...draft!, ai_assistant: { ...ai, ...patch } });
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -336,7 +341,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section capability-hero"><div className="section-title">AI 辅助</div><p>使用兼容 Chat Completions 的服务异步生成联想候选，帮助快速完成输入。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>AI 宿主尚未接入</strong><small>Windows 版支持 DeepSeek、OpenAI、SiliconFlow 和 Groq；当前客户端尚未接入在线 AI 请求与候选管线。</small></div></div>
         <div className="section"><div className="section-title">联想候选预览</div><div className="candidate-preview-card" aria-label="AI 联想候选预览"><span className="candidate-preview-preedit">ni'hao</span><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>3</b> AI 联想候选</span></div><div className="help-list"><div><strong>服务商</strong><span>DeepSeek · OpenAI · SiliconFlow · Groq</span></div><div><strong>候选位置</strong><span>在本地候选之后异步插入额外联想项。</span></div></div></div>
-        <div className="section"><div className="section-title">配置项预览</div><div className="help-list"><div><strong>启用 AI 联想</strong><span>接入后可在全拼和双拼输入时异步生成额外候选。</span></div><div><strong>API 配置</strong><span>每个服务商独立保存 Token，并支持自定义模型与接口地址。</span></div><div><strong>提示词</strong><span>可选择预设提示词或编辑自定义提示词；敏感凭据不会写入日志。</span></div></div></div>
+        <div className="section"><label className="section-header"><span className="section-title">启用 AI 联想<small>在全拼和双拼输入时异步生成额外候选</small></span><input aria-label="启用 AI 联想" type="checkbox" checked={ai.enabled} onChange={event => updateAi({ enabled: event.target.checked })} /></label></div>
+        <div className="section"><div className="section-title">API 配置</div><div className="help-list"><label>服务提供商<CustomDropdown ariaLabel="服务提供商" value={ai.provider} options={[["deepseek", "DeepSeek"], ["openai", "OpenAI"], ["siliconflow", "SiliconFlow"], ["groq", "Groq"]]} onChange={value => updateAi({ provider: value })} /></label><label>模型<input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label><label>API Token<input aria-label="AI API Token" type="password" value={ai.token} onChange={event => updateAi({ token: event.target.value })} /></label><label>候选数量<input aria-label="AI 候选数量" type="number" min={1} max={10} value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Number(event.target.value) })} /></label><label>接口地址<input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div></div>
+        <div className="section"><div className="section-title">自定义提示词</div><CustomDropdown ariaLabel="提示词槽位" value={ai.prompt_id} options={[["custom_1", "自定义一"], ["custom_2", "自定义二"], ["custom_3", "自定义三"]]} onChange={value => updateAi({ prompt_id: value })} /><textarea aria-label="AI 自定义提示词" value={ai.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating_toolbar"} aria-label="悬浮工具栏">
         <div className="section capability-hero"><div className="section-title">悬浮工具栏</div><p>在桌面显示输入法状态和常用功能，便于快速切换输入模式。</p></div>
