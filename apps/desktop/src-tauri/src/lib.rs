@@ -505,7 +505,7 @@ mod tests {
 }
 
 #[tauri::command]
-fn check_for_updates() -> Result<(), HostActionError> {
+fn check_for_updates() -> Result<bool, HostActionError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .user_agent(concat!("MSIME-Client/", env!("CARGO_PKG_VERSION")))
@@ -543,9 +543,10 @@ fn check_for_updates() -> Result<(), HostActionError> {
                 code: "invalid_url",
             });
         }
-        return open_external_url(url.to_owned());
+        open_external_url(url.to_owned())?;
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {

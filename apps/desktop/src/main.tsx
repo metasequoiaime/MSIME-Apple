@@ -17,7 +17,7 @@ const client: SettingsClient = {
   dictionary,
   about: { openExternalUrl: url => invoke("open_external_url", { url }) },
   feedback: { openExternalUrl: url => invoke("open_external_url", { url }) },
-  update: { check: () => invoke("check_for_updates") },
+  update: { check: () => invoke<boolean>("check_for_updates") },
   diagnostics: {
     server: enabled => invoke("set_diagnostic_log", { scope: "server", enabled }),
     tsf: enabled => invoke("set_diagnostic_log", { scope: "tsf", enabled }),
