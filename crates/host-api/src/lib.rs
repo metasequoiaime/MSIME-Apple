@@ -39,6 +39,9 @@ impl HostSession {
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.learning = snapshot.preferences.learning;
         options.autocorrect = snapshot.preferences.autocorrect;
+        options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
+        options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
+        options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
@@ -323,6 +326,9 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
             learning: options.preferences.learning,
             autocorrect: options.preferences.autocorrect,
+            frequency_mode: options.preferences.frequency.mode.as_str().into(),
+            frequency_trigger_count: options.preferences.frequency.trigger_count,
+            frequency_linear_step: options.preferences.frequency.linear_step,
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
@@ -506,6 +512,38 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
+        use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        let before = read(msime_client_view(handle));
+        let mut preferences = Preferences {
+            frequency: FrequencyPreferences {
+                mode: FrequencyMode::Linear,
+                trigger_count: 3,
+                linear_step: 2,
+            },
+            ..Preferences::default()
+        };
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle)), before);
+        SESSIONS.with(|sessions| {
+            assert_eq!(sessions.borrow()[&handle].options.frequency_mode, "promote")
+        });
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            assert_eq!(sessions[&handle].options.frequency_mode, "linear");
+            assert_eq!(sessions[&handle].options.frequency_trigger_count, 3);
+            assert_eq!(sessions[&handle].options.frequency_linear_step, 2);
+        });
+        preferences.frequency.trigger_count = 0;
+        assert_eq!(update(handle, 2, &preferences)["ok"], false);
+        read(msime_client_destroy(handle));
+    }
     #[test]
     fn japanese_mode_switch_defers_and_restores_chinese_profile() {
         use msime_client_core::preferences::ChineseScheme;

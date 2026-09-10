@@ -46,6 +46,47 @@ pub struct Preferences {
     pub navigation: NavigationPreferences,
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
+    #[serde(default)]
+    pub frequency: FrequencyPreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FrequencyMode {
+    Pin,
+    Halve,
+    Linear,
+    #[default]
+    Promote,
+}
+
+impl FrequencyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pin => "pin",
+            Self::Halve => "halve",
+            Self::Linear => "linear",
+            Self::Promote => "promote",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrequencyPreferences {
+    pub mode: FrequencyMode,
+    pub trigger_count: u8,
+    pub linear_step: u8,
+}
+
+impl Default for FrequencyPreferences {
+    fn default() -> Self {
+        Self {
+            mode: FrequencyMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -105,6 +146,7 @@ impl Default for Preferences {
             chinese_punctuation: true,
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
+            frequency: FrequencyPreferences::default(),
         }
     }
 }
@@ -172,6 +214,11 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !(1..=6).contains(&self.frequency.trigger_count)
+            || !(1..=6).contains(&self.frequency.linear_step)
+        {
+            return Err(PreferencesError::InvalidFrequency);
+        }
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
@@ -210,6 +257,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
+    #[error("frequency trigger count and linear step must be between 1 and 6")]
+    InvalidFrequency,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -326,6 +375,64 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frequency_legacy_defaults_modes_and_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("frequency");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.frequency,
+            FrequencyPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        for (revision, mode) in [
+            FrequencyMode::Pin,
+            FrequencyMode::Halve,
+            FrequencyMode::Linear,
+            FrequencyMode::Promote,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let saved = store
+                .save(
+                    revision as u64,
+                    Preferences {
+                        frequency: FrequencyPreferences {
+                            mode,
+                            trigger_count: 10,
+                            linear_step: 10,
+                        },
+                        ..Preferences::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let saved = store.load().unwrap();
+        for value in [0, 7, 255] {
+            for trigger in [true, false] {
+                let mut preferences = Preferences::default();
+                if trigger {
+                    preferences.frequency.trigger_count = value;
+                } else {
+                    preferences.frequency.linear_step = value;
+                }
+                assert!(matches!(
+                    store.save(saved.revision, preferences),
+                    Err(PreferencesError::InvalidFrequency)
+                ));
+                assert_eq!(store.load().unwrap(), saved);
+            }
+        }
+    }
 
     #[test]
     fn word_character_legacy_roundtrip_and_conflict_protection() {

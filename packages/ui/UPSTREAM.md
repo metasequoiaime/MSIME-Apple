@@ -23,3 +23,8 @@ mode layout are adapted from `styles/components/forms.css` and
 `styles/modules/input.css`, retaining keyboard focus and forced-color support.
 The shared active `scheme` remains compatible with existing hosts; optional
 `last_chinese_scheme` preserves the Chinese choice while Japanese is active.
+
+Frequency controls follow the same `input.html`: five modes and numeric choices
+1–6. Shared validation follows `server/assets/config/config.toml` (1–10);
+existing values above 6 stay visible without truncation. Defaults are promote/1/1.
+The existing learning switch remains the Engine's independent master gate.

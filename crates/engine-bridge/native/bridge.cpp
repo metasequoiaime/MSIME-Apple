@@ -29,6 +29,16 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.chinese_punctuation = value.chinese_punctuation;
     options.helpcode = value.helpcode;
     options.helpcode_schema = std::string(value.helpcode_schema);
+    const std::string frequency(value.frequency_mode);
+    using metasequoia::FrequencyAdjustmentMode;
+    if (frequency == "pin") options.frequency.mode = FrequencyAdjustmentMode::Pin;
+    else if (frequency == "halve") options.frequency.mode = FrequencyAdjustmentMode::Halve;
+    else if (frequency == "linear") options.frequency.mode = FrequencyAdjustmentMode::Linear;
+    else if (frequency == "promote") options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    else throw std::invalid_argument("Unsupported frequency mode");
+    options.frequency.trigger_count = value.frequency_trigger_count;
+    options.frequency.linear_step = value.frequency_linear_step;
+    if (!value.learning) options.frequency = {};
     return options;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {
@@ -58,7 +68,7 @@ std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true};
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1};
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();

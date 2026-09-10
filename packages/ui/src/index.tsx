@@ -12,6 +12,7 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
@@ -25,6 +26,8 @@ export type Preferences = {
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type FrequencyPreferences = { mode: "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
+const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count: 1, linear_step: 1 };
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
 const defaultWordCharacter = { enabled: false, keys: "brackets" as const };
@@ -40,6 +43,7 @@ function message(error: unknown): string {
     switch (error.code) {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
+      case "frequency_invalid": return "调频触发频次和步长必须为 1 到 6。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
       case "format": return "配置文件无法读取或版本较新，原文件已保留。";
     }
@@ -85,6 +89,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
+  const frequency = draft?.frequency ?? defaultFrequency;
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -161,6 +166,20 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
+        <div className="section" role="group" aria-labelledby="frequency-title">
+          <div className="section-title" id="frequency-title">拼音方案调频</div>
+          <div className="frequency-option-content">
+            <label className="section-header frequency-option-row"><span className="section-title">调频方式</span><select disabled={!draft.learning} value={frequency.mode} onChange={event => setDraft({ ...draft, frequency: { ...frequency, mode: event.target.value as FrequencyPreferences["mode"] } })}>
+              <option value="pin">一次置顶</option><option value="halve">折半调频</option><option value="linear">线性调频</option><option value="promote">一次置前</option>
+            </select></label>
+            {([["trigger_count", "触发频次(第几次上屏触发)"], ["linear_step", "线性调频步长"]] as const).map(([key, label]) => <div key={key}>
+              <div className="input-option-divider" />
+              <label className="section-header frequency-option-row"><span className="section-title">{label}</span><select disabled={!draft.learning || key === "linear_step" && frequency.mode !== "linear"} value={frequency[key]} onChange={event => setDraft({ ...draft, frequency: { ...frequency, [key]: Number(event.target.value) } })}>
+                {[1, 2, 3, 4, 5, 6].map(value => <option key={value} value={value}>{value}</option>)}
+              </select></label>
+            </div>)}
+          </div>
+        </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {

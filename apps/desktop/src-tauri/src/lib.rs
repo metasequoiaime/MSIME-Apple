@@ -14,6 +14,7 @@ impl From<PreferencesError> for CommandError {
             code: match value {
                 PreferencesError::Conflict => "conflict",
                 PreferencesError::InvalidPageSize => "invalid",
+                PreferencesError::InvalidFrequency => "frequency_invalid",
                 PreferencesError::ConflictingKeyBindings => "key_conflict",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",

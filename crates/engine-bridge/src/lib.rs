@@ -16,6 +16,9 @@ mod ffi {
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub frequency_mode: String,
+        pub frequency_trigger_count: u8,
+        pub frequency_linear_step: u8,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
@@ -161,6 +164,9 @@ mod tests {
             helpcode: false,
             helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
+            frequency_mode: "promote".into(),
+            frequency_trigger_count: 1,
+            frequency_linear_step: 1,
         }
     }
     #[test]
