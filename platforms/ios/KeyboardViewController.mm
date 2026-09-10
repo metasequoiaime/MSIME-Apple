@@ -5,6 +5,7 @@
 
 @interface MSIMEKeyboardViewController : UIInputViewController <MSIMETextClient>
 @property(nonatomic, strong) MSIMEClientSession *session;
+@property(nonatomic, strong) UILabel *candidateLabel;
 @end
 
 @implementation MSIMEKeyboardViewController
@@ -21,6 +22,16 @@
     self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:nil];
     [self apply:[self.session setFocused:YES error:nil]];
     [self buildKeyboard];
+    self.candidateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    self.candidateLabel.numberOfLines = 1;
+    self.candidateLabel.textAlignment = NSTextAlignmentCenter;
+    self.candidateLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.candidateLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.candidateLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:8],
+        [self.candidateLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-8],
+        [self.candidateLabel.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:4],
+        [self.candidateLabel.heightAnchor constraintEqualToConstant:24]]];
 }
 
 - (void)buildKeyboard {
@@ -106,6 +117,15 @@
 
 - (void)apply:(NSDictionary *)transition {
     if (transition) MSIMEApplyTransition(transition, self);
+    NSArray *candidates = transition[@"view"][@"candidates"];
+    NSMutableArray *labels = [NSMutableArray array];
+    for (NSUInteger index = 0; index < candidates.count; ++index) {
+        NSDictionary *candidate = candidates[index];
+        NSString *text = candidate[@"text"];
+        if ([text isKindOfClass:NSString.class])
+            [labels addObject:[NSString stringWithFormat:@"%lu.%@%@", (unsigned long)(index + 1), [candidate[@"highlighted"] boolValue] ? @"[" : @"", text]];
+    }
+    self.candidateLabel.text = labels.count ? [labels componentsJoinedByString:@"  "] : @"";
 }
 
 - (void)handleCharacter:(NSString *)character {
