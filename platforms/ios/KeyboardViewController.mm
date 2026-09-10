@@ -94,7 +94,7 @@
     actions.axis = UILayoutConstraintAxisHorizontal;
     actions.distribution = UIStackViewDistributionFillEqually;
     actions.spacing = 4;
-    for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"空格", @"⌫", @"删除", @"取消", @"回车"]) {
+    for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"上页", @"下页", @"空格", @"⌫", @"删除", @"取消", @"回车"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
@@ -127,6 +127,8 @@
     else if ([button.currentTitle isEqualToString:@"←"]) [self apply:[self.session command:MSIME_MOVE_LEFT error:nil]];
     else if ([button.currentTitle isEqualToString:@"→"]) [self apply:[self.session command:MSIME_MOVE_RIGHT error:nil]];
     else if ([button.currentTitle isEqualToString:@"尾"]) [self apply:[self.session command:MSIME_MOVE_END error:nil]];
+    else if ([button.currentTitle isEqualToString:@"上页"]) [self apply:[self.session command:MSIME_PREVIOUS_PAGE error:nil]];
+    else if ([button.currentTitle isEqualToString:@"下页"]) [self apply:[self.session command:MSIME_NEXT_PAGE error:nil]];
     else if ([button.currentTitle isEqualToString:@"空格"]) [self apply:[self.session command:MSIME_COMMIT_CANDIDATE error:nil]];
     else if ([button.currentTitle isEqualToString:@"⌫"]) [self deleteBackward];
     else if ([button.currentTitle isEqualToString:@"删除"]) [self apply:[self.session command:MSIME_DELETE_FORWARD error:nil]];
