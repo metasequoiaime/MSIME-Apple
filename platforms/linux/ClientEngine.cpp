@@ -51,6 +51,7 @@ struct State {
   std::optional<std::string> scheme_override;
   std::optional<std::string> shuangpin_profile_override;
   std::optional<uint8_t> candidate_page_size_override;
+  std::optional<std::string> frequency_mode_override;
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
@@ -106,6 +107,8 @@ struct State {
     }
     if (candidate_page_size_override)
       options["preferences"]["candidate_page_size"] = *candidate_page_size_override;
+    if (frequency_mode_override)
+      options["preferences"]["frequency"]["mode"] = *frequency_mode_override;
     if (emoji_override)
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
@@ -543,6 +546,29 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(page_size_menu, item);
   }
   ibus_property_set_sub_props(page_size_property, page_size_menu);
+  auto frequency_property = ibus_property_new(
+      "FrequencyMode", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("词频调节"), "",
+      ibus_text_new_from_static_string("选择学习词频调节策略"),
+      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
+  auto frequency_menu = ibus_prop_list_new();
+  const auto frequency = s.frequency_mode_override.value_or(
+      configured.at("preferences").value("frequency", Json::object())
+          .value("mode", "promote"));
+  for (const auto &[value, label] : {std::pair{"disabled", "禁用"},
+                                     std::pair{"pin", "固定"},
+                                     std::pair{"halve", "减半"},
+                                     std::pair{"linear", "线性"},
+                                     std::pair{"promote", "提升"}}) {
+    auto item = ibus_property_new(
+        (std::string("FrequencyMode/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("设置词频调节模式"), TRUE, TRUE,
+        frequency == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(frequency_menu, item);
+  }
+  ibus_property_set_sub_props(frequency_property, frequency_menu);
   auto preedit_property = ibus_property_new(
       "PreeditStyle", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("预编辑显示"), "",
@@ -648,6 +674,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, page_size_property);
+    ibus_prop_list_append(properties, frequency_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
     ibus_prop_list_append(properties, scheme);
@@ -668,6 +695,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, clipboard);
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, page_size_property);
+    ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, scheme);
@@ -855,6 +883,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
+       property_name.rfind("FrequencyMode/", 0) != 0 &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
        std::string(name) != "PreeditStyle/empty" &&
@@ -870,6 +899,25 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name.rfind("FrequencyMode/", 0) == 0) {
+      const auto selected = property_name.substr(std::string("FrequencyMode/").size());
+      if (selected != "disabled" && selected != "pin" && selected != "halve" &&
+          selected != "linear" && selected != "promote")
+        return;
+      if (s.frequency_mode_override.value_or(
+              configured.at("preferences").value("frequency", Json::object())
+                  .value("mode", "promote")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.frequency_mode_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (property_name.rfind("CandidatePageSize/", 0) == 0) {
       try {
         const auto selected = std::stoul(property_name.substr(18));
