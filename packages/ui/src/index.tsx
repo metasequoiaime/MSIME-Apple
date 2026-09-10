@@ -160,6 +160,9 @@ function message(error: unknown): string {
       case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
       case "format": return "配置文件无法读取或版本较新，原文件已保留。";
+      case "unknown_skin": return "找不到该外部皮肤，请先刷新皮肤目录。";
+      case "invalid_skin": return "皮肤标识无效，未执行应用。";
+      case "unavailable": return "宿主动作不可用，请确认应用组件已安装。";
     }
   }
   return "无法访问设置，请重试。原有设置不会被自动重置。";
