@@ -5,6 +5,17 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("compatible external skin can be applied through the host", async () => {
+  const select = vi.fn().mockResolvedValue(undefined);
+  const skin = { openDirectory: vi.fn(), refresh: vi.fn(), list: vi.fn().mockResolvedValue([{ id: "ocean", name: "海蓝", compatible: true }]), select };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), skin };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "应用" }));
+  await waitFor(() => expect(select).toHaveBeenCalledWith("ocean"));
+  expect(await screen.findByText("已应用")).toBeTruthy();
+});
+
 test("skin page renders the host external skin catalog", async () => {
   const skin = { openDirectory: vi.fn(), refresh: vi.fn().mockResolvedValue(undefined), list: vi.fn().mockResolvedValue([{ id: "ocean", name: "海蓝", version: "1.0", author: "社区", description: "蓝色主题", compatible: true }]) };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), skin };
