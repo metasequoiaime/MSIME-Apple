@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 struct DictionaryHostOptions(Arc<String>);
+struct DiagnosticState(std::sync::Mutex<(bool, bool)>);
 
 #[derive(Debug, serde::Serialize)]
 struct ExternalSkinSummary {
@@ -109,6 +110,27 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
 #[derive(Debug, serde::Serialize)]
 struct HostActionError {
     code: &'static str,
+}
+
+#[tauri::command]
+fn set_diagnostic_log(
+    state: tauri::State<'_, DiagnosticState>,
+    scope: String,
+    enabled: bool,
+) -> Result<(), HostActionError> {
+    let mut values = state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    match scope.as_str() {
+        "server" => values.0 = enabled,
+        "tsf" => values.1 = enabled,
+        _ => {
+            return Err(HostActionError {
+                code: "invalid_scope",
+            });
+        }
+    }
+    Ok(())
 }
 
 fn run_external_command(program: &str, args: &[&str]) -> Result<(), HostActionError> {
@@ -323,6 +345,7 @@ pub fn run() {
                         .to_string()
                 })?;
             app.manage(DictionaryHostOptions(Arc::new(host_options)));
+            app.manage(DiagnosticState(std::sync::Mutex::new((false, false))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -334,7 +357,8 @@ pub fn run() {
             copy_text,
             open_skin_directory,
             refresh_skin_catalog,
-            list_external_skins
+            list_external_skins,
+            set_diagnostic_log
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
