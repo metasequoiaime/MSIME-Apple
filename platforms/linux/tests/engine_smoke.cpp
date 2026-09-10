@@ -23,6 +23,9 @@ struct Observation {
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
+  bool mode_registered = false;
+  bool input_enabled = false;
+  bool mode_sensitive = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -33,7 +36,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   }
   if (std::string(name) != "CommitText" &&
       std::string(name) != "UpdatePreeditText" &&
-      std::string(name) != "UpdateLookupTable")
+      std::string(name) != "UpdateLookupTable" &&
+      std::string(name) != "RegisterProperties" &&
+      std::string(name) != "UpdateProperty")
     return;
   GVariant *encoded = g_variant_get_child_value(parameters, 0);
   auto object = ibus_serializable_deserialize(encoded);
@@ -41,6 +46,23 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (!object)
     std::abort();
   g_object_ref_sink(object);
+  auto observe_property = [&](IBusProperty *property) {
+    if (std::string(ibus_property_get_key(property)) == "InputMode") {
+      seen.input_enabled =
+          ibus_property_get_state(property) == PROP_STATE_CHECKED;
+      seen.mode_sensitive = ibus_property_get_sensitive(property);
+    }
+  };
+  if (std::string(name) == "RegisterProperties") {
+    auto properties = IBUS_PROP_LIST(object);
+    for (guint i = 0; auto property = ibus_prop_list_get(properties, i); ++i) {
+      observe_property(property);
+      if (std::string(ibus_property_get_key(property)) == "InputMode")
+        seen.mode_registered = true;
+    }
+  }
+  if (std::string(name) == "UpdateProperty")
+    observe_property(IBUS_PROPERTY(object));
   if (std::string(name) == "CommitText")
     seen.committed += ibus_text_get_text(IBUS_TEXT(object));
   if (std::string(name) == "UpdatePreeditText") {
@@ -176,6 +198,41 @@ int main(int argc, char **argv) {
         require(key(c), "Phrase key not consumed");
     };
     invoke("FocusIn");
+    require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
+            "Input mode property was not registered");
+    auto mode = [&](guint value) {
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));
+    };
+    phrase();
+    invoke("CursorDown");
+    auto mode_commit = seen.candidates.at(seen.cursor);
+    mode(PROP_STATE_UNCHECKED);
+    require(!seen.input_enabled && seen.committed == mode_commit &&
+                !seen.preedit_visible && !seen.lookup_visible,
+            "Direct mode lost highlighted composition or left stale UI");
+    mode(PROP_STATE_UNCHECKED);
+    require(seen.committed == mode_commit,
+            "Repeated mode request committed twice");
+    for (guint direct :
+         std::vector<guint>{'n', ',', '1', IBUS_space, IBUS_Tab, IBUS_Down})
+      require(!key(direct), "Direct input mode consumed an editor key");
+    invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+    invoke("PageDown");
+    require(seen.committed == mode_commit && !seen.lookup_visible,
+            "Stale panel action modified direct input");
+    invoke("FocusOut");
+    mode(PROP_STATE_CHECKED);
+    require(!seen.input_enabled && !seen.mode_sensitive,
+            "Unfocused mode activation was accepted");
+    invoke("FocusIn");
+    require(!seen.input_enabled && !key('n'), "Focus reset direct input mode");
+    mode(PROP_STATE_INCONSISTENT);
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "Unknown", PROP_STATE_CHECKED));
+    require(!seen.input_enabled, "Invalid property activation changed mode");
+    mode(PROP_STATE_CHECKED);
+    require(seen.input_enabled, "Input mode did not recover");
+    seen.committed.clear();
     phrase();
     require(seen.preedit_visible && seen.preedit == "nihao",
             "Preedit signal missing");
@@ -222,6 +279,9 @@ int main(int argc, char **argv) {
                       "(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
                       g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
     invoke("FocusIn");
+    require(!seen.mode_sensitive, "Password field exposed a mode switch");
+    mode(PROP_STATE_UNCHECKED);
+    require(seen.input_enabled, "Password field accepted a mode change");
     require(!key('n') && !seen.preedit_visible && seen.committed == committed,
             "Password input reached engine");
     invoke("Set",
