@@ -27,6 +27,8 @@ test("AI assistant settings expose and persist provider configuration", async ()
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   await screen.findByRole("checkbox", { name: "启用 AI 联想" });
+  expect((screen.getByRole("textbox", { name: "AI 模型" }) as HTMLInputElement).value).toBe("deepseek-v4-flash");
+  expect((screen.getByRole("textbox", { name: "AI 接口地址" }) as HTMLInputElement).value).toBe("https://api.deepseek.com/chat/completions");
   fireEvent.click(await screen.findByRole("checkbox", { name: "启用 AI 联想" }));
   fireEvent.change(screen.getByRole("textbox", { name: "AI 模型" }), { target: { value: "deepseek-chat" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
