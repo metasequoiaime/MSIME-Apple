@@ -105,7 +105,19 @@
         [button addTarget:self action:@selector(actionPressed:) forControlEvents:UIControlEventTouchUpInside];
         [actions addArrangedSubview:button];
     }
-    [rows addArrangedSubview:actions];
+    UIScrollView *actionScroll = [[UIScrollView alloc] initWithFrame:CGRectZero];
+    actionScroll.showsHorizontalScrollIndicator = NO;
+    actionScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    actions.translatesAutoresizingMaskIntoConstraints = NO;
+    [actionScroll addSubview:actions];
+    [NSLayoutConstraint activateConstraints:@[
+        [actionScroll.heightAnchor constraintEqualToConstant:38],
+        [actions.leadingAnchor constraintEqualToAnchor:actionScroll.contentLayoutGuide.leadingAnchor],
+        [actions.trailingAnchor constraintEqualToAnchor:actionScroll.contentLayoutGuide.trailingAnchor],
+        [actions.topAnchor constraintEqualToAnchor:actionScroll.contentLayoutGuide.topAnchor],
+        [actions.bottomAnchor constraintEqualToAnchor:actionScroll.contentLayoutGuide.bottomAnchor],
+        [actions.heightAnchor constraintEqualToAnchor:actionScroll.frameLayoutGuide.heightAnchor]]];
+    [rows addArrangedSubview:actionScroll];
     [self.view addSubview:rows];
     [NSLayoutConstraint activateConstraints:@[
         [rows.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:6],
