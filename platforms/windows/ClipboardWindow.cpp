@@ -4,6 +4,16 @@
 #include <windowsx.h>
 
 namespace msime::windows {
+namespace {
+std::wstring utf16(const std::string &text) {
+  if (text.empty()) return {};
+  const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+  if (size <= 0) return {};
+  std::wstring result(static_cast<size_t>(size), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), result.data(), size) != size) return {};
+  return result;
+}
+}
 ClipboardWindow::ClipboardWindow(Reader reader, Click click, Remove remove, Clear clear) : reader_(std::move(reader)), click_(std::move(click)), remove_(std::move(remove)), clear_(std::move(clear)) {
   WNDCLASSW klass{}; klass.hInstance = GetModuleHandleW(nullptr); klass.lpfnWndProc = procedure; klass.lpszClassName = L"MSIMEClientClipboardWindow";
   RegisterClassW(&klass);
@@ -19,7 +29,7 @@ void ClipboardWindow::refresh() {
 void ClipboardWindow::paint() {
   PAINTSTRUCT ps{}; const auto dc = BeginPaint(window_, &ps); RECT client{}; GetClientRect(window_, &client);
   FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-  if (shown_) { SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(32, 32, 32)); RECT clear{8, 4, client.right - 8, 26}; DrawTextW(dc, L"清空剪贴板历史", -1, &clear, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); int y = 32; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { std::wstring text(shown_->items[i].begin(), shown_->items[i].end()); RECT row{8, y, client.right - 8, y + 24}; DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += 26; } }
+  if (shown_) { SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(32, 32, 32)); RECT clear{8, 4, client.right - 8, 26}; DrawTextW(dc, L"清空剪贴板历史", -1, &clear, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); int y = 32; for (size_t i = 0; i < shown_->items.size() && y < client.bottom; ++i) { const auto text = utf16(shown_->items[i]); RECT row{8, y, client.right - 8, y + 24}; if (!text.empty()) DrawTextW(dc, text.c_str(), -1, &row, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX); y += 26; } }
   EndPaint(window_, &ps);
 }
 LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
