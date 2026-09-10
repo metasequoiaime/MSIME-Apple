@@ -5,6 +5,15 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("about links use the host external URL action when available", async () => {
+  const openExternalUrl = vi.fn();
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), about: { openExternalUrl } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("link", { name: /开源项目/ }));
+  expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client");
+});
+
 test("floating toolbar preview follows component visibility choices", async () => {
   const toolbar = { enabled: true, scale_percent: 100, font_size: 24, fullwidth: false, punctuation: true, character_set: false, emoji: false, screen_keyboard: true, settings: true };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences: { ...initial.preferences, floating_toolbar: toolbar } }), save: vi.fn() };
