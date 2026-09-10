@@ -47,7 +47,7 @@
 - (NSMenu *)menu {
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选外观…" action:@selector(showAppearance:) keyEquivalent:@""];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
     return menu;
@@ -136,6 +136,19 @@
     }
     uint32_t command = UINT32_MAX;
     [self ensureAppearance];
+    if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift)) {
+        NSString *characters = event.charactersIgnoringModifiers;
+        if (characters.length == 1) {
+            const unichar character = [characters characterAtIndex:0];
+            const NSInteger shortcut = _appearance.pageShortcut;
+            const BOOL previous = (shortcut == 0 && character == '-') || (shortcut == 1 && character == '[');
+            const BOOL next = (shortcut == 0 && character == '=') || (shortcut == 1 && character == ']');
+            if (previous || next) {
+                [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+                return YES;
+            }
+        }
+    }
     if (_panel.isVisible && event.keyCode >= 123 && event.keyCode <= 126) {
         const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
         if (horizontal == _appearance.vertical) return YES;

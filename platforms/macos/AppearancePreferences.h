@@ -9,4 +9,6 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults;
 @property(nonatomic) BOOL vertical;
 @property(nonatomic) NSUInteger fontSize;
+// 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
+@property(nonatomic) NSInteger pageShortcut;
 @end
