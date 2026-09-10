@@ -75,15 +75,31 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             continue;
         }
         let id = entry.file_name().to_string_lossy().into_owned();
-        if !entry.path().join("skin.toml").is_file() {
+        let manifest = entry.path().join("skin.toml");
+        if !manifest.is_file() {
             continue;
         }
+        let text = match std::fs::read_to_string(manifest) {
+            Ok(text) => text,
+            Err(_) => continue,
+        };
+        let field = |name: &str| {
+            text.lines().find_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                if key.trim() != name {
+                    return None;
+                }
+                Some(value.trim().trim_matches('"').to_string())
+            })
+        };
         result.push(ExternalSkinSummary {
-            name: id.clone(),
+            name: field("name")
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| id.clone()),
             id,
-            version: None,
-            author: None,
-            description: None,
+            version: field("version"),
+            author: field("author"),
+            description: field("description"),
             compatible: true,
         });
     }
