@@ -41,6 +41,7 @@ struct State {
   std::optional<std::string> theme_override;
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
+  bool smart_punctuation = true;
   std::string punctuation_lock = "follow";
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
@@ -249,6 +250,12 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto smart_punctuation = ibus_property_new(
+      "SmartPunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("智能标点"), "",
+      ibus_text_new_from_static_string("按上下文选择标点形式"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.smart_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto punctuation_lock = ibus_property_new(
       "PunctuationLock", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("标点锁定"), "",
@@ -371,6 +378,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
+    ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, punctuation_lock);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
@@ -384,6 +392,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
   } else {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, punctuation_lock);
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
@@ -546,6 +555,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (!name ||
        (std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
+       std::string(name) != "SmartPunctuation" &&
        std::string(name) != "PunctuationLock/follow" &&
        std::string(name) != "PunctuationLock/chinese" &&
        std::string(name) != "PunctuationLock/english" &&
@@ -567,6 +577,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name) == "SmartPunctuation") {
+      s.smart_punctuation = value == PROP_STATE_CHECKED;
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "CharacterMode") {
       s.fullwidth = value == PROP_STATE_CHECKED;
       publish_mode(engine);
@@ -806,6 +821,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
           s.session, s.chinese_punctuation));
       render(engine, s.view);
       publish_mode(engine);
+      handled = true;
+      return;
+    }
+    if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
+        std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
+            std::string::npos) {
+      char raw[2] = {static_cast<char>(key), '\0'};
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
       handled = true;
       return;
     }
