@@ -10,6 +10,7 @@ const pages = [
   { id: "skin", title: "皮肤", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "about", title: "关于", icon: new URL("./assets/msime.svg", import.meta.url).href },
   { id: "feedback", title: "反馈", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "help", title: "帮助", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -292,6 +293,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="section feedback-card"><div className="feedback-icon">TG</div><div className="feedback-body"><div className="feedback-title">Telegram 群组</div><p>面向国际用户和开发者的即时讨论频道。</p><a className="feedback-link" href="https://t.me/msimegroup" target="_blank" rel="noreferrer">打开群组 ↗</a></div></div>
         </div>
         <div className="section feedback-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
+        <div className="section help-hero"><div className="section-title">使用帮助</div><p>了解输入方案、候选操作和常见问题的处理方法。</p></div>
+        <div className="section help-section"><div className="section-title">常用操作</div><div className="help-list"><div><strong>选择候选</strong><span>按数字键 1–9 或空格键提交候选。</span></div><div><strong>翻页和移动</strong><span>使用输入页启用的翻页键或上/下方向键。</span></div><div><strong>临时模式</strong><span>在实用功能页开启快捷输入模式后，按对应 Shift 快捷键进入。</span></div></div></div>
+        <div className="section help-section"><div className="section-title">遇到问题</div><div className="help-list"><div><strong>设置无法保存</strong><span>检查设置页面是否有冲突提示，点击“重新读取”后再尝试保存。</span></div><div><strong>候选窗口未出现</strong><span>确认输入方案和候选窗口主题设置，再重启输入法进程。</span></div><div><strong>需要报告问题</strong><span>前往反馈页提交可复现步骤、系统版本和相关截图。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
