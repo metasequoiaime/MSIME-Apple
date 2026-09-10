@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 
+export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
+export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };
+const defaultHelpcode: HelpcodePreferences = { enabled: true, schema: "ziranma" };
+const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
+
 export type Preferences = {
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   learning: boolean;
   autocorrect?: boolean;
+  quanpin_helpcode?: HelpcodePreferences;
+  shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
@@ -86,6 +93,18 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <label className="toggle"><span>全拼纠错<small>自动纠正常见拼音输入错误</small></span><input type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label>
         <label className="toggle"><span>学习选词习惯<small>根据选词调整候选顺序</small></span><input type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label>
         <label className="toggle"><span>中文标点<small>默认使用中文标点符号</small></span><input type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label>
+      </fieldset>
+      <fieldset disabled={busy}>
+        <legend>辅助码</legend>
+        {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {
+          const value = draft[key] ?? defaultHelpcode;
+          return <div key={key}>
+            <label className="toggle"><span>{label}辅助码</span><input type="checkbox" checked={value.enabled} onChange={event => setDraft({ ...draft, [key]: { ...value, enabled: event.target.checked } })} /></label>
+            <label>{label}辅助码方案<select disabled={!value.enabled} value={value.schema} onChange={event => setDraft({ ...draft, [key]: { ...value, schema: event.target.value as HelpcodeSchema } })}>
+              {helpcodeSchemas.map(([schema, name]) => <option key={schema} value={schema}>{name}</option>)}
+            </select></label>
+          </div>;
+        })}
       </fieldset>
       <footer><button type="submit" disabled={busy || !dirty}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}

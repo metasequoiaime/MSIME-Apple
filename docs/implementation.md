@@ -567,3 +567,11 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 在 MSIME-Client 共享设置新增 autocorrect，默认开启，对应 Windows 配置的全拼纠错。旧 JSON 缺省字段仍按开启读取且读取不改写原文件。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 传至 Engine SessionOptions.autocorrect；活动组合结束前不应用变更。React 提供可保存的开关。
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
+
+### Windows 功能复刻：全拼与双拼辅助码配置通路
+
+来源为 Windows 远端默认分支 develop 的固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da`，核对 `server/assets/config/config.toml` 及设置页 `helpcode.ts`、`helpcode.html`。共享设置分别保存全拼和双拼辅助码开关与五种方案；默认开启、自然码，按上游随包配置（不是旧 UI 静态占位的蓝天值）。缺省旧 JSON 按该默认值读取，不改写文件；未知方案拒绝保存。设置按当前输入方案传入 Engine，组合结束后重建时生效，保留另一个方案的选择。client-core 不依赖 Engine，筛选算法仍只在 Engine。
+
+本地验证：42 项 Rust 测试、fmt/clippy、6 项前端测试和 TypeScript/Vite 构建、10 项本机 Windows 边界 CTest、Windows x64 交叉链接通过。新增 `cargo run -p msime-engine-bridge --example helpcode_dictionary -- <verified-resources>`，在临时目录用合成码表和固定生产词库验证五种方案、全拼/双拼、开关与候选重排，未使用真实输入或改写原资源。
+
+这只完成配置和引擎消费通路。当前词库资源包不含辅助码表，Engine `helpcode/NOTICE.md` 明确尚无统一再分发授权，本增量不复制码表；生产资源交付仍待解决。候选窗辅助码标注、对应显示开关、上游页面视觉复刻和 Windows 原生 TSF 验收尚未完成。CI 保持禁用。

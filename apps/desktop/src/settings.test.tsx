@@ -4,6 +4,24 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
+
+test("helpcode schemes save independently and retain disabled selections", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  const quanpin = await screen.findByLabelText("全拼辅助码方案") as HTMLSelectElement;
+  expect(quanpin.value).toBe("ziranma");
+  expect(quanpin.options.length).toBe(5);
+  fireEvent.change(quanpin, { target: { value: "xiaohe" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
+  expect(quanpin.disabled).toBe(true);
+  expect(quanpin.value).toBe("xiaohe");
+  fireEvent.change(screen.getByLabelText("双拼辅助码方案"), { target: { value: "shouyou2_0" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+    quanpin_helpcode: { enabled: false, schema: "xiaohe" },
+    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0" } });
+});
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {

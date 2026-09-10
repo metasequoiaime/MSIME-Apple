@@ -26,6 +26,10 @@ pub struct Preferences {
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
+    #[serde(default)]
+    pub quanpin_helpcode: HelpcodePreferences,
+    #[serde(default)]
+    pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
 }
 
@@ -41,6 +45,8 @@ impl Default for Preferences {
             candidate_page_size: 5,
             learning: true,
             autocorrect: true,
+            quanpin_helpcode: HelpcodePreferences::default(),
+            shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
         }
     }
@@ -56,7 +62,58 @@ pub enum ShuangpinProfile {
     Microsoft,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HelpcodeSchema {
+    Lantian,
+    #[default]
+    Ziranma,
+    #[serde(rename = "shouyou2_0")]
+    Shouyou2,
+    Shouyouplus,
+    Xiaohe,
+}
+
+impl HelpcodeSchema {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lantian => "lantian",
+            Self::Ziranma => "ziranma",
+            Self::Shouyou2 => "shouyou2_0",
+            Self::Shouyouplus => "shouyouplus",
+            Self::Xiaohe => "xiaohe",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HelpcodePreferences {
+    pub enabled: bool,
+    pub schema: HelpcodeSchema,
+}
+
+impl Default for HelpcodePreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            schema: HelpcodeSchema::default(),
+        }
+    }
+}
+
 impl Preferences {
+    pub fn active_helpcode(&self) -> HelpcodePreferences {
+        match self.scheme {
+            InputScheme::Shuangpin => self.shuangpin_helpcode,
+            InputScheme::Quanpin => self.quanpin_helpcode,
+            _ => HelpcodePreferences {
+                enabled: false,
+                ..HelpcodePreferences::default()
+            },
+        }
+    }
+
     pub fn validate(&self) -> Result<(), PreferencesError> {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
@@ -203,6 +260,50 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        for key in ["quanpin_helpcode", "shuangpin_helpcode"] {
+            legacy["preferences"].as_object_mut().unwrap().remove(key);
+        }
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        for (revision, schema) in [
+            HelpcodeSchema::Lantian,
+            HelpcodeSchema::Ziranma,
+            HelpcodeSchema::Shouyou2,
+            HelpcodeSchema::Shouyouplus,
+            HelpcodeSchema::Xiaohe,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                quanpin_helpcode: HelpcodePreferences {
+                    enabled: false,
+                    schema,
+                },
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+            assert_eq!(
+                saved.preferences.shuangpin_helpcode,
+                HelpcodePreferences::default()
+            );
+        }
+        let unknown = fs::read_to_string(store.path())
+            .unwrap()
+            .replace("xiaohe", "unknown");
+        fs::write(store.path(), &unknown).unwrap();
+        assert!(store.save(5, Preferences::default()).is_err());
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
+    }
 
     #[test]
     fn autocorrect_legacy_default_and_disabled_roundtrip() {

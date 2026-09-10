@@ -39,6 +39,9 @@ impl HostSession {
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.learning = snapshot.preferences.learning;
         options.autocorrect = snapshot.preferences.autocorrect;
+        let helpcode = snapshot.preferences.active_helpcode();
+        options.helpcode = helpcode.enabled;
+        options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         // Build and validate first; errors leave the original session usable.
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
@@ -310,6 +313,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
+        let helpcode = options.preferences.active_helpcode();
         let options = EngineOptions {
             resources: options.resources,
             user_data: options.user_data,
@@ -319,6 +323,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
             learning: options.preferences.learning,
             autocorrect: options.preferences.autocorrect,
+            helpcode: helpcode.enabled,
+            helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
         };
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
@@ -500,6 +506,48 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn helpcode_settings_switch_independently_after_composition() {
+        use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        let before = read(msime_client_view(handle))["value"].clone();
+        let mut preferences = Preferences {
+            quanpin_helpcode: HelpcodePreferences {
+                enabled: false,
+                schema: HelpcodeSchema::Xiaohe,
+            },
+            shuangpin_helpcode: HelpcodePreferences {
+                enabled: true,
+                schema: HelpcodeSchema::Shouyou2,
+            },
+            ..Preferences::default()
+        };
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle))["value"], before);
+        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.helpcode));
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.helpcode);
+            assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
+        });
+        preferences.scheme = InputScheme::Shuangpin;
+        assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+        SESSIONS.with(|sessions| {
+            assert!(sessions.borrow()[&handle].options.helpcode);
+            assert_eq!(
+                sessions.borrow()[&handle].options.helpcode_schema,
+                "shouyou2_0"
+            );
+        });
+        preferences.scheme = InputScheme::Quanpin;
+        update(handle, 3, &preferences);
+        SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.helpcode));
+        read(msime_client_destroy(handle));
+    }
+
     #[test]
     fn autocorrect_update_waits_for_composition_end() {
         let dir = tempfile::tempdir().unwrap();
