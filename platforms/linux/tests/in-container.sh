@@ -17,6 +17,7 @@ clipboard_fixture=$(mktemp -d /tmp/msime-clipboard.XXXXXX)
 trap 'rm -rf "$clipboard_fixture"' EXIT
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "second"
+[[ $(stat -c '%a' "$clipboard_fixture/history.json") == 600 ]]
 [[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 1) == $'first\nentry' ]]
 if /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 2 >/dev/null; then
   echo "clipboard get accepted an out-of-range index" >&2

@@ -36,7 +36,15 @@ std::vector<std::string> load(const std::filesystem::path &path) {
 bool save(const std::filesystem::path &path, const std::vector<std::string> &items) {
   std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
   std::ofstream output(path, std::ios::trunc); if (!output) return false;
-  output << Json(items).dump(); return static_cast<bool>(output);
+  output << Json(items).dump();
+  if (!output) return false;
+  // Clipboard history can contain private user text; do not leave it readable
+  // by other local users even when the process umask is permissive.
+  std::filesystem::permissions(
+      path, std::filesystem::perms::owner_read |
+                std::filesystem::perms::owner_write,
+      std::filesystem::perm_options::replace, error);
+  return !error;
 }
 }
 int main(int argc, char **argv) {
