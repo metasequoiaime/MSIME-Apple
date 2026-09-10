@@ -186,7 +186,8 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     TsfPreeditStyle style, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
+      style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
@@ -219,7 +220,8 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
+      style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
   const auto before = session.view();
   if (session_ && before.at("session").get<uint64_t>() != session_)
@@ -241,7 +243,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                                      .at("editing_text")
                                      .get<std::string>()
                                      .empty();
-  const auto path = uiless || (style == TsfPreeditStyle::Pinyin &&
+  const auto path = uiless || (style != TsfPreeditStyle::Local &&
                                kind != EditKind::Caret && !erased_all)
                         ? ReplyPath::Composition
                         : ReplyPath::NoReply;
@@ -356,7 +358,8 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     std::optional<std::string> local_text, WordCharacterBinding word_binding) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin)
+  if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
+      style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
   if (auto word = session.word_character(packet, epoch, word_binding))
     return stage(word->key, word->exact

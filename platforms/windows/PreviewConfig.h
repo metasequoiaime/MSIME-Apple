@@ -41,6 +41,8 @@ struct PreviewConfig {
     const auto style = value.at("preedit_style").get<std::string>();
     if (style == "pinyin")
       result.style = TsfPreeditStyle::Pinyin;
+    else if (style == "empty")
+      result.style = TsfPreeditStyle::Empty;
     else if (style != "local")
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("key_bindings")) {
