@@ -111,6 +111,7 @@
     for (NSString *title in @[@"⇧", @"首", @"←", @"→", @"尾", @"上词", @"下词", @"上页", @"下页", @"空格", @"⌫", @"删除", @"取消", @"回车", @"切换"]) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
+        button.accessibilityLabel = title;
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
         if ([title isEqualToString:@"⇧"]) {
             button.accessibilityLabel = @"Shift";
