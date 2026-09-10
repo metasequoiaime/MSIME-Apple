@@ -22,6 +22,7 @@ Json response(char *raw) {
 }
 std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
+IBusOrientation candidate_orientation(const Json &preferences);
 struct State {
   uint64_t session = 0;
   Json view;
@@ -32,6 +33,7 @@ struct State {
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
+  IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
@@ -64,6 +66,7 @@ struct State {
         ::candidate_text_color(options.at("preferences"));
     candidate_background_color =
         ::candidate_background_color(options.at("preferences"));
+    candidate_orientation = ::candidate_orientation(options.at("preferences"));
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -98,6 +101,11 @@ std::optional<guint> candidate_background_color(const Json &preferences) {
   if (theme == "dark") return 0x202124u;
   if (theme == "light") return 0xffffffu;
   return std::nullopt;
+}
+IBusOrientation candidate_orientation(const Json &preferences) {
+  return preferences.value("candidate_layout", "vertical") == "horizontal"
+             ? IBUS_ORIENTATION_HORIZONTAL
+             : IBUS_ORIENTATION_VERTICAL;
 }
 } // namespace
 
@@ -186,6 +194,7 @@ void render(IBusEngine *engine, const Json &view) {
       engine, ibus_text_new_from_string(paging.c_str()), TRUE);
   auto table = ibus_lookup_table_new(static_cast<guint>(candidates.size()), 0,
                                      TRUE, FALSE);
+  ibus_lookup_table_set_orientation(table, state(engine).candidate_orientation);
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
@@ -498,6 +507,8 @@ gboolean reload_preferences(gpointer data) {
               ::candidate_text_color(snapshot.at("preferences"));
           s.candidate_background_color =
               ::candidate_background_color(snapshot.at("preferences"));
+          s.candidate_orientation =
+              ::candidate_orientation(snapshot.at("preferences"));
           s.navigation = bindings;
           s.word_character = edge_binding;
           render(IBUS_ENGINE(source), s.view);
