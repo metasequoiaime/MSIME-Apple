@@ -24,7 +24,7 @@ ClipboardWindow::~ClipboardWindow() { if (window_) DestroyWindow(window_); }
 void ClipboardWindow::hide() { if (window_) ShowWindow(window_, SW_HIDE); shown_.reset(); }
 void ClipboardWindow::refresh() {
   if (!window_ || !reader_) return;
-  try { shown_ = reader_(); if (!shown_ || !shown_->enabled || shown_->items.empty()) { hide(); return; } ShowWindow(window_, SW_SHOWNOACTIVATE); InvalidateRect(window_, nullptr, FALSE); } catch (...) { failed_ = true; hide(); }
+  try { shown_ = reader_(); if (!shown_ || !shown_->enabled || shown_->items.empty()) { hide(); return; } POINT cursor{}; if (GetCursorPos(&cursor)) { const HMONITOR monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST); MONITORINFO info{}; info.cbSize = sizeof(info); if (GetMonitorInfoW(monitor, &info)) { RECT window{}; GetWindowRect(window_, &window); const int width = window.right - window.left; const int height = window.bottom - window.top; SetWindowPos(window_, HWND_TOP, info.rcWork.right - width - 8, info.rcWork.bottom - height - 8, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); } } ShowWindow(window_, SW_SHOWNOACTIVATE); InvalidateRect(window_, nullptr, FALSE); } catch (...) { failed_ = true; hide(); }
 }
 void ClipboardWindow::paint() {
   PAINTSTRUCT ps{}; const auto dc = BeginPaint(window_, &ps); RECT client{}; GetClientRect(window_, &client);
