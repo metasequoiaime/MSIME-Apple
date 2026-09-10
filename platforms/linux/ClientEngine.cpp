@@ -116,17 +116,22 @@ struct State {
     word_character = edge_binding;
   }
 };
-std::optional<std::string> latest_clipboard(const std::string &path) {
-  if (path.empty() || path.size() > 4096) return std::nullopt;
+std::vector<std::string> clipboard_items(const std::string &path) {
+  std::vector<std::string> items;
+  if (path.empty() || path.size() > 4096) return items;
   std::ifstream input{std::filesystem::path(path)};
-  if (!input) return std::nullopt;
+  if (!input) return items;
   try {
     auto value = Json::parse(input);
-    if (!value.is_array() || value.empty() || !value.front().is_string()) return std::nullopt;
-    auto text = value.front().get<std::string>();
-    if (text.size() > 4000) text.resize(4000);
-    return text.empty() ? std::nullopt : std::optional<std::string>(std::move(text));
-  } catch (...) { return std::nullopt; }
+    if (!value.is_array()) return items;
+    for (const auto &entry : value) {
+      if (items.size() == 8 || !entry.is_string()) break;
+      auto text = entry.get<std::string>();
+      if (text.size() > 4000) text.resize(4000);
+      if (!text.empty()) items.push_back(std::move(text));
+    }
+  } catch (...) {}
+  return items;
 }
 State &state(IBusEngine *engine);
 std::string fullwidth_text(const std::string &text) {
@@ -324,12 +329,16 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
-  auto latest = ibus_property_new(
-      "ClipboardHistory/Latest", PROP_TYPE_NORMAL,
-      ibus_text_new_from_static_string("提交最近一条"), "",
-      ibus_text_new_from_static_string("仅读取配置的历史文件，不读取系统剪贴板"),
-      TRUE, FALSE, PROP_STATE_UNCHECKED, nullptr);
-  ibus_prop_list_append(clipboard_menu, latest);
+  const auto items = clipboard_items(s.clipboard_history_path);
+  for (size_t index = 0; index < items.size(); ++index) {
+    const auto label = std::to_string(index + 1) + ". " + items[index].substr(0, 48);
+    auto item = ibus_property_new(
+        (std::string("ClipboardHistory/") + std::to_string(index)).c_str(),
+        PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()), "",
+        ibus_text_new_from_static_string("提交历史文本"), TRUE, FALSE,
+        PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(clipboard_menu, item);
+  }
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
       "CandidateLayout", PROP_TYPE_MENU,
@@ -586,8 +595,11 @@ void focus_out(IBusEngine *engine) {
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
+  const std::string property_name = name ? name : "";
+  const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
+                               property_name != "ClipboardHistory/Latest";
   if (!name ||
-       (std::string(name) != "InputMode" &&
+       (!clipboard_item && std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "PunctuationLock/follow" &&
@@ -597,7 +609,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
-       std::string(name) != "ClipboardHistory/Latest" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
        std::string(name) != "PreeditStyle/raw" &&
@@ -612,10 +623,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
-    if (std::string(name) == "ClipboardHistory/Latest") {
-      if (auto text = latest_clipboard(s.clipboard_history_path)) {
-        ibus_engine_commit_text(engine, ibus_text_new_from_string(text->c_str()));
-      }
+    if (clipboard_item) {
+      try {
+        const auto index = std::stoul(property_name.substr(17));
+        const auto items = clipboard_items(s.clipboard_history_path);
+        if (index < items.size())
+          ibus_engine_commit_text(engine, ibus_text_new_from_string(items[index].c_str()));
+      } catch (...) {}
       return;
     }
     if (std::string(name) == "SmartPunctuation") {
