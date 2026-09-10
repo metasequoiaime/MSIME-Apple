@@ -21,6 +21,7 @@ struct Observation {
   std::string preedit;
   std::string auxiliary;
   std::vector<std::string> candidates;
+  std::vector<std::string> labels;
   guint first_candidate_color = 0;
   bool lookup_visible = false;
   bool preedit_visible = false;
@@ -86,12 +87,15 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   }
   if (std::string(name) == "UpdateLookupTable") {
     seen.candidates.clear();
+    seen.labels.clear();
     auto table = IBUS_LOOKUP_TABLE(object);
     seen.cursor = ibus_lookup_table_get_cursor_pos(table);
     for (guint i = 0; i < ibus_lookup_table_get_number_of_candidates(table);
          ++i)
       seen.candidates.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_candidate(table, i)));
+      seen.labels.emplace_back(
+          ibus_text_get_text(ibus_lookup_table_get_label(table, i)));
     if (ibus_lookup_table_get_number_of_candidates(table) != 0) {
       auto text = ibus_lookup_table_get_candidate(table, 0);
       auto attributes = ibus_text_get_attributes(text);
@@ -293,6 +297,8 @@ int main(int argc, char **argv) {
     require(seen.lookup_visible && seen.candidates.size() == 2 &&
                 seen.candidates[0] == "你好",
             "Candidate signal mismatch");
+    require(!seen.labels.empty() && seen.labels.front().rfind("1", 0) == 0,
+            "Candidate numeric label missing");
     require(seen.first_candidate_color == 0x123456,
             "Candidate text color attribute missing");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
