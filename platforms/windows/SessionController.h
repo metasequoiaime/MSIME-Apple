@@ -30,7 +30,8 @@ public:
       std::function<void()> stop_service,
       std::chrono::milliseconds interval = std::chrono::milliseconds(100),
       std::string preferences_directory = {},
-      SessionPump::Presentation presentation = {});
+      SessionPump::Presentation presentation = {},
+      PreferenceMonitor::Published published = {});
   ~SessionController();
   SessionController(const SessionController &) = delete;
   SessionController &operator=(const SessionController &) = delete;

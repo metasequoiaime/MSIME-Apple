@@ -92,9 +92,6 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.names = config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
-    WindowsServer server(
-        options, prepared.at("value").dump(), preview_key_handler(config),
-        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     ClipboardHistory clipboard(config.state_root / "clipboard_history.json");
     clipboard.set_enabled(prepared.at("value").at("preferences").value(
         "clipboard_history", true));
@@ -103,6 +100,16 @@ int wmain(int argc, wchar_t **argv) {
     ClipboardMonitor clipboard_monitor(clipboard, [&](std::string) {
       clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
     });
+    options.preferences_published = [&](const PreferenceSnapshot &snapshot) {
+      const auto preferences = nlohmann::json::parse(snapshot.serialized()).at("preferences");
+      clipboard.set_enabled(preferences.value("clipboard_history", true));
+      clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
+    };
+    WindowsServer server(
+        options, prepared.at("value").dump(), preview_key_handler(config),
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    if (clipboard.enabled() && !clipboard_monitor.start())
+      throw std::runtime_error("Clipboard monitor unavailable");
     if (clipboard.enabled() && !clipboard_monitor.start())
       throw std::runtime_error("Clipboard monitor unavailable");
     const bool follow_cursor = prepared.at("value").at("preferences").value(

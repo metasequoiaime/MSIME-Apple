@@ -3,8 +3,10 @@
 
 namespace msime::windows {
 PreferenceMonitor::PreferenceMonitor(InputQueue &input, std::string directory,
-                                     std::chrono::milliseconds interval)
-    : input_(input), directory_(std::move(directory)), interval_(interval) {
+                                     std::chrono::milliseconds interval,
+                                     Published published)
+    : input_(input), directory_(std::move(directory)), interval_(interval),
+      published_(std::move(published)) {
   if (directory_.empty() || directory_.size() > 16384 ||
       !std::filesystem::u8path(directory_).is_absolute() ||
       interval_ < std::chrono::milliseconds(10) ||
@@ -53,6 +55,7 @@ void PreferenceMonitor::run() {
         receipt.reset();
         published = std::move(pending);
         pending.reset();
+        if (published_) published_(*published);
         status_ = PreferenceMonitorStatus::Current;
       }
       if (!receipt) {
