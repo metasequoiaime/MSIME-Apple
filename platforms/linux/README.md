@@ -34,6 +34,11 @@ cargo run -p msime-host-api --example prepare_host --locked -- /absolute/verifie
 target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.json
 ```
 
+发行安装可在 CMake 配置时传入已由 `prepare_host` 生成的配置：
+`-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`。该文件会安装到
+`/usr/local/etc/msime-client/runtime-options.json`，并与 component XML 的启动路径一致；
+未传入时不会伪造运行配置，适合开发预览流程。
+
 准备配置必须在没有会话使用该状态目录时执行。`cmake --install` 会安装宿主、词典入口和标准 IBus component XML；发行版或前端仍需生成 `/etc/msime-client/runtime-options.json`，其中资源和用户数据路径由安装器按系统策略填充。安装组件不自动切换用户输入法；关闭进程即结束本次注册。
 
 ## 隔离验证

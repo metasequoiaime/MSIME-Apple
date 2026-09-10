@@ -9,6 +9,8 @@ pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=1.5.20)
 find_package(nlohmann_json 3.11 REQUIRED)
 option(MSIME_LINUX_VOICE "Build the shared Voice library and Linux contract test" OFF)
 set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libmsime_host_api.so" CACHE FILEPATH "Cargo-built Linux host library")
+set(MSIME_RUNTIME_OPTIONS_FILE "" CACHE FILEPATH
+    "Prepared runtime-options.json to install for the IBus component")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
@@ -48,3 +50,11 @@ install(TARGETS msime-client-ibus msime-client-dictionary msime-client-clipboard
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
+if(MSIME_RUNTIME_OPTIONS_FILE)
+  if(NOT EXISTS "${MSIME_RUNTIME_OPTIONS_FILE}")
+    message(FATAL_ERROR "MSIME_RUNTIME_OPTIONS_FILE does not exist")
+  endif()
+  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}"
+          DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client"
+          RENAME runtime-options.json)
+endif()
