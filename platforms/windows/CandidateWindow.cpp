@@ -67,9 +67,10 @@ struct Painting {
 };
 } // namespace
 CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
-                                 unsigned preedit_font_size)
+                                 unsigned preedit_font_size,
+                                 std::optional<COLORREF> text_color)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
-      preedit_font_size_(preedit_font_size) {
+      preedit_font_size_(preedit_font_size), text_color_(text_color) {
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
@@ -173,8 +174,9 @@ void CandidateWindow::paint() {
               static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
     if (highlighted)
       FillRect(painting.dc, &rect, GetSysColorBrush(COLOR_HIGHLIGHT));
-    SetTextColor(painting.dc, GetSysColor(highlighted ? COLOR_HIGHLIGHTTEXT
-                                                      : COLOR_WINDOWTEXT));
+    SetTextColor(painting.dc, highlighted
+                              ? GetSysColor(COLOR_HIGHLIGHTTEXT)
+                              : text_color_.value_or(GetSysColor(COLOR_WINDOWTEXT)));
     rect.left += metrics.padding;
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);

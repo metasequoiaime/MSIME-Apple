@@ -7,6 +7,7 @@
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
+#include <charconv>
 
 namespace {
 std::atomic<bool> stopping{false};
@@ -94,6 +95,16 @@ int wmain(int argc, wchar_t **argv) {
         "candidate_font_size", 16u);
     const auto preedit_font_size = prepared.at("value").at("preferences").value(
         "candidate_preedit_font_size", 16u);
+    std::optional<COLORREF> candidate_text_color;
+    if (const auto color = prepared.at("value").at("preferences").value(
+            "candidate_text_color", std::string{}); !color.empty()) {
+      unsigned value = 0;
+      auto parsed = std::from_chars(color.data() + 1, color.data() + color.size(), value, 16);
+      if (color.size() != 7 || color.front() != '#' || parsed.ec != std::errc{} ||
+          parsed.ptr != color.data() + color.size())
+        throw std::invalid_argument("Invalid candidate text color");
+      candidate_text_color = RGB((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
+    }
     std::optional<std::pair<int, int>> fixed_candidate_anchor;
     auto candidate_reader = [&]() -> std::optional<CandidatePresentation> {
       auto value = server.candidate_view();
@@ -134,7 +145,7 @@ int wmain(int argc, wchar_t **argv) {
     CandidateWindow candidates(
         candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
-        candidate_font_size, preedit_font_size);
+        candidate_font_size, preedit_font_size, candidate_text_color);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout
