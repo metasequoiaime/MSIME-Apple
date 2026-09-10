@@ -394,6 +394,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(clipboard_menu, item);
   }
+  auto clear_clipboard = ibus_property_new(
+      "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("清空历史"), "",
+      ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
+      !items.empty(), FALSE, PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
       "CandidateLayout", PROP_TYPE_MENU,
@@ -652,9 +658,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
   const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
-                               property_name != "ClipboardHistory/Latest";
+                               property_name != "ClipboardHistory/Latest" &&
+                               property_name != "ClipboardHistory/Clear";
   if (!name ||
-       (!clipboard_item && std::string(name) != "InputMode" &&
+       (!clipboard_item && property_name != "ClipboardHistory/Clear" &&
+       std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "PunctuationLock/follow" &&
@@ -678,6 +686,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name == "ClipboardHistory/Clear") {
+      if (s.clipboard_history_path.empty())
+        return;
+      std::error_code error;
+      std::filesystem::remove(s.clipboard_history_path, error);
+      s.clipboard_items_cache.clear();
+      s.clipboard_loaded = false;
+      ++s.clipboard_generation;
+      publish_mode(engine);
+      return;
+    }
     if (clipboard_item) {
       try {
         const auto index = std::stoul(property_name.substr(17));
