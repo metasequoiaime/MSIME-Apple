@@ -225,6 +225,10 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "PunctuationLock/english", PROP_STATE_CHECKED));
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "PunctuationLock/follow", PROP_STATE_CHECKED));
     auto mode = [&](guint value) {
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", value));
     };
