@@ -110,7 +110,7 @@ function CustomDropdown({ value, options, onChange, ariaLabel, disabled = false 
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selected = options.find(([option]) => option === value) ?? options[0];
   const choose = (next: string) => { onChange(next); setOpen(false); };
-  useEffect(() => { setActive(Math.max(0, options.findIndex(([option]) => option === value))); }, [value, options]);
+  useEffect(() => { setActive(Math.max(0, options.findIndex(([option]) => option === value))); }, [value]);
   useEffect(() => { if (open) optionRefs.current[active]?.focus(); }, [open, active]);
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(current => !current); }
@@ -321,6 +321,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "voice_input"} aria-label="语音输入">
         <div className="section capability-hero"><div className="section-title">语音输入</div><p>按住快捷键录音，将语音转换为文字并插入当前应用。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>语音宿主尚未接入</strong><small>Windows 版支持豆包、OpenAI、SiliconFlow 和 Groq 等服务；当前客户端尚未接入录音与语音服务配置。</small></div></div>
+        <div className="section"><div className="section-title">录音与识别预览</div><div className="voice-waveform-preview" role="img" aria-label="录音波形预览">{[18, 34, 22, 48, 30, 58, 40, 26, 52, 36, 20, 44, 28, 50, 24, 38, 18].map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div><div className="help-list"><div><strong>录音</strong><span>按住快捷键开始录音，松开后停止；Space 可锁定录音。</span></div><div><strong>识别流程</strong><span>录音 → ASR 转写 → 可选文本润色 → 提交到当前应用。</span></div></div></div>
         <div className="section"><div className="section-title">接入准备</div><div className="help-list"><div><strong>服务凭据</strong><span>接入后将在此配置 ASR 提供商和 API Token。请勿把凭据提交到日志或代码仓库。</span></div><div><strong>隐私提示</strong><span>启用后录音会上传到所选服务；离线状态下不会产生语音识别结果。</span></div><div><strong>输入方式</strong><span>接入后支持批量识别和流式预编辑，并可取消当前语音会话。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别">
