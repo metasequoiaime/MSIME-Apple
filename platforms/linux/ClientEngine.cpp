@@ -47,6 +47,7 @@ struct State {
   std::optional<std::string> preedit_override;
   std::optional<std::string> theme_override;
   std::optional<std::string> scheme_override;
+  std::optional<std::string> shuangpin_profile_override;
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
@@ -89,6 +90,8 @@ struct State {
     online_provider_socket = options.value("online_provider_socket", "");
     if (scheme_override)
       options["preferences"]["scheme"] = *scheme_override;
+    if (shuangpin_profile_override)
+      options["preferences"]["shuangpin_profile"] = *shuangpin_profile_override;
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -544,6 +547,27 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_prop_list_append(scheme_menu, chinese);
   ibus_prop_list_append(scheme_menu, japanese);
   ibus_property_set_sub_props(scheme, scheme_menu);
+  auto profile = ibus_property_new(
+      "ShuangpinProfile", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("双拼方案"), "",
+      ibus_text_new_from_static_string("选择双拼键位方案"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto profile_menu = ibus_prop_list_new();
+  const auto configured_profile = s.shuangpin_profile_override.value_or(
+      configured.at("preferences").value("shuangpin_profile", "xiaohe"));
+  for (const auto &[value, label] : {std::pair{"xiaohe", "小鹤"},
+                                     std::pair{"ziranma", "自然码"},
+                                     std::pair{"shoudao", "搜狗"},
+                                     std::pair{"microsoft", "微软"}}) {
+    auto item = ibus_property_new(
+        (std::string("ShuangpinProfile/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("切换双拼键位方案"), TRUE, TRUE,
+        configured_profile == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(profile_menu, item);
+  }
+  ibus_property_set_sub_props(profile, profile_menu);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
@@ -560,6 +584,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
     ibus_prop_list_append(properties, scheme);
+    ibus_prop_list_append(properties, profile);
     ibus_engine_register_properties(engine, properties);
   } else {
     ibus_engine_update_property(engine, property);
@@ -576,6 +601,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, scheme);
+    ibus_engine_update_property(engine, profile);
   }
 }
 void clear(IBusEngine *engine) {
@@ -768,11 +794,30 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateTheme/light" &&
        std::string(name) != "CandidateTheme/dark" &&
        std::string(name) != "Scheme/Chinese" &&
-       std::string(name) != "Scheme/Japanese") ||
+       std::string(name) != "Scheme/Japanese" &&
+       property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name.rfind("ShuangpinProfile/", 0) == 0) {
+      const auto selected = property_name.substr(std::string("ShuangpinProfile/").size());
+      if (selected != "xiaohe" && selected != "ziranma" && selected != "shoudao" &&
+          selected != "microsoft")
+        return;
+      if (s.shuangpin_profile_override.value_or(
+              configured.at("preferences").value("shuangpin_profile", "xiaohe")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.shuangpin_profile_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (clipboard_remove) {
       try {
         const auto index = std::stoul(property_name.substr(24));
