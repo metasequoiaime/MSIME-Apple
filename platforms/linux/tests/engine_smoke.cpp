@@ -322,6 +322,7 @@ int main(int argc, char **argv) {
       preferences["learning"] = true;
       preferences["frequency"]["mode"] = "pin";
       preferences["frequency"]["trigger_count"] = 1;
+      preferences["candidate_text_color"] = "#abcdef";
       auto snapshot = nlohmann::json{{"format_version", 1},
                                      {"revision", revision},
                                      {"preferences", preferences}};
@@ -337,6 +338,8 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 3,
             "Deferred preferences did not apply after reset");
+    require(seen.first_candidate_color == 0xabcdef,
+            "Reloaded candidate text color did not apply");
     std::ofstream(root / "preferences.json") << "invalid";
     settle();
     require(seen.preedit == "nihao" && seen.candidates.size() == 3,
