@@ -23,6 +23,7 @@ Json response(char *raw) {
 std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
+std::string preedit_style(const Json &preferences);
 struct State {
   uint64_t session = 0;
   Json view;
@@ -34,6 +35,7 @@ struct State {
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
+  std::string preedit_style = "raw";
   std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
@@ -67,6 +69,7 @@ struct State {
     candidate_background_color =
         ::candidate_background_color(options.at("preferences"));
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
+    preedit_style = ::preedit_style(options.at("preferences"));
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -106,6 +109,10 @@ IBusOrientation candidate_orientation(const Json &preferences) {
   return preferences.value("candidate_layout", "vertical") == "horizontal"
              ? IBUS_ORIENTATION_HORIZONTAL
              : IBUS_ORIENTATION_VERTICAL;
+}
+std::string preedit_style(const Json &preferences) {
+  const auto style = preferences.value("tsf_preedit_style", "raw");
+  return style == "pinyin" || style == "empty" ? style : "raw";
 }
 } // namespace
 
@@ -160,15 +167,18 @@ void clear(IBusEngine *engine) {
 void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
-  auto text = view.at("editing_text").get<std::string>();
+  const auto style = state(engine).preedit_style;
+  auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
+                                 : view.at("editing_text").get<std::string>();
   const auto caret = view.at("caret_position").get<size_t>();
-  if (caret > text.size() ||
+  if (style == "raw" && (caret > text.size() ||
       std::any_of(text.begin(), text.end(),
-                  [](unsigned char c) { return c < 0x20 || c > 0x7e; }))
+                  [](unsigned char c) { return c < 0x20 || c > 0x7e; })))
     throw std::runtime_error("Invalid editing text");
   ibus_engine_update_preedit_text_with_mode(
       engine, ibus_text_new_from_string(text.c_str()),
-      static_cast<guint>(caret), !text.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
+      static_cast<guint>(style == "raw" ? caret : text.size()),
+      style != "empty" && !text.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
   const auto &candidates = view.at("candidates");
   if (candidates.empty()) {
     ibus_engine_hide_lookup_table(engine);
@@ -509,6 +519,7 @@ gboolean reload_preferences(gpointer data) {
               ::candidate_background_color(snapshot.at("preferences"));
           s.candidate_orientation =
               ::candidate_orientation(snapshot.at("preferences"));
+          s.preedit_style = ::preedit_style(snapshot.at("preferences"));
           s.navigation = bindings;
           s.word_character = edge_binding;
           render(IBUS_ENGINE(source), s.view);
