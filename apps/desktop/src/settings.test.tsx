@@ -5,6 +5,15 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("feedback QQ card copies the group number through the host", async () => {
+  const copy = vi.fn();
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), clipboard: { clear: vi.fn(), copy } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制群号" }));
+  expect(copy).toHaveBeenCalledWith("829919142");
+});
+
 test("about update button uses the host update action when available", async () => {
   const check = vi.fn();
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), update: { check } };

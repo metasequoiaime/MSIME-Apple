@@ -90,7 +90,7 @@ export interface SettingsClient {
   dictionary?: DictionaryClient;
   screen_keyboard?: { open(): Promise<void> };
   handwriting?: { open(): Promise<void> };
-  clipboard?: { clear(): Promise<void> };
+  clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void> };
   about?: { openExternalUrl(url: string): Promise<void> };
   update?: { check(): Promise<void> };
   feedback?: { openExternalUrl(url: string): Promise<void> };
@@ -330,6 +330,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section feedback-hero"><div className="section-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
         <div className="feedback-list">
           <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><a className="feedback-link" href="https://github.com/metasequoiaime/MSIME-Windows/issues" target="_blank" rel="noreferrer" onClick={event => { if (client.feedback) { event.preventDefault(); openFeedbackUrl("https://github.com/metasequoiaime/MSIME-Windows/issues"); } }}>查看 Issues ↗</a></div></div>
+          <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><button type="button" className="secondary" disabled={!client.clipboard?.copy} onClick={() => void client.clipboard?.copy?.("829919142")}>复制群号</button></div>
           <div className="section feedback-card"><div className="feedback-icon">TG</div><div className="feedback-body"><div className="feedback-title">Telegram 群组</div><p>面向国际用户和开发者的即时讨论频道。</p><a className="feedback-link" href="https://t.me/msimegroup" target="_blank" rel="noreferrer" onClick={event => { if (client.feedback) { event.preventDefault(); openFeedbackUrl("https://t.me/msimegroup"); } }}>打开群组 ↗</a></div></div>
         </div>
         <div className="section feedback-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
