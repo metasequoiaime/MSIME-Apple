@@ -334,6 +334,14 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "J",
             "Shift+J did not enter super-jianpin mode");
     require(key(IBUS_Escape), "Super-jianpin mode could not be canceled");
+    require(key('y', IBUS_SHIFT_MASK), "Shift+Y temporary English mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "Y",
+            "Shift+Y did not enter temporary English mode");
+    require(key(IBUS_Escape), "Temporary English mode could not be canceled");
+    require(key('r', IBUS_SHIFT_MASK), "Shift+R temporary Japanese mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "R",
+            "Shift+R did not enter temporary Japanese mode");
+    require(key(IBUS_Escape), "Temporary Japanese mode could not be canceled");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
