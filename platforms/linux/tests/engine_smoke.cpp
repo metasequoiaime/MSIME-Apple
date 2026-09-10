@@ -314,6 +314,14 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "U",
             "Shift+U did not enter Unicode mode");
     require(key(IBUS_Escape), "Unicode mode could not be canceled");
+    require(key('t', IBUS_SHIFT_MASK), "Shift+T date-time mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "T",
+            "Shift+T did not enter date-time mode");
+    require(key(IBUS_Escape), "Date-time mode could not be canceled");
+    require(key('k', IBUS_SHIFT_MASK), "Shift+K quick-phrase mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "K",
+            "Shift+K did not enter quick-phrase mode");
+    require(key(IBUS_Escape), "Quick-phrase mode could not be canceled");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
