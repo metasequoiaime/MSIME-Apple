@@ -3,11 +3,21 @@
 #import "MSIMEClientSession.h"
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
+#import "CandidatePlacement.h"
+
+@interface MSIMECandidatePanel : NSPanel
+@end
+@implementation MSIMECandidatePanel
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
 
 @interface MSIMECandidateButton : NSButton
 @property(nonatomic, copy) NSDictionary *candidateID;
 @end
 @implementation MSIMECandidateButton
+- (BOOL)acceptsFirstResponder { return NO; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
 @end
 
 @interface MSIMEInputController : IMKInputController
@@ -140,38 +150,51 @@
 - (void)renderCandidates {
     NSArray *candidates = _view[@"candidates"];
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) { [_panel orderOut:nil]; return; }
+    NSRect cursor = NSZeroRect;
+    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&cursor];
+    if (!MSIMEValidCaret(cursor)) { [_panel orderOut:nil]; return; }
+    NSScreen *screen = nil;
+    for (NSScreen *candidate in NSScreen.screens) {
+        if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
+    }
+    screen = screen ?: NSScreen.mainScreen;
+    if (!screen) { [_panel orderOut:nil]; return; }
+    NSRect visible = screen.visibleFrame;
+    NSFont *font = [NSFont systemFontOfSize:18];
+    const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
+    CGFloat width = 20;
+    NSUInteger index = 0;
+    for (NSDictionary *candidate in candidates) {
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
+        width = MAX(width, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 28);
+    }
+    width = MIN(width, MAX(80, visible.size.width - 20));
     if (!_panel) {
-        _panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 280, 40) styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
         _panel.hasShadow = YES;
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
-    CGFloat height = candidates.count * 34 + 12;
-    [_panel setContentSize:NSMakeSize(280, height)];
-    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 280, height)];
+    CGFloat height = candidates.count * rowHeight + 12;
+    [_panel setContentSize:NSMakeSize(width, height)];
+    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu. %@", (unsigned long)(slot + 1), candidate[@"text"]];
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
-        button.frame = NSMakeRect(6, height - (++slot * 34), 268, 30);
+        button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
+        button.font = font;
+        button.lineBreakMode = NSLineBreakByTruncatingTail;
+        button.toolTip = candidate[@"text"];
         button.bordered = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
     _panel.contentView = content;
-    NSRect cursor = NSZeroRect;
-    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&cursor];
-    NSScreen *screen = nil;
-    for (NSScreen *candidate in NSScreen.screens) if (NSPointInRect(cursor.origin, candidate.frame)) { screen = candidate; break; }
-    NSRect visible = (screen ?: NSScreen.mainScreen).visibleFrame;
-    CGFloat x = MIN(MAX(cursor.origin.x, NSMinX(visible)), NSMaxX(visible) - 280);
-    CGFloat y = cursor.origin.y - height;
-    if (y < NSMinY(visible)) y = NSMaxY(cursor);
-    y = MIN(MAX(y, NSMinY(visible)), NSMaxY(visible) - height);
-    [_panel setFrameOrigin:NSMakePoint(x, y)];
+    [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
     [_panel orderFrontRegardless];
 }
 
