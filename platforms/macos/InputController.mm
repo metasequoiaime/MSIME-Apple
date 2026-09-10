@@ -93,7 +93,7 @@
         [self apply:[_session setFocused:YES error:nil]];
     }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
-        [self apply:[_session command:MSIME_CANCEL error:nil]];
+        [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
     }
     uint32_t command = UINT32_MAX;
