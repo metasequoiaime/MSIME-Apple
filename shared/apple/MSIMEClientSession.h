@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSDictionary<NSString *, id> *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 /// Management is separate from live sessions; call only after all sessions are closed.
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
+/// Prepare isolated Engine working data; call off the main thread and before creating sessions.
++ (nullable NSDictionary<NSString *, id> *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error;
 /// Start on main thread; disk/lock work runs in background, completion on main.
 - (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary * _Nullable result, NSError * _Nullable error))completion;
 - (BOOL)closeWithError:(NSError **)error;
