@@ -111,6 +111,13 @@ char *msime_client_view(uint64_t session);
  * is not eligible for an online provider. The caller may perform provider work
  * off-thread and pass the unchanged document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
+/* Linux: perform one bounded request to a user-owned Unix-socket provider.
+ * Call from a worker thread with a copied query; returns null value when no
+ * candidate is available. Credentials and network policy stay in that service. */
+char *msime_client_online_provider_request(const uint8_t *query,
+                                           size_t query_length,
+                                           const uint8_t *socket_path,
+                                           size_t socket_length);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
