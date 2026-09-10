@@ -50,7 +50,10 @@
 }
 
 - (void)startSession {
-    if (self.session) return;
+    if (self.session) {
+        [self apply:[self.session setFocused:YES error:nil]];
+        return;
+    }
     NSError *error = nil;
     self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:&error];
     if (!self.session) return;
