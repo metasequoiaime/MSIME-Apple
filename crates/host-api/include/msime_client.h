@@ -72,6 +72,10 @@ char *msime_client_focus(uint64_t session, bool focused);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
+/* Native page-size override (1..9). Returns {deferred, view}; active composition
+ * retains its numeric mapping until idle. Newest request wins, survives shared
+ * preference reloads, and does not persist files or rebuild Engine by itself. */
+char *msime_client_set_candidate_page_size(uint64_t session, uint8_t page_size);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 // Explicit native punctuation: finish the highlighted composition, then translate.
 // Invalid non-punctuation bytes fail without modifying the session.

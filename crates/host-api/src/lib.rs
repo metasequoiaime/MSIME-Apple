@@ -27,12 +27,20 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
+    page_size_override: Option<u8>,
     // Declared last so the Engine/runtime is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
     fn apply_pending(&mut self) -> Result<(), String> {
+        if self.runtime.is_idle() {
+            if let Some(size) = self.page_size_override {
+                self.runtime
+                    .set_page_size(size)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         let Some(snapshot) = &self.requested else {
             return Ok(());
         };
@@ -71,7 +79,11 @@ impl HostSession {
                 .map_err(|e| e.to_string())?;
         }
         self.runtime
-            .replace_engine(engine, snapshot.preferences.candidate_page_size)
+            .replace_engine(
+                engine,
+                self.page_size_override
+                    .unwrap_or(snapshot.preferences.candidate_page_size),
+            )
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
@@ -410,6 +422,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
+                    page_size_override: None,
                     _dictionary_access: dictionary_access,
                 },
             )
@@ -425,6 +438,27 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
             let result = session.runtime.focus(focused).map_err(|e| e.to_string())?;
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())
+        })
+    })
+}
+
+/// Native presentation override; changes wait for the current composition to end.
+#[no_mangle]
+pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
+    response(|| {
+        if !(1..=9).contains(&size) {
+            return Err("candidate page size must be between 1 and 9".into());
+        }
+        with_session(handle, |session| {
+            if session.runtime.is_idle() {
+                session
+                    .runtime
+                    .set_page_size(size)
+                    .map_err(|e| e.to_string())?;
+            }
+            session.page_size_override = Some(size);
+            let view = session.runtime.view();
+            Ok(json!({"deferred": view.page_size != usize::from(size), "view": view}))
         })
     })
 }
@@ -621,6 +655,57 @@ mod tests {
         assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
             .unwrap()
             .is_some());
+    }
+    #[test]
+    fn native_page_size_defers_and_survives_preference_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let first = read(msime_client_set_candidate_page_size(handle, 5));
+        assert_eq!(first["value"]["deferred"], false);
+        read(msime_client_character(handle, b'U', true));
+        for byte in b"4e2d" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let before = read(msime_client_view(handle))["value"].clone();
+        for size in [7, 9] {
+            let pending = read(msime_client_set_candidate_page_size(handle, size));
+            assert_eq!(pending["value"]["deferred"], true);
+            assert_eq!(pending["value"]["view"], before);
+        }
+        for size in [0, 10, 255] {
+            assert_eq!(
+                read(msime_client_set_candidate_page_size(handle, size))["ok"],
+                false
+            );
+            assert_eq!(read(msime_client_view(handle))["value"], before);
+        }
+        let committed = read(msime_client_command(handle, 1));
+        assert_eq!(committed["value"]["commit"], "中");
+        assert_eq!(committed["value"]["view"]["page_size"], 9);
+        let preferences = Preferences {
+            candidate_page_size: 2,
+            ..Preferences::default()
+        };
+        let updated = update(handle, 1, &preferences);
+        assert_eq!(updated["value"]["deferred"], false);
+        assert_eq!(updated["value"]["view"]["page_size"], 9);
+        let unchanged = read(msime_client_view(handle));
+        read(msime_client_set_candidate_page_size(handle, 9));
+        assert_eq!(read(msime_client_view(handle)), unchanged);
+        assert_eq!(
+            std::thread::spawn(
+                move || read(msime_client_set_candidate_page_size(handle, 5))["ok"].clone()
+            )
+            .join()
+            .unwrap(),
+            false
+        );
+        read(msime_client_destroy(handle));
+        assert_eq!(
+            read(msime_client_set_candidate_page_size(handle, 5))["ok"],
+            false
+        );
     }
     #[test]
     fn page_edge_commands_keep_engine_composition() {

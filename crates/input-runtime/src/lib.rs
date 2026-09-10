@@ -95,6 +95,7 @@ pub struct View {
     /// Byte offset in Engine's ASCII editing_text, not an OS UTF-16 offset.
     pub caret_position: usize,
     pub page: usize,
+    pub page_size: usize,
     pub page_count: usize,
     pub candidates: Vec<Candidate>,
 }
@@ -177,6 +178,7 @@ impl<E: InputEngine> Runtime<E> {
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
             page,
+            page_size: self.page_size,
             page_count: self.cached.candidates.len().div_ceil(self.page_size),
             candidates: self
                 .cached
@@ -203,6 +205,22 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.preedit.is_empty()
             && self.cached.editing_text.is_empty()
             && self.cached.candidates.is_empty()
+    }
+
+    /// Presentation-only resize; a live composition keeps its numeric key map.
+    pub fn set_page_size(&mut self, page_size: u8) -> Result<(), RuntimeError> {
+        if !(1..=9).contains(&page_size) {
+            return Err(RuntimeError::InvalidPageSize);
+        }
+        if self.page_size == usize::from(page_size) {
+            return Ok(());
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        self.advance()?;
+        self.page_size = page_size.into();
+        Ok(())
     }
 
     /// Preserve the host handle/focus while invalidating every old candidate ID.
@@ -564,6 +582,35 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn page_size_changes_only_when_idle_and_updates_numeric_mapping() {
+        let mut active = runtime();
+        active.focus(true).unwrap();
+        for size in [5, 7, 9] {
+            active.set_page_size(size).unwrap();
+            let generation = active.view().generation;
+            active.set_page_size(size).unwrap();
+            assert_eq!(active.view().generation, generation);
+            assert!(active.set_page_size(0).is_err());
+            assert_eq!(active.view().generation, generation);
+            let before = type_key(&mut active).view;
+            assert_eq!(before.candidates.len(), usize::from(size));
+            assert!(matches!(
+                active.set_page_size(2),
+                Err(RuntimeError::CompositionActive)
+            ));
+            assert_eq!(active.view().generation, before.generation);
+            assert_eq!(active.view().editing_text, before.editing_text);
+            let selected = active
+                .dispatch(Action::Character {
+                    value: b'0' + size,
+                    shift: false,
+                })
+                .unwrap();
+            assert_eq!(selected.commit, Some(format!("candidate-{}", size - 1)));
+        }
     }
 
     #[test]

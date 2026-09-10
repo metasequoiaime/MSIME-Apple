@@ -7,8 +7,14 @@
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
+@property(nonatomic) uint8_t requestedPageSize;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
+    (void)error;
+    self.requestedPageSize = size;
+    return nil;
+}
 - (NSDictionary *)typeASCII:(uint8_t)ascii shift:(BOOL)shift error:(NSError **)error {
     (void)error;
     ++self.asciiCalls;
@@ -77,6 +83,9 @@ int main() {
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         assert(!appearance.vertical && appearance.fontSize == 18);
         assert(appearance.pageShortcut == 0);
+        assert(appearance.pageSize == 9);
+        appearance.pageSize = 6;
+        assert(appearance.pageSize == 9);
         appearance.pageShortcut = 99;
         assert(appearance.pageShortcut == 0);
         appearance.fontSize = 99;
@@ -85,6 +94,14 @@ int main() {
         NSPopUpButton *layoutControl = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
         NSPopUpButton *fontControl = (id)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
         NSPopUpButton *shortcutControl = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+        NSPopUpButton *sizeControl = (id)[grid cellAtColumnIndex:1 rowIndex:3].contentView;
+        assert(([sizeControl.itemTitles isEqual:@[@"5 个", @"7 个", @"9 个"]]));
+        for (NSInteger option = 0; option < 3; ++option) {
+            [sizeControl selectItemAtIndex:option];
+            [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];
+            MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert(loaded.pageSize == (option == 0 ? 5 : option == 1 ? 7 : 9));
+        }
         assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
         for (NSInteger option = 0; option < 3; ++option) {
             [shortcutControl selectItemAtIndex:option];
@@ -126,6 +143,11 @@ int main() {
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:appearance forKey:@"appearance"];
+        [controller syncPageSize];
+        assert(session.requestedPageSize == 9);
+        appearance.pageSize = 5;
+        [controller appearanceChanged:nil];
+        assert(session.requestedPageSize == 5);
         for (NSNumber *flags in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             session.lastCommand = UINT32_MAX;
             client.committed = nil;
