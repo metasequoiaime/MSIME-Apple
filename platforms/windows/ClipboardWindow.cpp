@@ -43,6 +43,7 @@ LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wp
   if (message == WM_LBUTTONUP && self->shown_) { const int y = GET_Y_LPARAM(lparam); const int top = scale(self->dpi_, 32); const int row = scale(self->dpi_, 26); if (y < top) { if (self->clear_) self->clear_(); return 0; } const size_t index = static_cast<size_t>((y - top) / row); if (y >= top && index < self->shown_->items.size() && self->click_) self->click_(index); return 0; }
   if (message == WM_RBUTTONUP && self->shown_) { const int y = GET_Y_LPARAM(lparam); const int top = scale(self->dpi_, 32); const int row = scale(self->dpi_, 26); if (y < top) return 0; const size_t index = static_cast<size_t>((y - top) / row); if (index < self->shown_->items.size() && self->remove_) self->remove_(index); return 0; }
   if (message == WM_KEYDOWN && wparam == VK_DELETE && (GetKeyState(VK_CONTROL) & 0x8000) && self->clear_) { self->clear_(); return 0; }
+  if (message == WM_SETCURSOR && self->shown_) { POINT point{}; GetCursorPos(&point); ScreenToClient(window, &point); const int top = scale(self->dpi_, 32); if (point.y >= 0 && point.y < top + scale(self->dpi_, 26) * static_cast<int>(self->shown_->items.size())) { SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(32649))); return TRUE; } }
   if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
   return DefWindowProcW(window, message, wparam, lparam);
 }
