@@ -180,7 +180,7 @@ FocusedSession 的 update_preferences 同样检查完整 lease 与队列线程�
 
 PipeRegistry::read_main 在返回完整帧前复核 packet.client_id 与登记客户端一致，并通过 MainFrame 校验已知 Main 事件、pinyin 长度及终止符、状态快照字段和非零激活 token。Aux 专用事件和未知 opcode 不进入分发；key 同时拒绝零与 NO_REQUEST_ID，激活 token 则允许完整 uint64 范围。失败返回 MalformedFrame 且不携带原始帧，注销匹配主注册，旧票据不可继续发送。重复 ClientHello 保留为后续控制器忽略的兼容事件，不重协商；这一校验不证明前台焦点，也不取代 lease 检查。
 
-字段规则依据 MSIME-Windows develop 固定提交 6e03f5774777e40c921930fd90a76e5425c66d89 的 Main 接收路径，key 的 NO_REQUEST_ID 限制与本仓 ServerSession 一致。纯测试可本机执行；真实管道测试另覆盖同进程伪造 client_id、越界长度与 Aux 事件导致连接弃用，仍需 Windows 执行验收。
+字段规则依据本仓共享 contracts 与 Main 接收路径，key 的 NO_REQUEST_ID 限制与本仓 ServerSession 一致。纯测试可本机执行；真实管道测试另覆盖同进程伪造 client_id、越界长度与 Aux 事件导致连接弃用，仍需 Windows 执行验收。
 
 ### 生命周期路由策略
 
