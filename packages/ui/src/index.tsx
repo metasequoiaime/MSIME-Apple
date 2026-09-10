@@ -95,7 +95,7 @@ export interface SettingsClient {
   clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void> };
   about?: { openExternalUrl(url: string): Promise<void> };
   update?: { check(): Promise<void> };
-  diagnostics?: { server(enabled: boolean): Promise<void>; tsf(enabled: boolean): Promise<void> };
+  diagnostics?: { server(enabled: boolean): Promise<void>; tsf(enabled: boolean): Promise<void>; state?(scope: "server" | "tsf"): Promise<boolean> };
   skin?: { openDirectory(): Promise<void>; refresh(): Promise<void>; list?(): Promise<ExternalSkinSummary[]>; selected?(): Promise<string | null>; select?(id: string): Promise<void> };
   feedback?: { openExternalUrl(url: string): Promise<void> };
 }
@@ -265,6 +265,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   useEffect(() => {
     if (page === "skin" && client.skin?.list) void client.skin.list().then(setExternalSkins).catch(() => setExternalSkins([]));
     if (page === "skin" && client.skin?.selected) void client.skin.selected().then(setSelectedSkin).catch(() => setSelectedSkin(null));
+  }, [client, page]);
+  useEffect(() => {
+    if (page !== "about" || !client.diagnostics?.state) return;
+    let active = true;
+    Promise.all([client.diagnostics.state("server"), client.diagnostics.state("tsf")]).then(([server, tsf]) => {
+      if (active) { setServerDiagnostics(server); setTsfDiagnostics(tsf); }
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [client, page]);
   const openExternalUrl = (url: string) => {
     if (client.about) void client.about.openExternalUrl(url);

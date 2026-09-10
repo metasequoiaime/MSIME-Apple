@@ -358,6 +358,23 @@ fn set_diagnostic_log(
     Ok(())
 }
 
+#[tauri::command]
+fn get_diagnostic_log(
+    state: tauri::State<'_, DiagnosticState>,
+    scope: String,
+) -> Result<bool, HostActionError> {
+    let values = state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    match scope.as_str() {
+        "server" => Ok(values.0),
+        "tsf" => Ok(values.1),
+        _ => Err(HostActionError {
+            code: "invalid_scope",
+        }),
+    }
+}
+
 fn run_external_command(program: &str, args: &[&str]) -> Result<(), HostActionError> {
     std::process::Command::new(program)
         .args(args)
@@ -646,6 +663,7 @@ pub fn run() {
             refresh_skin_catalog,
             list_external_skins,
             set_diagnostic_log,
+            get_diagnostic_log,
             clear_clipboard_history,
             select_skin,
             selected_skin

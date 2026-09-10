@@ -21,6 +21,7 @@ const client: SettingsClient = {
   diagnostics: {
     server: enabled => invoke("set_diagnostic_log", { scope: "server", enabled }),
     tsf: enabled => invoke("set_diagnostic_log", { scope: "tsf", enabled }),
+    state: scope => invoke<boolean>("get_diagnostic_log", { scope }),
   },
   clipboard: { clear: () => invoke("clear_clipboard_history"), copy: text => invoke("copy_text", { text }) },
   screen_keyboard: { open: () => invoke("open_screen_keyboard") },
