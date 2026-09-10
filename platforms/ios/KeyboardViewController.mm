@@ -96,6 +96,10 @@
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:title forState:UIControlStateNormal];
         button.backgroundColor = UIColor.tertiarySystemBackgroundColor;
+        if ([title isEqualToString:@"⇧"]) {
+            button.accessibilityLabel = @"Shift";
+            button.accessibilityValue = @"关闭";
+        }
         [button addTarget:self action:@selector(actionPressed:) forControlEvents:UIControlEventTouchUpInside];
         [actions addArrangedSubview:button];
     }
@@ -116,6 +120,7 @@
     if ([button.currentTitle isEqualToString:@"⇧"]) {
         self.shiftEnabled = !self.shiftEnabled;
         button.tintColor = self.shiftEnabled ? UIColor.systemBlueColor : UIColor.labelColor;
+        button.accessibilityValue = self.shiftEnabled ? @"开启" : @"关闭";
     } else if ([button.currentTitle isEqualToString:@"空格"]) [self apply:[self.session command:MSIME_COMMIT_CANDIDATE error:nil]];
     else if ([button.currentTitle isEqualToString:@"⌫"]) [self deleteBackward];
     else [self apply:[self.session command:MSIME_COMMIT_RAW error:nil]];
