@@ -40,3 +40,8 @@ The utilities category and eight local-mode toggles follow
 `public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0).
 Descriptions are condensed for the shared cards. Clipboard history and the
 quick-phrase CRUD/import/export manager are not migrated in this increment.
+
+The shared settings client now accepts an optional dictionary capability. When
+provided by a native host, the utilities page lists and deletes QuickPhrase
+entries through the bounded host request contract; the page remains usable
+without that capability and never writes dictionary files directly.
