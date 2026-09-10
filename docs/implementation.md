@@ -679,3 +679,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 在上述访问锁基础上增加 host-api 的受限 JSON 管理入口，支持分页读取与新增、替换、删除个人词库。入口复用同一 HostOptions 资源校验和 Engine 事务接口，编辑只有在所有参与会话销毁后取得独占锁才能执行；重复 request_id 可安全重试，响应只返回固定错误或 `applied`，不回显 Engine 诊断和词条。C 头文件记录长度限制、调用线程、路径授权、停用/重建和隐私契约。
 
 独立请求示例覆盖活跃会话 busy、销毁后新增、重复新增、列表、重建会话提交快捷短语、删除及重复删除；20 项 host-api 测试（含 malformed/oversized request）和 21 项核心测试、fmt/clippy、10 项 Windows 边界 CTest、x64 交叉链接与导入检查通过。该入口仍是 native host API，不是 Windows Server 管理消息、Tauri 命令或 UI；导入导出、搜索、批量编辑、跨进程自动停用仍待完成。未执行 Windows 原生验证，CI 保持禁用。
+
+### Windows 快捷短语管理 UI 初接
+
+共享 React 设置客户端新增可选 dictionary capability。Native host 提供该能力时，实用功能页可查询第一页（最多 100 项）快捷短语并通过 request ID 删除；没有能力时页面保持原有八个模式开关，不直接访问文件。加载和删除失败只显示脱敏提示。新增样式和类型检查/构建验证通过。
+
+这只是 UI 初接：Tauri client 尚未绑定 `msime_client_dictionary`，新增/编辑表单、分页按钮、搜索、批量导入导出、剪贴板管理和 Windows Server 管理消息仍待完成。未执行 Windows 原生 UI 验收，CI 保持禁用。

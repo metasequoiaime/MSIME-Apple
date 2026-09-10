@@ -52,6 +52,12 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equa
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
+  dictionary?: DictionaryClient;
+}
+export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
+export interface DictionaryClient {
+  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
+  edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
 }
 
 function message(error: unknown): string {
@@ -76,6 +82,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
+  const [phraseBusy, setPhraseBusy] = useState(false);
+  const [phraseError, setPhraseError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -103,6 +112,22 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  }
+  async function loadPhrases() {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      const page = await client.dictionary.list(0, 100);
+      setPhrases(page.entries.filter(entry => entry.kind === "quick_phrase"));
+    } catch { setPhraseError("无法读取快捷短语。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function removePhrase(entry: DictionaryEntry) {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try { await client.dictionary.edit(entry, null, `ui-remove-${entry.key}-${entry.value}`); await loadPhrases(); }
+    catch { setPhraseError("快捷短语删除失败，请稍后重试。"); }
+    finally { setPhraseBusy(false); }
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
@@ -223,6 +248,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         })}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
+        {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
+          <div className="section-header"><span className="section-title">快捷短语管理<small>查询和删除 Engine 用户词库中的快捷短语</small></span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button></div>
+          {phraseError && <p role="alert" className="error">{phraseError}</p>}
+          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></li>)}</ul>}
+        </div>}
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}
