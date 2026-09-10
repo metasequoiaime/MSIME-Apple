@@ -1,4 +1,5 @@
 #import "AppearancePreferences.h"
+#import "CandidateSkinPreviewView.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
@@ -19,6 +20,8 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     std::vector<msime::mac::SkinListEntry> _skins;
+    MSIMECandidatePreviewView *_preview;
+    NSButton *_themeButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -113,6 +116,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     for (NSMenuItem *item in _skinButton.itemArray) {
         if ([item.representedObject isEqual:@(_lightSkin.id.c_str())]) { [_skinButton selectItem:item]; break; }
     }
+    [_preview updatePanelStyle:self.vertical ? 1 : 0 pageSize:self.pageSize fontSize:self.fontSize];
 }
 - (NSWindow *)window {
     NSWindow *window = [super window];
@@ -123,7 +127,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 460, 320) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 680) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -163,15 +167,43 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     grid.columnSpacing = 20;
     grid.translatesAutoresizingMaskIntoConstraints = NO;
     [window.contentView addSubview:grid];
+    _preview = [[MSIMECandidatePreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 190)];
+    _preview.preferences = self;
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.hasVerticalScroller = YES;
+    scroll.drawsBackground = NO;
+    scroll.documentView = _preview;
+    [window.contentView addSubview:scroll];
+    _themeButton = [NSButton buttonWithTitle:[_preview forcedThemeButtonTitle] target:self action:@selector(togglePreviewTheme:)];
+    _themeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    _preview.themeButton = _themeButton;
+    [window.contentView addSubview:_themeButton];
+    NSButton *showcase = [NSButton checkboxWithTitle:@"同时预览横排、竖排与状态栏" target:self action:@selector(togglePreviewShowcase:)];
+    showcase.translatesAutoresizingMaskIntoConstraints = NO;
+    [window.contentView addSubview:showcase];
     [NSLayoutConstraint activateConstraints:@[
         [grid.centerXAnchor constraintEqualToAnchor:window.contentView.centerXAnchor],
-        [grid.centerYAnchor constraintEqualToAnchor:window.contentView.centerYAnchor]
+        [grid.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:20],
+        [scroll.topAnchor constraintEqualToAnchor:grid.bottomAnchor constant:20],
+        [scroll.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20],
+        [scroll.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20],
+        [scroll.bottomAnchor constraintEqualToAnchor:_themeButton.topAnchor constant:-12],
+        [_preview.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        [_preview.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+        [_preview.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+        [_themeButton.bottomAnchor constraintEqualToAnchor:window.contentView.bottomAnchor constant:-20],
+        [_themeButton.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20],
+        [showcase.leadingAnchor constraintEqualToAnchor:scroll.leadingAnchor],
+        [showcase.centerYAnchor constraintEqualToAnchor:_themeButton.centerYAnchor]
     ]];
     self.window = window;
     [self refreshControls];
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
+- (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
 - (void)skinChanged:(NSPopUpButton *)sender {
     self.skinID = sender.selectedItem.representedObject ?: @"fluent";
 }
