@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <memory>
@@ -19,13 +20,17 @@ Json response(char *raw) {
   return document.at("value");
 }
 struct State {
+  MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
   Json view;
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
   bool input_enabled = true;
-  ~State() { close(); }
+  ~State() {
+    voice_worker.cancel();
+    close();
+  }
   void close() {
     if (session)
       msime_client_string_free(msime_client_destroy(session));
