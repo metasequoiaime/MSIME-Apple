@@ -249,8 +249,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选窗口跟随光标<small>关闭后保持候选窗口首次位置，直到候选窗口消失。</small></span><input className="toggle" type="checkbox" checked={draft.candidate_follow_cursor ?? true} onChange={event => setDraft({ ...draft, candidate_follow_cursor: event.target.checked })} /></label></div>
         <div className="section candidate-preview-section" aria-label="候选窗口预览">
           <div className="section-title">候选窗口预览</div>
-          <div className="candidate-preview-card"><span className="candidate-preview-preedit">ni'hao</span><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
-          <div className="candidate-preview-card candidate-preview-horizontal"><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
+          <div className={`candidate-preview-card candidate-preview-${draft.candidate_layout ?? "vertical"}`}>
+            <span className="candidate-preview-preedit">ni'hao</span>
+            <span className="candidate-preview-item active"><b>1</b> 你好</span>
+            <span className="candidate-preview-item"><b>2</b> 你号</span>
+            <span className="candidate-preview-item"><b>3</b> 泥好</span>
+          </div>
         </div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主字体<small>使用系统已安装字体名称</small></span><input aria-label="候选窗主字体" value={draft.candidate_font_family ?? "Segoe UI"} onChange={event => setDraft({ ...draft, candidate_font_family: event.target.value })} /></label></div>

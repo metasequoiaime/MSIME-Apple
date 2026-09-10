@@ -35,6 +35,17 @@ test("candidate text color follows theme by default and can be reset", async () 
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_text_color: null });
 });
 
+test("candidate preview follows the selected layout", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  const preview = await screen.findByLabelText("候选窗口预览");
+  expect(preview.querySelector(".candidate-preview-vertical")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "纵向" }));
+  fireEvent.click(screen.getByRole("option", { name: "横向" }));
+  expect(preview.querySelector(".candidate-preview-horizontal")).not.toBeNull();
+  expect(preview.querySelector(".candidate-preview-vertical")).toBeNull();
+});
+
 test("candidate font size defaults to 16 and persists selected size", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
