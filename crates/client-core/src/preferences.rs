@@ -29,6 +29,8 @@ pub enum ChineseScheme {
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     #[serde(default)]
+    pub voice_input: VoiceInputPreferences,
+    #[serde(default)]
     pub ai_assistant: AiAssistantPreferences,
     #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
@@ -85,6 +87,38 @@ pub struct Preferences {
     pub local_modes: LocalModePreferences,
     #[serde(default = "enabled_by_default")]
     pub clipboard_history: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceInputPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub sound_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub start_sound: bool,
+    #[serde(default = "enabled_by_default")]
+    pub end_sound: bool,
+    #[serde(default)]
+    pub mute_system_audio: bool,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub commit_mode: String,
+}
+
+impl Default for VoiceInputPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sound_enabled: true,
+            start_sound: true,
+            end_sound: true,
+            mute_system_audio: false,
+            language: "zh-cn".into(),
+            commit_mode: "tsf".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -376,6 +410,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             ai_assistant: AiAssistantPreferences::default(),
+            voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),

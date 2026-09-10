@@ -25,6 +25,7 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  voice_input?: VoiceInputPreferences;
   ai_assistant?: AiAssistantPreferences;
   floating_toolbar?: { enabled: boolean; scale_percent: number; font_size: number; fullwidth?: boolean; punctuation?: boolean; character_set?: boolean; emoji?: boolean; screen_keyboard?: boolean; settings?: boolean };
   theme?: "dark" | "light" | "system";
@@ -56,6 +57,8 @@ export type Preferences = {
   shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
 };
+export type VoiceInputPreferences = { enabled: boolean; sound_enabled: boolean; start_sound: boolean; end_sound: boolean; mute_system_audio: boolean; language: string; commit_mode: string };
+const defaultVoiceInput: VoiceInputPreferences = { enabled: true, sound_enabled: true, start_sound: true, end_sound: true, mute_system_audio: false, language: "zh-cn", commit_mode: "tsf" };
 export type AiAssistantPreferences = { enabled: boolean; provider: string; model: string; token: string; tokens?: Record<string, string>; endpoint: string; candidate_limit: number; prompt_id: string; prompt: string; prompt_custom_1?: string; prompt_custom_2?: string; prompt_custom_3?: string };
 const aiProviderDefaults: Record<string, { model: string; endpoint: string }> = { deepseek: { model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions" }, openai: { model: "gpt-4o-mini", endpoint: "https://api.openai.com/v1/chat/completions" }, siliconflow: { model: "Qwen/Qwen3-8B", endpoint: "https://api.siliconflow.cn/v1/chat/completions" }, groq: { model: "llama-3.3-70b-versatile", endpoint: "https://api.groq.com/openai/v1/chat/completions" } };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: aiProviderDefaults.deepseek.model, token: "", tokens: {}, endpoint: aiProviderDefaults.deepseek.endpoint, candidate_limit: 3, prompt_id: "custom_1", prompt: "", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
@@ -247,6 +250,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const voice = draft?.voice_input ?? defaultVoiceInput;
+  const updateVoice = (patch: Partial<VoiceInputPreferences>) => setDraft({ ...draft!, voice_input: { ...voice, ...patch } });
   const updateAi = (patch: Partial<AiAssistantPreferences>) => setDraft({ ...draft!, ai_assistant: { ...ai, ...patch } });
   const selectedPrompt = ai.prompt_id === "custom_2" ? (ai.prompt_custom_2 ?? ai.prompt) : ai.prompt_id === "custom_3" ? (ai.prompt_custom_3 ?? ai.prompt) : (ai.prompt_custom_1 ?? ai.prompt);
   const updatePrompt = (value: string) => updateAi({ prompt: value, ...(ai.prompt_id === "custom_2" ? { prompt_custom_2: value } : ai.prompt_id === "custom_3" ? { prompt_custom_3: value } : { prompt_custom_1: value }) });
@@ -329,7 +334,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice_input"} aria-label="语音输入">
         <div className="section capability-hero"><div className="section-title">语音输入</div><p>按住快捷键录音，将语音转换为文字并插入当前应用。</p></div>
-        <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>语音宿主尚未接入</strong><small>Windows 版支持豆包、OpenAI、SiliconFlow 和 Groq 等服务；当前客户端尚未接入录音与语音服务配置。</small></div></div>
+        <div className="section"><label className="section-header"><span className="section-title">启用语音输入<small>在右键菜单中开始或停止录音</small></span><input aria-label="启用语音输入" type="checkbox" checked={voice.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
+        <div className="section"><div className="section-title">录音提示音</div><label className="section-header"><span>提示音总开关</span><input aria-label="录音提示音总开关" type="checkbox" checked={voice.sound_enabled} onChange={event => updateVoice({ sound_enabled: event.target.checked })} /></label><label className="section-header"><span>开始录音时播放</span><input aria-label="开始录音时播放" type="checkbox" checked={voice.start_sound} onChange={event => updateVoice({ start_sound: event.target.checked })} /></label><label className="section-header"><span>结束录音时播放</span><input aria-label="结束录音时播放" type="checkbox" checked={voice.end_sound} onChange={event => updateVoice({ end_sound: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">录音时静音其他声音<small>录音期间暂时关闭其他应用播放声音</small></span><input aria-label="录音时静音其他声音" type="checkbox" checked={voice.mute_system_audio} onChange={event => updateVoice({ mute_system_audio: event.target.checked })} /></label></div>
+        <div className="section"><div className="section-header"><span className="section-title">识别语言</span><CustomDropdown ariaLabel="识别语言" value={voice.language} options={[["zh-cn", "简体中文"], ["en", "English"], ["auto", "自动"]]} onChange={value => updateVoice({ language: value })} /></div><div className="section-header"><span className="section-title">识别结果上屏方式</span><CustomDropdown ariaLabel="识别结果上屏方式" value={voice.commit_mode} options={[["tsf", "TSF 上屏"], ["sendinput", "SendInput"], ["ctrl_v", "Ctrl+V 上屏"]]} onChange={value => updateVoice({ commit_mode: value })} /></div></div>
         <div className="section"><div className="section-title">录音与识别预览</div><div className="voice-waveform-preview" role="img" aria-label="录音波形预览">{[18, 34, 22, 48, 30, 58, 40, 26, 52, 36, 20, 44, 28, 50, 24, 38, 18].map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div><div className="help-list"><div><strong>录音</strong><span>按住快捷键开始录音，松开后停止；Space 可锁定录音。</span></div><div><strong>识别流程</strong><span>录音 → ASR 转写 → 可选文本润色 → 提交到当前应用。</span></div></div></div>
         <div className="section"><div className="section-title">文本润色预览</div><div className="help-list"><div><strong>ASR 原文</strong><span>嗯 我们明天呃下午三点开会</span></div><div><strong>润色结果</strong><span>我们明天下午三点开会。</span></div><div><strong>上屏方式</strong><span>接入后可选择 TSF、SendInput 或 Ctrl+V 上屏。</span></div></div></div>
         <div className="section"><div className="section-title">接入准备</div><div className="help-list"><div><strong>服务凭据</strong><span>接入后将在此配置 ASR 提供商和 API Token。请勿把凭据提交到日志或代码仓库。</span></div><div><strong>隐私提示</strong><span>启用后录音会上传到所选服务；离线状态下不会产生语音识别结果。</span></div><div><strong>输入方式</strong><span>接入后支持批量识别和流式预编辑，并可取消当前语音会话。</span></div></div></div>
