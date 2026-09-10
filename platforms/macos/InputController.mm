@@ -4,6 +4,7 @@
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
+#import "AppearancePreferences.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -31,6 +32,30 @@
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
+    MSIMEAppearancePreferences *_appearance;
+}
+
+- (void)ensureAppearance {
+    if (_appearance) return;
+    _appearance = [MSIMEAppearancePreferences sharedPreferences];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
+}
+- (void)appearanceChanged:(NSNotification *)notification {
+    (void)notification;
+    if (_activeClient) [self renderCandidates];
+}
+- (NSMenu *)menu {
+    [self ensureAppearance];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选外观…" action:@selector(showAppearance:) keyEquivalent:@""];
+    item.target = self;
+    [menu addItem:item];
+    return menu;
+}
+- (void)showAppearance:(id)sender {
+    [self ensureAppearance];
+    [_appearance showWindow:sender];
+    [NSApp activateIgnoringOtherApps:YES];
 }
 
 - (void)activateServer:(id)sender {
@@ -87,7 +112,10 @@
     [super deactivateServer:sender];
 }
 
-- (void)dealloc { [_preferencesTimer invalidate]; }
+- (void)dealloc {
+    [_preferencesTimer invalidate];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
@@ -107,9 +135,14 @@
         return NO;
     }
     uint32_t command = UINT32_MAX;
-    // The current panel is vertical: Apple consumes the non-primary direction
-    // while candidates are visible, without editing the underlying composition.
-    if (_panel.isVisible && (event.keyCode == 123 || event.keyCode == 124)) return YES;
+    [self ensureAppearance];
+    if (_panel.isVisible && event.keyCode >= 123 && event.keyCode <= 126) {
+        const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
+        if (horizontal == _appearance.vertical) return YES;
+        const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
+        [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
+        return YES;
+    }
     switch (event.keyCode) {
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
@@ -160,19 +193,38 @@
     screen = screen ?: NSScreen.mainScreen;
     if (!screen) { [_panel orderOut:nil]; return; }
     NSRect visible = screen.visibleFrame;
-    NSFont *font = [NSFont systemFontOfSize:18];
+    [self ensureAppearance];
+    const BOOL vertical = _appearance.vertical;
+    NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
     const BOOL paging = pageCount > 1;
     CGFloat width = 20;
+    NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
+    CGFloat totalWidth = 0;
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
-        width = MAX(width, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 28);
+        const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16;
+        [widths addObject:@(itemWidth)];
+        totalWidth += itemWidth;
+        width = MAX(width, itemWidth + 12);
     }
     width = MIN(width, MAX(80, visible.size.width - 20));
     if (paging) width = MAX(width, 76);
+    if (!vertical) {
+        const CGFloat available = MAX(80, visible.size.width - 32 - (paging ? 56 : 0));
+        if (totalWidth > available) {
+            const CGFloat scale = available / totalWidth;
+            totalWidth = 0;
+            for (NSUInteger i = 0; i < widths.count; ++i) {
+                widths[i] = @(MAX(24, floor(widths[i].doubleValue * scale)));
+                totalWidth += widths[i].doubleValue;
+            }
+        }
+        width = totalWidth + 12 + (paging ? 56 : 0);
+    }
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
@@ -181,16 +233,20 @@
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
-    CGFloat height = candidates.count * rowHeight + 12 + (paging ? 26 : 0);
+    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 12 + (paging && vertical ? 26 : 0);
     [_panel setContentSize:NSMakeSize(width, height)];
     NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
+    CGFloat x = 6;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         button.tag = (NSInteger)slot;
-        button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
+        CGFloat itemWidth = vertical ? width - 12 : widths[slot].doubleValue;
+        button.frame = NSMakeRect(x, vertical ? height - 6 - ((slot + 1) * rowHeight) : 6, itemWidth, rowHeight);
+        ++slot;
+        if (!vertical) x += itemWidth;
         button.font = font;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = candidate[@"text"];
@@ -201,7 +257,7 @@
     if (paging) {
         for (NSUInteger direction = 0; direction < 2; ++direction) {
             MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
-            button.frame = NSMakeRect(6 + direction * 28, 6, 28, 26);
+            button.frame = NSMakeRect((vertical ? 6 : x) + direction * 28, 6, 28, vertical ? 26 : rowHeight);
             button.bordered = NO;
             button.tag = direction == 0 ? -1 : -2;
             button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;

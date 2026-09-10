@@ -62,6 +62,23 @@ static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
+        NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        assert(!appearance.vertical && appearance.fontSize == 18);
+        appearance.fontSize = 99;
+        assert(appearance.fontSize == 18);
+        NSGridView *grid = (id)appearance.window.contentView.subviews.firstObject;
+        NSPopUpButton *layoutControl = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
+        NSPopUpButton *fontControl = (id)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
+        assert(([layoutControl.itemTitles isEqual:@[@"横向排列", @"纵向列表"]]));
+        [layoutControl selectItemAtIndex:1];
+        [NSApp sendAction:layoutControl.action to:layoutControl.target from:layoutControl];
+        [fontControl selectItemAtIndex:0];
+        [NSApp sendAction:fontControl.action to:fontControl.target from:fontControl];
+        MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        assert(reopened.vertical && reopened.fontSize == 16);
+        appearance.fontSize = 18;
         MSIMECandidatePanel *focusPanel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         assert(!focusPanel.canBecomeKeyWindow && !focusPanel.canBecomeMainWindow);
         MSIMECandidateButton *focusButton = [[MSIMECandidateButton alloc] initWithFrame:NSZeroRect];
@@ -86,6 +103,7 @@ int main() {
         ShortcutClient *client = [ShortcutClient new];
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:appearance forKey:@"appearance"];
         for (NSNumber *flags in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             session.lastCommand = UINT32_MAX;
             client.committed = nil;
@@ -193,6 +211,33 @@ int main() {
         [controller renderCandidates];
         assert(PageButton(layoutPanel.contentView, -1) == nil);
         assert(PageButton(layoutPanel.contentView, -2) == nil);
+        pageView[@"candidates"] = @[@{@"text": @"测试", @"highlighted": @YES}, @{@"text": @"布局", @"highlighted": @NO}];
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        CGFloat verticalHeight = layoutPanel.frame.size.height;
+        appearance.vertical = NO;
+        session.lastCommand = UINT32_MAX;
+        [controller appearanceChanged:nil];
+        assert(session.lastCommand == UINT32_MAX);
+        assert(layoutPanel.frame.size.height < verticalHeight);
+        NSView *first = layoutPanel.contentView.subviews[0];
+        NSView *second = layoutPanel.contentView.subviews[1];
+        assert(first.frame.origin.y == second.frame.origin.y);
+        assert(NSMaxX(first.frame) == NSMinX(second.frame));
+        CGFloat normalHeight = layoutPanel.frame.size.height;
+        appearance.fontSize = 20;
+        [controller appearanceChanged:nil];
+        assert(layoutPanel.frame.size.height > normalHeight);
+        for (NSNumber *key in @[@123, @124, @125, @126]) {
+            layoutPanel.requestedVisible = YES;
+            session.lastCommand = UINT32_MAX;
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
+            assert([controller handleEvent:event client:client]);
+            uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
+            assert(session.lastCommand == expected);
+        }
+        assert([controller menu].numberOfItems == 1);
+        [defaults removePersistentDomainForName:suite];
     }
     return 0;
 }
