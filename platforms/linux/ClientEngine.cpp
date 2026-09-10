@@ -57,6 +57,10 @@ struct State {
   std::string online_provider_socket;
   bool online_loading = false;
   std::string clipboard_history_path;
+  std::vector<std::string> clipboard_items_cache;
+  uint64_t clipboard_generation = 0;
+  bool clipboard_loading = false;
+  bool clipboard_loaded = false;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   ~State() { close(); }
@@ -66,6 +70,10 @@ struct State {
     session = 0;
     view = nullptr;
     online_loading = false;
+    clipboard_loading = false;
+    clipboard_loaded = false;
+    clipboard_items_cache.clear();
+    ++clipboard_generation;
   }
   void open() {
     if (session || blocked || !focused || !input_enabled)
@@ -134,6 +142,32 @@ std::vector<std::string> clipboard_items(const std::string &path) {
   return items;
 }
 State &state(IBusEngine *engine);
+void publish_mode(IBusEngine *engine, bool registration = false);
+struct ClipboardTask {
+  std::string path;
+  uint64_t generation;
+};
+void clipboard_complete(GObject *source, GAsyncResult *result, gpointer);
+void clipboard_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.clipboard_history_path.empty() || s.clipboard_loading || !s.focused ||
+      s.blocked || !s.input_enabled || s.clipboard_loaded)
+    return;
+  s.clipboard_loading = true;
+  auto task = g_task_new(G_OBJECT(engine), nullptr, clipboard_complete, nullptr);
+  g_task_set_task_data(task,
+                       new ClipboardTask{s.clipboard_history_path,
+                                         s.clipboard_generation},
+                       [](gpointer value) { delete static_cast<ClipboardTask *>(value); });
+  g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+    const auto &request = *static_cast<ClipboardTask *>(data);
+    g_task_return_pointer(task, new std::vector<std::string>(clipboard_items(request.path)),
+                          [](gpointer value) {
+                            delete static_cast<std::vector<std::string> *>(value);
+                          });
+  });
+  g_object_unref(task);
+}
 std::string fullwidth_text(const std::string &text) {
   std::string result;
   for (unsigned char c : text) {
@@ -240,8 +274,29 @@ namespace {
 State &state(IBusEngine *engine) {
   return *reinterpret_cast<MsimePreviewEngine *>(engine)->state;
 }
-void publish_mode(IBusEngine *engine, bool registration = false) {
-  const auto &s = state(engine);
+void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
+  auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+  if (!self->state)
+    return;
+  auto &s = *self->state;
+  s.clipboard_loading = false;
+  auto request = static_cast<ClipboardTask *>(
+      g_task_get_task_data(G_TASK(result)));
+  if (request->generation != s.clipboard_generation || !s.focused || s.blocked ||
+      request->path != s.clipboard_history_path)
+    return;
+  auto *items = static_cast<std::vector<std::string> *>(
+      g_task_propagate_pointer(G_TASK(result), nullptr));
+  if (!items)
+    return;
+  s.clipboard_items_cache = std::move(*items);
+  s.clipboard_loaded = true;
+  delete items;
+  publish_mode(IBUS_ENGINE(source));
+}
+void publish_mode(IBusEngine *engine, bool registration) {
+  auto &s = state(engine);
+  clipboard_schedule(engine);
   const bool japanese_scheme = s.scheme_override
                                    ? *s.scheme_override == "japanese"
                                    : configured.at("preferences").value("scheme", "") == "japanese";
@@ -329,7 +384,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
-  const auto items = clipboard_items(s.clipboard_history_path);
+  const auto &items = s.clipboard_items_cache;
   for (size_t index = 0; index < items.size(); ++index) {
     const auto label = std::to_string(index + 1) + ". " + items[index].substr(0, 48);
     auto item = ibus_property_new(
