@@ -5,6 +5,23 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("custom dropdown supports keyboard navigation and selection", async () => {
+  Object.defineProperty(window, "matchMedia", { value: () => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }), configurable: true });
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  const toggle = await screen.findByRole("button", { name: "主题模式" });
+  fireEvent.keyDown(toggle, { key: "ArrowDown" });
+  const options = screen.getAllByRole("option");
+  expect(document.activeElement).toBe(options[1]);
+  fireEvent.keyDown(options[1], { key: "End" });
+  expect(document.activeElement).toBe(options[2]);
+  fireEvent.keyDown(options[2], { key: "Enter" });
+  expect(toggle.textContent).toContain("跟随系统");
+  fireEvent.keyDown(toggle, { key: "Enter" });
+  fireEvent.keyDown(screen.getAllByRole("option")[2], { key: "Escape" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
+
 test("candidate fallback fonts parse in order and persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
