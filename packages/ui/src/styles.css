@@ -108,6 +108,10 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .help-list { display: flex; flex-direction: column; margin-top: 12px; }
 .help-list > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--divider-color); }
 .help-list span { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.capability-hero p { color: var(--text-muted); margin: 8px 0 0; line-height: 1.6; }
+.capability-status { display: flex; align-items: flex-start; gap: 10px; }
+.capability-status small { display: block; margin-top: 5px; }
+.capability-dot { width: 10px; height: 10px; flex: 0 0 10px; margin-top: 5px; border-radius: 50%; background: var(--text-muted); }
 @media (max-width: 600px) { .skin-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }

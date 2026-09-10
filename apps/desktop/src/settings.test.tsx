@@ -159,6 +159,13 @@ test("help page provides operation and troubleshooting guidance", async () => {
   expect(screen.getByText(/按数字键 1–9/)).toBeDefined();
 });
 
+test("screen keyboard page reports host capability status", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(await screen.findByText("宿主尚未接入")).toBeDefined();
+  expect(screen.getByText("主题同步")).toBeDefined();
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
