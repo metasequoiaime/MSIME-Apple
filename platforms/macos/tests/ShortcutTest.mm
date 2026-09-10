@@ -317,7 +317,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:panel forKey:@"panel"];
     [controller setValue:session forKey:@"session"];
     NSMenu *menu = controller.menu;
-    assert(menu.numberOfItems == 8 && !menu.autoenablesItems);
+    assert(menu.numberOfItems == 11 && !menu.autoenablesItems);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
     assert([[menu itemAtIndex:6].title isEqual:@"表情与符号…"]);
