@@ -117,8 +117,8 @@
         case 49: command = MSIME_COMMIT_CANDIDATE; break;
         case 123: command = MSIME_MOVE_LEFT; break;
         case 124: command = MSIME_MOVE_RIGHT; break;
-        case 115: command = MSIME_MOVE_HOME; break;
-        case 119: command = MSIME_MOVE_END; break;
+        case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE_ON_PAGE : MSIME_MOVE_HOME; break;
+        case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE_ON_PAGE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
         case 116: command = MSIME_PREVIOUS_PAGE; break;
         case 121: command = MSIME_NEXT_PAGE; break;
