@@ -5,10 +5,13 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <fcntl.h>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
+#include <sys/file.h>
+#include <unistd.h>
 
 using Json = nlohmann::json;
 struct MsimePreviewEngine;
@@ -140,6 +143,45 @@ std::vector<std::string> clipboard_items(const std::string &path) {
     }
   } catch (...) {}
   return items;
+}
+bool clipboard_remove_index(const std::string &path, size_t index) {
+  if (path.empty() || path.size() > 4096)
+    return false;
+  const auto lock_path = path + ".lock";
+  const int lock = open(lock_path.c_str(), O_CREAT | O_RDWR, 0600);
+  if (lock < 0 || flock(lock, LOCK_EX) != 0) {
+    if (lock >= 0)
+      close(lock);
+    return false;
+  }
+  bool removed = false;
+  try {
+    std::ifstream input{std::filesystem::path(path)};
+    auto value = Json::parse(input);
+    if (value.is_array() && index < value.size() && value.at(index).is_string()) {
+      value.erase(value.begin() + index);
+      const auto temporary = path + ".tmp." + std::to_string(getpid());
+      std::ofstream output{std::filesystem::path(temporary), std::ios::trunc};
+      if (output) {
+        output << value.dump();
+        output.close();
+        std::error_code error;
+        std::filesystem::permissions(
+            temporary, std::filesystem::perms::owner_read |
+                           std::filesystem::perms::owner_write,
+            std::filesystem::perm_options::replace, error);
+        std::filesystem::rename(temporary, path, error);
+        if (!error)
+          removed = true;
+        else
+          std::filesystem::remove(temporary, error);
+      }
+    }
+  } catch (...) {
+  }
+  flock(lock, LOCK_UN);
+  close(lock);
+  return removed;
 }
 State &state(IBusEngine *engine);
 void publish_mode(IBusEngine *engine, bool registration = false);
@@ -393,6 +435,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
         ibus_text_new_from_static_string("提交历史文本"), TRUE, FALSE,
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(clipboard_menu, item);
+    auto remove = ibus_property_new(
+        (std::string("ClipboardHistory/Remove/") + std::to_string(index)).c_str(),
+        PROP_TYPE_NORMAL,
+        ibus_text_new_from_string((std::string("删除 ") + std::to_string(index + 1)).c_str()),
+        "", ibus_text_new_from_static_string("删除这一条历史文本"), TRUE, FALSE,
+        PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(clipboard_menu, remove);
   }
   auto clear_clipboard = ibus_property_new(
       "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
@@ -659,9 +708,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   const std::string property_name = name ? name : "";
   const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
                                property_name != "ClipboardHistory/Latest" &&
-                               property_name != "ClipboardHistory/Clear";
+                               property_name != "ClipboardHistory/Clear" &&
+                               property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
+  const bool clipboard_remove = property_name.rfind("ClipboardHistory/Remove/", 0) == 0;
   if (!name ||
-       (!clipboard_item && property_name != "ClipboardHistory/Clear" &&
+       (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
        std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
@@ -686,6 +737,19 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (clipboard_remove) {
+      try {
+        const auto index = std::stoul(property_name.substr(24));
+        if (clipboard_remove_index(s.clipboard_history_path, index)) {
+          s.clipboard_items_cache.clear();
+          s.clipboard_loaded = false;
+          ++s.clipboard_generation;
+          publish_mode(engine);
+        }
+      } catch (...) {
+      }
+      return;
+    }
     if (property_name == "ClipboardHistory/Clear") {
       if (s.clipboard_history_path.empty())
         return;

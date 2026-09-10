@@ -41,6 +41,9 @@ unicode_text='水杉输入法 😀'
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
 [[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]
 echo "Linux clipboard UTF-8 acceptance passed"
+/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" remove-index 0
+[[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 0) == "second" ]]
+echo "Linux clipboard remove-index acceptance passed"
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" clear
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
