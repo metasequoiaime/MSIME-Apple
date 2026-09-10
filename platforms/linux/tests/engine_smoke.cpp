@@ -180,6 +180,9 @@ int main(int argc, char **argv) {
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
     phrase();
+    require(key(IBUS_End), "End did not move to the page edge");
+    require(key(IBUS_Home), "Home did not move to the page edge");
+    invoke("Reset");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
             "Shared next page missing");
