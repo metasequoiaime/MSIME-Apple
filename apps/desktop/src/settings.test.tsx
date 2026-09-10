@@ -5,6 +5,30 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("mixed candidate defaults, independent switches and threshold persist", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const english = await screen.findByRole("checkbox", { name: /^中英混输/ }) as HTMLInputElement;
+  const emoji = screen.getByRole("checkbox", { name: /^emoji 混输/ }) as HTMLInputElement;
+  const kaomoji = screen.getByRole("checkbox", { name: /^颜文字混输/ }) as HTMLInputElement;
+  const threshold = screen.getByLabelText("触发字符数") as HTMLSelectElement;
+  expect(english.checked).toBe(true);
+  expect(emoji.checked).toBe(false);
+  expect(kaomoji.checked).toBe(false);
+  expect(threshold.value).toBe("2");
+  expect(threshold.options.length).toBe(8);
+  fireEvent.change(threshold, { target: { value: "8" } });
+  fireEvent.click(english);
+  expect(threshold.disabled).toBe(true);
+  expect(threshold.value).toBe("8");
+  fireEvent.click(emoji);
+  fireEvent.click(kaomoji);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, mixed_input: { english: false, minimum_prefix: 8, emoji: true, kaomoji: true } });
+});
+
 test("frequency values above the upstream dropdown range remain visible", async () => {
   const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };

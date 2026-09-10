@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         options.learning = learning;
         options.helpcode = false;
+        options.mixed_english = false;
         options.frequency_mode = mode.into();
         options.frequency_trigger_count = 2;
         options.frequency_linear_step = 2;

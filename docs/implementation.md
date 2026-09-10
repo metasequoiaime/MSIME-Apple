@@ -627,3 +627,9 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 重新核查实际 develop 基线发现：共享枚举和 CXX 缺少 disabled，范围限制为 1–6，UI 还按学习开关和线性模式禁用控件，与上述 Windows 来源及记录不符。基线 `frequency_legacy_defaults_modes_and_bounds` 实测因拒绝合法值 10 而失败。恢复 Windows 的五模式及配置范围 1–10；UI 保持上游六个常规数值选项，同时保留合法的已有 7–10 值，并按 input.ts 保持控件独立可编辑。不将其他平台的交互约定替代 Windows 目标。
 
 恢复 disabled 持久化和桥接回归，UI 精确断言五项枚举及学习关闭时仍可编辑；词库回归增加 learning=false 场景，确认总开关由 Engine 控制，不需桥接清空调频配置。35 项 Rust 测试、15 项 UI 测试、fmt/clippy、TypeScript/Vite、10 项本机边界 CTest、x64 交叉构建和导入检查均通过。六组真实 Engine 隔离排序回归通过；未执行 Windows 原生宿主或逐像素验收，CI 仍禁用，完整迁移目标继续。
+
+### Windows 中英、emoji 与颜文字混输
+
+按同一 Windows 固定提交的 input.html/input.ts/config.toml，新增三个独立混输开关及中英混输触发字符数 1–8。默认英文开启、阈值 2、emoji 和颜文字关闭，遵循实际配置而非 HTML 占位开关。英文关闭时阈值不可编辑但保留；旧配置缺省读取不重写，非法阈值拒绝覆盖。创建会话和组合结束后的设置更新通过 CXX 传至 Engine 的 EnglishInputOptions/MixedExpressiveOptions，平台不实现混排算法。
+
+37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。

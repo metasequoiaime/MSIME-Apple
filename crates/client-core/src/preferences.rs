@@ -48,6 +48,28 @@ pub struct Preferences {
     pub word_character: WordCharacterPreferences,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
+    #[serde(default)]
+    pub mixed_input: MixedInputPreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MixedInputPreferences {
+    pub english: bool,
+    pub minimum_prefix: u8,
+    pub emoji: bool,
+    pub kaomoji: bool,
+}
+
+impl Default for MixedInputPreferences {
+    fn default() -> Self {
+        Self {
+            english: true,
+            minimum_prefix: 2,
+            emoji: false,
+            kaomoji: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -149,6 +171,7 @@ impl Default for Preferences {
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
+            mixed_input: MixedInputPreferences::default(),
         }
     }
 }
@@ -216,6 +239,9 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
+            return Err(PreferencesError::InvalidMixedInput);
+        }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
         {
@@ -261,6 +287,8 @@ pub enum PreferencesError {
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
     InvalidFrequency,
+    #[error("mixed English minimum prefix must be between 1 and 8")]
+    InvalidMixedInput,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -377,6 +405,47 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_input_legacy_roundtrip_and_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mixed_input");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.mixed_input,
+            MixedInputPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        for mask in 0..8 {
+            let preferences = Preferences {
+                mixed_input: MixedInputPreferences {
+                    english: mask & 1 != 0,
+                    emoji: mask & 2 != 0,
+                    kaomoji: mask & 4 != 0,
+                    minimum_prefix: mask + 1,
+                },
+                ..Preferences::default()
+            };
+            let saved = store.save(u64::from(mask), preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let saved = store.load().unwrap();
+        for value in [0, 9, 255] {
+            let mut invalid = saved.preferences.clone();
+            invalid.mixed_input.minimum_prefix = value;
+            assert!(matches!(
+                store.save(saved.revision, invalid),
+                Err(PreferencesError::InvalidMixedInput)
+            ));
+            assert_eq!(store.load().unwrap(), saved);
+        }
+    }
 
     #[test]
     fn frequency_legacy_defaults_modes_and_bounds() {
