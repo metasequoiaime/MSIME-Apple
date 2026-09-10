@@ -53,6 +53,7 @@ struct State {
   std::optional<std::string> shuangpin_profile_override;
   std::optional<uint8_t> candidate_page_size_override;
   std::optional<std::string> frequency_mode_override;
+  std::optional<bool> word_character_override;
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
@@ -152,6 +153,8 @@ struct State {
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
     word_character = edge_binding;
+    if (word_character_override)
+      word_character.enabled = *word_character_override;
   }
 };
 std::vector<std::string> clipboard_items(const std::string &path) {
@@ -599,6 +602,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(frequency_menu, item);
   }
   ibus_property_set_sub_props(frequency_property, frequency_menu);
+  auto word_character_property = ibus_property_new(
+      "WordCharacter", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("以词定字"), "",
+      ibus_text_new_from_static_string("使用减号/等号或方括号选择词语首末汉字"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.word_character.enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto preedit_property = ibus_property_new(
       "PreeditStyle", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("预编辑显示"), "",
@@ -706,6 +715,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, page_size_property);
     ibus_prop_list_append(properties, frequency_property);
+    ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
     ibus_prop_list_append(properties, scheme);
@@ -728,6 +738,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, page_size_property);
     ibus_engine_update_property(engine, frequency_property);
+    ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, scheme);
@@ -917,6 +928,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateLayout/Horizontal" &&
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
        property_name.rfind("FrequencyMode/", 0) != 0 &&
+       std::string(name) != "WordCharacter" &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
        std::string(name) != "PreeditStyle/empty" &&
@@ -932,6 +944,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name == "WordCharacter") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.word_character_override.value_or(s.word_character.enabled) == enabled)
+        return;
+      s.word_character_override = enabled;
+      s.word_character.enabled = enabled;
+      publish_mode(engine);
+      return;
+    }
     if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
       const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
       if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
