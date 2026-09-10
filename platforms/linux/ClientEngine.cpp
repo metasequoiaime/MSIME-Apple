@@ -49,6 +49,9 @@ struct State {
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
+  bool smart_punctuation_repeat = true;
+  char last_smart_punctuation = 0;
+  gint64 last_smart_punctuation_time = 0;
   std::string punctuation_lock = "follow";
   std::optional<guint> candidate_text_color;
   std::optional<guint> candidate_background_color;
@@ -265,6 +268,15 @@ std::string preedit_style(const Json &preferences) {
   const auto style = preferences.value("tsf_preedit_style", "raw");
   return style == "pinyin" || style == "empty" ? style : "raw";
 }
+const char *smart_punctuation_pair(char value) {
+  switch (value) {
+  case ',': return "，"; case '.': return "。"; case ';': return "；";
+  case ':': return "："; case '!': return "！"; case '?': return "？";
+  case '(': return "（"; case ')': return "）"; case '[': return "【";
+  case ']': return "】"; case '{': return "｛"; case '}': return "｝";
+  case '<': return "〈"; case '>': return "〉"; default: return nullptr;
+  }
+}
 
 struct OnlineTask {
   uint64_t session;
@@ -376,6 +388,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("按上下文选择标点形式"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       s.smart_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto smart_repeat = ibus_property_new(
+      "SmartPunctuationRepeat", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("重复标点转中文"), "",
+      ibus_text_new_from_static_string("短时间重复输入 ASCII 标点时替换为中文标点"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.smart_punctuation_repeat ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
   auto punctuation_lock = ibus_property_new(
       "PunctuationLock", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("标点锁定"), "",
@@ -530,6 +549,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
+    ibus_prop_list_append(properties, smart_repeat);
     ibus_prop_list_append(properties, punctuation_lock);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
@@ -545,6 +565,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
+    ibus_engine_update_property(engine, smart_repeat);
     ibus_engine_update_property(engine, punctuation_lock);
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
@@ -636,6 +657,15 @@ bool apply(IBusEngine *engine, char *raw) {
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
     auto text = commit.get<std::string>();
+    auto &s = state(engine);
+    if (s.smart_punctuation && text.size() == 1 &&
+        smart_punctuation_pair(text.front())) {
+      s.last_smart_punctuation = text.front();
+      s.last_smart_punctuation_time = g_get_monotonic_time();
+    } else if (text.size() != 1 || !smart_punctuation_pair(text.front())) {
+      s.last_smart_punctuation = 0;
+      s.last_smart_punctuation_time = 0;
+    }
     if (state(engine).fullwidth)
       text = fullwidth_text(text);
     if (!text.empty())
@@ -716,6 +746,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "InputMode" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
+       std::string(name) != "SmartPunctuationRepeat" &&
        std::string(name) != "PunctuationLock/follow" &&
        std::string(name) != "PunctuationLock/chinese" &&
        std::string(name) != "PunctuationLock/english" &&
@@ -772,6 +803,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "SmartPunctuation") {
       s.smart_punctuation = value == PROP_STATE_CHECKED;
+      if (!s.smart_punctuation)
+        s.last_smart_punctuation = 0;
+      publish_mode(engine);
+      return;
+    }
+    if (std::string(name) == "SmartPunctuationRepeat") {
+      s.smart_punctuation_repeat = value == PROP_STATE_CHECKED;
+      if (!s.smart_punctuation_repeat)
+        s.last_smart_punctuation = 0;
       publish_mode(engine);
       return;
     }
@@ -1045,6 +1085,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       publish_mode(engine);
       handled = true;
       return;
+    }
+    if (s.smart_punctuation_repeat && s.last_smart_punctuation == key &&
+        s.last_smart_punctuation_time != 0 &&
+        g_get_monotonic_time() - s.last_smart_punctuation_time <= 500000 &&
+        s.view.at("editing_text").get<std::string>().empty()) {
+      if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
+        ibus_engine_delete_surrounding_text(engine, -1, 1);
+        ibus_engine_commit_text(engine, ibus_text_new_from_static_string(replacement));
+        s.last_smart_punctuation = 0;
+        s.last_smart_punctuation_time = 0;
+        handled = true;
+        return;
+      }
     }
     if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
         std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
