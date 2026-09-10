@@ -27,6 +27,11 @@
     [super viewWillDisappear:animated];
 }
 
+- (void)viewDidDisappear:(BOOL)animated {
+    [self.session closeWithError:nil];
+    [super viewDidDisappear:animated];
+}
+
 - (void)textWillChange:(id<UITextInput>)textInput {
     [super textWillChange:textInput];
 }
