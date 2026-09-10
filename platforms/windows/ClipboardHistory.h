@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <atomic>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -17,11 +18,11 @@ public:
   bool add(std::string text);
   bool remove(const std::string &text);
   bool clear();
-  void set_enabled(bool enabled) { enabled_ = enabled; if (!enabled_) clear(); }
-  bool enabled() const { return enabled_; }
+  void set_enabled(bool enabled) { enabled_.store(enabled); if (!enabled) clear(); }
+  bool enabled() const { return enabled_.load(); }
 private:
   std::filesystem::path store_;
-  bool enabled_ = true;
+  std::atomic<bool> enabled_{true};
 };
 std::string normalize_clipboard_text(std::string text);
 
