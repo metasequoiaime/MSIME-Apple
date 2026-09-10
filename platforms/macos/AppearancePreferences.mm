@@ -8,6 +8,8 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
+static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
+static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
@@ -24,6 +26,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     MSIMECandidatePreviewView *_preview;
     NSButton *_themeButton;
     NSWindowController *_skinWindow;
+    NSButton *_inputModeShortcutButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -63,6 +66,18 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     }
 }
 - (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
+- (void)setEnglishMode:(BOOL)value {
+    [_defaults setBool:value forKey:EnglishKey];
+    [self preferencesChanged];
+}
+- (BOOL)inputModeShortcut {
+    return [_defaults objectForKey:InputModeShortcutKey] == nil || [_defaults boolForKey:InputModeShortcutKey];
+}
+- (void)setInputModeShortcut:(BOOL)value {
+    [_defaults setBool:value forKey:InputModeShortcutKey];
+    [self preferencesChanged];
+}
 - (void)setVertical:(BOOL)value {
     [_defaults setInteger:value ? 1 : 0 forKey:LayoutKey];
     [self preferencesChanged];
@@ -105,6 +120,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     [self preferencesChanged];
 }
 - (void)refreshControls {
+    _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
@@ -158,6 +174,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     _skinButton.action = @selector(skinChanged:);
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
+    _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
@@ -165,7 +182,8 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
         @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
         @[[NSTextField labelWithString:@"候选皮肤"], _skinButton],
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
-        @[[NSTextField labelWithString:@"皮肤卡片"], browse]
+        @[[NSTextField labelWithString:@"皮肤卡片"], browse],
+        @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -206,6 +224,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];

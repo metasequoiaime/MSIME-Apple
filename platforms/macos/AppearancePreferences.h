@@ -18,6 +18,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
+// Native routing preferences; English passes keys through without preparing Engine.
+@property(nonatomic) BOOL englishMode;
+@property(nonatomic) BOOL inputModeShortcut;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end
