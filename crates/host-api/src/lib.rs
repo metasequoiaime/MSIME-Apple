@@ -7,9 +7,9 @@ use msime_client_core::preferences::{
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, OnlineQuery, Runtime, Transition};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
+use msime_input_runtime::{Action, CandidateId, OnlineQuery, Runtime, Transition};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -122,7 +122,7 @@ impl HostSession {
         self.apply_pending()?;
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
         Ok(
-            json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view() }),
+            json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size } }),
         )
     }
 }
@@ -571,10 +571,9 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
-        let path = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(socket_path, socket_length)
-        })
-        .map_err(|_| "socket path is not UTF-8")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
         if !std::path::Path::new(path).is_absolute() {
             return Err("socket path must be absolute".into());
         }
@@ -597,17 +596,17 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
     source: u8,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || candidate.is_null() || query_length > 16384 || candidate_length > 4096 {
+        if query.is_null() || candidate.is_null() || query_length > 16384 || candidate_length > 4096
+        {
             return Err("invalid online candidate buffer".into());
         }
         let query = serde_json::from_slice::<OnlineQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
-        let candidate = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(candidate, candidate_length)
-        })
-        .map_err(|_| "candidate is not UTF-8")?;
+        let candidate =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(candidate, candidate_length) })
+                .map_err(|_| "candidate is not UTF-8")?;
         with_session(handle, |session| {
             let applied = session
                 .runtime
