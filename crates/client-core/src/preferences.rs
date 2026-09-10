@@ -2,6 +2,7 @@
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -97,6 +98,8 @@ pub struct AiAssistantPreferences {
     #[serde(default)]
     pub token: String,
     #[serde(default)]
+    pub tokens: BTreeMap<String, String>,
+    #[serde(default)]
     pub endpoint: String,
     #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
@@ -104,10 +107,16 @@ pub struct AiAssistantPreferences {
     pub prompt_id: String,
     #[serde(default)]
     pub prompt: String,
+    #[serde(default)]
+    pub prompt_custom_1: String,
+    #[serde(default)]
+    pub prompt_custom_2: String,
+    #[serde(default)]
+    pub prompt_custom_3: String,
 }
 
 fn default_ai_candidate_limit() -> u8 {
-    1
+    3
 }
 
 impl Default for AiAssistantPreferences {
@@ -117,10 +126,14 @@ impl Default for AiAssistantPreferences {
             provider: "deepseek".into(),
             model: String::new(),
             token: String::new(),
+            tokens: BTreeMap::new(),
             endpoint: String::new(),
-            candidate_limit: 1,
+            candidate_limit: 3,
             prompt_id: "custom_1".into(),
             prompt: String::new(),
+            prompt_custom_1: String::new(),
+            prompt_custom_2: String::new(),
+            prompt_custom_3: String::new(),
         }
     }
 }

@@ -26,11 +26,26 @@ test("AI assistant settings expose and persist provider configuration", async ()
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
+  await screen.findByRole("checkbox", { name: "启用 AI 联想" });
   fireEvent.click(await screen.findByRole("checkbox", { name: "启用 AI 联想" }));
   fireEvent.change(screen.getByRole("textbox", { name: "AI 模型" }), { target: { value: "deepseek-chat" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ ai_assistant: expect.objectContaining({ enabled: true, model: "deepseek-chat" }) }));
+});
+
+test("AI assistant keeps provider tokens and prompt slots independently", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
+  await screen.findByRole("checkbox", { name: "启用 AI 联想" });
+  fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "provider-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "提示词槽位" }));
+  fireEvent.click(screen.getByRole("option", { name: "自定义二" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "AI 自定义提示词" }), { target: { value: "prompt-two" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ ai_assistant: expect.objectContaining({ tokens: { deepseek: "provider-token" }, prompt_custom_2: "prompt-two" }) }));
 });
 
 test.each(["enabled", "scale", "font"])("toolbar %s edits preserve loaded and newly edited component choices", async control => {
