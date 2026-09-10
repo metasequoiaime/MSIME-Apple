@@ -21,6 +21,7 @@ Json response(char *raw) {
   return document.at("value");
 }
 std::optional<guint> candidate_text_color(const Json &preferences);
+std::optional<guint> candidate_background_color(const Json &preferences);
 struct State {
   uint64_t session = 0;
   Json view;
@@ -30,6 +31,7 @@ struct State {
   bool input_enabled = true;
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
+  std::optional<guint> candidate_background_color;
   std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
@@ -60,6 +62,8 @@ struct State {
         options.at("preferences").value("chinese_punctuation", true));
     candidate_text_color =
         ::candidate_text_color(options.at("preferences"));
+    candidate_background_color =
+        ::candidate_background_color(options.at("preferences"));
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -88,6 +92,12 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
     color = (color << 4) | digit;
   }
   return color;
+}
+std::optional<guint> candidate_background_color(const Json &preferences) {
+  const auto theme = preferences.value("candidate_theme", "follow");
+  if (theme == "dark") return 0x202124u;
+  if (theme == "light") return 0xffffffu;
+  return std::nullopt;
 }
 } // namespace
 
@@ -189,6 +199,10 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
           *state(engine).candidate_text_color, 0, G_MAXUINT);
+    if (state(engine).candidate_background_color)
+      ibus_text_append_attribute(
+          text, IBUS_ATTR_TYPE_BACKGROUND,
+          *state(engine).candidate_background_color, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
     ibus_lookup_table_append_label(table,
@@ -482,6 +496,8 @@ gboolean reload_preferences(gpointer data) {
           s.view = updated.at("view");
           s.candidate_text_color =
               ::candidate_text_color(snapshot.at("preferences"));
+          s.candidate_background_color =
+              ::candidate_background_color(snapshot.at("preferences"));
           s.navigation = bindings;
           s.word_character = edge_binding;
           render(IBUS_ENGINE(source), s.view);
