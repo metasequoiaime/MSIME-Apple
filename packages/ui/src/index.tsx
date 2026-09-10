@@ -326,6 +326,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别">
         <div className="section capability-hero"><div className="section-title">手写识别</div><p>在手写面板中书写汉字，识别结果将作为候选项插入当前应用。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>手写宿主尚未接入</strong><small>Windows 版通过系统手写识别面板提供此能力；当前客户端尚未接入原生手写面板。</small></div></div>
+        <div className="section"><div className="section-title">手写识别板预览</div><div className="handwriting-preview-board" role="img" aria-label="手写识别板预览"><span className="handwriting-crosshair" aria-hidden="true">十</span><svg viewBox="0 0 160 160" aria-hidden="true"><path d="M35 45 Q80 20 125 45 M45 75 Q80 55 115 75 M35 105 Q80 130 125 105 M80 25 L80 135" /></svg><div className="handwriting-candidates"><span>中</span><span>申</span><span>仲</span></div></div></div>
         <div className="section"><div className="section-title">使用准备</div><div className="help-list"><div><strong>安装语言组件</strong><span>Windows 用户需安装“中文手写包”：设置 → 时间和语言 → 语言和区域 → 中文 → 语言选项 → 手写。</span></div><div><strong>打开方式</strong><span>接入后可从输入法工具栏或托盘菜单打开手写识别面板。</span></div><div><strong>识别结果</strong><span>面板返回的候选项会交给输入运行时，确认后提交到当前应用。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai_assistant"} aria-label="AI 辅助">
