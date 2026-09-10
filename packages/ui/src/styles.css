@@ -93,6 +93,17 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .about-row:last-child { border-bottom: 0; }
 .about-link:hover { color: var(--accent-color); }
 .about-disclaimer { margin: 14px 16px; font-size: 12px; line-height: 1.6; }
+.feedback-hero p, .feedback-note span { color: var(--text-muted); line-height: 1.6; }
+.feedback-hero p { margin: 8px 0 0; }
+.feedback-list { display: flex; flex-direction: column; gap: 10px; }
+.feedback-card { display: flex; align-items: flex-start; gap: 12px; }
+.feedback-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 8px; background: var(--accent-soft-border); color: var(--accent-color); font-size: 12px; font-weight: 700; }
+.feedback-body { flex: 1; min-width: 0; }
+.feedback-title { font-weight: 600; }
+.feedback-body p { color: var(--text-muted); margin: 4px 0; font-size: 12px; }
+.feedback-link { color: var(--accent-color); font-size: 12px; text-decoration: none; }
+.feedback-link:hover { text-decoration: underline; }
+.feedback-note { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 @media (max-width: 600px) { .skin-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }

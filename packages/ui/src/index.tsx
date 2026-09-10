@@ -9,6 +9,7 @@ const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "about", title: "关于", icon: new URL("./assets/msime.svg", import.meta.url).href },
+  { id: "feedback", title: "反馈", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -283,6 +284,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE" target="_blank" rel="noreferrer"><span>开源许可协议</span><span aria-hidden="true">↗</span></a>
         </div>
         <p className="about-disclaimer">本客户端仍在持续迁移 Windows 版功能与界面；部分平台能力可能尚未接入。</p>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
+        <div className="section feedback-hero"><div className="section-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
+        <div className="feedback-list">
+          <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><a className="feedback-link" href="https://github.com/metasequoiaime/MSIME-Windows/issues" target="_blank" rel="noreferrer">查看 Issues ↗</a></div></div>
+          <div className="section feedback-card"><div className="feedback-icon">TG</div><div className="feedback-body"><div className="feedback-title">Telegram 群组</div><p>面向国际用户和开发者的即时讨论频道。</p><a className="feedback-link" href="https://t.me/msimegroup" target="_blank" rel="noreferrer">打开群组 ↗</a></div></div>
+        </div>
+        <div className="section feedback-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
