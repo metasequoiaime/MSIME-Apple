@@ -132,6 +132,19 @@ void render(IBusEngine *engine, const Json &view) {
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
                 std::to_string(view.at("page_count").get<size_t>());
+  const auto mode = view.at("local_mode").get<std::string>();
+  const std::pair<const char *, const char *> labels[] = {
+      {"unicode", "U+"}, {"date_time", "日期时间"},
+      {"quick_phrase", "短语"}, {"emoji", "Emoji"},
+      {"kaomoji", "颜文字"}, {"super_jianpin", "简拼"},
+      {"temporary_english", "EN"}, {"temporary_japanese", "日文"}};
+  for (const auto &[name, label] : labels) {
+    if (mode == name) {
+      paging += "  · ";
+      paging += label;
+      break;
+    }
+  }
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_string(paging.c_str()), TRUE);
   auto table = ibus_lookup_table_new(static_cast<guint>(candidates.size()), 0,

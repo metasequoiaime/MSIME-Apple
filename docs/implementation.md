@@ -16,6 +16,12 @@
 
 ## 当前证据
 
+### Linux 本地模式候选提示
+
+IBus 候选辅助文本在页码后显示共享 View.local_mode 对应的本地模式标签，普通/未知模式不附加标签。无需新的 panel 属性协议，算法和入口判断仍由 Engine 负责。新增 D-Bus 辅助文本观察覆盖 Unicode 标签及 reset 后清除。
+
+验证期间复查无改动基线：完整 IBus engine_smoke 实测约 54 秒通过，包含多组 2.2 秒设置轮询等待。此前以 45 秒超时推断菜单或标点代码阻塞的结论不成立；没有证据证明那两次超时由功能改动导致。
+
 ### Linux IBus 安装组件
 
 为 IBus 宿主补齐 CMake 安装产物：安装 `msime-client-ibus`、个人词典入口和标准 `msime-client-preview.xml` component。component 指向发行版配置文件路径，由安装器生成资源、用户数据和缓存路径；构建系统不自动切换用户输入法，也不携带开发机绝对路径。
