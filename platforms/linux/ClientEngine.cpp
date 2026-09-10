@@ -20,6 +20,7 @@ Json response(char *raw) {
     throw std::runtime_error("Host operation failed");
   return document.at("value");
 }
+std::optional<guint> candidate_text_color(const Json &preferences);
 struct State {
   uint64_t session = 0;
   Json view;
@@ -28,6 +29,7 @@ struct State {
   bool private_input = false;
   bool input_enabled = true;
   bool chinese_punctuation = true;
+  std::optional<guint> candidate_text_color;
   std::optional<bool> punctuation_override;
   guint preferences_timer = 0;
   bool preferences_loading = false;
@@ -56,12 +58,37 @@ struct State {
     session = view.at("session").get<uint64_t>();
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
+    candidate_text_color =
+        ::candidate_text_color(options.at("preferences"));
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
     word_character = edge_binding;
   }
 };
+std::optional<guint> candidate_text_color(const Json &preferences) {
+  const auto value = preferences.value("candidate_text_color", Json(nullptr));
+  if (!value.is_string())
+    return std::nullopt;
+  const auto hex = value.get<std::string>();
+  if (hex.size() != 7 || hex.front() != '#')
+    return std::nullopt;
+  guint color = 0;
+  for (size_t index = 1; index < hex.size(); ++index) {
+    const auto c = static_cast<unsigned char>(hex[index]);
+    guint digit = 0;
+    if (c >= '0' && c <= '9')
+      digit = c - '0';
+    else if (c >= 'a' && c <= 'f')
+      digit = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F')
+      digit = c - 'A' + 10;
+    else
+      return std::nullopt;
+    color = (color << 4) | digit;
+  }
+  return color;
+}
 } // namespace
 
 struct MsimePreviewEngine {
@@ -152,8 +179,12 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
-    ibus_lookup_table_append_candidate(
-        table, ibus_text_new_from_string(value.c_str()));
+    auto text = ibus_text_new_from_string(value.c_str());
+    if (state(engine).candidate_text_color)
+      ibus_text_append_attribute(
+          text, IBUS_ATTR_TYPE_FOREGROUND,
+          *state(engine).candidate_text_color, 0, G_MAXUINT);
+    ibus_lookup_table_append_candidate(table, text);
     auto label = std::to_string(index + 1);
     ibus_lookup_table_append_label(table,
                                    ibus_text_new_from_string(label.c_str()));
@@ -444,6 +475,8 @@ gboolean reload_preferences(gpointer data) {
               s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
               encoded.size()));
           s.view = updated.at("view");
+          s.candidate_text_color =
+              ::candidate_text_color(snapshot.at("preferences"));
           s.navigation = bindings;
           s.word_character = edge_binding;
           render(IBUS_ENGINE(source), s.view);
