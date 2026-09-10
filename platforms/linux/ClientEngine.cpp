@@ -824,9 +824,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
           msime_client_character(
               s.session, static_cast<uint8_t>('0' + key - IBUS_KP_0), false));
     else if (key >= 0x21 && key <= 0x7e)
-      handled = apply(
-          engine, msime_client_character(s.session, static_cast<uint8_t>(key),
-                                         (flags & IBUS_SHIFT_MASK) != 0));
+      handled = apply(engine, msime_client_character(
+          s.session,
+          static_cast<uint8_t>((flags & IBUS_SHIFT_MASK) && key >= 'a' &&
+                                       key <= 'z'
+                                   ? key - 'a' + 'A'
+                                   : key),
+          (flags & IBUS_SHIFT_MASK) != 0));
     else
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   });
