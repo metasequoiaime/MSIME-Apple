@@ -472,6 +472,14 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        if !(1..=10).contains(&self.ai_assistant.candidate_limit)
+            || !matches!(
+                self.ai_assistant.provider.as_str(),
+                "deepseek" | "openai" | "siliconflow" | "groq"
+            )
+        {
+            return Err(PreferencesError::InvalidAiAssistant);
+        }
         if !(50..=200).contains(&self.floating_toolbar.scale_percent)
             || !(12..=48).contains(&self.floating_toolbar.font_size)
         {
@@ -549,6 +557,8 @@ impl Default for PreferencesSnapshot {
 pub enum PreferencesError {
     #[error("floating toolbar settings are invalid")]
     InvalidFloatingToolbar,
+    #[error("AI assistant provider or candidate limit is invalid")]
+    InvalidAiAssistant,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("candidate font size must be between 12 and 32")]
@@ -1120,6 +1130,22 @@ mod tests {
             ));
         }
         assert_eq!(store.load().unwrap(), initial);
+    }
+
+    #[test]
+    fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
+        let mut preferences = Preferences::default();
+        preferences.ai_assistant.provider = "unknown".into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAiAssistant)
+        ));
+        preferences.ai_assistant.provider = "openai".into();
+        preferences.ai_assistant.candidate_limit = 11;
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAiAssistant)
+        ));
     }
 
     #[test]
