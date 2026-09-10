@@ -222,6 +222,8 @@ public final class MSIMEInputService extends InputMethodService {
         Button shiftButton = button(controls, "Shift", () -> { shift = !shift; render(); });
         shiftButton.setContentDescription("切换大写");
         button(controls, "⌫", () -> { if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0); });
+        button(controls, "删除", () -> command(8));
+        button(controls, "取消", () -> command(3));
         button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
         button(controls, "回车", this::enter);
         button(controls, "切换", () -> switchToNextInputMethod(false));
