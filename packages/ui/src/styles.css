@@ -112,6 +112,17 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .capability-status { display: flex; align-items: flex-start; gap: 10px; }
 .capability-status small { display: block; margin-top: 5px; }
 .capability-dot { width: 10px; height: 10px; flex: 0 0 10px; margin-top: 5px; border-radius: 50%; background: var(--text-muted); }
+.screen-keyboard-preview { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-raised); }
+.screen-keyboard-row { display: flex; gap: 5px; }
+.screen-key { min-width: 34px; flex: 1; padding: 8px 5px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--button-secondary-bg); color: var(--text-color); font-size: 11px; }
+.screen-key:disabled { opacity: 1; }
+.handwriting-preview-board { position: relative; display: grid; place-items: center; min-height: 190px; overflow: hidden; border: 1px solid var(--border-color); border-radius: 10px; background: repeating-linear-gradient(0deg, transparent 0 39px, var(--divider-color) 40px), repeating-linear-gradient(90deg, transparent 0 39px, var(--divider-color) 40px); }
+.handwriting-preview-board svg { width: 160px; height: 160px; stroke: var(--accent-color); stroke-width: 4; fill: none; stroke-linecap: round; }
+.handwriting-crosshair { position: absolute; color: var(--text-muted); font-size: 11px; opacity: .7; }
+.handwriting-candidates { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 6px; }
+.handwriting-candidates span { padding: 3px 7px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--dropdown-bg); font-size: 12px; }
+.voice-waveform-preview { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 76px; padding: 8px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-raised); }
+.voice-waveform-preview i { display: block; width: 5px; border-radius: 4px; background: var(--accent-color); opacity: .8; }
 @media (max-width: 600px) { .skin-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
