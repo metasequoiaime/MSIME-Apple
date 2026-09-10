@@ -673,10 +673,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name).rfind("PunctuationLock/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("PunctuationLock/").size());
       s.punctuation_lock = selected;
-      if (selected != "follow") {
-        const bool chinese = selected == "chinese";
-        if (s.session)
-          apply(engine, msime_client_set_chinese_punctuation(s.session, chinese));
+      {
+        const bool chinese = selected == "follow"
+                                  ? configured.at("preferences").value("chinese_punctuation", true)
+                                  : selected == "chinese";
+        if (s.session) {
+          s.view = response(msime_client_set_chinese_punctuation(s.session, chinese));
+          render(engine, s.view);
+        }
         s.chinese_punctuation = chinese;
       }
       publish_mode(engine);
