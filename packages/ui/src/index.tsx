@@ -28,6 +28,7 @@ export type Preferences = {
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   candidate_font_size?: number;
+  candidate_preedit_font_size?: number;
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -203,6 +204,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="candidate-preview-card candidate-preview-horizontal"><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
         </div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select value={draft.candidate_preedit_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>

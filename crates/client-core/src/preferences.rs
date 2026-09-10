@@ -44,6 +44,8 @@ pub struct Preferences {
     pub candidate_page_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
+    #[serde(default = "default_candidate_font_size")]
+    pub candidate_preedit_font_size: u8,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -223,6 +225,7 @@ impl Default for Preferences {
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
+            candidate_preedit_font_size: default_candidate_font_size(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -313,6 +316,9 @@ impl Preferences {
             return Err(PreferencesError::InvalidPageSize);
         }
         if !(12..=32).contains(&self.candidate_font_size) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
+        if !(12..=32).contains(&self.candidate_preedit_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         let paging = match self.word_character.keys {
