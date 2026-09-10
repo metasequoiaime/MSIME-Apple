@@ -317,7 +317,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:panel forKey:@"panel"];
     [controller setValue:session forKey:@"session"];
     NSMenu *menu = controller.menu;
-    assert(menu.numberOfItems == 11 && !menu.autoenablesItems);
+    assert(menu.numberOfItems == 12 && !menu.autoenablesItems);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
     assert([[menu itemAtIndex:6].title isEqual:@"表情与符号…"]);
@@ -739,7 +739,7 @@ int main() {
             uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
             assert(session.lastCommand == expected);
         }
-        assert([controller menu].numberOfItems == 11);
+        assert([controller menu].numberOfItems == 12);
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
