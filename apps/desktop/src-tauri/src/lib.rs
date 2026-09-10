@@ -110,7 +110,11 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
 }
 
 #[tauri::command]
-fn select_skin(state: tauri::State<'_, SkinState>, id: String) -> Result<(), HostActionError> {
+fn select_skin(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SkinState>,
+    id: String,
+) -> Result<(), HostActionError> {
     if id.is_empty()
         || id.len() > 128
         || !id
@@ -121,6 +125,16 @@ fn select_skin(state: tauri::State<'_, SkinState>, id: String) -> Result<(), Hos
             code: "invalid_skin",
         });
     }
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .join("selected-skin");
+    std::fs::write(path, &id).map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
     *state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })? = Some(id);
@@ -434,7 +448,13 @@ pub fn run() {
             app.manage(DictionaryHostOptions(Arc::new(host_options)));
             app.manage(DiagnosticState(std::sync::Mutex::new((false, false))));
             app.manage(ClipboardHistoryState(std::sync::Mutex::new(Vec::new())));
-            app.manage(SkinState(std::sync::Mutex::new(None)));
+            let selected_skin = app
+                .path()
+                .app_data_dir()
+                .ok()
+                .and_then(|path| std::fs::read_to_string(path.join("selected-skin")).ok())
+                .filter(|id| !id.is_empty());
+            app.manage(SkinState(std::sync::Mutex::new(selected_skin)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
