@@ -332,6 +332,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "ai_assistant"} aria-label="AI 辅助">
         <div className="section capability-hero"><div className="section-title">AI 辅助</div><p>使用兼容 Chat Completions 的服务异步生成联想候选，帮助快速完成输入。</p></div>
         <div className="section capability-status"><span className="capability-dot" aria-hidden="true" /><div><strong>AI 宿主尚未接入</strong><small>Windows 版支持 DeepSeek、OpenAI、SiliconFlow 和 Groq；当前客户端尚未接入在线 AI 请求与候选管线。</small></div></div>
+        <div className="section"><div className="section-title">联想候选预览</div><div className="candidate-preview-card" aria-label="AI 联想候选预览"><span className="candidate-preview-preedit">ni'hao</span><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>3</b> AI 联想候选</span></div><div className="help-list"><div><strong>服务商</strong><span>DeepSeek · OpenAI · SiliconFlow · Groq</span></div><div><strong>候选位置</strong><span>在本地候选之后异步插入额外联想项。</span></div></div></div>
         <div className="section"><div className="section-title">配置项预览</div><div className="help-list"><div><strong>启用 AI 联想</strong><span>接入后可在全拼和双拼输入时异步生成额外候选。</span></div><div><strong>API 配置</strong><span>每个服务商独立保存 Token，并支持自定义模型与接口地址。</span></div><div><strong>提示词</strong><span>可选择预设提示词或编辑自定义提示词；敏感凭据不会写入日志。</span></div></div></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating_toolbar"} aria-label="悬浮工具栏">
