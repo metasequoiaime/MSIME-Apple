@@ -1173,4 +1173,15 @@ mod tests {
             7
         );
     }
+
+    #[test]
+    fn floating_toolbar_component_defaults_and_roundtrip() {
+        let defaults = Preferences::default().floating_toolbar;
+        assert!(defaults.enabled && defaults.fullwidth && defaults.punctuation);
+        assert!(defaults.character_set && defaults.emoji && defaults.settings);
+        assert!(!defaults.screen_keyboard);
+        let json = serde_json::to_string(&Preferences::default()).unwrap();
+        let restored: Preferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.floating_toolbar, defaults);
+    }
 }
