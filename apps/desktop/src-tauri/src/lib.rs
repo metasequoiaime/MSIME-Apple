@@ -21,6 +21,18 @@ struct ExternalSkinSummary {
     compatible: bool,
 }
 
+#[derive(Debug, serde::Deserialize, Default)]
+#[serde(default)]
+struct SkinManifest {
+    name: Option<String>,
+    version: Option<String>,
+    author: Option<String>,
+    description: Option<String>,
+    base: Option<String>,
+    layouts: Vec<String>,
+    themes: Vec<String>,
+}
+
 fn skin_directory(app: &tauri::AppHandle) -> Result<PathBuf, HostActionError> {
     app.path()
         .app_data_dir()
@@ -86,32 +98,26 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             Ok(text) => text,
             Err(_) => continue,
         };
-        let field = |name: &str| {
-            text.lines().find_map(|line| {
-                let (key, value) = line.split_once('=')?;
-                if key.trim() != name {
-                    return None;
-                }
-                Some(value.trim().trim_matches('"').to_string())
-            })
+        let manifest: SkinManifest = match toml::from_str(&text) {
+            Ok(manifest) => manifest,
+            Err(_) => continue,
         };
         let compatible = matches!(
-            field("base").as_deref(),
+            manifest.base.as_deref(),
             Some("fluent" | "wechat" | "graphite" | "willow_green")
-        ) && field("layouts")
-            .map(|value| value.contains("horizontal") && value.contains("vertical"))
-            .unwrap_or(false)
-            && field("themes")
-                .map(|value| value.contains("dark") && value.contains("light"))
-                .unwrap_or(false);
+        ) && manifest.layouts.iter().any(|value| value == "horizontal")
+            && manifest.layouts.iter().any(|value| value == "vertical")
+            && manifest.themes.iter().any(|value| value == "dark")
+            && manifest.themes.iter().any(|value| value == "light");
         result.push(ExternalSkinSummary {
-            name: field("name")
+            name: manifest
+                .name
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| id.clone()),
             id,
-            version: field("version"),
-            author: field("author"),
-            description: field("description"),
+            version: manifest.version,
+            author: manifest.author,
+            description: manifest.description,
             compatible,
         });
     }
