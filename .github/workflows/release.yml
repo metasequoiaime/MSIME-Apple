@@ -14,6 +14,14 @@ on:
         description: Prepare and publish the next semantic version with release-please (leave tag empty)
         type: boolean
         default: false
+      platform:
+        description: Platforms a new build covers (leave tag empty to create one; an existing tag already names its own)
+        type: choice
+        default: both
+        options:
+          - both
+          - macos
+          - ios
 
 permissions:
   contents: read
@@ -44,13 +52,20 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
           BUMP_VERSION: ${{ inputs.bump_version }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             if [[ "$BUMP_VERSION" == true ]]; then
               test -z "$REQUESTED_TAG"
-            else
-              test -n "$REQUESTED_TAG"
+            fi
+            # A release carries its platforms in its name, so only a run that creates its own draft
+            # still has that choice to make. A promotion is always the complete release under the
+            # bare vX.Y.Z that release-please and Sparkle key on, and an existing draft was named
+            # when it was created; letting the input disagree with either would publish one
+            # platform's assets into a release whose name promises the other.
+            if [[ "$BUMP_VERSION" == true || -n "$REQUESTED_TAG" ]]; then
+              test "$REQUESTED_PLATFORM" = both
             fi
           fi
       - name: Allocate build number
@@ -81,38 +96,55 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
         run: |
-          # A release builds the platforms whose sources moved. Everything both of them compile --
+          # A push builds the platforms whose sources moved. Everything both of them compile --
           # shared code, the engine, the build system, the release automation itself -- reaches
           # both, and so does anything unrecognised. The bias is deliberate: publishing a platform
           # that did not change costs one build, while skipping one that did ships a fix that never
           # reaches its users.
           macos=false
           ios=false
-          changed=""
-          if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
-                "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
-              --jq '.files[].filename'); then
-              printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
-              changed=""
-            fi
-          fi
-          if [[ -z "$changed" ]]; then
-            # A manual run names a tag rather than a range, and a first push has no predecessor.
-            # Neither can be classified, so both platforms are built.
-            macos=true
-            ios=true
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            # A manual run has no range of paths to classify, so it is told rather than inferred.
+            # An existing draft already carries its platforms in its name, and the packaging and
+            # publishing scripts read that name, so the tag decides whenever there is one.
+            selection=$REQUESTED_PLATFORM
+            case "$REQUESTED_TAG" in
+              macos-*) selection=macos ;;
+              ios-*) selection=ios ;;
+            esac
+            case "$selection" in
+              macos) macos=true ;;
+              ios) ios=true ;;
+              *) macos=true; ios=true ;;
+            esac
           else
-            while IFS= read -r path; do
-              [[ -n "$path" ]] || continue
-              case "$path" in
-                platforms/ios/*) ios=true ;;
-                platforms/macos/*) macos=true ;;
-                docs/*|licenses/*|*.md|LICENSE|.mailmap|.gitignore) ;;
-                *) macos=true; ios=true ;;
-              esac
-            done <<< "$changed"
+            changed=""
+            if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
+                  "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+              if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
+                --jq '.files[].filename'); then
+                printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
+                changed=""
+              fi
+            fi
+            if [[ -z "$changed" ]]; then
+              # A first push has no predecessor to compare against, so it cannot be classified.
+              macos=true
+              ios=true
+            else
+              while IFS= read -r path; do
+                [[ -n "$path" ]] || continue
+                case "$path" in
+                  platforms/ios/*) ios=true ;;
+                  platforms/macos/*) macos=true ;;
+                  docs/*|licenses/*|*.md|LICENSE|.mailmap|.gitignore) ;;
+                  *) macos=true; ios=true ;;
+                esac
+              done <<< "$changed"
+            fi
           fi
           if [[ "$macos" != true && "$ios" != true ]]; then
             # A push to main is a deliberate promotion, so publish both rather than nothing.
@@ -121,20 +153,31 @@ jobs:
           fi
           printf 'Publishing macOS: %s\nPublishing iOS: %s\n' "$macos" "$ios"
           printf 'macos=%s\nios=%s\n' "$macos" "$ios" >> "$GITHUB_OUTPUT"
-      - name: Create automatic build draft
-        if: ${{ github.event_name == 'push' }}
+      - name: Create the build draft
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag == '') }}
         id: build_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+          RELEASE_MACOS: ${{ steps.platforms.outputs.macos }}
+          RELEASE_IOS: ${{ steps.platforms.outputs.ios }}
         run: |
           version=$(cat version.txt)
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid version.txt" >&2
             exit 1
           fi
+          # A build that covers one platform says so in its tag. Sharing one sequence across two
+          # products that now release apart leaves a reader scanning the list to find which entries
+          # carry the platform they run. A build covering both keeps the bare name, which reads as
+          # the complete release it is; only the promoted versions have no -build. suffix, so the
+          # two cannot be confused.
           tag="v$version-build.$BUILD_NUMBER"
+          case "$RELEASE_MACOS:$RELEASE_IOS" in
+            true:false) tag="macos-$tag" ;;
+            false:true) tag="ios-$tag" ;;
+          esac
           gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --draft --prerelease
           printf 'release_created=true\ntag_name=%s\ntarget_sha=%s\n' "$tag" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       - name: Capture existing release branch
@@ -195,14 +238,14 @@ jobs:
           TAG_NAME: ${{ steps.promote_release_commit.outputs.tag_name }}
         run: bash platforms/macos/scripts/create-promoted-release.sh
       - name: Validate requested draft release
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag != '' }}
         id: requested_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
             echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
             exit 1
           fi
@@ -219,7 +262,9 @@ jobs:
           fi
           target_sha=$target
           version=$(gh api "repos/$GH_REPO/contents/version.txt?ref=$target_sha" --jq .content | base64 --decode)
-          if [[ "${TAG_NAME%%-build.*}" != "v$version" ]]; then
+          bare=${TAG_NAME#macos-}
+          bare=${bare#ios-}
+          if [[ "${bare%%-build.*}" != "v$version" ]]; then
             echo "Release $TAG_NAME does not match version.txt ($version)." >&2
             exit 1
           fi
@@ -337,7 +382,9 @@ jobs:
             echo 'Unsigned release: skipping Developer ID signature verification before packaging.'
           fi
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
-          version=${TAG_NAME#v}
+          version=${TAG_NAME#macos-}
+          version=${version#ios-}
+          version=${version#v}
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${version%%-build.*}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/MetasequoiaIME.app/Contents/Info.plist)" = "$METASEQUOIA_BUILD_NUMBER"
       - name: Package release
@@ -495,7 +542,9 @@ jobs:
             "$sparkle_archive" | shasum -a 256 --check
           mkdir -p "$sparkle_root"
           tar -xJf "$sparkle_archive" -C "$sparkle_root"
-          update_archive="dist/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX-update.zip"
+          asset_tag=${TAG_NAME#macos-}
+          asset_tag=${asset_tag#ios-}
+          update_archive="dist/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX-update.zip"
           SPARKLE_TOOLS_DIR="$sparkle_root/bin" \
             exec "$RUNNER_TEMP/generate-sparkle-appcast.sh" "$TAG_NAME" "$update_archive" dist/appcast.xml
       - name: Skip Sparkle appcast without an update key

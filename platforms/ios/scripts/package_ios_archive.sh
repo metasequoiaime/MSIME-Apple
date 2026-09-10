@@ -23,11 +23,15 @@ if [[ "$output_dir" != /* ]]; then
     output_dir="$(pwd)/$output_dir"
 fi
 
-if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
     printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
-version=${tag_name#v}
+# A single-platform build carries its platform ahead of the v, so it has to come off before the
+# version does: ${tag_name#v} alone would leave macos-v0.48.6 and ship that as a version.
+version=${tag_name#macos-}
+version=${version#ios-}
+version=${version#v}
 version=${version%%-build.*}
 
 for tool in git pod xcodegen xcodebuild ditto shasum; do
@@ -138,7 +142,12 @@ if [[ "$extension_version" != "$version" ]]; then
     exit 1
 fi
 
-bundle="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.xcarchive.zip"
+# The platform already appears later in every artifact name, so a prefixed tag would repeat it:
+# MetasequoiaIME-macos-v0.48.6-...-macos-universal.pkg. The prefix belongs to the tag, which
+# distinguishes releases from each other, not to files inside one release.
+asset_tag=${tag_name#macos-}
+asset_tag=${asset_tag#ios-}
+bundle="$output_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
 rm -f -- "$bundle" "$bundle.sha256"
 ditto -c -k --keepParent "$archive_path" "$bundle"
 
@@ -160,7 +169,7 @@ if [[ ! -x "$staged_extension/MetasequoiaKeyboard" || ! -s "$staged_extension/ms
     exit 1
 fi
 
-ipa="$output_dir/MetasequoiaIME-$tag_name-ios-unsigned.ipa"
+ipa="$output_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
 rm -f -- "$ipa" "$ipa.sha256"
 # zip rather than ditto: ditto writes AppleDouble ._ entries beside the payload, and an .ipa is
 # consumed by tools that do not expect them.

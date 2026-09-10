@@ -6,9 +6,10 @@ set -euo pipefail
 : "${SIGNING_ENABLED:?SIGNING_ENABLED is required}"
 # push means an automatic per-merge build, anything else means somebody asked for this one. GitHub has no channel concept, so the two states it does have carry the two channels: automatic builds are prereleases, deliberate ones are ordinary releases and the newest of those takes the Latest badge. Before this the two were indistinguishable and the badge simply followed whatever merged last. Kept in step with MSIME-Windows#167.
 : "${RELEASE_TRIGGER:?RELEASE_TRIGGER is required}"
-# Which platforms this run publishes. The release workflow decides from the paths that changed;
-# a platform that is not covered contributes no artifacts and no release notes, while a covered
-# one still requires all of its files so a silently failed packaging step is caught here.
+# Which platforms this run publishes. A push classifies the paths that changed and a manual run is
+# told; either way a platform that is not covered contributes no artifacts and no release notes,
+# while a covered one still requires all of its files so a silently failed packaging step is caught
+# here.
 : "${RELEASE_MACOS:?RELEASE_MACOS is required}"
 : "${RELEASE_IOS:?RELEASE_IOS is required}"
 for flag in "$RELEASE_MACOS" "$RELEASE_IOS"; do
@@ -53,32 +54,36 @@ case "$SIGNING_ENABLED:$ASSET_SUFFIX" in
         ;;
 esac
 
-if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
     printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
 
-archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.zip"
-update_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX-update.zip"
-installer="$dist_dir/MetasequoiaIME-$TAG_NAME-macos-universal$ASSET_SUFFIX.pkg"
+# Must match how the packaging scripts name their output: the platform prefix stays on the tag and
+# out of the file names, which already carry a platform segment of their own.
+asset_tag=${TAG_NAME#macos-}
+asset_tag=${asset_tag#ios-}
+archive="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX.zip"
+update_archive="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX-update.zip"
+installer="$dist_dir/MetasequoiaIME-$asset_tag-macos-universal$ASSET_SUFFIX.pkg"
 appcast="$dist_dir/appcast.xml"
 if [[ "$IOS_TESTFLIGHT_ENABLED" == true ]]; then
-    ios_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip"
-    ios_ipa="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa"
+    ios_archive="$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip"
+    ios_ipa="$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa"
     opposite_ios_artifacts=(
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip.sha256"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa.sha256"
     )
 else
-    ios_archive="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.xcarchive.zip"
-    ios_ipa="$dist_dir/MetasequoiaIME-$TAG_NAME-ios-unsigned.ipa"
+    ios_archive="$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.xcarchive.zip"
+    ios_ipa="$dist_dir/MetasequoiaIME-$asset_tag-ios-unsigned.ipa"
     opposite_ios_artifacts=(
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.xcarchive.zip.sha256"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa"
-        "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.xcarchive.zip.sha256"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa"
+        "$dist_dir/MetasequoiaIME-$asset_tag-ios-testflight.ipa.sha256"
     )
 fi
 artifacts=()
@@ -115,9 +120,13 @@ done
             return 1
         fi
     }
-    verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
-    verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
-    verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
+    # Only what this release covers: a platform that was never packaged has no file here to hash,
+    # and shasum would fail on the missing name rather than report anything about the release.
+    if [[ "$RELEASE_MACOS" == true ]]; then
+        verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
+        verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
+        verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
+    fi
     if [[ "$RELEASE_IOS" == true ]]; then
         verify_checksum_manifest "$(basename "$ios_archive")" "$(basename "$ios_archive.sha256")"
         verify_checksum_manifest "$(basename "$ios_ipa")" "$(basename "$ios_ipa.sha256")"

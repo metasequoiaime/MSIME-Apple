@@ -751,6 +751,34 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertFalse((PROJECT_ROOT / "SECURITY.md").exists())
         self.assertIn("PRIVACY.md", readme)
 
+    def test_a_manual_run_can_release_one_platform_on_its_own(self):
+        workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+
+        # Path classification only ever runs on a push, so before this the two products could not
+        # be released apart deliberately: it took a merge that happened to touch one of them.
+        self.assertIn("      platform:\n", workflow)
+        self.assertIn("          - macos\n          - ios\n", workflow)
+        # A dispatch that names no tag creates its own draft rather than requiring one to exist,
+        # and that is the step which puts the platform prefix on the tag.
+        self.assertIn(
+            "        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch'"
+            " && !inputs.bump_version && inputs.tag == '') }}\n",
+            workflow,
+        )
+        # Validating a requested draft must not run when there is no tag to validate.
+        self.assertIn(
+            "        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version"
+            " && inputs.tag != '' }}\n",
+            workflow,
+        )
+        # A platform that is not covered is never packaged, so nothing in the publishing script may
+        # reach for one of its files. The checksum block used to hash the macOS artifacts
+        # unconditionally and died on the missing name before the release was ever touched.
+        publisher = (MACOS_ROOT / "scripts/publish-release.sh").read_text()
+        verification = publisher.split("verify_checksum_manifest() {", 1)[1]
+        for guard in ('if [[ "$RELEASE_MACOS" == true ]]; then', 'if [[ "$RELEASE_IOS" == true ]]; then'):
+            self.assertIn(guard, verification)
+
     def test_testflight_signing_configuration_is_required_when_enabled(self):
         workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
 
