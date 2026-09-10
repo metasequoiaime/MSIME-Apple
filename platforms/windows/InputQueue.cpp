@@ -29,6 +29,7 @@ InputState::InputState(FocusGate &gate, size_t clients, std::string options)
   const auto document = nlohmann::json::parse(options_);
   navigation_ = preference_navigation(document.value("preferences", nlohmann::json::object()));
   word_character_ = preference_word_character(document.value("preferences", nlohmann::json::object()));
+  tsf_preedit_style_ = preference_tsf_preedit_style(document.value("preferences", nlohmann::json::object()));
 }
 InputState::~InputState() { shutdown(); }
 void InputState::shutdown() noexcept {
@@ -199,9 +200,11 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   const auto document = nlohmann::json::parse(snapshot.serialized()).at("preferences");
   const auto navigation = preference_navigation(document);
   const auto word = preference_word_character(document);
+  const auto style = preference_tsf_preedit_style(document);
   preferences_ = snapshot;
   navigation_ = navigation;
   word_character_ = word;
+  tsf_preedit_style_ = style;
   for (auto &[id, client] : clients_) {
     (void)id;
     client.session->queue_current_preferences(snapshot.serialized());

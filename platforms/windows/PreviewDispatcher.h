@@ -7,11 +7,11 @@ namespace msime::windows {
 inline SessionPump::KeyHandler
 preview_key_handler(const PreviewConfig &config) {
   return
-      [style = config.style, navigation = config.navigation,
+      [navigation = config.navigation,
        explicit_keys = config.explicit_key_bindings,
        word = config.word_character](InputState &state, const FocusLease &focus,
                                      const FanyImeNamedpipeData &packet) {
-        return state.configured_key(focus, packet, style,
+        return state.configured_key(focus, packet, state.tsf_preedit_style(),
                                     explicit_keys ? navigation
                                                   : state.navigation_bindings(),
                                     std::nullopt, explicit_keys ? word : state.word_character_binding());
