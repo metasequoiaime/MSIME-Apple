@@ -83,6 +83,7 @@ pub struct Candidate {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    pub scheme: u8,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub microsoft_shuangpin: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
@@ -101,9 +102,17 @@ pub struct View {
 }
 
 #[derive(Debug, Serialize)]
+pub struct OutputContext {
+    pub scheme: u8,
+    pub local_mode: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct Transition {
     pub handled: bool,
     pub commit: Option<String>,
+    /// Mode before dispatch; committing may clear a local mode or apply deferred settings.
+    pub commit_context: Option<OutputContext>,
     pub diagnostic: Option<String>,
     pub view: View,
 }
@@ -169,6 +178,7 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            scheme: self.cached.scheme,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
@@ -252,6 +262,10 @@ impl<E: InputEngine> Runtime<E> {
 
     fn transition(&self, result: EngineResult) -> Transition {
         Transition {
+            commit_context: result.has_commit.then(|| OutputContext {
+                scheme: self.cached.scheme,
+                local_mode: self.cached.local_mode.clone(),
+            }),
             handled: result.handled,
             commit: result.has_commit.then_some(result.commit),
             diagnostic: (!result.diagnostic.is_empty()).then_some(result.diagnostic),
@@ -265,6 +279,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous = std::mem::replace(
             &mut self.cached,
             EngineSnapshot {
+                scheme: 255,
                 microsoft_shuangpin: false,
                 local_mode: "unknown".into(),
                 preedit: String::new(),
@@ -278,6 +293,7 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
+            && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
             && self.cached.candidates == previous.candidates
         {
@@ -375,6 +391,10 @@ impl<E: InputEngine> Runtime<E> {
             self.highlighted = index;
             return Ok(self.transition(empty_result(true)));
         }
+        let commit_context = OutputContext {
+            scheme: self.cached.scheme,
+            local_mode: self.cached.local_mode.clone(),
+        };
         let result = match action {
             Action::Punctuation(value) => self.punctuation(value),
             Action::Finish => self.engine.finish(self.highlighted),
@@ -408,7 +428,11 @@ impl<E: InputEngine> Runtime<E> {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
-        Ok(self.transition(result))
+        let mut transition = self.transition(result);
+        if transition.commit.is_some() {
+            transition.commit_context = Some(commit_context);
+        }
+        Ok(transition)
     }
 }
 
@@ -458,6 +482,7 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
+                scheme: 0,
                 microsoft_shuangpin: false,
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
@@ -483,6 +508,7 @@ mod tests {
         }
         fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.local_mode = "none".into();
             Ok(EngineResult {
                 handled: true,
                 has_commit: true,
@@ -826,6 +852,31 @@ mod tests {
         assert_eq!(result.view.local_mode, "unicode");
         assert_eq!(result.view.page, 0);
         assert!(!result.view.editing_text.starts_with('U'));
+    }
+
+    #[test]
+    fn commit_context_precedes_mode_reset_for_every_selection_route() {
+        for route in 0..5 {
+            let mut runtime = runtime();
+            runtime.focus(true).unwrap();
+            runtime.engine.local_mode = "unicode".into();
+            let view = type_key(&mut runtime).view;
+            let id = view.candidates[0].id;
+            let action = match route {
+                0 => Action::Select(id),
+                1 => Action::SelectEdge(id, CandidateEdge::FirstHan),
+                2 => Action::SelectHighlighted,
+                3 => Action::Finish,
+                _ => Action::Character {
+                    value: b'1',
+                    shift: false,
+                },
+            };
+            let committed = runtime.dispatch(action).unwrap();
+            assert!(committed.commit.is_some());
+            assert_eq!(committed.commit_context.unwrap().local_mode, "unicode");
+            assert_eq!(committed.view.local_mode, "none");
+        }
     }
 
     #[test]

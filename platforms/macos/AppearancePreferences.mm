@@ -9,6 +9,7 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
+static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 
 @implementation MSIMEAppearancePreferences {
@@ -67,6 +68,11 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 }
 - (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
+- (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
+- (void)setTraditionalOutput:(BOOL)value {
+    [_defaults setBool:value forKey:TraditionalKey];
+    [self preferencesChanged];
+}
 - (void)setEnglishMode:(BOOL)value {
     [_defaults setBool:value forKey:EnglishKey];
     [self preferencesChanged];

@@ -21,6 +21,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 // Native routing preferences; English passes keys through without preparing Engine.
 @property(nonatomic) BOOL englishMode;
 @property(nonatomic) BOOL inputModeShortcut;
+@property(nonatomic) BOOL traditionalOutput;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

@@ -112,10 +112,10 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:panel forKey:@"panel"];
     [controller setValue:session forKey:@"session"];
     NSMenu *menu = controller.menu;
-    assert(menu.numberOfItems == 5 && !menu.autoenablesItems);
+    assert(menu.numberOfItems == 8 && !menu.autoenablesItems);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert([[menu itemAtIndex:3].title isEqual:@"表情与符号…"]);
+    assert([[menu itemAtIndex:6].title isEqual:@"表情与符号…"]);
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
@@ -531,7 +531,7 @@ int main() {
             uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
             assert(session.lastCommand == expected);
         }
-        assert([controller menu].numberOfItems == 5);
+        assert([controller menu].numberOfItems == 8);
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
@@ -570,6 +570,42 @@ int main() {
             assert(![controller handleEvent:event client:client]);
             assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
         }
+        // Script selection changes only native display/commit strings, not Engine state or IDs.
+        assert(!appearance.traditionalOutput);
+        assert([MSIMEChineseOutputString(@"汉语", YES) isEqual:@"漢語"]);
+        assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
+        NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
+        [controller setValue:[scriptView copy] forKey:@"view"];
+        NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
+        [controller selectTraditionalOutput:nil];
+        [controller appearanceChanged:nil];
+        assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
+        assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] traditionalOutput]);
+        MSIMECandidateButton *scriptButton = PageButton(layoutPanel.contentView, 0);
+        assert([scriptButton.toolTip isEqual:@"漢語"] && [scriptButton.title containsString:@"漢語"]);
+        assert([scriptButton.candidateID isEqual:scriptView[@"candidates"][0][@"id"]]);
+        assert([[controller valueForKey:@"view"] isEqual:preserved]);
+        NSUInteger contextIndex = 0;
+        for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{}]) {
+            BOOL convert = contextIndex++ < 2;
+            assert(MSIMEScriptConversionApplies(context) == convert);
+            NSMutableDictionary *candidateView = [scriptView mutableCopy];
+            [candidateView addEntriesFromDictionary:context];
+            if (context.count == 0) [candidateView removeObjectForKey:@"scheme"];
+            [controller setValue:candidateView forKey:@"view"];
+            [controller renderCandidates];
+            scriptButton = PageButton(layoutPanel.contentView, 0);
+            assert([scriptButton.toolTip isEqual:convert ? @"漢語" : @"汉语"]);
+            // Post-commit view has already reset its mode and may have applied another scheme.
+            NSDictionary *transition = @{@"handled": @YES, @"commit": @"汉语", @"commit_context": context, @"view": @{@"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"candidates": @[]}};
+            [controller apply:transition];
+            assert([client.committed isEqual:convert ? @"漢語" : @"汉语"]);
+            assert([transition[@"commit"] isEqual:@"汉语"]);
+        }
+        [controller selectSimplifiedOutput:nil];
+        assert([controller.menu itemAtIndex:3].state == NSControlStateValueOn);
+        [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
+        assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         [defaults removePersistentDomainForName:suite];
     }
