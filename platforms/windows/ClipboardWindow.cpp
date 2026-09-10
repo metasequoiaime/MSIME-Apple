@@ -4,7 +4,7 @@
 #include <windowsx.h>
 
 namespace msime::windows {
-ClipboardWindow::ClipboardWindow(Reader reader, Click click, Remove remove) : reader_(std::move(reader)), click_(std::move(click)), remove_(std::move(remove)) {
+ClipboardWindow::ClipboardWindow(Reader reader, Click click, Remove remove, Clear clear) : reader_(std::move(reader)), click_(std::move(click)), remove_(std::move(remove)), clear_(std::move(clear)) {
   WNDCLASSW klass{}; klass.hInstance = GetModuleHandleW(nullptr); klass.lpfnWndProc = procedure; klass.lpszClassName = L"MSIMEClientClipboardWindow";
   RegisterClassW(&klass);
   window_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, klass.lpszClassName, L"Clipboard", WS_POPUP | WS_BORDER, 0, 0, 420, 320, nullptr, nullptr, klass.hInstance, this);
@@ -29,6 +29,7 @@ LRESULT CALLBACK ClipboardWindow::procedure(HWND window, UINT message, WPARAM wp
   if (message == WM_PAINT) { self->paint(); return 0; }
   if (message == WM_LBUTTONUP && self->shown_) { const size_t index = static_cast<size_t>(GET_Y_LPARAM(lparam) / 26); if (index < self->shown_->items.size() && self->click_) self->click_(index); return 0; }
   if (message == WM_RBUTTONUP && self->shown_) { const size_t index = static_cast<size_t>(GET_Y_LPARAM(lparam) / 26); if (index < self->shown_->items.size() && self->remove_) self->remove_(index); return 0; }
+  if (message == WM_KEYDOWN && wparam == VK_DELETE && (GetKeyState(VK_CONTROL) & 0x8000) && self->clear_) { self->clear_(); return 0; }
   if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
   return DefWindowProcW(window, message, wparam, lparam);
 }
