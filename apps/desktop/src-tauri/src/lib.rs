@@ -529,6 +529,17 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+        if !child
+            .wait()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .success()
+        {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
         return Ok(());
     }
     #[cfg(target_os = "linux")]
@@ -550,6 +561,17 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+        if !child
+            .wait()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .success()
+        {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
         return Ok(());
     }
     #[cfg(target_os = "windows")]
@@ -570,6 +592,17 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+        if !child
+            .wait()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .success()
+        {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
         return Ok(());
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
