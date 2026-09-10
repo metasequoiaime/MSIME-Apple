@@ -16,9 +16,15 @@
 
 ## 当前证据
 
+### Linux 设置自动重读
+
+按最新 Linux 迁移目标补齐 IBus 活动会话的共享设置同步。每秒通过 GTask 后台调用共享非阻塞读取 API，完成后回 GLib 主线程核对会话并更新；输入算法和组合期间的延迟应用仍归 Engine/共享运行时。读取失败、写锁占用、旧版本均保留会话；私密输入覆盖 learning=false，关闭会话后的异步结果不发布。未配置 preferences_directory 的启动文件仍按快照工作。
+
+Debian bookworm arm64、IBus 1.5.27 容器内真实共享 Rust/C++ 库、共享 Rust 测试、IBus D-Bus 宿主测试与 daemon/factory 输入上下文测试通过。新增回归覆盖组合期间保留旧候选页、reset 后采用新页大小、损坏文件保留、旧 revision 拒绝、写锁占用及释放恢复；实际选词排序验证私密会话不学习、切回普通会话后恢复配置的置顶学习。将新测试链接改动前的 ClientEngine.cpp，实测在延迟设置应用断言失败。未执行 GTK/Qt 编辑器、X11/Wayland 或安装验收，完整 Linux 迁移继续；CI 保持手动禁用。
+
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-后续实施优先级由用户明确为 **Windows → macOS → iOS → Linux**。已合并的 Android/Linux 增量保留，Linux 自动重读尚未开工，暂停继续追加；接下来先推进 Windows 的共享运行时接入，保留 TSF DLL / Server 边界，再按上述顺序推进其他端，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
+用户最新要求以 MSIME-Windows 完整功能为基线迁移 Linux，并适配 Linux 平台特性；当前优先推进 Linux，保留已合并的平台成果。上游实际默认分支 develop 固定提交为 `0eaa35eed1dd699b28883068f2909afe3a5902da`。下方各条记录是历史成果，不代表后续排期；完整迁移包含共享功能、Linux 系统入口及原生产品验收，不能以容器测试代替桌面验收。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
