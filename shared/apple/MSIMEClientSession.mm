@@ -26,6 +26,12 @@ static NSDictionary *decode(char *response, NSError **error) {
 @implementation MSIMEClientSession {
     uint64_t _handle;
 }
++ (NSDictionary *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"词典请求格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"词典请求过大"); return nil; }
+    return decode(msime_client_dictionary(data.bytes, data.length), error);
+}
 - (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
