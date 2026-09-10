@@ -34,6 +34,8 @@ pub struct Preferences {
     #[serde(default)]
     pub candidate_theme: SettingsTheme,
     #[serde(default)]
+    pub candidate_layout: CandidateLayout,
+    #[serde(default)]
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
@@ -83,6 +85,10 @@ pub enum ThemeMode { #[default] Dark, Light, System }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingsTheme { #[default] Follow, Dark, Light }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateLayout { Horizontal, #[default] Vertical }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -228,6 +234,7 @@ impl Default for Preferences {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
+            candidate_layout: CandidateLayout::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
