@@ -7,6 +7,7 @@ const defaultHelpcode: HelpcodePreferences = { enabled: true, schema: "ziranma" 
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
+  { id: "skin", title: "皮肤", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -266,6 +267,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><div className="section-header"><span className="section-title">候选窗预编辑字号</span><CustomDropdown ariaLabel="候选窗预编辑字号" value={String(draft.candidate_preedit_font_size ?? 16)} options={Array.from({ length: 21 }, (_, index) => { const size = String(index + 12); return [size, size] as [string, string]; })} onChange={value => setDraft({ ...draft, candidate_preedit_font_size: Number(value) })} /></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选文字颜色<small>留空时跟随系统主题</small></span><span><input aria-label="候选文字颜色" type="color" value={draft.candidate_text_color ?? "#ffffff"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} /> <button type="button" className="secondary" onClick={() => setDraft({ ...draft, candidate_text_color: null })}>跟随主题</button></span></label></div>
         <div className="section"><div className="section-header"><span className="section-title">每页候选数量</span><CustomDropdown ariaLabel="每页候选数量" value={String(draft.candidate_page_size)} options={Array.from({ length: 9 }, (_, index) => { const size = String(index + 1); return [size, size] as [string, string]; })} onChange={value => setDraft({ ...draft, candidate_page_size: Number(value) })} /></div></div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
+        <div className="section skin-intro"><div className="section-title">候选窗口皮肤</div><small>选择候选窗口的颜色主题；保存后应用于原生候选窗口。</small></div>
+        <div className="skin-grid" role="radiogroup" aria-label="候选窗口皮肤">
+          {([['follow', '跟随全局', '使用主题模式的颜色'], ['dark', '深色', '深色背景与浅色文字'], ['light', '浅色', '浅色背景与深色文字']] as const).map(([value, label, description]) => <button type="button" className={`skin-card${(draft.candidate_theme ?? "follow") === value ? " selected" : ""}`} role="radio" aria-checked={(draft.candidate_theme ?? "follow") === value} key={value} onClick={() => setDraft({ ...draft, candidate_theme: value })}><span className={`skin-swatch skin-swatch-${value}`} aria-hidden="true" /><span className="skin-card-title">{label}</span><small>{description}</small></button>)}
+        </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">

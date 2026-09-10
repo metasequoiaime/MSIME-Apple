@@ -125,6 +125,18 @@ test("wubi scheme uses the custom dropdown control", async () => {
   expect((await screen.findByRole("button", { name: "五笔方案" })).textContent).toContain("86 五笔");
 });
 
+test("skin page selects and persists candidate theme", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  const dark = (await screen.findAllByRole("radio", { name: /深色/ }))[0];
+  fireEvent.click(dark);
+  expect(dark.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_theme: "dark" });
+});
+
 test("inline preedit style uses the custom dropdown and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
