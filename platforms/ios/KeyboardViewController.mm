@@ -52,9 +52,4 @@
     [self apply:[self.session command:MSIME_BACKSPACE error:nil]];
 }
 
-- (void)advanceToNextInputMode:(id)sender {
-    (void)sender;
-    [super advanceToNextInputMode:sender];
-}
-
 @end
