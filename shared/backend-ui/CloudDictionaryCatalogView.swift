@@ -27,7 +27,7 @@ struct CloudDictionaryCatalogView: View {
           if scheme == "shuangpin" {
             Picker("双拼方案", selection: $profile) {
               Text("小鹤").tag("xiaohe"); Text("自然码").tag("ziranma")
-              Text("微软").tag("microsoft"); Text("Shoudao").tag("shoudao")
+              Text("微软").tag("microsoft"); Text("首道").tag("shoudao")
             }
           }
         }
