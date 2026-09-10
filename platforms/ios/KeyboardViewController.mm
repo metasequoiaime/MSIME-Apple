@@ -160,6 +160,9 @@
             [labels addObject:[NSString stringWithFormat:@"%lu.%@%@%@", (unsigned long)(index + 1), marker, text, suffix]];
             UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
             [button setTitle:text forState:UIControlStateNormal];
+            button.accessibilityLabel = [NSString stringWithFormat:@"候选 %lu：%@", (unsigned long)(index + 1), text];
+            if ([candidate[@"highlighted"] boolValue])
+                button.accessibilityTraits |= UIAccessibilityTraitSelected;
             NSDictionary *binding = @{
                 @"generation": candidate[@"id"][@"generation"] ?: @0,
                 @"index": candidate[@"id"][@"index"] ?: @(index),
