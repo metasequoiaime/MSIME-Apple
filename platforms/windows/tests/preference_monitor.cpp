@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <atomic>
 
 namespace {
 void require(bool value, const char *message) {
@@ -60,7 +61,13 @@ void preference_monitor_tests(const std::string &options,
   } guard{release};
   auto filler = input.submit([](InputState &) {});
   require(filler.has_value(), "Synthetic queue fill failed");
-  PreferenceMonitor monitor(input, directory, std::chrono::milliseconds(10));
+  std::atomic<unsigned> callbacks{0};
+  std::atomic<uint64_t> published_revision{0};
+  PreferenceMonitor monitor(input, directory, std::chrono::milliseconds(10),
+                            [&](const PreferenceSnapshot &snapshot) {
+                              published_revision.store(snapshot.revision());
+                              callbacks.fetch_add(1);
+                            });
   // Stop monitor before Release unwinds: its pending tasks capture only values,
   // and stopping never waits for an input publication receipt.
   await([&] { return monitor.status() == PreferenceMonitorStatus::QueueFull; });
@@ -69,6 +76,8 @@ void preference_monitor_tests(const std::string &options,
               filler->get() == InputTaskStatus::Completed,
           "Synthetic queue unblock failed");
   await([&] { return monitor.status() == PreferenceMonitorStatus::Current; });
+  require(callbacks.load() == 1 && published_revision.load() == 2,
+          "Published preference callback was not confirmed after apply");
   const auto completed = input.stats().completed;
   std::this_thread::sleep_for(std::chrono::milliseconds(60));
   require(input.stats().completed == completed,
@@ -108,6 +117,8 @@ void preference_monitor_tests(const std::string &options,
   document["revision"] = 3;
   write(document.dump());
   await([&] { return monitor.status() == PreferenceMonitorStatus::Current; });
+  require(callbacks.load() == 2 && published_revision.load() == 3,
+          "Published preference callback did not observe the new revision");
   input.stop();
   await([&] { return monitor.failed(); });
   monitor.stop();
