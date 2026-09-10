@@ -48,6 +48,8 @@ pub struct Preferences {
     pub candidate_preedit_font_size: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_text_color: Option<String>,
+    #[serde(default = "default_candidate_font_family")]
+    pub candidate_font_family: String,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -214,6 +216,7 @@ fn enabled_by_default() -> bool {
     true
 }
 fn default_candidate_font_size() -> u8 { 16 }
+fn default_candidate_font_family() -> String { "Segoe UI".to_owned() }
 
 impl Default for Preferences {
     fn default() -> Self {
@@ -229,6 +232,7 @@ impl Default for Preferences {
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_font_size(),
             candidate_text_color: None,
+            candidate_font_family: default_candidate_font_family(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -330,6 +334,10 @@ impl Preferences {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
+        if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 ||
+            !self.candidate_font_family.is_ascii() {
+            return Err(PreferencesError::InvalidCandidateFontFamily);
+        }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
             WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
@@ -367,6 +375,8 @@ pub enum PreferencesError {
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
     InvalidCandidateTextColor,
+    #[error("candidate font family must be non-empty ASCII and at most 128 bytes")]
+    InvalidCandidateFontFamily,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]

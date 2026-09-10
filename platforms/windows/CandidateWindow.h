@@ -14,7 +14,8 @@ public:
   using Click = std::function<void(const CandidateClick &)>;
   explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16,
                            unsigned preedit_font_size = 16,
-                           std::optional<COLORREF> text_color = std::nullopt);
+                           std::optional<COLORREF> text_color = std::nullopt,
+                           std::string font_family = "Segoe UI");
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -39,5 +40,6 @@ private:
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
   std::optional<COLORREF> text_color_;
+  std::wstring font_family_;
 };
 } // namespace msime::windows

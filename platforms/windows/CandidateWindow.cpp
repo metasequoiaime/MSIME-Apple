@@ -21,11 +21,11 @@ struct Font {
   HDC dc;
   HFONT font;
   HGDIOBJ previous;
-  Font(HDC target, int height)
+  Font(HDC target, int height, const wchar_t *family = L"Segoe UI")
       : dc(target), font(CreateFontW(-height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
                                      FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                     DEFAULT_PITCH, L"Segoe UI")),
+                                     DEFAULT_PITCH, family)),
         previous(nullptr) {
     if (!font)
       throw std::runtime_error("Candidate font unavailable");
@@ -68,9 +68,13 @@ struct Painting {
 } // namespace
 CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  unsigned preedit_font_size,
-                                 std::optional<COLORREF> text_color)
+                                 std::optional<COLORREF> text_color,
+                                 std::string font_family)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
-      preedit_font_size_(preedit_font_size), text_color_(text_color) {
+      preedit_font_size_(preedit_font_size), text_color_(text_color),
+      font_family_(wide(font_family)) {
+  if (font_family_.empty() || font_family_.size() > 128)
+    throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
@@ -183,11 +187,11 @@ void CandidateWindow::paint() {
   };
   {
     Font preedit_font(painting.dc, candidate_metrics(
-        GetDpiForWindow(window_), preedit_font_size_).font);
+        GetDpiForWindow(window_), preedit_font_size_).font, font_family_.c_str());
     line(wide(value->preedit), 0, false);
   }
   {
-    Font candidate_font(painting.dc, metrics.font);
+    Font candidate_font(painting.dc, metrics.font, font_family_.c_str());
     for (size_t i = 0; i < value->candidates.size(); ++i)
       line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
            i + 1, value->candidates[i].highlighted);

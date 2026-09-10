@@ -30,6 +30,7 @@ export type Preferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
+  candidate_font_family?: string;
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -76,6 +77,7 @@ function message(error: unknown): string {
       case "invalid": return "候选数量必须为 1 到 9。";
       case "candidate_font_size_invalid": return "候选窗字号必须为 12 到 32。";
       case "candidate_text_color_invalid": return "候选文字颜色格式无效。";
+      case "candidate_font_family_invalid": return "候选字体名称必须为非空 ASCII，且不超过 128 字节。";
       case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
       case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
@@ -206,6 +208,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="candidate-preview-card candidate-preview-horizontal"><span className="candidate-preview-item active"><b>1</b> 你好</span><span className="candidate-preview-item"><b>2</b> 你号</span><span className="candidate-preview-item"><b>3</b> 泥好</span></div>
         </div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗主字体<small>使用系统已安装字体名称</small></span><input aria-label="候选窗主字体" value={draft.candidate_font_family ?? "Segoe UI"} onChange={event => setDraft({ ...draft, candidate_font_family: event.target.value })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select value={draft.candidate_preedit_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选文字颜色<small>留空时跟随系统主题</small></span><span><input aria-label="候选文字颜色" type="color" value={draft.candidate_text_color ?? "#ffffff"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} /> <button type="button" className="secondary" onClick={() => setDraft({ ...draft, candidate_text_color: null })}>跟随主题</button></span></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
