@@ -128,13 +128,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+          RELEASE_MACOS: ${{ steps.platforms.outputs.macos }}
+          RELEASE_IOS: ${{ steps.platforms.outputs.ios }}
         run: |
           version=$(cat version.txt)
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid version.txt" >&2
             exit 1
           fi
+          # A build that covers one platform says so in its tag. Sharing one sequence across two
+          # products that now release apart leaves a reader scanning the list to find which entries
+          # carry the platform they run. A build covering both keeps the bare name, which reads as
+          # the complete release it is; only the promoted versions have no -build. suffix, so the
+          # two cannot be confused.
           tag="v$version-build.$BUILD_NUMBER"
+          case "$RELEASE_MACOS:$RELEASE_IOS" in
+            true:false) tag="macos-$tag" ;;
+            false:true) tag="ios-$tag" ;;
+          esac
           gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --draft --prerelease
           printf 'release_created=true\ntag_name=%s\ntarget_sha=%s\n' "$tag" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       - name: Capture existing release branch
@@ -202,7 +213,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
             echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
             exit 1
           fi
@@ -219,7 +230,9 @@ jobs:
           fi
           target_sha=$target
           version=$(gh api "repos/$GH_REPO/contents/version.txt?ref=$target_sha" --jq .content | base64 --decode)
-          if [[ "${TAG_NAME%%-build.*}" != "v$version" ]]; then
+          bare=${TAG_NAME#macos-}
+          bare=${bare#ios-}
+          if [[ "${bare%%-build.*}" != "v$version" ]]; then
             echo "Release $TAG_NAME does not match version.txt ($version)." >&2
             exit 1
           fi
@@ -337,7 +350,9 @@ jobs:
             echo 'Unsigned release: skipping Developer ID signature verification before packaging.'
           fi
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
-          version=${TAG_NAME#v}
+          version=${TAG_NAME#macos-}
+          version=${version#ios-}
+          version=${version#v}
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${version%%-build.*}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/MetasequoiaIME.app/Contents/Info.plist)" = "$METASEQUOIA_BUILD_NUMBER"
       - name: Package release

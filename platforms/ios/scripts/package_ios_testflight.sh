@@ -15,7 +15,7 @@ tag_name=${1:-}
 : "${METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH:?METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH is required}"
 : "${METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH:?METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH is required}"
 
-if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
     printf '%s\n' 'Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix.' >&2
     exit 1
 fi
@@ -50,7 +50,11 @@ if [[ ! -s "$dictionary" ]]; then
     exit 1
 fi
 
-version=${tag_name#v}
+# A single-platform build carries its platform ahead of the v, so it has to come off before the
+# version does: ${tag_name#v} alone would leave macos-v0.48.6 and ship that as a version.
+version=${tag_name#macos-}
+version=${version#ios-}
+version=${version#v}
 version=${version%%-build.*}
 
 # CFBundleVersion has to be unique and strictly increasing within one CFBundleShortVersionString.

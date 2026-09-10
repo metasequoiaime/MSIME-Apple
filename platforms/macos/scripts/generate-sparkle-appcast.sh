@@ -9,7 +9,7 @@ tag_name=${1:-}
 archive_path=${2:-}
 output_path=${3:-}
 
-if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
     printf '%s\n' "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
     exit 1
 fi
@@ -22,7 +22,11 @@ if [[ -z "$output_path" ]]; then
     exit 1
 fi
 
-version=${tag_name#v}
+# A single-platform build carries its platform ahead of the v, so it has to come off before the
+# version does: ${tag_name#v} alone would leave macos-v0.48.6 and ship that as a version.
+version=${tag_name#macos-}
+version=${version#ios-}
+version=${version#v}
 build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
 if [[ "$tag_name" == *-build.* ]]; then
     build_number=${tag_name##*-build.}

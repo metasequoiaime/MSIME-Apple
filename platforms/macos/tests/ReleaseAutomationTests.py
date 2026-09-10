@@ -137,6 +137,44 @@ class BuildNumberTests(unittest.TestCase):
         self.assertEqual(self.platforms_for("platforms/ios/a.swift", before="0" * 40), ("true", "true"))
         self.assertEqual(self.platforms_for(), ("true", "true"))
 
+    def test_a_single_platform_build_names_its_platform_in_the_tag(self):
+        for macos, ios, expected in [("true", "true", "v0.48.6-build.2.23.1"),
+                                     ("true", "false", "macos-v0.48.6-build.2.23.1"),
+                                     ("false", "true", "ios-v0.48.6-build.2.23.1")]:
+            _, output = self.run_step(
+                "Create automatic build draft",
+                prefix='cat() { printf "0.48.6\\n"; }; gh() { :; }',
+                BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA,
+                RELEASE_MACOS=macos, RELEASE_IOS=ios)
+            self.assertIn(f"tag_name={expected}\n", output, f"{macos}/{ios}")
+
+    def test_the_version_survives_a_platform_prefix(self):
+        # The prefix sits ahead of the v, so ${tag#v} alone leaves macos-v0.48.6 and ships that as
+        # a version. A truncated version has reached a real build once already.
+        for script, variable in [("platforms/ios/scripts/package_ios_archive.sh", "version"),
+                                 ("platforms/ios/scripts/package_ios_testflight.sh", "version"),
+                                 ("platforms/macos/scripts/package_release.sh", "version"),
+                                 ("platforms/macos/scripts/generate-sparkle-appcast.sh", "version")]:
+            body = (MACOS_ROOT.parents[1] / script).read_text()
+            self.assertIn("version=${tag_name#macos-}", body, script)
+            self.assertIn("version=${version#ios-}", body, script)
+            for tag, expected in [("macos-v0.48.6-build.2.23.1", "0.48.6"),
+                                  ("ios-v0.48.6-build.2.23.1", "0.48.6"),
+                                  ("v0.48.6-build.2.23.1", "0.48.6")]:
+                result = subprocess.run(
+                    ["bash", "-c", f'tag_name={tag}\n' + "\n".join(
+                        line for line in body.splitlines()
+                        if line.startswith(("version=${tag_name#", "version=${version#"))
+                    ) + f'\nversion=${{version%%-build.*}}\nprintf %s "${variable}"'],
+                    capture_output=True, text=True)
+                self.assertEqual(result.stdout, expected, f"{script} {tag}")
+
+    def test_a_promoted_release_still_refuses_a_platform_prefix(self):
+        # Promotions feed Sparkle and release-please, which key on the bare vX.Y.Z name.
+        body = (MACOS_ROOT / "scripts/create-promoted-release.sh").read_text()
+        self.assertIn(r"^v[0-9]+\.[0-9]+\.[0-9]+$", body)
+        self.assertNotIn("macos-", body)
+
     def test_invalid_build_is_rejected(self):
         for tag in ["v0.48.6-build.1.100.1", "v0.48.6-build.x", "v0.48.6-build.0.1.1"]:
             result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)

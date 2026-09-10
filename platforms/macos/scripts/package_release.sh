@@ -27,14 +27,18 @@ tag_name=${1:-}
 source_bundle=${2:-$project_root/build/MetasequoiaIME.app}
 output_dir=${3:-$project_root/dist}
 
-if [[ ! "$tag_name" =~ '^v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$' ]]; then
+if [[ ! "$tag_name" =~ '^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$' ]]; then
     print -u2 "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix."
     exit 1
 fi
 
 source_bundle=${source_bundle:A}
 output_dir=${output_dir:A}
-version=${tag_name#v}
+# A single-platform build carries its platform ahead of the v, so it has to come off before the
+# version does: ${tag_name#v} alone would leave macos-v0.48.6 and ship that as a version.
+version=${tag_name#macos-}
+version=${version#ios-}
+version=${version#v}
 version=${version%%-build.*}
 build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
 if [[ "$tag_name" == *-build.* ]]; then
