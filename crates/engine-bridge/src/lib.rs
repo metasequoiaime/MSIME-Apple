@@ -19,6 +19,10 @@ mod ffi {
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
+        pub mixed_english: bool,
+        pub english_minimum_prefix: u8,
+        pub mixed_emoji: bool,
+        pub mixed_kaomoji: bool,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
@@ -167,6 +171,10 @@ mod tests {
             frequency_mode: "promote".into(),
             frequency_trigger_count: 1,
             frequency_linear_step: 1,
+            mixed_english: true,
+            english_minimum_prefix: 2,
+            mixed_emoji: false,
+            mixed_kaomoji: false,
         }
     }
     #[test]

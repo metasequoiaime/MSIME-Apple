@@ -12,6 +12,7 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
@@ -26,6 +27,8 @@ export type Preferences = {
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type MixedInputPreferences = { english: boolean; minimum_prefix: number; emoji: boolean; kaomoji: boolean };
+const defaultMixedInput: MixedInputPreferences = { english: true, minimum_prefix: 2, emoji: false, kaomoji: false };
 export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
 const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count: 1, linear_step: 1 };
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; arrows: boolean };
@@ -44,6 +47,7 @@ function message(error: unknown): string {
       case "conflict": return "设置已在其他窗口修改。请重新读取后再保存。";
       case "invalid": return "候选数量必须为 1 到 9。";
       case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
+      case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
       case "format": return "配置文件无法读取或版本较新，原文件已保留。";
     }
@@ -90,6 +94,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const frequency = draft?.frequency ?? defaultFrequency;
+  const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -166,6 +171,16 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
+        <div className="section" role="group" aria-label="中英混输">
+          <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header frequency-option-row"><span className="section-title">触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small></span><select aria-label="触发字符数" disabled={!mixedInput.english} value={mixedInput.minimum_prefix} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, minimum_prefix: Number(event.target.value) } })}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value}</option>)}
+          </select></label>
+        </div>
+        {([["emoji", "emoji 混输", "中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）"], ["kaomoji", "颜文字混输", "中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）"]] as const).map(([key, label, description]) => <div className="section" key={key}>
+          <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={mixedInput[key]} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, [key]: event.target.checked } })} /></label>
+        </div>)}
         <div className="section" role="group" aria-labelledby="frequency-title">
           <div className="section-title" id="frequency-title">拼音方案调频</div>
           <div className="frequency-option-content">
