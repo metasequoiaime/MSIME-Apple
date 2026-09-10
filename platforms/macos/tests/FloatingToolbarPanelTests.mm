@@ -169,6 +169,11 @@ int main()
                     [traditionalOutputButton.accessibilityLabel isEqualToString:@"切换到繁体输出"],
                 "The floating toolbar did not reflect the active input states.");
 
+        [panel updateJapaneseScheme:YES englishMode:NO];
+        require([inputModeButton.title isEqualToString:@"日"], "Japanese toolbar label was missing.");
+        [panel updateJapaneseScheme:YES englishMode:YES];
+        require([inputModeButton.accessibilityLabel isEqualToString:@"切换到日语输入"], "English toggle lost Japanese return target.");
+        [panel updateJapaneseScheme:NO englishMode:NO];
         [inputModeButton performClick:nil];
         [punctuationButton performClick:nil];
         [fullWidthButton performClick:nil];

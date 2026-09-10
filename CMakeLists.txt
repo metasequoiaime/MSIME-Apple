@@ -20,7 +20,6 @@ set(METASEQUOIA_CANDIDATE_SKIN_SOURCES
     ${METASEQUOIA_MACOS_ROOT}/src/CandidateSkinPreviewView.mm
     ${METASEQUOIA_MACOS_ROOT}/src/SkinSettingsView.mm)
 
-include(cmake/BackendAccount.cmake)
 
 set(METASEQUOIA_SPARKLE_VERSION "2.9.6")
 set(METASEQUOIA_SPARKLE_SHA256 "52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192")
@@ -35,8 +34,13 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 # Metal and the CPU backend remain available for local Whisper.
 set(GGML_BLAS OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/MetasequoiaImeEngine engine)
+add_library(MetasequoiaAppServicesBridge STATIC shared/apple-bridge/AppServicesBridge.mm)
+target_compile_options(MetasequoiaAppServicesBridge PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(MetasequoiaAppServicesBridge PUBLIC MetasequoiaIme::Voice "-framework Foundation")
+include(cmake/BackendAccount.cmake)
 add_library(MetasequoiaMacDictionaryRuntime STATIC
     platforms/macos/src/DictionaryRuntime.mm
+    shared/apple-bridge/PersonalDictionaryBridge.mm
     shared/apple-bridge/DictionarySnapshotBridge.mm
     shared/apple-bridge/DictionaryInstallation.mm
     shared/apple-bridge/DictionarySessionLease.mm)
@@ -51,6 +55,29 @@ target_link_libraries(MetasequoiaAppleVoice PUBLIC MetasequoiaIme::Voice Metaseq
 
 if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES)
+    # Real products carry an authenticated manifest; small synthetic test
+    # dictionaries can omit it and do not enable resource-backed modes.
+    if(EXISTS "${dictionary_directory}/dictionary-manifest.json")
+        execute_process(COMMAND python3 -c
+            "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import product_lock, supplemental_resources; supplemental_resources.verify(Path(sys.argv[2]), product_lock.load())"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts" "${dictionary_directory}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            RESULT_VARIABLE supplemental_result ERROR_VARIABLE supplemental_error)
+        if(NOT supplemental_result EQUAL 0)
+            message(FATAL_ERROR "Supplemental resources failed verification. Run scripts/fetch_dictionary.py. ${supplemental_error}")
+        endif()
+        if(BUILD_TESTING)
+            add_test(NAME bundled_local_modes COMMAND MetasequoiaLocalInputModeTests --resources "${dictionary_directory}")
+        endif()
+        foreach(resource others.db dict_japanese.dat mozc_dictionary_oss_README.txt)
+            list(APPEND METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES "${dictionary_directory}/${resource}")
+            file(SHA256 "${dictionary_directory}/${resource}" resource_digest)
+            file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${resource}.sha256" "${resource_digest}\n")
+            list(APPEND METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${resource}.sha256")
+        endforeach()
+    endif()
+
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
     add_executable(MetasequoiaVoiceSettingsTests ${METASEQUOIA_MACOS_ROOT}/tests/VoiceSettingsTests.mm)
@@ -150,6 +177,29 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256" "${METASEQUOIA_IME_DICTIONARY_SHA256}\n")
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/english.db.sha256" "${METASEQUOIA_IME_ENGLISH_SHA256}\n")
 
+    set(METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES)
+    # Real products carry an authenticated manifest; small synthetic test
+    # dictionaries can omit it and do not enable resource-backed modes.
+    if(EXISTS "${dictionary_directory}/dictionary-manifest.json")
+        execute_process(COMMAND python3 -c
+            "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import product_lock, supplemental_resources; supplemental_resources.verify(Path(sys.argv[2]), product_lock.load())"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts" "${dictionary_directory}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            RESULT_VARIABLE supplemental_result ERROR_VARIABLE supplemental_error)
+        if(NOT supplemental_result EQUAL 0)
+            message(FATAL_ERROR "Supplemental resources failed verification. Run scripts/fetch_dictionary.py. ${supplemental_error}")
+        endif()
+        if(BUILD_TESTING)
+            add_test(NAME bundled_local_modes COMMAND MetasequoiaLocalInputModeTests --resources "${dictionary_directory}")
+        endif()
+        foreach(resource others.db dict_japanese.dat mozc_dictionary_oss_README.txt)
+            list(APPEND METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES "${dictionary_directory}/${resource}")
+            file(SHA256 "${dictionary_directory}/${resource}" resource_digest)
+            file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${resource}.sha256" "${resource_digest}\n")
+            list(APPEND METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${resource}.sha256")
+        endforeach()
+    endif()
+
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(CARBON_FRAMEWORK Carbon REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
@@ -238,6 +288,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     endif()
     set(METASEQUOIA_IME_SNAPSHOT_RESOURCES
+        ${METASEQUOIA_IME_SUPPLEMENTAL_RESOURCES}
         "${METASEQUOIA_IME_ENGLISH_DICTIONARY}"
         "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256"
         "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/english.db.sha256")

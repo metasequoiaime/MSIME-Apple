@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import product_lock
+import supplemental_resources
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -83,14 +84,15 @@ def main() -> None:
         # Not an f-string expression: nesting the same quote character inside one needs Python 3.12, and this script has to run under the interpreter a stock macOS ships.
         print(f"verified {len(assets)} assets against product-lock.json")
         verify_contents(incoming)
+        supplemental_resources.prepare(incoming, data)
         # Published through a rename so an interrupted publish cannot leave a truncated database that CMake, which only checks that the path exists, would happily bundle.
-        for name in assets:
+        for name in (*assets, *supplemental_resources.ASSETS):
             staged = OUTPUT_DIR / f".{name}.incoming"
             shutil.copyfile(incoming / name, staged)
             staged.replace(OUTPUT_DIR / name)
     # The lock names the whole product, so anything else here is left over from a different lock and would otherwise be bundled beside a dictionary it does not describe.
     for stale in OUTPUT_DIR.iterdir():
-        if stale.is_file() and stale.name not in assets:
+        if stale.is_file() and stale.name not in (*assets, *supplemental_resources.ASSETS):
             stale.unlink()
     print(f"staged into {OUTPUT_DIR}")
 

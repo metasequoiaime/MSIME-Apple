@@ -1,8 +1,14 @@
+extern "C" void MSIMEShowClipboardHistory(void);
+extern "C" void MSIMEShowWritingServices(void);
+extern "C" void MSIMEShowPersonalDictionary(void);
+extern "C" void MSIMEShowTypingStatistics(void);
 extern "C" void MSIMEShowBackendAccount(void);
 
 #import "PreferencesWindowController.h"
 
 #include "CandidateFontSize.h"
+#include "FuzzyPinyinPreference.h"
+#include "ShuangpinProfilePreference.h"
 #include "CandidatePageSize.h"
 #include "CandidatePanelStyle.h"
 #include "CandidateSkin.h"
@@ -41,6 +47,9 @@ NSToolbarItemIdentifier const kSkinToolbarItemIdentifier = @"MetasequoiaPreferen
 NSToolbarItemIdentifier const kDataToolbarItemIdentifier = @"MetasequoiaPreferencesData";
 NSToolbarItemIdentifier const kUpdatesToolbarItemIdentifier = @"MetasequoiaPreferencesUpdates";
 NSString *const kSchemePreferenceKey = @"MetasequoiaImeInputScheme";
+NSString *const kFuzzyPinyinEnabledKey = @"MetasequoiaImeFuzzyPinyinEnabled";
+NSString *const kFuzzyPinyinRulesKey = @"MetasequoiaImeFuzzyPinyinRules";
+NSString *const kShuangpinProfileKey = @"MetasequoiaImeShuangpinProfile";
 NSString *const kAutocorrectPreferenceKey = @"MetasequoiaImeQuanpinAutocorrect";
 NSString *const kHelpcodePreferenceKey = @"MetasequoiaImeHelpcodeEnabled";
 NSString *const kQuanpinHelpcodeSchemaPreferenceKey = @"MetasequoiaImeQuanpinHelpcodeSchema";
@@ -126,13 +135,13 @@ NSBox *CardSeparator()
     return separator;
 }
 
-NSView *SchemeChoiceRow(NSButton *choice, NSView *accessory)
+NSView *SchemeChoiceRow(NSButton *choice, NSView *accessory, CGFloat height = 44.0)
 {
     NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
     choice.translatesAutoresizingMaskIntoConstraints = NO;
     [row addSubview:choice];
     NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
-        [row.heightAnchor constraintEqualToConstant:44.0],
+        [row.heightAnchor constraintEqualToConstant:height],
         [choice.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
         [choice.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
     ]];
@@ -210,18 +219,33 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 }
 } // namespace
 
+@interface MetasequoiaFuzzyPinyinPanel : NSPanel
+@end
+@implementation MetasequoiaFuzzyPinyinPanel
+- (void)cancelOperation:(id)sender
+{
+    (void)sender;
+    [self.sheetParent endSheet:self];
+}
+@end
+
 @interface MetasequoiaPreferencesWindowController () <NSToolbarDelegate>
 @end
 
 @implementation MetasequoiaPreferencesWindowController
 {
     NSArray<NSButton *> *_schemeButtons;
+    NSButton *_nineKeyButton;
+    NSButton *_keySoundButton;
     NSPopUpButton *_shuangpinSchemeButton;
     NSPopUpButton *_wubiSchemeButton;
     NSButton *_shuangpinKeymapButton;
     NSView *_shuangpinKeymapRow;
     NSView *_shuangpinKeymapSeparator;
     NSView *_wubiSettingsRow;
+    NSPanel *_fuzzyPinyinPanel;
+    NSButton *_fuzzyPinyinEnabledButton;
+    NSArray<NSButton *> *_fuzzyPinyinRuleButtons;
     NSButton *_autocorrectButton;
     NSButton *_helpcodeButton;
     NSButton *_localInputModesButton;
@@ -265,10 +289,65 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [[NSNotificationCenter defaultCenter] postNotificationName:MetasequoiaWillResetLearnedDataNotification object:nil];
 }
 
+// Export resolved native tokens; Swift never parses or duplicates the skin format.
++ (NSDictionary *)editablePaletteForId:(NSString *)skinId root:(NSURL *)root name:(NSString *)name
+{
+    const auto palette = [&](BOOL dark) {
+        const auto tokens = metasequoia::mac::ResolveSkin(skinId.UTF8String, dark, root.fileSystemRepresentation).tokens;
+        const auto hex = [](metasequoia::mac::Rgba c) {
+            return [NSString stringWithFormat:@"#%02X%02X%02X", (unsigned)(c.r * 255.0f + 0.5f),
+                    (unsigned)(c.g * 255.0f + 0.5f), (unsigned)(c.b * 255.0f + 0.5f)];
+        };
+        return @{ @"surface": hex(tokens.surface), @"border": hex(tokens.border), @"text": hex(tokens.text),
+                  @"number": hex(tokens.number), @"selected": hex(tokens.selected), @"hover": hex(tokens.hover),
+                  @"accent": hex(tokens.accent) };
+    };
+    return @{ @"name": name, @"light": palette(NO), @"dark": palette(YES) };
+}
+
++ (NSDictionary *)editableCandidateSkin
+{
+    return [self editablePaletteForId:[self storedCandidateSkin] root:MetasequoiaCandidateSkinsDirectoryURL()
+                                name:@"我的候选窗配色"];
+}
+
++ (NSDictionary *)editableCandidateSkinDirectory:(NSURL *)directory
+{
+    if (![directory isKindOfClass:NSURL.class] || !directory.isFileURL) return nil;
+    NSURL *root = directory.URLByDeletingLastPathComponent;
+    NSString *skinId = directory.lastPathComponent;
+    const auto package = metasequoia::mac::LoadSkinPackage(root.fileSystemRepresentation, skinId.UTF8String);
+    if (!package) return nil;
+    NSMutableDictionary *result = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"palette": [self editablePaletteForId:skinId root:root name:@(package->name.c_str())]
+    }];
+    const auto resolved = metasequoia::mac::ResolveSkin(skinId.UTF8String, false, root.fileSystemRepresentation);
+    if (!resolved.decorationPath.empty()) {
+        NSURL *imageURL = [NSURL fileURLWithPath:@(resolved.decorationPath.c_str())];
+        NSNumber *size = nil;
+        if (![imageURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil] || size.unsignedLongLongValue > 10 * 1024 * 1024) return nil;
+        NSData *image = [NSData dataWithContentsOfURL:imageURL options:NSDataReadingMappedIfSafe error:nil];
+        if (!image || image.length > 10 * 1024 * 1024) return nil;
+        result[@"artwork"] = image;
+        result[@"artworkURL"] = imageURL;
+    }
+    return result;
+}
+
++ (NSURL *)candidateSkinsDirectory { return MetasequoiaCandidateSkinsDirectoryURL(); }
+
++ (NSNumber *)validateCandidateSkinDirectory:(NSURL *)directory
+{
+    if (![directory isKindOfClass:NSURL.class] || !directory.isFileURL) return @NO;
+    return @(metasequoia::mac::LoadSkinPackage(directory.URLByDeletingLastPathComponent.fileSystemRepresentation,
+                                             directory.lastPathComponent.UTF8String).has_value());
+}
+
 + (NSDictionary<NSString *, id> *)cloudSettingsSnapshot
 {
     return @{
         @"platform.macos.candidate_skin" : [self storedCandidateSkin],
+        @"input.shuangpin_schema" : [self storedShuangpinProfile],
         @"platform.macos.input_scheme" : @([self storedScheme]),
         @"platform.macos.quanpin_helpcode_schema" : @([self storedQuanpinHelpcodeSchema]),
         @"platform.macos.shuangpin_helpcode_schema" : @([self storedShuangpinHelpcodeSchema]),
@@ -293,7 +372,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 
 + (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values
 {
-    if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 20)
+    if (![NSThread isMainThread] || ![values isKindOfClass:[NSDictionary class]] || values.count != 21)
+        return @NO;
+    id profile = values[@"input.shuangpin_schema"];
+    if (![profile isKindOfClass:NSString.class] || ![MetasequoiaShuangpinProfileNames() containsObject:profile])
         return @NO;
     NSString *skin = values[@"platform.macos.candidate_skin"];
     if (![skin isKindOfClass:NSString.class] || skin.UTF8String == nullptr ||
@@ -305,7 +387,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         if (![value isKindOfClass:[NSNumber class]])
             return @NO;
         if (CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || value.doubleValue != value.integerValue ||
-            ![@[ @0, @1, @2 ] containsObject:value])
+            ![@[ @0, @1, @2, @3 ] containsObject:value])
             return @NO;
     }
     {
@@ -448,6 +530,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     if (![[self validateCloudSettingsSnapshot:values] boolValue])
         return @NO;
     // Validate the complete snapshot before calling any mutating setter.
+    [self setShuangpinProfile:values[@"input.shuangpin_schema"]];
     [self setStoredCandidateSkin:values[@"platform.macos.candidate_skin"]];
     [self setStoredScheme:[values[@"platform.macos.input_scheme"] integerValue]];
     [self setQuanpinHelpcodeSchema:[values[@"platform.macos.quanpin_helpcode_schema"] integerValue]];
@@ -483,6 +566,43 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [[NSUserDefaults standardUserDefaults] setInteger:normalizedScheme forKey:kSchemePreferenceKey];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"MetasequoiaInputSchemeDidChangeNotification"
                                                         object:@(normalizedScheme)];
+}
+
++ (BOOL)storedFuzzyPinyinEnabled
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kFuzzyPinyinEnabledKey];
+}
+
++ (void)setFuzzyPinyinEnabled:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:kFuzzyPinyinEnabledKey];
+}
+
++ (NSUInteger)storedFuzzyPinyinRules
+{
+    return [[NSUserDefaults standardUserDefaults] integerForKey:kFuzzyPinyinRulesKey] &
+           metasequoia::mac::FuzzyPinyinMask();
+}
+
++ (void)setFuzzyPinyinRules:(NSUInteger)rules
+{
+    [[NSUserDefaults standardUserDefaults] setInteger:(rules & metasequoia::mac::FuzzyPinyinMask())
+                                             forKey:kFuzzyPinyinRulesKey];
+}
+
++ (NSUInteger)activeFuzzyPinyinRules
+{
+    return [self storedFuzzyPinyinEnabled] ? [self storedFuzzyPinyinRules] : 0;
+}
+
++ (NSString *)storedShuangpinProfile
+{
+    return MetasequoiaNormalizeShuangpinProfile([[NSUserDefaults standardUserDefaults] objectForKey:kShuangpinProfileKey]);
+}
+
++ (void)setShuangpinProfile:(NSString *)profile
+{
+    [[NSUserDefaults standardUserDefaults] setObject:MetasequoiaNormalizeShuangpinProfile(profile) forKey:kShuangpinProfileKey];
 }
 
 + (BOOL)storedAutocorrectEnabled
@@ -727,7 +847,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                                         object:@(enabled)];
 }
 
-// Off unless asked for. Turning it on gives Shift+U, Shift+T, Shift+K and Shift+J to the engine's
+// Off unless asked for. Turning it on gives Shift+U/T/K/J/Y/E/M/R to the engine's
 // local input modes, and those keystrokes currently insert a bare capital, so a user who types
 // "USA" in Chinese mode would lose that.
 + (BOOL)storedLocalInputModesEnabled
@@ -824,20 +944,22 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSView *pageContainer = [[NSView alloc] initWithFrame:NSZeroRect];
     pageContainer.translatesAutoresizingMaskIntoConstraints = NO;
 
-    NSArray<NSString *> *schemeTitles = @[ @"全拼输入", @"双拼输入", @"五笔输入" ];
+    NSArray<NSString *> *schemeTitles = @[ @"全拼输入", @"双拼输入", @"五笔输入", @"日语罗马字输入" ];
     NSMutableArray<NSButton *> *schemeButtons = [NSMutableArray arrayWithCapacity:schemeTitles.count];
     NSMutableArray<NSView *> *schemeRows = [NSMutableArray arrayWithObject:CardHeader(@"输入方式")];
     [schemeRows addObject:CardSeparator()];
     _shuangpinSchemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_shuangpinSchemeButton addItemWithTitle:@"小鹤双拼"];
+    [_shuangpinSchemeButton addItemsWithTitles:MetasequoiaShuangpinProfileTitles()];
+    _shuangpinSchemeButton.target = self;
+    _shuangpinSchemeButton.action = @selector(shuangpinProfileChanged:);
     _shuangpinSchemeButton.accessibilityLabel = @"双拼方案";
     _wubiSchemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_wubiSchemeButton addItemWithTitle:@"86 五笔"];
     _wubiSchemeButton.accessibilityLabel = @"五笔方案";
-    _shuangpinKeymapButton = [NSButton checkboxWithTitle:@"显示小鹤双拼键位提示"
+    _shuangpinKeymapButton = [NSButton checkboxWithTitle:@"显示双拼键位提示"
                                                   target:self
                                                   action:@selector(shuangpinKeymapChanged:)];
-    _shuangpinKeymapButton.accessibilityLabel = @"显示小鹤双拼键位提示";
+    _shuangpinKeymapButton.accessibilityLabel = @"显示双拼键位提示";
     _shuangpinKeymapRow = PreferenceRow(@"双拼初学者", _shuangpinKeymapButton);
     _shuangpinKeymapRow.accessibilityLabel = @"双拼键位提示行";
     _shuangpinKeymapSeparator = CardSeparator();
@@ -860,6 +982,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         }
     }
     _schemeButtons = [schemeButtons copy];
+    _nineKeyButton = [NSButton checkboxWithTitle:@"全拼数字九键（2–9 输入，Tab 选拼音，空格选词）" target:self action:@selector(nineKeyChanged:)];
+    _nineKeyButton.accessibilityLabel = @"全拼数字九键";
+    [schemeRows addObject:SchemeChoiceRow(_nineKeyButton, nil, 28.0)];
+    _keySoundButton = [NSButton checkboxWithTitle:@"按键音（本机）" target:self action:@selector(keySoundChanged:)];
+    _keySoundButton.accessibilityLabel = @"本机按键音";
+    _keySoundButton.toolTip = @"仅为输入法处理的按键播放轻提示音，默认关闭。";
+    [schemeRows addObject:SchemeChoiceRow(_keySoundButton, nil, 28.0)];
     NSButton *wubiSettingsButton = [NSButton buttonWithTitle:@"设置" target:self action:@selector(showWubiSettings:)];
     wubiSettingsButton.bordered = NO;
     wubiSettingsButton.alignment = NSTextAlignmentRight;
@@ -898,15 +1027,23 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _candidatePageShortcutButton.action = @selector(candidatePageShortcutChanged:);
     _candidatePageShortcutButton.accessibilityLabel = @"候选翻页快捷键";
 
+    NSButton *fuzzyPinyinButton = [NSButton buttonWithTitle:@"模糊音设置…" target:self action:@selector(showFuzzyPinyinSettings:)];
+    fuzzyPinyinButton.accessibilityLabel = @"模糊音设置";
+    [schemeRows addObject:CardSeparator()];
+    [schemeRows addObject:PreferenceRow(@"全拼与双拼", fuzzyPinyinButton)];
     NSBox *schemeCard = CardWithViews(schemeRows, 0.0);
+    NSTextField *englishHelp = [NSTextField wrappingLabelWithString:
+        @"英文模式：Tab 接受补全；空格、标点和快捷键保留已输入的拼写。"];
+    englishHelp.font = [NSFont systemFontOfSize:11.0];
+    englishHelp.textColor = NSColor.secondaryLabelColor;
     NSBox *behaviorCard = CardWithViews(
-        @[ _autocorrectButton, _chinesePunctuationButton, _inputModeShortcutButton, _fullWidthInputButton ], 9.0);
+        @[ _autocorrectButton, _chinesePunctuationButton, _inputModeShortcutButton, _fullWidthInputButton, englishHelp ], 9.0);
     NSBox *shortcutCard = CardWithViews(@[ PreferenceRow(@"上翻 / 下翻", _candidatePageShortcutButton) ], 0.0);
     schemeCard.accessibilityLabel = @"输入方式卡片";
     behaviorCard.accessibilityLabel = @"中英文状态切换卡片";
     shortcutCard.accessibilityLabel = @"候选翻页快捷键卡片";
     NSView *generalPage = PreferencesPage(
-        @"键盘输入", @"选择全拼、双拼或 86 五笔，并调整日常输入行为。",
+        @"键盘输入", @"选择全拼、双拼、86 五笔或日语，并调整日常输入行为。",
         @[ schemeCard, SectionLabel(@"中英文状态切换"), behaviorCard, SectionLabel(@"候选翻页快捷键"), shortcutCard ]);
     generalPage.accessibilityLabel = @"键盘输入设置页";
 
@@ -972,11 +1109,11 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _skinSettings = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
 
     _helpcodeButton = [NSButton checkboxWithTitle:@"启用辅助码" target:self action:@selector(helpcodeChanged:)];
-    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式（Shift+U/T/K/J）"
+    _localInputModesButton = [NSButton checkboxWithTitle:@"启用本地输入模式（Shift+U/T/K/J/Y/E/M/R）"
                                                   target:self
                                                   action:@selector(localInputModesChanged:)];
     _localInputModesButton.toolTip =
-        @"未组词时按 Shift+U 输入 Unicode 码点，Shift+T 输入日期时间，Shift+K 输入快捷短语，Shift+J 超级简拼。"
+        @"未组词时按 Shift+U 输入 Unicode 码点，Shift+T 输入日期时间，Shift+K 输入快捷短语，Shift+J 超级简拼，Shift+Y 临时英文，Shift+E 表情，Shift+M 颜文字，Shift+R 临时日语。"
         @"关闭时这些组合照常输入大写字母。";
     NSArray<NSString *> *helpcodeSchemeTitles = @[ @"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤" ];
     _quanpinHelpcodeSchemaButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1012,7 +1149,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
             _localInputModesButton
         ],
         9.0);
-    NSBox *dictionaryCard = CardWithViews(@[ _statusLabel ], 0.0);
+    NSButton *statisticsButton = [NSButton buttonWithTitle:@"查看打字统计…" target:self action:@selector(showTypingStatistics:)];
+    statisticsButton.accessibilityIdentifier = @"MetasequoiaTypingStatistics";
+    NSButton *personalDictionaryButton = [NSButton buttonWithTitle:@"管理个人词库…" target:self action:@selector(showPersonalDictionary:)];
+    NSButton *clipboardButton = [NSButton buttonWithTitle:@"本机剪贴板历史…" target:self action:@selector(showClipboardHistory:)];
+    clipboardButton.accessibilityIdentifier = @"MetasequoiaClipboardHistory";
+    NSBox *dictionaryCard = CardWithViews(@[ _statusLabel, statisticsButton, personalDictionaryButton, clipboardButton ], 8.0);
     NSBox *resetCard =
         CardWithViews(@[ PreferenceRow(@"候选词频、用户词典与拼音学习记录", _resetLearningButton) ], 0.0);
     learningCard.accessibilityLabel = @"候选与学习卡片";
@@ -1066,7 +1208,9 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                                  action:@selector(showBackendAccount:)];
     accountButton.bezelStyle = NSBezelStyleRounded;
     accountButton.accessibilityIdentifier = @"MetasequoiaBackendAccount";
-    NSBox *accountCard = CardWithViews(@[ PreferenceRow(@"登录与账号管理", accountButton) ], 4.0);
+    NSButton *writingButton = [NSButton buttonWithTitle:@"AI 写作与服务配置…" target:self action:@selector(showWritingServices:)];
+    NSBox *accountCard = CardWithViews(@[ PreferenceRow(@"登录与账号管理", accountButton),
+        PreferenceRow(@"润色与回复", writingButton) ], 4.0);
 
     NSBox *updateCard = CardWithViews(
         @[
@@ -1178,6 +1322,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     return item;
 }
 
+- (void)showClipboardHistory:(id)sender { (void)sender; MSIMEShowClipboardHistory(); }
+
+- (void)showWritingServices:(id)sender { (void)sender; MSIMEShowWritingServices(); }
+
 - (void)showBackendAccount:(id)sender
 {
     (void)sender;
@@ -1284,6 +1432,125 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                       : NSControlStateValueOff;
 }
 
+- (void)showPersonalDictionary:(id)sender
+{
+    (void)sender;
+    MSIMEShowPersonalDictionary();
+}
+
+- (void)showTypingStatistics:(id)sender
+{
+    (void)sender;
+    MSIMEShowTypingStatistics();
+}
+
+- (void)showFuzzyPinyinSettings:(id)sender
+{
+    (void)sender;
+    if (_fuzzyPinyinPanel == nil)
+    {
+        _fuzzyPinyinPanel = [[MetasequoiaFuzzyPinyinPanel alloc] initWithContentRect:NSMakeRect(0, 0, 440, 450)
+                                                     styleMask:NSWindowStyleMaskTitled
+                                                       backing:NSBackingStoreBuffered defer:NO];
+        _fuzzyPinyinPanel.title = @"模糊音";
+        _fuzzyPinyinEnabledButton = [NSButton checkboxWithTitle:@"启用模糊音" target:self action:@selector(fuzzyPinyinChanged:)];
+        NSMutableArray<NSView *> *rows = [NSMutableArray arrayWithObjects:
+            [NSTextField wrappingLabelWithString:@"全拼与双拼均支持。更改会在当前输入结束后生效。关闭总开关会保留已选规则。"],
+            _fuzzyPinyinEnabledButton, nil];
+        NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
+        for (const auto &choice : metasequoia::mac::FuzzyPinyinChoices)
+        {
+            NSButton *button = [NSButton checkboxWithTitle:[NSString stringWithUTF8String:choice.title]
+                                                    target:self action:@selector(fuzzyPinyinChanged:)];
+            button.tag = static_cast<NSInteger>(choice.rule);
+            [buttons addObject:button];
+        }
+        _fuzzyPinyinRuleButtons = buttons;
+        NSArray<NSString *> *groups = @[ @"平翘舌", @"声母", @"前后鼻音", @"其他韵母" ];
+        for (NSUInteger group = 0; group < groups.count; ++group)
+        {
+            [rows addObject:SectionLabel(groups[group])];
+            NSUInteger start = group * 3;
+            NSStackView *choices = [NSStackView stackViewWithViews:[buttons subarrayWithRange:
+                NSMakeRange(start, MIN((NSUInteger)3, buttons.count - start))]];
+            choices.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+            choices.distribution = NSStackViewDistributionFillEqually;
+            [rows addObject:choices];
+        }
+        NSButton *reset = [NSButton buttonWithTitle:@"重置…" target:self action:@selector(resetFuzzyPinyin:)];
+        NSButton *done = [NSButton buttonWithTitle:@"完成" target:self action:@selector(closeFuzzyPinyin:)];
+        done.keyEquivalent = @"\r";
+        NSStackView *actions = [NSStackView stackViewWithViews:@[ reset, done ]];
+        actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        [rows addObject:actions];
+        NSStackView *stack = [NSStackView stackViewWithViews:rows];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeLeading;
+        stack.spacing = 14;
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [_fuzzyPinyinPanel.contentView addSubview:stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.leadingAnchor constraintEqualToAnchor:_fuzzyPinyinPanel.contentView.leadingAnchor constant:24],
+            [stack.trailingAnchor constraintEqualToAnchor:_fuzzyPinyinPanel.contentView.trailingAnchor constant:-24],
+            [stack.topAnchor constraintEqualToAnchor:_fuzzyPinyinPanel.contentView.topAnchor constant:24],
+            [stack.bottomAnchor constraintLessThanOrEqualToAnchor:_fuzzyPinyinPanel.contentView.bottomAnchor constant:-24],
+        ]];
+        for (NSView *row in rows)
+            [row.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    }
+    [self refreshFuzzyPinyinControls];
+    [self.window beginSheet:_fuzzyPinyinPanel completionHandler:nil];
+}
+
+- (void)refreshFuzzyPinyinControls
+{
+    const BOOL enabled = [MetasequoiaPreferencesWindowController storedFuzzyPinyinEnabled];
+    const NSUInteger rules = [MetasequoiaPreferencesWindowController storedFuzzyPinyinRules];
+    _fuzzyPinyinEnabledButton.state = enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    for (NSButton *button in _fuzzyPinyinRuleButtons)
+    {
+        button.enabled = enabled;
+        button.state = (rules & button.tag) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
+- (void)fuzzyPinyinChanged:(NSButton *)sender
+{
+    if (sender == _fuzzyPinyinEnabledButton)
+        [MetasequoiaPreferencesWindowController setFuzzyPinyinEnabled:sender.state == NSControlStateValueOn];
+    else
+    {
+        NSUInteger rules = [MetasequoiaPreferencesWindowController storedFuzzyPinyinRules];
+        rules = sender.state == NSControlStateValueOn ? rules | sender.tag : rules & ~sender.tag;
+        [MetasequoiaPreferencesWindowController setFuzzyPinyinRules:rules];
+    }
+    [self refreshFuzzyPinyinControls];
+}
+
+- (void)resetFuzzyPinyin:(id)sender
+{
+    (void)sender;
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"重置模糊音配置？";
+    alert.informativeText = @"将关闭模糊音并清空所有已选规则。";
+    [alert addButtonWithTitle:@"取消"];
+    [alert addButtonWithTitle:@"重置"];
+    [alert beginSheetModalForWindow:_fuzzyPinyinPanel completionHandler:^(NSModalResponse response) {
+        if (response == NSAlertSecondButtonReturn)
+        {
+            [MetasequoiaPreferencesWindowController setFuzzyPinyinEnabled:NO];
+            [MetasequoiaPreferencesWindowController setFuzzyPinyinRules:0];
+            [self refreshFuzzyPinyinControls];
+        }
+    }];
+}
+
+- (void)closeFuzzyPinyin:(id)sender
+{
+    (void)sender;
+    [self.window endSheet:_fuzzyPinyinPanel];
+}
+
 - (void)refreshControls
 {
     const NSInteger storedScheme = [MetasequoiaPreferencesWindowController storedScheme];
@@ -1291,7 +1558,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     {
         _schemeButtons[index].state = index == storedScheme ? NSControlStateValueOn : NSControlStateValueOff;
     }
+    _keySoundButton.state = [NSUserDefaults.standardUserDefaults boolForKey:@"MetasequoiaImeKeySoundEnabled"] ? NSControlStateValueOn : NSControlStateValueOff;
+    _nineKeyButton.enabled = storedScheme == 0;
+    _nineKeyButton.state = [NSUserDefaults.standardUserDefaults boolForKey:@"MetasequoiaImeNineKeyEnabled"] ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinSchemeButton.enabled = storedScheme == 1;
+    [_shuangpinSchemeButton selectItemAtIndex:[MetasequoiaShuangpinProfileNames()
+        indexOfObject:[MetasequoiaPreferencesWindowController storedShuangpinProfile]]];
     _wubiSchemeButton.enabled = storedScheme == 2;
     _shuangpinKeymapRow.hidden = storedScheme != 1;
     _shuangpinKeymapSeparator.hidden = storedScheme != 1;
@@ -1411,6 +1683,17 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     }
 }
 
+- (void)keySoundChanged:(NSButton *)sender
+{
+    [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:@"MetasequoiaImeKeySoundEnabled"];
+}
+
+- (void)nineKeyChanged:(NSButton *)sender
+{
+    [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:@"MetasequoiaImeNineKeyEnabled"];
+    [MetasequoiaPreferencesWindowController setStoredScheme:[MetasequoiaPreferencesWindowController storedScheme]];
+}
+
 - (void)autocorrectChanged:(id)sender
 {
     NSButton *button = (NSButton *)sender;
@@ -1447,6 +1730,13 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setChinesePunctuationEnabled:button.state == NSControlStateValueOn];
+}
+
+- (void)shuangpinProfileChanged:(NSPopUpButton *)sender
+{
+    NSInteger index = sender.indexOfSelectedItem;
+    if (index >= 0 && index < (NSInteger)MetasequoiaShuangpinProfileNames().count)
+        [MetasequoiaPreferencesWindowController setShuangpinProfile:MetasequoiaShuangpinProfileNames()[index]];
 }
 
 - (void)schemeChanged:(id)sender
@@ -1592,7 +1882,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     for (NSString *key in @[
              kSchemePreferenceKey,
+             @"MetasequoiaImeNineKeyEnabled",
+             @"MetasequoiaImeKeySoundEnabled",
              kAutocorrectPreferenceKey,
+             kFuzzyPinyinEnabledKey,
+             kFuzzyPinyinRulesKey,
+             kShuangpinProfileKey,
              kHelpcodePreferenceKey,
              kQuanpinHelpcodeSchemaPreferenceKey,
              kShuangpinHelpcodeSchemaPreferenceKey,

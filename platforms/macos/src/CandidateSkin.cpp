@@ -574,6 +574,33 @@ void SetError(std::string *error, const std::string &message)
 }
 } // namespace
 
+std::optional<std::string> RenameSkinManifest(const std::string &text, const std::string &name)
+{
+    TomlTable parsed;
+    if (text.size() > 65536 || name.empty() || name.size() > 80 ||
+        std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }) ||
+        !ParseToml(text, parsed) || !parsed.scalars.count("name")) return std::nullopt;
+    std::string escaped;
+    for (char c : name) {
+        if (c == '\\' || c == '"') escaped += '\\';
+        escaped += c;
+    }
+    std::istringstream input(text);
+    std::string raw, output;
+    bool atRoot = true, renamed = false;
+    while (std::getline(input, raw)) {
+        const auto line = Trim(StripComment(raw));
+        if (!line.empty() && line.front() == '[' && line.back() == ']') atRoot = false;
+        const auto equal = line.find('=');
+        if (atRoot && equal != std::string::npos && Trim(line.substr(0, equal)) == "name") {
+            output += "name = \"" + escaped + "\"\n";
+            renamed = true;
+        } else output += raw + "\n";
+    }
+    if (!renamed || output.size() > 65536 || !ParseToml(output, parsed)) return std::nullopt;
+    return output;
+}
+
 bool IsBuiltInSkinId(std::string_view id)
 {
     return id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green";

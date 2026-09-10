@@ -17,8 +17,9 @@ inline bool ShouldToggleInputMode(bool shortcutEnabled, unsigned short keyCode, 
     return shortcutEnabled && IsInputModeToggle(keyCode, modifiers);
 }
 
-inline bool ShouldPrepareInputSession(bool englishMode)
+inline bool ShouldPrepareInputSession(bool /* englishMode */)
 {
-    return !englishMode;
+    // Both Chinese composition and English completion use an Engine session.
+    return true;
 }
 } // namespace metasequoia::mac

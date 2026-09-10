@@ -22,6 +22,7 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 @interface MetasequoiaFloatingToolbarPanel : NSPanel
 @property(nonatomic, weak) id<MetasequoiaFloatingToolbarDelegate> toolbarDelegate;
 + (instancetype)sharedPanel;
+- (void)updateJapaneseScheme:(BOOL)japanese englishMode:(BOOL)englishMode;
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled

@@ -110,6 +110,36 @@ int main(int argc, const char *argv[])
             return 0;
         }
 
+        for (NSString *name in @[ @"xiaohe", @"ziranma", @"microsoft", @"shoudao" ])
+        {
+            const auto &profile = GetShuangpinProfile(name.UTF8String);
+            NSMutableDictionary *definitions = [NSMutableDictionary dictionary];
+            for (NSArray *row in MetasequoiaShuangpinKeymapRows(name))
+                for (NSDictionary *definition in row) definitions[definition[@"key"]] = definition;
+            for (const auto *mapping : {&profile.initials, &profile.finals})
+                for (const auto &entry : *mapping)
+                {
+                    NSString *key = @(entry.second.c_str()).uppercaseString;
+                    Require([DisplayedUnits(definitions[key]) containsObject:DisplayUnit(entry.first)],
+                            "A double-pinyin hint drifted from the Engine profile.");
+                }
+            for (const auto &entry : profile.zero_initials)
+                Require([MetasequoiaShuangpinZeroInitialText(name) containsString:
+                    [NSString stringWithFormat:@"%@=%@", DisplayUnit(entry.first), @(entry.second.c_str())]],
+                    "Zero-initial hints did not follow the selected profile.");
+            MetasequoiaShuangpinKeymapPanel *profilePanel = [MetasequoiaShuangpinKeymapPanel new];
+            [profilePanel setProfileName:name];
+            NSView *content = profilePanel.contentView;
+            [profilePanel setProfileName:name];
+            Require(profilePanel.contentView == content, "Unchanged profile rebuilt the keymap panel.");
+            if ([name isEqual:@"microsoft"])
+            {
+                [profilePanel updateHighlightedKey:@";"];
+                Require([profilePanel.contentView.accessibilityValue containsString:@"当前按键 ;：ing"],
+                        "Microsoft semicolon was absent from accessible key hints.");
+            }
+        }
+
         NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = MetasequoiaXiaoheKeymapRows();
         Require(rows.count == 3 && rows[0].count == 10 && rows[1].count == 9 && rows[2].count == 7,
                 "The Xiaohe keymap did not preserve the three physical QWERTY rows.");

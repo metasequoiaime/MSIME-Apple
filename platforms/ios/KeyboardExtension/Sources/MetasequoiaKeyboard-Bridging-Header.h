@@ -4,6 +4,6 @@
 
 #import "KeyboardHostContext.h"
 
-#import "AppServicesBridge.h"
+#import "../../../../shared/apple-bridge/AppServicesBridge.h"
 
 #import "DictionarySnapshotBridge.h"

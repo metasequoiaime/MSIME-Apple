@@ -6,7 +6,7 @@ namespace metasequoia::mac
 {
 constexpr int NormalizeStoredInputScheme(int scheme)
 {
-    return scheme >= 0 && scheme <= 2 ? scheme : 0;
+    return scheme >= 0 && scheme <= 3 ? scheme : 0;
 }
 
 constexpr SchemeType EngineSchemeForStoredPreference(int scheme)
@@ -17,6 +17,8 @@ constexpr SchemeType EngineSchemeForStoredPreference(int scheme)
         return SchemeType::Shuangpin;
     case 2:
         return SchemeType::Wubi;
+    case 3:
+        return SchemeType::JapaneseRomaji;
     default:
         return SchemeType::Quanpin;
     }

@@ -38,12 +38,7 @@ final class ReplyKeyboardModel: ObservableObject {
     if style.hasPrefix("community:") && template == nil { status = "模板已移除，请重新选择"; return }
     busy = true; status = "正在生成 · \(template?.name ?? style)"
     let id = UUID(); generation = id
-    let basePrompt = polish
-      ? "请以\(style)的语气润色用户文字，保持原意，不编造事实或承诺。只输出一条简短自然的成稿，不加标题、解释或引号。"
-      : "用户内容是对方发来的话，请代拟一条\(style)风格的回复。尊重对方且有边界，不编造事实、关系或承诺。只输出一条简短自然、可以直接发送的回复，不加标题、解释或引号。"
-    let prompt = template.map { item in
-      "\(polish ? "润色用户原文，保持原意。" : "用户内容是对方发来的话，请代拟回复。")\n\(item.content.prompt ?? "")\n只输出可直接使用的一条回复，不编造事实或承诺。"
-    } ?? basePrompt
+    let prompt = (polish ? WritingTask.polish : .reply).prompt(style: style, templatePrompt: template?.content.prompt)
     let source = text
     operation = Task { @MainActor in
       do {
@@ -78,7 +73,7 @@ struct ReplyKeyboardView: View {
   let schemes: () -> Void
   let skins: () -> Void
   let dismiss: () -> Void
-  private let styles = ["😁 专属回复", "🥰 暖心关怀", "📣 捧场王", "😍 恋人", "🌪 幽默风趣", "👔 成熟稳重", "💬 土味情话", "🤩 高情商", "🙌 委婉拒绝"]
+  private let styles = zip(["😁", "🥰", "📣", "😍", "🌪", "👔", "💬", "🤩", "🙌"], WritingTask.replyStyles).map { "\($0.0) \($0.1)" }
   private var skin: KeyboardSkin { KeyboardSkinPreference.selected }
 
   var body: some View {

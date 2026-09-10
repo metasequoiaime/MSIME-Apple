@@ -1135,6 +1135,14 @@ class ReleasePackageTests(unittest.TestCase):
                 f"MetasequoiaIME-v{version}-macos-universal-unsigned.pkg.sha256",
             )
 
+            # These payloads have completed all assertions. Release them before
+            # building further full-size packages for failure-injection scenarios.
+            for completed_fixture in (output, extracted, expanded_package, test_home,
+                                      registration_failure_home, interrupted_home,
+                                      restored_home, rollback_home):
+                if completed_fixture.exists():
+                    shutil.rmtree(completed_fixture)
+
             cleanup_failure_output = Path(temporary_directory) / "cleanup-failure-output"
             cleanup_failure_output.mkdir()
             cleanup_failing_bin = Path(temporary_directory) / "cleanup-failing-bin"
@@ -1168,6 +1176,7 @@ class ReleasePackageTests(unittest.TestCase):
                 )
             self.assertEqual(len(list(cleanup_failure_output.glob(".package.*"))), 1)
             self.assertIn("cleanup was incomplete", failed_cleanup.stderr)
+            shutil.rmtree(cleanup_failure_output)
 
             failure_output = Path(temporary_directory) / "failure-output"
             failure_output.mkdir()

@@ -35,6 +35,9 @@ targets:
       - path: shared/apple-bridge
         excludes:
           - "*.h"
+          # The app/extension compile this service codec with their voice headers.
+          # It is not part of the input-session static library.
+          - AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/common
         excludes:
           - "*.h"
@@ -102,14 +105,19 @@ targets:
       - path: shared/backend/BackendDictionaryClient.swift
       - path: shared/backend/BackendCandidateClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      - path: shared/backend/BackendSkinCommunityClient.swift
       - path: shared/backend/BackendCommunityResourceClient.swift
       - path: platforms/ios/App/Services
+      - path: shared/apple-services/AISkinService.swift
+      - path: shared/apple-services/CustomService.swift
+      - path: shared/apple-bridge/AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/KeyboardExtension/Resources/dictionary-manifest.json
         buildPhase: resources
       - path: platforms/ios/App/Resources/Assets.xcassets
       - path: platforms/ios/App/Resources/LaunchScreen.storyboard
         buildPhase: resources
+      - path: shared/apple-models
       - path: platforms/ios/SharedUI
       - path: platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -162,12 +170,13 @@ targets:
       - path: platforms/ios/KeyboardExtension/Sources
       - path: shared/backend/BackendAccountClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
-      - path: platforms/ios/App/Services/CustomService.swift
+      - path: shared/apple-services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
-      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: shared/apple-bridge/AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/SharedResources/KeyboardBrand.png
         buildPhase: resources
+      - path: shared/apple-models
       - path: platforms/ios/SharedUI
       - path: platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -220,7 +229,7 @@ targets:
     platform: iOS
     sources:
       - path: platforms/ios/KeyboardTests
-      - path: platforms/ios/App/Services/AISkinService.swift
+      - path: shared/apple-services/AISkinService.swift
       - path: platforms/ios/App/Services/SkinCommunityAPI.swift
       - path: platforms/ios/App/Services/CommunityPreviewFixtures.swift
       - path: platforms/ios/App/Services/CloudDictionaryTransfer.swift
@@ -232,12 +241,13 @@ targets:
       - path: shared/backend/BackendSkinArtworkClient.swift
       - path: shared/backend/BackendAccountSession.swift
       - path: platforms/ios/KeyboardExtension/Sources
-      - path: platforms/ios/App/Services/CustomService.swift
+      - path: shared/apple-services/CustomService.swift
       - path: platforms/ios/App/Services/KeyboardAIService.swift
-      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: shared/apple-bridge/AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
       - path: platforms/ios/SharedResources/KeyboardBrand.png
         buildPhase: resources
+      - path: shared/apple-models
       - path: platforms/ios/SharedUI
       - path: platforms/ios/KeyboardExtension/Resources/msime.db
         buildPhase: resources
@@ -277,6 +287,7 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
+      - path: shared/apple-models/CustomKeyboardSkinModel.swift
       - path: platforms/ios/ServiceTests
       - path: shared/backend/BackendAccountClient.swift
       - path: shared/backend/BackendChatClient.swift
@@ -288,9 +299,10 @@ targets:
       - path: shared/backend/BackendDictionaryClient.swift
       - path: shared/backend/BackendCandidateClient.swift
       - path: shared/backend/BackendSnapshotClient.swift
+      - path: shared/backend/BackendSkinCommunityClient.swift
       - path: shared/backend/BackendCommunityResourceClient.swift
-      - path: platforms/ios/App/Services/CustomService.swift
-      - path: platforms/ios/App/Services/AppServicesBridge.mm
+      - path: shared/apple-services/CustomService.swift
+      - path: shared/apple-bridge/AppServicesBridge.mm
       - path: vendor/MetasequoiaImeEngine/voice/src/provider_protocol.cpp
     settings:
       base:
@@ -298,7 +310,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.servicetests
         BREW_PREFIX: /opt/homebrew
         CLANG_CXX_LANGUAGE_STANDARD: c++17
-        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../platforms/ios/App/Services/AppServicesBridge.h
+        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../shared/apple-bridge/AppServicesBridge.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(PROJECT_DIR)/../../vendor/MetasequoiaImeEngine/voice/include

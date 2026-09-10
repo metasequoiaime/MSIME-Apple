@@ -140,6 +140,11 @@ private struct MacAccountView: View {
   @State private var dictionary = false
   @State private var snapshot = false
   @State private var resources = false
+  @State private var chat = false
+  @State private var writing = false
+  @State private var skinGeneration = false
+  @State private var skinGallery = false
+  @State private var communitySkins = false
   var body: some View {
     ScrollView {
       Form {
@@ -147,6 +152,11 @@ private struct MacAccountView: View {
         Text(user.preferredDisplayName).font(.title2)
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
+        Button("社区皮肤…") { communitySkins = true }
+        Button("AI 图片皮肤（三套）…") { skinGallery = true }
+        Button("AI 候选窗皮肤…") { skinGeneration = true }
+        Button("AI 对话…") { chat = true }
+        Button("AI 润色与回复…") { writing = true }
         Button("云剪贴板…") { clipboard = true }
         Button("桌面设置同步…") { settings = true }
         Button("词包与回复模板…") { resources = true }
@@ -179,6 +189,21 @@ private struct MacAccountView: View {
     }
     }
     .padding(24).frame(width: 420, height: 440).disabled(model.busy || model.authorizing)
+    .sheet(isPresented: $communitySkins) {
+      if let user = model.user { MacCommunitySkinView(accountID: user.id) }
+    }
+    .sheet(isPresented: $skinGallery) {
+      if let user = model.user { MacAISkinGalleryView(accountID: user.id) }
+    }
+    .sheet(isPresented: $skinGeneration) {
+      if let user = model.user { MacSkinGenerationView(accountID: user.id) }
+    }
+    .sheet(isPresented: $writing) {
+      if let user = model.user { MacWritingView(accountID: user.id) }
+    }
+    .sheet(isPresented: $chat) {
+      if let user = model.user { MacChatView(accountID: user.id) }
+    }
     .sheet(isPresented: $resources) {
       if let user = model.user { BackendCommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
     }

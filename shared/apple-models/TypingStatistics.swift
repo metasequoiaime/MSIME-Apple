@@ -113,8 +113,18 @@ struct TypingStatistics: Codable {
 struct TypingStatisticsStore {
   let directory: URL?
 
-  init(directory: URL? = FileManager.default.containerURL(
-    forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
+  static var defaultDirectory: URL? {
+    #if os(macOS)
+    guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+    let directory = base.appendingPathComponent("MetasequoiaIME/Statistics", isDirectory: true)
+    do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); return directory }
+    catch { return nil }
+    #else
+    return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    #endif
+  }
+
+  init(directory: URL? = Self.defaultDirectory) {
     self.directory = directory
   }
 

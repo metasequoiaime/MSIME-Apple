@@ -85,11 +85,11 @@ enum AISkinService {
     return results
   }
   static func generate(_ prompt: String, client: BackendAccountClient = BackendAccountClient(),
-                       account: BackendAccountSession = .shared,
+                       account: BackendAccountSession = .shared, expectedUserID: String? = nil,
                        progress: @MainActor @Sendable (Int) -> Void = { _ in }) async throws -> [AISkinProposal] {
     let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     guard (1...500).contains(prompt.count) else { throw ServiceFailure(message: "无法生成抽卡灵感，请重试。") }
-    let identity = try await account.credentials()
+    let identity = try await account.credentials(matchingUserID: expectedUserID)
     let catalog = try await client.chatModels(token: identity.token)
     let fresh = try await account.credentials(matchingUserID: identity.userID)
     try Task.checkCancellation()
@@ -137,12 +137,16 @@ enum AISkinService {
             !data.isEmpty, data.count <= 8 * 1024 * 1024 else {
         throw ServiceFailure(message: "AI 插画格式无效，请重新生成。")
       }
+      #if os(macOS)
+      let photo = try MacSkinArtwork.communityPhoto(data)
+      #else
       let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       defer { try? FileManager.default.removeItem(at:temporary) }
       try data.write(to:temporary,options:.atomic)
       guard let photo = SkinPhotoData.thumbnail(at:temporary) else {
         throw ServiceFailure(message: "无法处理 AI 插画，请重新生成。")
       }
+      #endif
       var design = plan.design
       design.photo = photo; design.photoShade = 0.08; design.photoPosition = 0.5
       design.keyOpacity = 0.92; design.pattern = 0

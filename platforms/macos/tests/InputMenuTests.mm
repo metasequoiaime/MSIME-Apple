@@ -25,9 +25,11 @@ void require(bool condition, const char *message)
 @property(nonatomic) BOOL traditionalSelected;
 @property(nonatomic) BOOL voiceToggled;
 @property(nonatomic) BOOL voiceSettingsShown;
+@property(nonatomic) BOOL writingShown;
 @end
 
 @implementation PreferencesTarget
+- (void)showWritingAssistant:(id)sender { (void)sender; self.writingShown = YES; }
 - (void)toggleVoiceInput:(id)sender
 {
     (void)sender;
@@ -89,7 +91,7 @@ int main()
         PreferencesTarget *target = [[PreferencesTarget alloc] init];
         NSMenu *menu = CreateMetasequoiaInputMenu(target, NO, NO);
 
-        require(menu.numberOfItems == 12,
+        require(menu.numberOfItems == 13,
                 "The input menu did not contain input modes, output character sets, character palette, update, and "
                 "settings actions.");
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
@@ -136,6 +138,9 @@ int main()
         require(settingsItem.target == target, "The settings action did not target the input controller.");
         require(settingsItem.enabled, "The settings action was unexpectedly disabled.");
 
+        [menu performActionForItemAtIndex:12];
+        require(target.writingShown && [[menu itemAtIndex:12].title isEqualToString:@"润色选中文字…"],
+                "Native writing menu did not dispatch to the input controller.");
         [menu performActionForItemAtIndex:10];
         [menu performActionForItemAtIndex:11];
         require(target.voiceToggled && target.voiceSettingsShown, "Voice menu actions were not dispatched.");

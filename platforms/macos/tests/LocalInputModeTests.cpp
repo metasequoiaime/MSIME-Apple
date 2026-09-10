@@ -1,3 +1,4 @@
+#include "../src/LocalResourceModes.h"
 #include "PublicSessionTestOptions.h"
 // Idle Shift+letter opens a local mode. During a composition the same capital is helpcode input,
 // and the engine still refuses to open a mode on top of one. These tests pin which capitals open a
@@ -24,17 +25,48 @@ void Require(bool condition, const char *message)
 
 metasequoia::LocalModeOptions AppleOptions(bool enabled)
 {
-    metasequoia::LocalModeOptions options;
-    options.unicode = enabled;
-    options.date_time = enabled;
-    options.quick_phrase = enabled;
-    options.super_jianpin = enabled;
-    // These four read others.db, english.db and dict_japanese.dat, none of which this bundle fetches.
-    options.emoji = false;
-    options.kaomoji = false;
-    options.temporary_english = false;
-    options.temporary_japanese = false;
-    return options;
+    return metasequoia::mac::LocalResourceModes(enabled, metasequoia::RuntimePaths::legacy());
+}
+
+int RunBundledTest(const std::filesystem::path &resources)
+{
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("metasequoia-bundled-modes-" + std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    struct Cleanup { std::filesystem::path directory; ~Cleanup() { std::filesystem::remove_all(directory); } } cleanup{directory};
+    metasequoia::SessionOptions options;
+    options.paths = {resources, directory / "user", directory / "cache", resources};
+    options.helpcode = false;
+    options.learning = false;
+    options.local_modes = metasequoia::mac::LocalResourceModes(true, options.paths);
+    Require(options.local_modes.emoji && options.local_modes.kaomoji && options.local_modes.temporary_japanese,
+            "Bundled resources did not enable native local modes.");
+    for (const auto scheme : {SchemeType::Quanpin, SchemeType::Shuangpin})
+    {
+        options.scheme = scheme;
+        metasequoia::Session session(options);
+        for (const auto trigger : {'E', 'M', 'R'})
+        {
+            Require(session.character(trigger, true).handled, "A bundled local trigger was not handled.");
+            const std::string code = trigger == 'E' ? "xl" : trigger == 'M' ? "hx" : "ka";
+            for (const char character : code) Require(session.character(character).handled, "Local input was rejected.");
+            const auto snapshot = session.snapshot();
+            Require(!snapshot.candidates.empty(), "Bundled resource produced no candidates.");
+            const auto expected = snapshot.candidates.front().word;
+            const auto result = session.finish(0);
+            Require(result.commit == expected && session.snapshot().local_mode == metasequoia::LocalInputMode::None,
+                    "Resource candidate failed to finish and restore original input mode.");
+            Require(session.character(trigger, true).handled, "A local mode failed to reopen.");
+            session.command(metasequoia::Command::Cancel);
+            Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
+                    "Cancel failed to restore the original input mode.");
+        }
+    }
+    options.local_modes = metasequoia::mac::LocalResourceModes(false, options.paths);
+    metasequoia::Session disabled(options);
+    for (const char trigger : {'E', 'M', 'R'})
+        Require(!disabled.character(trigger, true).handled, "Disabled resource mode swallowed its trigger.");
+    return 0;
 }
 
 int RunTest()
@@ -79,7 +111,7 @@ int RunTest()
         Require(session.snapshot().local_mode == metasequoia::LocalInputMode::None,
                 "A capital that opens no mode still changed the local mode.");
 
-        // The four modes whose data this bundle does not ship must not open at all.
+        // Modes without resources in the legacy fixture must not open at all.
         for (const char trigger : {'E', 'M', 'Y', 'R'})
         {
             const auto result = session.character(trigger, true);
@@ -119,11 +151,11 @@ int RunTest()
 }
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
     try
     {
-        return RunTest();
+        return argc == 3 && std::string(argv[1]) == "--resources" ? RunBundledTest(argv[2]) : RunTest();
     }
     catch (const std::exception &exception)
     {

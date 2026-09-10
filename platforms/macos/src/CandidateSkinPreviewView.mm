@@ -260,6 +260,7 @@ NSArray<NSString *> *PreviewSamples()
     NSInteger _pageSize;
     CGFloat _candidateFontSize;
     NSString *_previewSkinId;
+    NSString *_previewSkinsRoot;
     NSNumber *_forcedDark;
     BOOL _showsLayoutShowcase;
     NSLayoutConstraint *_heightConstraint;
@@ -317,9 +318,17 @@ NSArray<NSString *> *PreviewSamples()
     return MetasequoiaAppearanceIsDark(NSAppearance.currentDrawingAppearance);
 }
 
+- (void)setPreviewSkinsRoot:(NSString *)path
+{
+    _previewSkinsRoot = [path copy];
+    [self reloadPreview];
+}
+
 - (metasequoia::mac::ResolvedSkin)previewSkin
 {
     NSString *skinId = _previewSkinId != nil ? _previewSkinId : MetasequoiaStoredCandidateSkin();
+    if (_previewSkinsRoot != nil && skinId != nil)
+        return metasequoia::mac::ResolveSkin(skinId.UTF8String, [self previewUsesDark], _previewSkinsRoot.fileSystemRepresentation);
     return MetasequoiaResolveCandidateSkin(skinId, [self previewUsesDark]);
 }
 

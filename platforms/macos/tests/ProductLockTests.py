@@ -28,6 +28,47 @@ class ProductLockTests(unittest.TestCase):
     def setUp(self):
         self.data = lock.load(ROOT / "product-lock.json")
 
+    def test_supplemental_resources_use_authenticated_manifest_and_stage_before_replace(self):
+        import supplemental_resources as supplemental
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.fixture_assets(directory)
+            contents = {name: b'MSJPDT1\0fixture' if name == 'dict_japanese.dat' else b'fixture'
+                        for name in lock._product.DESKTOP_FILES}
+            for name, data in contents.items():
+                (directory / name).write_bytes(data)
+            manifest = {'manifest_version': 1, 'format_version': 1, 'profile': 'desktop',
+                        'source': {'repository': self.data['dictionary']['repository'],
+                                   'commit': self.data['dictionary']['source_commit'], 'dirty': False},
+                        'engine_compatibility': {'dictionary_format': 1, 'japanese_model_magic': 'MSJPDT1'},
+                        'files': {name: {'sha256': lock.sha256(directory / name), 'size': len(data)}
+                                  for name, data in contents.items()}}
+            (directory / lock.PRODUCT_MANIFEST).write_text(json.dumps(manifest))
+            for name in self.data['dictionary']['assets']:
+                self.data['dictionary']['assets'][name] = lock.sha256(directory / name)
+            for name in supplemental.ASSETS:
+                (directory / name).unlink()
+            def download(url, path):
+                self.assertIn('/releases/download/' + self.data['dictionary']['tag'] + '/', url)
+                path.write_bytes(contents[path.name])
+            with mock.patch.object(supplemental.product_lock_shared, 'download_with_retries', side_effect=download) as fetch:
+                supplemental.prepare(directory, self.data)
+                self.assertEqual(fetch.call_count, 3)
+                supplemental.prepare(directory, self.data)
+                self.assertEqual(fetch.call_count, 3)
+            (directory / 'others.db').write_bytes(b'previous')
+            previous = {name: (directory / name).read_bytes() for name in supplemental.ASSETS}
+            def bad_download(url, path):
+                download(url, path)
+                if path.name == supplemental.ASSETS[-1]: path.write_bytes(b'corrupt')
+            with mock.patch.object(supplemental.product_lock_shared, 'download_with_retries', side_effect=bad_download):
+                with self.assertRaises(ValueError): supplemental.prepare(directory, self.data)
+            self.assertEqual(previous, {name: (directory / name).read_bytes() for name in supplemental.ASSETS})
+            (directory / lock.PRODUCT_MANIFEST).write_text('{}')
+            with mock.patch.object(supplemental.product_lock_shared, 'download_with_retries') as fetch:
+                with self.assertRaises(ValueError): supplemental.prepare(directory, self.data)
+                fetch.assert_not_called()
+
     def test_modern_dictionary_requires_a_compatible_locked_manifest(self):
         self.data['dictionary']['tag'] = 'dict-2026.09.06'
         self.data['dictionary']['repository'] = lock.DICTIONARY_REPOSITORY

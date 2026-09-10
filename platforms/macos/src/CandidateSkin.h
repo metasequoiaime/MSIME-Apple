@@ -93,6 +93,7 @@ struct ResolvedSkin
     double minWidthDip = 0.0;
 };
 
+std::optional<std::string> RenameSkinManifest(const std::string &text, const std::string &name);
 bool IsBuiltInSkinId(std::string_view id);
 bool IsSafeSkinId(std::string_view id);
 std::string NormalizeSkinId(std::string_view id);

@@ -66,10 +66,9 @@ final class MacSettingsModel: ObservableObject {
       _ = try await self.authorize()
       self.cloud = cloud; self.schema = schema
       var values = cloud.settings.filter { before[$0.key] != nil }
-      // Older cloud revisions predate skin sync; retain the device's skin while
-      // still restoring the complete previously supported desktop settings.
-      if values["platform.macos.candidate_skin"] == nil {
-        values["platform.macos.candidate_skin"] = before["platform.macos.candidate_skin"]
+      // New optional fields preserve this device's value in older cloud records.
+      for key in ["platform.macos.candidate_skin", "input.shuangpin_schema"] where values[key] == nil {
+        values[key] = before[key]
       }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
@@ -81,13 +80,17 @@ final class MacSettingsModel: ObservableObject {
   func upload() {
     guard let cloud, let schema else { return }
     run { token in
-      let values = try self.local.snapshot()
+      var values = try self.local.snapshot()
       try self.local.validate(values)
+      // Older servers can still sync the existing desktop settings. Never send
+      // an optional field until the server advertises it.
+      let supportsProfile = schema.fields["input.shuangpin_schema"] != nil
+      if !supportsProfile { values.removeValue(forKey: "input.shuangpin_schema") }
       let merged = try BackendAccountClient.mergedPreferences(cloud, replacing: values, schema: schema)
       let saved = try await self.client.putPreferences(merged, token: token)
       _ = try await self.authorize()
       self.cloud = saved; self.preview = nil; self.expectedLocal = nil
-      self.message = "本机设置已上传，其他平台的云端设置已保留。"
+      self.message = supportsProfile ? "本机设置已上传，包含共用双拼方案；其他平台专属设置已保留。" : "本机设置已上传。服务器暂不支持双拼方案同步，该选择保留在本机。"
     }
   }
   func apply() {
@@ -113,7 +116,7 @@ struct MacCloudSettingsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack { Text("桌面设置同步").font(.title2); Spacer(); Button("关闭") { model.close(); dismiss() } }
-      Text("同步输入方案、辅助码、候选窗口、学习和标点等 19 项 macOS 设置。上传与替换均需主动确认，不包含账号凭据或本机文件路径。")
+      Text("同步输入方案、辅助码、候选窗口、学习和标点等桌面设置，以及与 iOS 共用的双拼方案。上传与替换均需主动确认；模糊音等未支持的设置保留在本机。")
       Button("下载云端设置并预览") { model.download() }.disabled(model.busy)
       if model.cloud != nil { Button("上传本机设置") { action = .upload }.disabled(model.busy) }
       if let preview = model.preview {
@@ -135,20 +138,24 @@ struct MacCloudSettingsView: View {
     .alert(action == .upload ? "上传本机设置？" : "替换本机设置？", isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } })) {
       Button("取消", role: .cancel) { action = nil }
       Button("确认", role: action == .apply ? .destructive : nil) { if action == .upload { model.upload() } else { model.apply() }; action = nil }
-    } message: { Text(action == .upload ? "更新云端 macOS 设置，并保留其他平台的设置。" : "应用这份已预览的设置。本机或云端设置发生变化时会拒绝本次替换，请重新下载确认。") }
+    } message: { Text(action == .upload ? "更新云端 macOS 设置及共用双拼方案。iOS 下载设置时也会使用该双拼方案；其他平台专属设置保留。" : "应用这份已预览的设置。本机或云端设置发生变化时会拒绝本次替换，请重新下载确认。") }
   }
   private func label(_ key: String) -> String {
+    if key == "input.shuangpin_schema" { return "共用双拼方案" }
     let names = ["candidate_skin":"候选窗皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"本地扩展模式"]
     return names[String(key.dropFirst("platform.macos.".count))] ?? "桌面设置"
   }
   private func display(_ value: BackendPreferenceValue, key: String) -> String {
+    if key == "input.shuangpin_schema", case .string(let profile) = value {
+      return ["xiaohe":"小鹤双拼", "ziranma":"自然码双拼", "microsoft":"微软双拼", "shoudao":"Shoudao 双拼"][profile] ?? profile
+    }
     if key == "platform.macos.candidate_skin", case .string(let id) = value {
       return ["fluent":"Fluent", "wechat":"微信绿", "graphite":"石墨 Graphite", "willow_green":"杨柳青"][id] ?? id
     }
     if case .integer(let n) = value {
       let names: [String]?
       switch key {
-      case "platform.macos.input_scheme": names = ["全拼", "双拼", "五笔"]
+      case "platform.macos.input_scheme": names = ["全拼", "双拼", "五笔", "日语罗马字"]
       case "platform.macos.quanpin_helpcode_schema", "platform.macos.shuangpin_helpcode_schema": names = ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤"]
       case "platform.macos.candidate_panel_style": names = ["横排", "竖排"]
       case "platform.macos.candidate_page_shortcut": names = ["减号 / 等号", "方括号", "Page Up / Page Down"]

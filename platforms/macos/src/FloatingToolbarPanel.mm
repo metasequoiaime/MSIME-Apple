@@ -292,6 +292,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [self applySkin];
 }
 
+- (void)updateJapaneseScheme:(BOOL)japanese englishMode:(BOOL)englishMode
+{
+    _inputModeButton.title = englishMode ? @"英" : japanese ? @"日" : @"中";
+    _inputModeButton.accessibilityLabel = englishMode ? (japanese ? @"切换到日语输入" : @"切换到中文输入") : @"切换到英文输入";
+    _inputModeButton.toolTip = _inputModeButton.accessibilityLabel;
+    _traditionalOutputButton.enabled = !japanese;
+}
+
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
     self.toolbarDelegate = delegate;

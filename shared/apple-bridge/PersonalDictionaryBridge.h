@@ -11,8 +11,8 @@ NS_ASSUME_NONNULL_END
 #include <metasequoia/personal_dictionary.h>
 namespace metasequoia::apple
 {
-std::optional<PersonalDictionaryEntry> DecodePersonalWord(NSDictionary *entry, NSError **error);
-NSDictionary *EncodePersonalWord(const PersonalDictionaryEntry &entry);
-void PersonalDictionaryError(NSError **error, const std::string &message);
+std::optional<PersonalDictionaryEntry> DecodePersonalWord(NSDictionary * _Nullable entry, NSError * _Nullable * _Nullable error);
+NSDictionary * _Nonnull EncodePersonalWord(const PersonalDictionaryEntry &entry);
+void PersonalDictionaryError(NSError * _Nullable * _Nullable error, const std::string &message);
 } // namespace metasequoia::apple
 #endif

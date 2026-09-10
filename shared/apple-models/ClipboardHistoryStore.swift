@@ -11,8 +11,13 @@ struct ClipboardHistoryStore {
   static let limit = 50
   let file: URL
   init(directory: URL? = nil) {
+    #if os(macOS)
+    let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("MetasequoiaIME", isDirectory: true)
+    #else
     let root = directory ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    #endif
     file = root.appendingPathComponent("Clipboard/history.json")
   }
   func load() throws -> [ClipboardHistoryItem] {
@@ -26,11 +31,19 @@ struct ClipboardHistoryStore {
   func save(_ items: [ClipboardHistoryItem]) throws {
     guard items.count <= Self.limit else { throw Failure.full }
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    #if os(macOS)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.deletingLastPathComponent().path)
+    #endif
     var directory = file.deletingLastPathComponent()
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
     try directory.setResourceValues(values)
+    #if os(macOS)
+    try JSONEncoder().encode(items).write(to: file, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    #else
     try JSONEncoder().encode(items).write(to: file, options: [.atomic, .completeFileProtection])
+    #endif
   }
   func add(_ text: String) throws {
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Failure.empty }

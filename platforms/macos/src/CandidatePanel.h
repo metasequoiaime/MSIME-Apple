@@ -6,6 +6,8 @@
 - (void)candidateSelected:(NSAttributedString *)candidate;
 - (void)candidatePanelPreviousPage;
 - (void)candidatePanelNextPage;
+@optional
+- (void)candidatePanelChooseSpelling:(NSUInteger)index text:(NSString *)text;
 @end
 
 // Nonactivating AppKit presentation of one controller-owned candidate page.
@@ -16,10 +18,12 @@
 @property(nonatomic) NSRect caretRect;
 @property(nonatomic) BOOL hasPreviousPage;
 @property(nonatomic) BOOL hasNextPage;
+@property(nonatomic, copy) NSArray<NSString *> *nineKeySpellings;
 @property(nonatomic, readonly) NSPanel *window;
 - (void)setAttributes:(NSDictionary *)attributes;
 - (void)setCandidateData:(NSArray<NSAttributedString *> *)candidates;
 - (void)show:(IMKCandidatesLocationHint)hint;
+- (void)showNineKeySpellings;
 - (void)hide;
 - (BOOL)isVisible;
 - (NSRect)candidateFrame;

@@ -15,7 +15,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
 import product_lock
-import product_lock_shared
+import supplemental_resources
 
 FULL_DICTIONARY = REPOSITORY_ROOT / "vendor/MetasequoiaImeDict/out/msime.db"
 IOS_DICTIONARY = REPOSITORY_ROOT / "platforms/ios/KeyboardExtension/Resources/msime.db"
@@ -29,17 +29,13 @@ def main():
     except (OSError, ValueError):
         subprocess.run(["python3", "scripts/fetch_dictionary.py"], cwd=REPOSITORY_ROOT, check=True)
     product_lock.verify_assets(FULL_DICTIONARY.parent, lock)
+    supplemental_resources.prepare(FULL_DICTIONARY.parent, lock)
     manifest = json.loads((FULL_DICTIONARY.parent / "dictionary-manifest.json").read_text())
     with tempfile.TemporaryDirectory() as temporary:
         staging = Path(temporary)
         for name in ASSETS:
             target = staging / name
-            if name == "msime.db":
-                shutil.copyfile(FULL_DICTIONARY, target)
-            else:
-                release = lock["dictionary"]
-                url = f"https://github.com/{release['repository']}/releases/download/{release['tag']}/{name}"
-                product_lock_shared.download_with_retries(url, target)
+            shutil.copyfile(FULL_DICTIONARY.parent / name, target)
             digest = hashlib.sha256(target.read_bytes()).hexdigest()
             if digest != manifest["files"][name]["sha256"]:
                 raise ValueError(f"{name}: digest differs from locked product manifest")

@@ -137,6 +137,7 @@
     NSInteger _selected;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
+    NSPopUpButton *_spellingButton;
 }
 
 - (instancetype)init
@@ -232,8 +233,22 @@
             return screen;
     return NSScreen.mainScreen;
 }
+- (void)setNineKeySpellings:(NSArray<NSString *> *)spellings
+{
+    _nineKeySpellings = [spellings copy];
+    [self layoutCandidates];
+}
+- (void)showNineKeySpellings { [_spellingButton performClick:nil]; }
+- (void)spellingChosen:(NSPopUpButton *)sender
+{
+    const NSInteger index = sender.indexOfSelectedItem - 1;
+    if (index >= 0 && (NSUInteger)index < _nineKeySpellings.count &&
+        [self.delegate respondsToSelector:@selector(candidatePanelChooseSpelling:text:)])
+        [self.delegate candidatePanelChooseSpelling:(NSUInteger)index text:sender.titleOfSelectedItem];
+}
 - (void)layoutCandidates
 {
+    _spellingButton = nil;
     for (NSView *view in [_chrome.subviews copy])
         [view removeFromSuperview];
     const CGFloat inset = MAX(2.0, _skin.tokens.pad);
@@ -278,9 +293,10 @@
         width = vertical ? MAX(width, 64) : width + 56;
     const CGFloat decorationHeight = _skin.decorationTopDip > 0.0 ? _skin.decorationTopDip : 0.0;
     const CGFloat minWidth = MAX(_skin.minWidthDip, MAX(_skin.decorationWidthDip, 20));
-    NSSize size = NSMakeSize(MAX(width + 2 * inset, minWidth),
+    const CGFloat spellingHeight = _nineKeySpellings.count > 0 ? 30 : 0;
+    NSSize size = NSMakeSize(MAX(width + 2 * inset, MAX(minWidth, spellingHeight > 0 ? 240 : 0)),
                              MAX((vertical ? _data.count : (_data.count > 0 ? 1 : 0)) * rowHeight + navigationHeight +
-                                     2 * inset + decorationHeight,
+                                     2 * inset + decorationHeight + spellingHeight,
                                  10));
     [_window setContentSize:size];
     _chrome.fillColor = MetasequoiaColorFromRgba(_skin.tokens.surface);
@@ -298,7 +314,16 @@
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;
-    const CGFloat contentTop = size.height - inset - decorationHeight;
+    const CGFloat contentTop = size.height - inset - decorationHeight - spellingHeight;
+    if (spellingHeight > 0) {
+        NSPopUpButton *spelling = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(inset, contentTop + 3, size.width - 2 * inset, 24) pullsDown:NO];
+        [spelling addItemWithTitle:@"选择拼音 · 数字键继续输入"];
+        [spelling addItemsWithTitles:_nineKeySpellings];
+        spelling.accessibilityLabel = @"九键拼音选择";
+        spelling.target = self; spelling.action = @selector(spellingChosen:);
+        _spellingButton = spelling;
+        [_chrome addSubview:spelling];
+    }
     NSColor *selectedFill = MetasequoiaColorFromRgba(_skin.tokens.selected);
     NSColor *textColor = MetasequoiaColorFromRgba(_skin.tokens.text);
     NSColor *selectedText = MetasequoiaColorFromRgba(_skin.tokens.selectedText);
@@ -361,7 +386,7 @@
 - (void)show:(IMKCandidatesLocationHint)hint
 {
     (void)hint;
-    if (_data.count == 0)
+    if (_data.count == 0 && _nineKeySpellings.count == 0)
     {
         [self hide];
         return;

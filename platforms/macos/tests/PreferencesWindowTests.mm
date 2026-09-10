@@ -1,5 +1,6 @@
 #import "../src/PreferencesWindowController.h"
 #import "../src/UpdateController.h"
+#include "../src/SkinLibrary.h"
 
 #import <AppKit/AppKit.h>
 
@@ -225,6 +226,34 @@ int main()
         MetasequoiaPreferencesWindowController *controller =
             [[MetasequoiaPreferencesWindowController alloc] initWithUpdateController:updateController];
         [controller refreshControls];
+        [MetasequoiaPreferencesWindowController setFuzzyPinyinEnabled:NO];
+        [MetasequoiaPreferencesWindowController setFuzzyPinyinRules:0];
+        NSButton *fuzzyEntry = FindButtonWithTitle(controller.window.contentView, @"模糊音设置…");
+        require(fuzzyEntry != nil, "The native input settings missed fuzzy pinyin.");
+        [fuzzyEntry performClick:nil];
+        NSWindow *fuzzySheet = controller.window.attachedSheet;
+        require(fuzzySheet != nil, "Fuzzy pinyin did not open as a native sheet.");
+        NSButton *fuzzyEnabled = FindButtonWithTitle(fuzzySheet.contentView, @"启用模糊音");
+        NSButton *fuzzyRule = FindButtonWithTitle(fuzzySheet.contentView, @"n ↔ l");
+        require(fuzzyEnabled != nil && fuzzyRule != nil && !fuzzyRule.enabled,
+                "Fuzzy rule controls did not respect the master switch.");
+        [fuzzyEnabled performClick:nil];
+        [fuzzyRule performClick:nil];
+        require([MetasequoiaPreferencesWindowController activeFuzzyPinyinRules] == (1u << 3),
+                "The n/l choice did not persist its Engine rule.");
+        [fuzzyEnabled performClick:nil];
+        require([MetasequoiaPreferencesWindowController activeFuzzyPinyinRules] == 0 &&
+                [MetasequoiaPreferencesWindowController storedFuzzyPinyinRules] == (1u << 3) &&
+                fuzzyRule.state == NSControlStateValueOn && !fuzzyRule.enabled,
+                "Disabling fuzzy pinyin lost the selected rules.");
+        [fuzzySheet.contentView layoutSubtreeIfNeeded];
+        NSButton *fuzzyDone = FindButtonWithTitle(fuzzySheet.contentView, @"完成");
+        require(fuzzyDone != nil && NSWidth(fuzzyDone.bounds) > 0 && NSHeight(fuzzyDone.bounds) > 0 &&
+                NSContainsRect(fuzzySheet.contentView.bounds,
+                    [fuzzySheet.contentView convertRect:fuzzyDone.bounds fromView:fuzzyDone]),
+                "Fuzzy pinyin controls overflowed the sheet.");
+        [fuzzyDone performClick:nil];
+        [MetasequoiaPreferencesWindowController setFuzzyPinyinRules:0];
         require(controller.window.titleVisibility == NSWindowTitleVisible &&
                     !controller.window.titlebarAppearsTransparent && !controller.window.movableByWindowBackground,
                 "The settings window did not use standard macOS window chrome.");
@@ -301,7 +330,7 @@ int main()
         // Off by default: turning it on hands Shift+U/T/K/J to the engine's local input modes, and
         // those keystrokes insert a bare capital today, so it must never arrive switched on.
         NSButton *localInputModesButton =
-            FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式（Shift+U/T/K/J）");
+            FindButtonWithTitle(controller.window.contentView, @"启用本地输入模式（Shift+U/T/K/J/Y/E/M/R）");
         require(localInputModesButton != nil, "The settings window did not expose the local input mode switch.");
         require(localInputModesButton.state == NSControlStateValueOff,
                 "The local input mode switch did not default to off.");
@@ -322,22 +351,32 @@ int main()
         NSButton *quanpinSchemeButton = FindButtonWithTitle(controller.window.contentView, @"全拼输入");
         NSButton *shuangpinSchemeButton = FindButtonWithTitle(controller.window.contentView, @"双拼输入");
         NSButton *wubiSchemeButton = FindButtonWithTitle(controller.window.contentView, @"五笔输入");
+        NSButton *japaneseSchemeButton = FindButtonWithTitle(controller.window.contentView, @"日语罗马字输入");
         NSButton *fullWidthButton = FindButtonWithTitle(controller.window.contentView, @"Option+Shift+H 切换全半角");
-        require(quanpinSchemeButton != nil && shuangpinSchemeButton != nil && wubiSchemeButton != nil,
+        require(quanpinSchemeButton != nil && shuangpinSchemeButton != nil && wubiSchemeButton != nil && japaneseSchemeButton != nil,
                 "The keyboard-input page did not expose every supported input scheme.");
         NSView *shuangpinSchemeView = FindViewWithAccessibilityLabel(controller.window.contentView, @"双拼方案");
         NSView *wubiSchemeView = FindViewWithAccessibilityLabel(controller.window.contentView, @"五笔方案");
         require([shuangpinSchemeView isKindOfClass:[NSPopUpButton class]] &&
-                    ((NSPopUpButton *)shuangpinSchemeView).numberOfItems == 1 &&
+                    ((NSPopUpButton *)shuangpinSchemeView).numberOfItems == 4 &&
                     [[((NSPopUpButton *)shuangpinSchemeView) itemTitleAtIndex:0] isEqualToString:@"小鹤双拼"] &&
                     [wubiSchemeView isKindOfClass:[NSPopUpButton class]] &&
                     ((NSPopUpButton *)wubiSchemeView).numberOfItems == 1 &&
                     [[((NSPopUpButton *)wubiSchemeView) itemTitleAtIndex:0] isEqualToString:@"86 五笔"],
                 "The input-scheme rows did not expose their concrete scheme choices.");
+        NSPopUpButton *profilePicker = (NSPopUpButton *)shuangpinSchemeView;
+        [profilePicker selectItemAtIndex:2];
+        [NSApp sendAction:profilePicker.action to:profilePicker.target from:profilePicker];
+        require([[MetasequoiaPreferencesWindowController storedShuangpinProfile] isEqual:@"microsoft"],
+                "The native profile picker did not persist its choice.");
+        [MetasequoiaPreferencesWindowController setShuangpinProfile:@"unsupported"];
+        require([[MetasequoiaPreferencesWindowController storedShuangpinProfile] isEqual:@"xiaohe"],
+                "An invalid profile did not safely fall back to Xiaohe.");
+        [controller refreshControls];
         NSView *wubiSettingsRow = FindViewWithAccessibilityLabel(controller.window.contentView, @"五笔功能行");
         NSView *shuangpinKeymapRow = FindViewWithAccessibilityLabel(controller.window.contentView, @"双拼键位提示行");
         NSView *shuangpinKeymapView =
-            FindViewWithAccessibilityLabel(controller.window.contentView, @"显示小鹤双拼键位提示");
+            FindViewWithAccessibilityLabel(controller.window.contentView, @"显示双拼键位提示");
         require(wubiSettingsRow != nil && !wubiSettingsRow.hidden,
                 "The selected Wubi scheme did not reveal its settings row.");
         require(shuangpinKeymapRow != nil && shuangpinKeymapRow.hidden &&
@@ -806,6 +845,9 @@ int main()
         NSArray<NSString *> *preferenceKeys = @[
             @"MetasequoiaImeInputScheme",
             @"MetasequoiaImeQuanpinAutocorrect",
+            @"MetasequoiaImeFuzzyPinyinEnabled",
+            @"MetasequoiaImeFuzzyPinyinRules",
+            @"MetasequoiaImeShuangpinProfile",
             @"MetasequoiaImeHelpcodeEnabled",
             @"MetasequoiaImeQuanpinHelpcodeSchema",
             @"MetasequoiaImeShuangpinHelpcodeSchema",
@@ -859,8 +901,92 @@ int main()
                 }),
                 "Closing standalone settings did not finish or request application termination.");
         [[NSNotificationCenter defaultCenter] removeObserver:standaloneCloseObserver];
+        require(FindButtonWithTitle(controller.window.contentView, @"设计配色…") != nil,
+                "Skin settings lack the offline native editor entry.");
+        require(FindViewWithAccessibilityLabel(controller.window.contentView, @"全拼数字九键") != nil,
+                "Native settings do not expose the nine-key input preference.");
+        require(FindViewWithAccessibilityLabel(controller.window.contentView, @"本机按键音") != nil,
+                "Native settings do not expose local key feedback.");
+        NSDictionary *editable = [MetasequoiaPreferencesWindowController performSelector:@selector(editableCandidateSkin)];
+        require([editable[@"light"] count] == 7 && [editable[@"dark"] count] == 7,
+                "The native skin export omitted a palette token.");
+        NSURL *skinFixture = [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES]
+            URLByAppendingPathComponent:NSUUID.UUID.UUIDString isDirectory:YES];
+        NSURL *skinDirectory = [skinFixture URLByAppendingPathComponent:@"fixture" isDirectory:YES];
+        [[NSFileManager defaultManager] createDirectoryAtURL:skinDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *manifest = @"schema_version = 1\nid = \"fixture\"\nname = \"测试设计\"\nversion = \"1\"\nbase = \"fluent\"\npreview = \"artwork.png\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n[candidate_window]\nmin_width_dip = 240\n[candidate_window.decoration]\ntop_inset_dip = 80\nwidth_dip = 240\n[candidate.light]\nsurface = \"#123456\"\n[candidate.dark]\nsurface = \"#654321\"\n";
+        [manifest writeToURL:[skinDirectory URLByAppendingPathComponent:@"skin.toml"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        SEL exportSkin = @selector(editableCandidateSkinDirectory:);
+        require([MetasequoiaPreferencesWindowController performSelector:exportSkin withObject:skinDirectory] == nil,
+                "Missing saved artwork silently became a palette-only design.");
+        NSData *picture = [@"synthetic image bytes" dataUsingEncoding:NSUTF8StringEncoding];
+        [picture writeToURL:[skinDirectory URLByAppendingPathComponent:@"artwork.png"] atomically:YES];
+        NSDictionary *savedSkin = [MetasequoiaPreferencesWindowController performSelector:exportSkin withObject:skinDirectory];
+        require([savedSkin[@"palette"][@"name"] isEqual:@"测试设计"] &&
+                [savedSkin[@"palette"][@"light"][@"surface"] isEqual:@"#123456"] &&
+                [savedSkin[@"palette"][@"dark"][@"surface"] isEqual:@"#654321"] &&
+                [savedSkin[@"artwork"] isEqual:picture], "Saved skin export lost name, resolved palettes or artwork.");
+        NSError *skinError = nil;
+        auto reviewedRemoval = metasequoia::mac::ReviewSkinRemoval(skinFixture, @"fixture", &skinError);
+        require(reviewedRemoval.has_value(), "Could not review the external skin for removal.");
+        require(!metasequoia::mac::ReviewSkinRemoval(skinFixture, @"fluent", &skinError) &&
+                !metasequoia::mac::ReviewSkinRemoval(skinFixture, @"../fixture", &skinError),
+                "Built-in or traversing skin accepted for removal.");
+        __block int trashCalls = 0;
+        BOOL (^rejectTrash)(NSURL *, NSError **) = ^BOOL(NSURL *directory, NSError **error) {
+            (void)directory; (void)error; ++trashCalls; return NO;
+        };
+        require(!metasequoia::mac::TrashReviewedSkin(*reviewedRemoval, rejectTrash, &skinError) && trashCalls == 1 &&
+                [[NSFileManager defaultManager] fileExistsAtPath:skinDirectory.path], "Failed trash removed the skin.");
+        [[manifest stringByAppendingString:@"# changed after confirmation\n"]
+            writeToURL:[skinDirectory URLByAppendingPathComponent:@"skin.toml"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        require(!metasequoia::mac::TrashReviewedSkin(*reviewedRemoval, rejectTrash, &skinError) && trashCalls == 1,
+                "Changed skin reached the trash operation without renewed confirmation.");
+        NSURL *linkDirectory = [skinFixture URLByAppendingPathComponent:@"linked"];
+        [[NSFileManager defaultManager] createSymbolicLinkAtURL:linkDirectory withDestinationURL:skinDirectory error:nil];
+        require(!metasequoia::mac::ReviewSkinRemoval(skinFixture, @"linked", &skinError), "Symlink accepted as a managed skin.");
+        reviewedRemoval = metasequoia::mac::ReviewSkinRemoval(skinFixture, @"fixture", &skinError);
+        require(metasequoia::mac::RenameReviewedSkin(*reviewedRemoval, @"新名字 \"森林\"", &skinError),
+                "Native rename could not escape a quoted skin name.");
+        auto renamedPackage = metasequoia::mac::LoadSkinPackage(skinFixture.fileSystemRepresentation, "fixture");
+        require(renamedPackage && renamedPackage->name == "新名字 \"森林\"" && renamedPackage->light.surface == "#123456" &&
+                renamedPackage->dark.surface == "#654321" && renamedPackage->preview == "artwork.png",
+                "Renaming changed package identity, palettes or artwork path.");
+        require(!metasequoia::mac::RenameReviewedSkin(*reviewedRemoval, @"stale", &skinError), "Stale rename overwrote a newer name.");
+        reviewedRemoval = metasequoia::mac::ReviewSkinRemoval(skinFixture, @"fixture", &skinError);
+        require(!metasequoia::mac::RenameReviewedSkin(*reviewedRemoval, @"  ", &skinError), "Empty skin name accepted.");
+        NSURL *testTrash = [skinFixture URLByAppendingPathComponent:@"recoverable-fixture"];
+        require(metasequoia::mac::TrashReviewedSkin(*reviewedRemoval, ^BOOL(NSURL *directory, NSError **error) {
+            return [[NSFileManager defaultManager] moveItemAtURL:directory toURL:testTrash error:error];
+        }, &skinError), "Reviewed skin did not reach the injected recoverable trash operation.");
+        require(![[NSFileManager defaultManager] fileExistsAtPath:skinDirectory.path] &&
+                [[NSData dataWithContentsOfURL:[testTrash URLByAppendingPathComponent:@"artwork.png"]] isEqual:picture],
+                "Trash did not preserve the complete recoverable skin package.");
+        [[NSFileManager defaultManager] removeItemAtURL:skinFixture error:nil];
+        require([MetasequoiaPreferencesWindowController performSelector:exportSkin withObject:skinDirectory] == nil,
+                "Removed saved skin still exported a fallback design.");
         NSDictionary *originalCloudSettings = [MetasequoiaPreferencesWindowController cloudSettingsSnapshot];
-        require(originalCloudSettings.count == 20, "The cloud snapshot missed a native setting.");
+        require(originalCloudSettings.count == 21, "The cloud snapshot missed a native setting.");
+        NSMutableDictionary *profileSettings = [originalCloudSettings mutableCopy];
+        profileSettings[@"input.shuangpin_schema"] = @"unknown";
+        require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:profileSettings] boolValue],
+                "Unknown cloud profile was accepted.");
+        require([[MetasequoiaPreferencesWindowController cloudSettingsSnapshot] isEqual:originalCloudSettings],
+                "Rejected profile changed native settings.");
+        for (NSString *profile in @[ @"xiaohe", @"ziranma", @"microsoft", @"shoudao" ]) {
+            profileSettings[@"input.shuangpin_schema"] = profile;
+            require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:profileSettings] boolValue] &&
+                    [[MetasequoiaPreferencesWindowController storedShuangpinProfile] isEqual:profile],
+                    "Cloud profile did not reach the native preference.");
+        }
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:originalCloudSettings] boolValue],
+                "Could not restore native profile.");
+        NSMutableDictionary *japaneseSettings = [originalCloudSettings mutableCopy];
+        japaneseSettings[@"platform.macos.input_scheme"] = @3;
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:japaneseSettings] boolValue] &&
+                [MetasequoiaPreferencesWindowController storedScheme] == 3, "Japanese cloud scheme did not apply.");
+        require([[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:originalCloudSettings] boolValue],
+                "Cannot restore cloud settings after Japanese check.");
         NSMutableDictionary *invalidSkinSettings = [originalCloudSettings mutableCopy];
         invalidSkinSettings[@"platform.macos.candidate_skin"] = @"../private";
         require(![[MetasequoiaPreferencesWindowController applyCloudSettingsSnapshot:invalidSkinSettings] boolValue],

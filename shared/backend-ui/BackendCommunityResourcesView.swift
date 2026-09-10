@@ -113,6 +113,24 @@ private struct CommunityResourceDetailView: View {
             return identity
           }
         }
+        #if os(macOS)
+        if value.kind == .reply {
+          Button("保存到本机写作") {
+            let expected = value
+            run(refresh: false) { token in
+              let latest = try await client.communityResource(value.id, token: token)
+              _ = try await authorize()
+              guard latest.kind == .reply, latest.revision == expected.revision, latest.name == expected.name,
+                    latest.content.prompt == expected.content.prompt, let prompt = latest.content.prompt else {
+                throw BackendAccountClient.Failure(status: 409)
+              }
+              try MacReplyTemplateStore.shared.save(MacReplyTemplate(id: latest.id, name: latest.name,
+                prompt: prompt, revision: latest.revision))
+              message = "已保存，可在 AI 写作助手中选择这个模板。"
+            }
+          }.disabled(busy)
+        }
+        #endif
         Button(value.saved ? "取消收藏" : "收藏") { run { token in try await client.saveResource(value.id, saved: !value.saved, token: token) } }.disabled(busy)
         if value.saved && !value.owned {
           Section("评分") {

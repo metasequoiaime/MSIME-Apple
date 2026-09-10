@@ -4,7 +4,7 @@
 
 本仓默认分支是 `develop`，日常改动从 `develop` 切分支并合回 `develop`；`main` 是发布分支，只在发版时由维护者从 `develop` 合入，`release.yml` 也只监听 `main`。特性分支直接提到 `main` 会被 `Branch guard` 拦下。规则见[组织 AGENTS.md 的分支模型](https://github.com/metasequoiaime/.github/blob/main/AGENTS.md#分支模型)。
 
-辅助码按会话配置，macOS 候选提示使用控制器持有的同方案只读码表；不要调用全局选择器来切换活动会话，也不要在每次按键上重新加载码表。macOS 安装器保留原有数据目录；未同步时使用 `RuntimePaths::legacy()`，已有完整快照时按原子发布标记恢复独立词库代际。输入会话持有共享读锁，发布前必须全部空闲并释放会话，独占锁内复核本地版本并确认新会话可创建，之后才切换标记；重建会话仍使用现有偏好。清空学习数据也必须作用于当前代际。iOS 启动时校验随包资源，使用 Engine `prepare_runtime_paths` 恢复私有目录中的用户日志并准备词库代际；成功后原子记录活动代际，失败保留原词库。会话显式持有这些路径，切换方案和学习偏好不得退回全局目录。
+辅助码按会话配置，macOS 候选提示使用控制器持有的同方案只读码表；不要调用全局选择器来切换活动会话，也不要在每次按键上重新加载码表。macOS 安装器保留原有数据目录；首次会话在空闲且持有独占锁时，通过 Engine 流式读取完整用户日志并用随包中文、英文资源重建独立词库代际，校验摘要及新会话后原子发布。失败继续使用 `RuntimePaths::legacy()`；已有完整代际时按发布标记恢复，不在读会话中重放日志。临时英文仅在当前代际含英文词库时启用。输入会话持有共享读锁，发布前必须全部空闲并释放会话，独占锁内复核本地版本并确认新会话可创建，之后才切换标记；重建会话仍使用现有偏好。清空学习数据也必须作用于当前代际。iOS 启动时校验随包资源，使用 Engine `prepare_runtime_paths` 恢复私有目录中的用户日志并准备词库代际；成功后原子记录活动代际，失败保留原词库。会话显式持有这些路径，切换方案和学习偏好不得退回全局目录。
 
 桌面词库使用 product-lock.json 的已发布数据及摘要。`vendor/MetasequoiaImeEngine` 同时提供输入引擎、`helpcode/helpcodes/` 和根 `build_profile.py` 移动构建入口；禁止另行检出 Dict/HelpCode 或在 Apple 复制数据算法。Engine gitlink 与已发布词库源提交仍分别记录，不能把构建器提交冒充下载数据的来源。词库格式验证器从固定 Engine 复制，CI 比较字节防止漂移。
 
@@ -13,3 +13,9 @@ macOS 每次 Engine 动作完成后更新值快照；候选选择必须用当前
 高亮候选的自动提交调用 Session::finish(index)，剩余分段仍由 Engine 完成。
 
 iOS 个人词库通过 Engine `<metasequoia/personal_dictionary.h>` 校验和编辑；SharedUI 同步文件仅传递用户操作、确认和分页快照，不复制拼音解析或 SQL。键盘仅在完全访问开启且会话空闲时处理队列，写入前释放会话，完成后保留方案、九键和学习偏好重建。操作 UUID 作为 Engine 事务回执 ID，确认文件写入中断后的重试必须复用它。
+
+macOS 独立英文模式使用 Engine 英文会话；Tab 明确接受候选，空格、数字、标点、Return 和系统快捷键提交原拼写后由宿主处理。自动提交只有用户已导航选中候选时才接受补全。`Command::CommitRaw` 会主动学习英文；关闭学习或仍在旧布局时，原文提交使用 `Session::finish(snapshot.candidates.size())` 的公开无效索引语义，焦点丢失也遵守这一规则。
+
+macOS 选区写作通过 IMKTextInput 读取显式选区；不支持选区、读取被截断或超过限额时拒绝自动替换。仅选中文字发往服务，前文快照仅用于本机校验。生成和使用均须用户操作；使用前复核账户、原应用焦点、客户端、选区范围及文本，并且一次成功后失效。原客户端按键、其他应用鼠标点击或非预期应用激活使上下文失效；生成窗口关闭必须撤销自己的上下文，不能撤销后来创建的新上下文。
+
+自定义服务的 Swift 传输与配置位于 `shared/apple-services/CustomService.swift`，请求/响应编码经 `shared/apple-bridge/AppServicesBridge` 调用固定 Engine。macOS 自定义 AI 不依赖水杉账户，密钥使用独立的 `app.msime.macos.custom-services` 钥匙串服务；iOS 原有钥匙串标识保持不变。配置保存或密钥删除需更新本机配置修订号；自定义服务结果生成后及选区替换前复核配置和修订号，不能将旧结果授权混用到新服务。

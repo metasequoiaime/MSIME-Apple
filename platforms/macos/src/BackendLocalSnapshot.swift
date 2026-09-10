@@ -27,9 +27,13 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
     guard let object = result["prepared"] as? NSObject else { throw BackendAccountClient.Failure(status: 500) }
     prepared = object
   }
-  @MainActor func activate() throws {
+  @MainActor func activate(authorize: () async throws -> Void) async throws {
     guard let prepared, let version = context["version"] as? String else { throw BackendAccountClient.Failure(status: 400) }
-    _ = try Self.invoke("activate:", ["prepared": prepared, "version": version])
+    _ = try await MacDictionaryMutation.perform {
+      try await authorize()
+      try Task.checkCancellation()
+      return try Self.invoke("activate:", ["prepared": prepared, "version": version])
+    }
   }
   deinit {
     if prepared != nil, let user = context["user"] as? URL {

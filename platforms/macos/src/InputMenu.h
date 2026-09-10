@@ -11,16 +11,18 @@ inline NSMenuItem *CreateInputModeItem(NSString *title, SEL action, id target, B
     return item;
 }
 
-inline NSMenu *CreateMetasequoiaInputMenu(id target, BOOL englishMode, BOOL traditionalOutput)
+inline NSMenu *CreateMetasequoiaInputMenu(id target, BOOL englishMode, BOOL traditionalOutput, BOOL japaneseMode = NO)
 {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
 
-    [menu addItem:CreateInputModeItem(@"中文输入", @selector(selectChineseMode:), target, !englishMode)];
+    [menu addItem:CreateInputModeItem(japaneseMode ? @"日语输入" : @"中文输入", @selector(selectChineseMode:), target, !englishMode)];
     [menu addItem:CreateInputModeItem(@"英文输入", @selector(selectEnglishMode:), target, englishMode)];
     [menu addItem:[NSMenuItem separatorItem]];
     [menu addItem:CreateInputModeItem(@"简体输出", @selector(selectSimplifiedOutput:), target, !traditionalOutput)];
     [menu addItem:CreateInputModeItem(@"繁体输出", @selector(selectTraditionalOutput:), target, traditionalOutput)];
+    [menu itemAtIndex:3].enabled = !japaneseMode;
+    [menu itemAtIndex:4].enabled = !japaneseMode;
     [menu addItem:[NSMenuItem separatorItem]];
 
     // The IMK menu is the only entry point left once the floating toolbar is hidden, so it carries the character
@@ -58,5 +60,9 @@ inline NSMenu *CreateMetasequoiaInputMenu(id target, BOOL englishMode, BOOL trad
     voiceSettings.target = target;
     voiceSettings.enabled = YES;
     [menu addItem:voiceSettings];
+    NSMenuItem *writing = [[NSMenuItem alloc] initWithTitle:@"润色选中文字…"
+        action:@selector(showWritingAssistant:) keyEquivalent:@""];
+    writing.target = target; writing.enabled = YES;
+    [menu addItem:writing];
     return menu;
 }

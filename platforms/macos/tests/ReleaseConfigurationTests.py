@@ -18,7 +18,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         preferences_controller = (MACOS_ROOT / "src/PreferencesWindowController.mm").read_text()
         input_controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
 
-        self.assertIn("显示小鹤双拼键位提示", preferences_controller)
+        self.assertIn("显示双拼键位提示", preferences_controller)
         self.assertIn('accessibilityLabel = @"双拼键位提示行"', preferences_controller)
         self.assertIn("storedShuangpinKeymapEnabled", preferences_controller)
         self.assertIn('import "ShuangpinKeymapPanel.h"', input_controller)
@@ -148,25 +148,21 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("NSEventModifierFlagShift", uppercase_branch)
         self.assertIn("character(static_cast<char>(character), true)", uppercase_branch)
 
-    def test_engine_english_learning_stays_unreachable_from_macos(self):
+    def test_english_input_uses_the_complete_dictionary_runtime(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
+        runtime = (MACOS_ROOT / "src/DictionaryRuntime.mm").read_text()
         installer = (MACOS_ROOT / "src/DictionaryInstaller.mm").read_text()
-
-        # The engine writes learned English words to data_file_path("english.db"), while this installer
-        # replays the English journal into msime_english.db and only backs that name up when learned data
-        # is reset. The two never meet today because macOS never turns the engine's English paths on, so
-        # the divergence is latent. Wiring any of these up without first reconciling the filename would
-        # orphan learned English words in a file no macOS code reads, migrates or clears.
-        self.assertIn("msime_english.db", installer)
-        for switch in (
-            "set_dedicated_english",
-            "set_english_input_options",
-            "set_frequency_adjustment",
-            "set_mixed_expressive_options",
-        ):
-            self.assertNotIn(switch, controller, f"{switch} reaches the engine's english.db path; reconcile the filename with msime_english.db first")
-        # handle_character's second parameter is what routes Shift+letter into the English and local modes.
-        self.assertIn("_session->character(static_cast<char>(character))", controller)
+        # English learning now uses published Engine generations, including reset.
+        # The original msime_english.db remains confined to the legacy installer.
+        self.assertIn("MetasequoiaPrepareBundledDictionaryRuntime", controller)
+        self.assertIn("set_dedicated_english", controller)
+        self.assertIn('paths.dictionaries != _sessionOptions.paths.user_data', controller)
+        self.assertIn('stream_dictionary_state', runtime)
+        self.assertIn('stage_dictionary_state', runtime)
+        self.assertIn('@"english.db"', runtime)
+        self.assertIn('PublishDictionaryInstallation', runtime)
+        self.assertIn('@"active-user-generation"', installer)
+        self.assertIn('NSSelectorFromString(@"reset")', installer)
 
     def test_input_controller_owns_a_native_floating_status_toolbar(self):
         cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
@@ -536,7 +532,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("MetasequoiaStandalonePreferencesDidCloseNotification", preferences_controller)
         self.assertIn("storedScheme", preferences_controller)
         self.assertIn("setStoredScheme", preferences_controller)
-        self.assertIn("小鹤双拼", preferences_controller)
+        self.assertIn("ShuangpinProfilePreference.h", preferences_controller)
         self.assertIn("storedAutocorrectEnabled", preferences_controller)
         self.assertIn("setAutocorrectEnabled", preferences_controller)
         self.assertIn("启用全拼自动纠错", preferences_controller)
@@ -571,8 +567,8 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("NSToolbarDisplayModeIconAndLabel", preferences_controller)
         self.assertIn("toolbarSelectableItemIdentifiers", preferences_controller)
         self.assertIn('@"键盘输入", @"外观", @"皮肤", @"词库与数据", @"更新与反馈"', preferences_controller)
-        self.assertIn('@[ @"全拼输入", @"双拼输入", @"五笔输入" ]', preferences_controller)
-        self.assertIn('addItemWithTitle:@"小鹤双拼"', preferences_controller)
+        self.assertIn('@[ @"全拼输入", @"双拼输入", @"五笔输入", @"日语罗马字输入" ]', preferences_controller)
+        self.assertIn("addItemsWithTitles:MetasequoiaShuangpinProfileTitles()", preferences_controller)
         self.assertIn('addItemWithTitle:@"86 五笔"', preferences_controller)
         self.assertIn('accessibilityLabel = @"五笔功能设置"', preferences_controller)
         self.assertIn("selectPreferencesPageFromToolbar:", preferences_controller)
@@ -622,7 +618,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         commit_composition = input_controller.split("- (void)commitComposition:(id)sender", 1)[1].split(
             "- (void)deactivateServer:(id)sender", 1
         )[0]
-        self.assertIn("Command::CommitRaw", commit_composition)
+        self.assertIn("finishRawInput", commit_composition)
         self.assertNotIn("commitLeadingCandidate", commit_composition)
         self.assertIn("在没有活动组词时于下一次按键前生效", readme)
 

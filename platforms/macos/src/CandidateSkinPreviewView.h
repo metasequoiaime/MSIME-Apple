@@ -8,6 +8,7 @@
 - (void)updatePanelStyle:(NSInteger)panelStyle pageSize:(NSInteger)pageSize fontSize:(NSInteger)fontSize;
 - (void)setPreviewSkinId:(NSString *)skinId;
 - (NSString *)previewSkinId;
+- (void)setPreviewSkinsRoot:(NSString *)path;
 - (void)setShowsLayoutShowcase:(BOOL)showsLayoutShowcase;
 - (void)toggleForcedTheme;
 - (BOOL)previewUsesDark;

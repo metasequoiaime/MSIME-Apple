@@ -86,11 +86,12 @@ int main()
     using metasequoia::mac::NormalizeStoredInputScheme;
 
     require(NormalizeStoredInputScheme(0) == 0 && NormalizeStoredInputScheme(1) == 1 &&
-                NormalizeStoredInputScheme(2) == 2 && NormalizeStoredInputScheme(99) == 0,
+                NormalizeStoredInputScheme(2) == 2 && NormalizeStoredInputScheme(3) == 3 && NormalizeStoredInputScheme(99) == 0,
             "The stored input scheme was not normalized safely.");
     require(EngineSchemeForStoredPreference(0) == SchemeType::Quanpin &&
                 EngineSchemeForStoredPreference(1) == SchemeType::Shuangpin &&
-                EngineSchemeForStoredPreference(2) == SchemeType::Wubi,
+                EngineSchemeForStoredPreference(2) == SchemeType::Wubi &&
+                EngineSchemeForStoredPreference(3) == SchemeType::JapaneseRomaji,
             "A stored input scheme did not map to the matching engine scheme.");
     require(metasequoia::mac::ShouldAutoCommitUniqueWubiCandidate(true, SchemeType::Wubi, 4, 1),
             "The enabled four-code unique Wubi policy did not auto-commit.");
@@ -206,8 +207,8 @@ int main()
     require(metasequoia::mac::ShouldToggleInputMode(true, kVK_Space, NSEventModifierFlagShift) &&
                 !metasequoia::mac::ShouldToggleInputMode(false, kVK_Space, NSEventModifierFlagShift),
             "The input-mode shortcut preference did not gate Shift+Space.");
-    require(metasequoia::mac::ShouldPrepareInputSession(false) && !metasequoia::mac::ShouldPrepareInputSession(true),
-            "Direct English mode did not bypass input-session preparation.");
+    require(metasequoia::mac::ShouldPrepareInputSession(false) && metasequoia::mac::ShouldPrepareInputSession(true),
+            "English completion did not prepare an input session.");
     require(metasequoia::mac::NormalizeHelpcodeSchemaPreference(0) == 0 &&
                 metasequoia::mac::NormalizeHelpcodeSchemaPreference(4) == 4 &&
                 metasequoia::mac::NormalizeHelpcodeSchemaPreference(99) == 0,

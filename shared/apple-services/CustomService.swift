@@ -225,9 +225,14 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
 }
 
 enum ServiceTokenStore {
+  #if os(macOS)
+  static let serviceIdentifier = "app.msime.macos.custom-services"
+  #else
+  static let serviceIdentifier = "app.msime.ios.custom-services"
+  #endif
   private static func query(_ kind: CustomServiceKind, _ url: URL) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
-     kSecAttrService as String: "app.msime.ios.custom-services",
+     kSecAttrService as String: serviceIdentifier,
      kSecAttrAccount as String: "\(kind.rawValue)|\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? 443)"]
   }
   static func read(_ kind: CustomServiceKind, url: URL) throws -> String {

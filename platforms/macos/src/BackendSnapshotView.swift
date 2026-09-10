@@ -71,11 +71,12 @@ final class MacSnapshotModel: ObservableObject {
       let prepared = MacPreparedLocalSnapshot(context: context, snapshot: preview)
       let staging = Task.detached(priority: .utility) { try prepared.stage() }
       try await withTaskCancellationHandler(operation: { try await staging.value }, onCancel: { staging.cancel() })
-      let currentToken = try await self.authorize()
-      let cloud = try await self.client.dictionaryCatalog(.quick, code: "", token: currentToken)
-      _ = try await self.authorize()
-      guard cloud.revision == preview.envelope.revision else { throw BackendAccountClient.Failure(status: 409) }
-      try prepared.activate()
+      try await prepared.activate {
+        let currentToken = try await self.authorize()
+        let cloud = try await self.client.dictionaryCatalog(.quick, code: "", token: currentToken)
+        _ = try await self.authorize()
+        guard cloud.revision == preview.envelope.revision else { throw BackendAccountClient.Failure(status: 409) }
+      }
       self.discard(); self.message = "云词库已应用到本机，后续输入将使用新词库。"
     }
   }

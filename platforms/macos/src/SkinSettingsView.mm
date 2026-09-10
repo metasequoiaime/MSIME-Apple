@@ -1,9 +1,12 @@
+extern "C" void MSIMEShowSkinEditor(void);
+extern "C" void MSIMEEditSavedSkin(const char *skinId);
 #import "SkinSettingsView.h"
 #import "CandidateSkinAppearance.h"
 #import "CandidateSkinPreviewView.h"
 #import "PreferencesWindowController.h"
 
 #include "CandidateSkin.h"
+#include "SkinLibrary.h"
 
 namespace
 {
@@ -161,7 +164,8 @@ NSString *BuiltinDescription(const std::string &id)
     NSButton *refresh = [NSButton buttonWithTitle:@"刷新皮肤" target:self action:@selector(reload)];
     refresh.bezelStyle = NSBezelStyleRounded;
     refresh.accessibilityLabel = @"刷新皮肤";
-    NSStackView *actions = [NSStackView stackViewWithViews:@[ open, refresh ]];
+    NSButton *edit = [NSButton buttonWithTitle:@"设计配色…" target:self action:@selector(showSkinEditor:)];
+    NSStackView *actions = [NSStackView stackViewWithViews:@[ open, refresh, edit ]];
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.spacing = 8.0;
     NSBox *externalHeader = [[NSBox alloc] initWithFrame:NSZeroRect];
@@ -241,7 +245,23 @@ NSString *BuiltinDescription(const std::string &id)
     header.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     header.alignment = NSLayoutAttributeTop;
     header.distribution = NSStackViewDistributionFill;
-    NSStackView *stack = [NSStackView stackViewWithViews:@[ header, preview ]];
+    NSMutableArray<NSView *> *contents = [NSMutableArray arrayWithArray:@[ header, preview ]];
+    if (!metasequoia::mac::IsBuiltInSkinId(skinId.UTF8String)) {
+        NSButton *edit = [NSButton buttonWithTitle:@"编辑配色、插画与分享…" target:self action:@selector(editSavedSkin:)];
+        edit.identifier = skinId;
+        edit.accessibilityLabel = [name stringByAppendingString:@"编辑与分享"];
+        NSButton *remove = [NSButton buttonWithTitle:@"移到废纸篓…" target:self action:@selector(trashSavedSkin:)];
+        remove.identifier = skinId;
+        remove.accessibilityLabel = [name stringByAppendingString:@"移到废纸篓"];
+        NSButton *rename = [NSButton buttonWithTitle:@"重命名…" target:self action:@selector(renameSavedSkin:)];
+        rename.identifier = skinId;
+        rename.accessibilityLabel = [name stringByAppendingString:@"重命名"];
+        NSStackView *management = [NSStackView stackViewWithViews:@[ edit, rename, remove ]];
+        management.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        management.spacing = 8;
+        [contents addObject:management];
+    }
+    NSStackView *stack = [NSStackView stackViewWithViews:contents];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
     stack.spacing = 10.0;
@@ -338,6 +358,50 @@ NSString *BuiltinDescription(const std::string &id)
         [child removeFromSuperview];
     }
 }
+
+- (void)renameSavedSkin:(NSButton *)sender
+{
+    NSError *error = nil;
+    const auto reviewed = metasequoia::mac::ReviewSkinRemoval(MetasequoiaCandidateSkinsDirectoryURL(), sender.identifier, &error);
+    if (!reviewed) { [NSApp presentError:error]; [self reload]; return; }
+    NSAlert *dialog = [[NSAlert alloc] init];
+    dialog.messageText = @"重命名皮肤";
+    NSTextField *name = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+    name.stringValue = reviewed->name;
+    name.accessibilityLabel = @"新的皮肤名称";
+    dialog.accessoryView = name;
+    [dialog addButtonWithTitle:@"保存名称"];
+    [dialog addButtonWithTitle:@"取消"];
+    dialog.window.initialFirstResponder = name;
+    if ([dialog runModal] != NSAlertFirstButtonReturn) return;
+    if (!metasequoia::mac::RenameReviewedSkin(*reviewed, name.stringValue, &error)) [NSApp presentError:error];
+    [self reload];
+}
+
+- (void)trashSavedSkin:(NSButton *)sender
+{
+    NSError *error = nil;
+    const auto reviewed = metasequoia::mac::ReviewSkinRemoval(MetasequoiaCandidateSkinsDirectoryURL(), sender.identifier, &error);
+    if (!reviewed) { [NSApp presentError:error]; [self reload]; return; }
+    NSAlert *confirmation = [[NSAlert alloc] init];
+    confirmation.messageText = [NSString stringWithFormat:@"将“%@”移到废纸篓？", reviewed->name];
+    confirmation.informativeText = @"皮肤文件夹将移到 macOS 废纸篓，可在访达中恢复。如果它正在使用，将切换到默认皮肤。";
+    [confirmation addButtonWithTitle:@"移到废纸篓"];
+    [confirmation addButtonWithTitle:@"取消"];
+    if ([confirmation runModal] != NSAlertFirstButtonReturn) return;
+    const bool removed = metasequoia::mac::TrashReviewedSkin(*reviewed, ^BOOL(NSURL *directory, NSError **trashError) {
+        return [[NSFileManager defaultManager] trashItemAtURL:directory resultingItemURL:nil error:trashError];
+    }, &error);
+    if (removed && [[MetasequoiaPreferencesWindowController storedCandidateSkin] isEqual:reviewed->skinId]) {
+        [MetasequoiaPreferencesWindowController setStoredCandidateSkin:@"fluent"];
+    }
+    if (!removed && error) [NSApp presentError:error];
+    [self reload];
+}
+
+- (void)editSavedSkin:(NSButton *)sender { MSIMEEditSavedSkin(sender.identifier.UTF8String); }
+
+- (void)showSkinEditor:(id)sender { (void)sender; MSIMEShowSkinEditor(); }
 
 - (void)reload
 {
