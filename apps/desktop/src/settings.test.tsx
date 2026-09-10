@@ -25,7 +25,7 @@ test("frequency modes, threshold and step persist independently", async () => {
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const mode = await screen.findByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
   expect(mode.value).toBe("promote");
-  expect(mode.options.length).toBe(4);
+  expect(Array.from(mode.options, option => option.value)).toEqual(["disabled", "pin", "halve", "linear", "promote"]);
   fireEvent.change(mode, { target: { value: "linear" } });
   fireEvent.change(screen.getByLabelText("触发频次(第几次上屏触发)"), { target: { value: "3" } });
   fireEvent.change(screen.getByLabelText("线性调频步长"), { target: { value: "2" } });
@@ -34,7 +34,7 @@ test("frequency modes, threshold and step persist independently", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, frequency: { mode: "linear", trigger_count: 3, linear_step: 2 } });
 });
 
-test("learning controls frequency settings and only linear mode enables its step", async () => {
+test("frequency settings remain editable independently of learning and mode", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -42,13 +42,16 @@ test("learning controls frequency settings and only linear mode enables its step
   const mode = screen.getByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
   const trigger = screen.getByLabelText("触发频次(第几次上屏触发)") as HTMLSelectElement;
   const step = screen.getByLabelText("线性调频步长") as HTMLSelectElement;
-  expect(step.disabled).toBe(true);
+  expect(step.disabled).toBe(false);
   fireEvent.change(mode, { target: { value: "linear" } });
   expect(step.disabled).toBe(false);
   fireEvent.click(learning);
-  expect(mode.disabled).toBe(true);
-  expect(trigger.disabled).toBe(true);
-  expect(step.disabled).toBe(true);
+  expect(mode.disabled).toBe(false);
+  expect(trigger.disabled).toBe(false);
+  expect(step.disabled).toBe(false);
+  fireEvent.change(mode, { target: { value: "disabled" } });
+  expect(mode.value).toBe("disabled");
+  expect(step.disabled).toBe(false);
 });
 
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
