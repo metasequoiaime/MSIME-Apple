@@ -21,6 +21,7 @@ struct Observation {
   std::string preedit;
   std::string auxiliary;
   std::vector<std::string> candidates;
+  guint first_candidate_color = 0;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -87,6 +88,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
          ++i)
       seen.candidates.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_candidate(table, i)));
+    if (ibus_lookup_table_get_number_of_candidates(table) != 0) {
+      auto text = ibus_lookup_table_get_candidate(table, 0);
+      auto attributes = ibus_text_get_attributes(text);
+      if (auto attribute = ibus_attr_list_get(attributes, 0))
+        seen.first_candidate_color = ibus_attribute_get_value(attribute);
+    }
     gboolean visible;
     g_variant_get_child(parameters, 1, "b", &visible);
     seen.lookup_visible = visible;
@@ -158,6 +165,7 @@ int main(int argc, char **argv) {
     require(result.at("ok").get<bool>(), "Locked dictionary bootstrap failed");
     auto options = result.at("value");
     options["preferences"]["learning"] = false;
+    options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
         {"format_version", 1},
@@ -247,6 +255,8 @@ int main(int argc, char **argv) {
     require(seen.lookup_visible && seen.candidates.size() == 2 &&
                 seen.candidates[0] == "你好",
             "Candidate signal mismatch");
+    require(seen.first_candidate_color == 0x123456,
+            "Candidate text color attribute missing");
     require(!key(IBUS_Shift_L) && !key('n', IBUS_RELEASE_MASK),
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");
