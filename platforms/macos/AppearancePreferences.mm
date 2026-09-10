@@ -3,11 +3,13 @@
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
+static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_fontButton;
+    NSPopUpButton *_pageShortcutButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -37,9 +39,18 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
     [self refreshControls];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
+- (NSInteger)pageShortcut {
+    NSInteger value = [_defaults integerForKey:PageShortcutKey];
+    return value == 1 || value == 2 ? value : 0;
+}
+- (void)setPageShortcut:(NSInteger)value {
+    [_defaults setInteger:value == 1 || value == 2 ? value : 0 forKey:PageShortcutKey];
+    [self preferencesChanged];
+}
 - (void)refreshControls {
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
+    [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
 }
 - (NSWindow *)window {
     NSWindow *window = [super window];
@@ -50,8 +61,8 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 160) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-    window.title = @"候选外观";
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 440, 200) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_layoutButton addItemsWithTitles:@[@"横向排列", @"纵向列表"]];
@@ -63,9 +74,15 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
+    _pageShortcutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_pageShortcutButton addItemsWithTitles:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]];
+    _pageShortcutButton.accessibilityLabel = @"候选翻页快捷键";
+    _pageShortcutButton.target = self;
+    _pageShortcutButton.action = @selector(pageShortcutChanged:);
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
-        @[[NSTextField labelWithString:@"候选字号"], _fontButton]
+        @[[NSTextField labelWithString:@"候选字号"], _fontButton],
+        @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -80,6 +97,7 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)fontChanged:(NSPopUpButton *)sender {
     const NSUInteger sizes[] = {16, 18, 20};
     NSInteger index = sender.indexOfSelectedItem;

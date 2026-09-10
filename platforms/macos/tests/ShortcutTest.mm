@@ -4,8 +4,18 @@
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
 @property(nonatomic, copy) NSDictionary *nextTransition;
+@property(nonatomic) NSUInteger asciiCalls;
+@property(nonatomic) uint8_t lastASCII;
+@property(nonatomic) BOOL lastShift;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)typeASCII:(uint8_t)ascii shift:(BOOL)shift error:(NSError **)error {
+    (void)error;
+    ++self.asciiCalls;
+    self.lastASCII = ascii;
+    self.lastShift = shift;
+    return self.nextTransition;
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
@@ -66,11 +76,23 @@ int main() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         assert(!appearance.vertical && appearance.fontSize == 18);
+        assert(appearance.pageShortcut == 0);
+        appearance.pageShortcut = 99;
+        assert(appearance.pageShortcut == 0);
         appearance.fontSize = 99;
         assert(appearance.fontSize == 18);
         NSGridView *grid = (id)appearance.window.contentView.subviews.firstObject;
         NSPopUpButton *layoutControl = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
         NSPopUpButton *fontControl = (id)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
+        NSPopUpButton *shortcutControl = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+        assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
+        for (NSInteger option = 0; option < 3; ++option) {
+            [shortcutControl selectItemAtIndex:option];
+            [NSApp sendAction:shortcutControl.action to:shortcutControl.target from:shortcutControl];
+            MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert(loaded.pageShortcut == option);
+        }
+        appearance.pageShortcut = 0;
         assert(([layoutControl.itemTitles isEqual:@[@"横向排列", @"纵向列表"]]));
         [layoutControl selectItemAtIndex:1];
         [NSApp sendAction:layoutControl.action to:layoutControl.target from:layoutControl];
@@ -237,6 +259,44 @@ int main() {
             assert(session.lastCommand == expected);
         }
         assert([controller menu].numberOfItems == 1);
+        for (NSInteger option = 0; option < 3; ++option) {
+            appearance.pageShortcut = option;
+            NSArray *plain = @[@"-", @"=", @"[", @"]"];
+            NSArray *shifted = @[@"_", @"+", @"{", @"}"];
+            for (NSUInteger i = 0; i < plain.count; ++i) {
+                for (NSNumber *visible in @[@NO, @YES]) {
+                    for (NSNumber *shift in @[@NO, @YES]) {
+                        layoutPanel.requestedVisible = visible.boolValue;
+                        session.lastCommand = UINT32_MAX;
+                        session.asciiCalls = 0;
+                        NSString *characters = shift.boolValue ? shifted[i] : plain[i];
+                        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:shift.boolValue ? NSEventModifierFlagShift : 0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:plain[i] isARepeat:NO keyCode:0];
+                        assert([controller handleEvent:event client:client]);
+                        BOOL paging = visible.boolValue && !shift.boolValue && ((option == 0 && i < 2) || (option == 1 && i >= 2));
+                        if (paging) {
+                            assert(session.lastCommand == (i % 2 == 0 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
+                            assert(session.asciiCalls == 0);
+                        } else {
+                            assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1);
+                            assert(session.lastASCII == [characters characterAtIndex:0] && session.lastShift == shift.boolValue);
+                        }
+                    }
+                }
+            }
+            for (NSNumber *key in @[@116, @121]) {
+                layoutPanel.requestedVisible = YES;
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
+                assert([controller handleEvent:event client:client]);
+                assert(session.lastCommand == (key.unsignedShortValue == 116 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
+            }
+        }
+        appearance.pageShortcut = 0;
+        for (NSNumber *modifier in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
+            layoutPanel.requestedVisible = YES;
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:modifier.unsignedIntegerValue timestamp:0 windowNumber:0 context:nil characters:@"=" charactersIgnoringModifiers:@"=" isARepeat:NO keyCode:0];
+            assert(![controller handleEvent:event client:client]);
+            assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+        }
         [defaults removePersistentDomainForName:suite];
     }
     return 0;
