@@ -1,5 +1,6 @@
 #import "DictionaryWindowController.h"
 #import "MSIMEClientSession.h"
+#import "DictionaryRuntime.h"
 
 @interface MSIMEDictionaryWindowController ()
 @property(nonatomic, copy) NSDictionary *options;
@@ -8,12 +9,18 @@
 @property(nonatomic, strong) NSButton *previous;
 @property(nonatomic, strong) NSButton *next;
 @property(nonatomic, strong) NSTextField *pageLabel;
+@property(nonatomic, copy) NSString *runtimeError;
 @end
 @implementation MSIMEDictionaryWindowController
 - (instancetype)initWithOptions:(NSDictionary *)options {
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 620, 420) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     self = [super initWithWindow:window];
-    if (self) { _options = [options copy]; window.title = @"个人词典"; window.releasedWhenClosed = NO; [self loadWindow]; }
+    if (self) {
+        _options = [options copy];
+        NSError *error = nil;
+        if (![[MSIMEDictionaryRuntime alloc] initWithHostOptions:_options error:&error]) _runtimeError = error.localizedDescription ?: @"词典运行目录配置无效";
+        window.title = @"个人词典"; window.releasedWhenClosed = NO; [self loadWindow];
+    }
     return self;
 }
 - (void)loadWindow {
@@ -34,6 +41,7 @@
 - (void)refresh:(id)sender {
     (void)sender;
     NSUInteger offset = self.offset;
+    if (self.runtimeError) { self.content.string = self.runtimeError; self.previous.enabled = NO; self.next.enabled = NO; return; }
     NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @(offset), @"limit": @100 } };
     __weak MSIMEDictionaryWindowController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
