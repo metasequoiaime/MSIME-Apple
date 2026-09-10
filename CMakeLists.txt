@@ -174,10 +174,37 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         endif()
     endif()
     if(METASEQUOIA_SPARKLE_DOWNLOAD_REQUIRED)
-        file(DOWNLOAD "${METASEQUOIA_SPARKLE_URL}" "${METASEQUOIA_SPARKLE_ARCHIVE}"
-            EXPECTED_HASH "SHA256=${METASEQUOIA_SPARKLE_SHA256}"
-            TLS_VERIFY ON
-            SHOW_PROGRESS)
+        # One attempt made a briefly unreachable release host a configure failure, which is how a pull
+        # request that touched no build input went red.
+        #
+        # EXPECTED_HASH cannot be used while retrying: on a failed transfer it raises "cannot compute
+        # hash on failed download" as a hard error before STATUS is ever read, so the loop would never
+        # reach its second attempt. The archive is fetched unverified and the same hash is then checked
+        # separately, which fails just as loudly on a truncated or substituted file.
+        set(METASEQUOIA_SPARKLE_DOWNLOAD_CODE 1)
+        foreach(attempt RANGE 1 3)
+            file(DOWNLOAD "${METASEQUOIA_SPARKLE_URL}" "${METASEQUOIA_SPARKLE_ARCHIVE}"
+                TLS_VERIFY ON
+                STATUS METASEQUOIA_SPARKLE_DOWNLOAD_STATUS
+                SHOW_PROGRESS)
+            list(GET METASEQUOIA_SPARKLE_DOWNLOAD_STATUS 0 METASEQUOIA_SPARKLE_DOWNLOAD_CODE)
+            if(METASEQUOIA_SPARKLE_DOWNLOAD_CODE EQUAL 0)
+                break()
+            endif()
+            if(attempt LESS 3)
+                math(EXPR METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE "5 * (1 << (${attempt} - 1))")
+                message(STATUS "Sparkle download failed (${METASEQUOIA_SPARKLE_DOWNLOAD_STATUS}); retrying in ${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}s")
+                execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep "${METASEQUOIA_SPARKLE_DOWNLOAD_PAUSE}")
+            endif()
+        endforeach()
+        if(NOT METASEQUOIA_SPARKLE_DOWNLOAD_CODE EQUAL 0)
+            message(FATAL_ERROR "Could not download the pinned Sparkle framework: ${METASEQUOIA_SPARKLE_DOWNLOAD_STATUS}")
+        endif()
+        file(SHA256 "${METASEQUOIA_SPARKLE_ARCHIVE}" METASEQUOIA_SPARKLE_DOWNLOADED_SHA256)
+        if(NOT METASEQUOIA_SPARKLE_DOWNLOADED_SHA256 STREQUAL METASEQUOIA_SPARKLE_SHA256)
+            file(REMOVE "${METASEQUOIA_SPARKLE_ARCHIVE}")
+            message(FATAL_ERROR "Sparkle archive hash mismatch: expected ${METASEQUOIA_SPARKLE_SHA256}, got ${METASEQUOIA_SPARKLE_DOWNLOADED_SHA256}")
+        endif()
     endif()
     if(NOT EXISTS "${METASEQUOIA_SPARKLE_FRAMEWORK}/Versions/B/Sparkle")
         file(MAKE_DIRECTORY "${METASEQUOIA_SPARKLE_ROOT}")

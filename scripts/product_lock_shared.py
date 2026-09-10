@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
@@ -78,14 +79,22 @@ def published_checksums(path: Path) -> dict[str, str]:
     return checksums
 
 
-def download_with_retries(url: str, target: Path, *, attempts: int = 3, timeout: int = 120) -> None:
-    """Download one asset atomically, retrying transient URL and filesystem failures."""
-    if attempts < 1 or timeout <= 0:
-        raise ValueError("Download attempts and timeout must be positive")
+def download_with_retries(url: str, target: Path, *, attempts: int = 3, timeout: int = 120,
+                          backoff: float = 5.0, sleep=time.sleep) -> None:
+    """Download one asset atomically, retrying transient URL and filesystem failures.
+
+    Attempts are spaced apart. Back to back they land inside the same outage: a release host that
+    is briefly unreachable answers all three the same way, and the job fails having waited only for
+    its own timeouts. Doubling the gap steps outside a short one instead.
+    """
+    if attempts < 1 or timeout <= 0 or backoff < 0:
+        raise ValueError("Download attempts and timeout must be positive, and backoff non-negative")
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     last_error: Exception | None = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
+        if attempt and backoff:
+            sleep(backoff * (2 ** (attempt - 1)))
         temporary_name: str | None = None
         try:
             with urllib.request.urlopen(url, timeout=timeout) as response:
