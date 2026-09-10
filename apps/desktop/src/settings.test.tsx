@@ -299,8 +299,9 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
 test("saves edited preferences against the loaded revision", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByLabelText("每页候选数量");
-  fireEvent.change(size, { target: { value: "9" } });
+  const size = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(size);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9 });
@@ -310,15 +311,16 @@ test("saves edited preferences against the loaded revision", async () => {
 test("conflicts preserve edits and require an explicit reload", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByLabelText("每页候选数量");
-  fireEvent.change(size, { target: { value: "9" } });
+  const size = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(size);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
-  expect((size as HTMLSelectElement).value).toBe("9");
+  expect(size.textContent).toContain("9");
   expect(client.load).toHaveBeenCalledTimes(1);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  await waitFor(() => expect((size as HTMLSelectElement).value).toBe("5"));
+  await waitFor(() => expect(size.textContent).toContain("5"));
   confirm.mockRestore();
 });
 
@@ -348,13 +350,15 @@ test("category navigation preserves one draft and saves edits across pages", asy
   render(<SettingsPage client={client} />);
   const appearance = screen.getByRole("button", { name: "外观" });
   expect(appearance.getAttribute("aria-current")).toBe("page");
-  fireEvent.change(await screen.findByLabelText("每页候选数量"), { target: { value: "9" } });
+  const pageSize = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(pageSize);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
-  expect(screen.queryByRole("combobox", { name: "每页候选数量" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "每页候选数量" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   fireEvent.click(appearance);
-  expect((screen.getByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement).value).toBe("9");
+  expect(screen.getByRole("button", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma" } });
