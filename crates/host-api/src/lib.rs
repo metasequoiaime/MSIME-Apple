@@ -7,7 +7,7 @@ use msime_client_core::preferences::{
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, Runtime, Transition};
+use msime_input_runtime::{Action, CandidateId, OnlineQuery, Runtime, Transition};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -536,6 +536,49 @@ pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            serde_json::to_value(session.runtime.online_query().map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())
+        })
+    })
+}
+
+/// Apply a provider result returned for a previously copied OnlineQuery.
+/// The query and candidate buffers are UTF-8 and are never retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_online_candidate(
+    handle: u64,
+    query: *const u8,
+    query_length: usize,
+    candidate: *const u8,
+    candidate_length: usize,
+    source: u8,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || candidate.is_null() || query_length > 16384 || candidate_length > 4096 {
+            return Err("invalid online candidate buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let candidate = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(candidate, candidate_length)
+        })
+        .map_err(|_| "candidate is not UTF-8")?;
+        with_session(handle, |session| {
+            let applied = session
+                .runtime
+                .apply_online_candidate(&query, candidate, source)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({ "applied": applied, "view": session.runtime.view() }))
         })
     })
 }

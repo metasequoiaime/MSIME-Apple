@@ -107,6 +107,17 @@ char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t ind
  * temporary_english, temporary_japanese. Treat unknown as unusable state.
  */
 char *msime_client_view(uint64_t session);
+/* Return a copied OnlineQuery JSON object, or null when the current composition
+ * is not eligible for an online provider. The caller may perform provider work
+ * off-thread and pass the unchanged document back to apply_online_candidate. */
+char *msime_client_online_query(uint64_t session);
+/* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
+char *msime_client_apply_online_candidate(uint64_t session,
+                                           const uint8_t *query,
+                                           size_t query_length,
+                                           const uint8_t *candidate,
+                                           size_t candidate_length,
+                                           uint8_t source);
 char *msime_client_destroy(uint64_t session);
 /* value must be NULL or a still-owned pointer returned by this library. */
 void msime_client_string_free(char *value);
