@@ -5,6 +5,24 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("candidate fallback fonts parse in order and persist", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  const fallback = await screen.findByLabelText("候选窗补充字体") as HTMLInputElement;
+  expect(fallback.value).toBe("");
+  for (const character of "Noto Sans CJK SC, Segoe UI Emoji,  ") {
+    const next = fallback.value + character;
+    fireEvent.change(fallback, { target: { value: next } });
+    expect(fallback.value).toBe(next);
+  }
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_fallback_fonts: ["Noto Sans CJK SC", "Segoe UI Emoji"] });
+  expect(fallback.value).toBe("Noto Sans CJK SC, Segoe UI Emoji,  ");
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  await waitFor(() => expect(fallback.value).toBe(""));
+});
+
 test("candidate text color follows theme by default and can be reset", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
