@@ -99,6 +99,12 @@ int wmain(int argc, wchar_t **argv) {
         "candidate_font_family", std::string("Segoe UI"));
     std::vector<std::string> fallback_fonts = prepared.at("value").at("preferences")
         .value("candidate_fallback_fonts", std::vector<std::string>{});
+    std::optional<bool> candidate_dark_theme;
+    const auto candidate_theme = prepared.at("value").at("preferences").value(
+        "candidate_theme", std::string("follow"));
+    if (candidate_theme == "dark") candidate_dark_theme = true;
+    else if (candidate_theme == "light") candidate_dark_theme = false;
+    else if (candidate_theme != "follow") throw std::invalid_argument("Invalid candidate theme");
     std::optional<COLORREF> candidate_text_color;
     if (const auto color = prepared.at("value").at("preferences").value(
             "candidate_text_color", std::string{}); !color.empty()) {
@@ -150,7 +156,7 @@ int wmain(int argc, wchar_t **argv) {
         candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         candidate_font_size, preedit_font_size, candidate_text_color,
-        candidate_font_family, fallback_fonts);
+        candidate_font_family, fallback_fonts, candidate_dark_theme);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout

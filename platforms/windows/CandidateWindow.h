@@ -16,7 +16,8 @@ public:
                            unsigned preedit_font_size = 16,
                            std::optional<COLORREF> text_color = std::nullopt,
                            std::string font_family = "Segoe UI",
-                           std::vector<std::string> fallback_fonts = {});
+                           std::vector<std::string> fallback_fonts = {},
+                           std::optional<bool> dark_theme = std::nullopt);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -42,5 +43,6 @@ private:
   unsigned preedit_font_size_ = 16;
   std::optional<COLORREF> text_color_;
   std::wstring font_family_;
+  std::optional<bool> dark_theme_;
 };
 } // namespace msime::windows

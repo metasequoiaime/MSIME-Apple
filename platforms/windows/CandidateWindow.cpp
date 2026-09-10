@@ -84,10 +84,11 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  unsigned preedit_font_size,
                                  std::optional<COLORREF> text_color,
                                  std::string font_family,
-                                 std::vector<std::string> fallback_fonts)
+                                 std::vector<std::string> fallback_fonts,
+                                 std::optional<bool> dark_theme)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
-      font_family_(wide(font_family)) {
+      font_family_(wide(font_family)), dark_theme_(dark_theme) {
   if (font_family_.empty() || font_family_.size() > 128)
     throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
@@ -185,7 +186,14 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate painting unavailable");
   RECT bounds{};
   GetClientRect(window_, &bounds);
-  FillRect(painting.dc, &bounds, GetSysColorBrush(COLOR_WINDOW));
+  const auto background = dark_theme_.value_or(false) ? RGB(32, 32, 32) : GetSysColor(COLOR_WINDOW);
+  const auto foreground = dark_theme_.value_or(false) ? RGB(243, 243, 243) : GetSysColor(COLOR_WINDOWTEXT);
+  const auto highlight = dark_theme_.value_or(false) ? RGB(76, 74, 150) : GetSysColor(COLOR_HIGHLIGHT);
+  const auto highlight_text = dark_theme_.value_or(false) ? RGB(255, 255, 255) : GetSysColor(COLOR_HIGHLIGHTTEXT);
+  HBRUSH background_brush = CreateSolidBrush(background);
+  if (!background_brush) throw std::runtime_error("Candidate background unavailable");
+  FillRect(painting.dc, &bounds, background_brush);
+  DeleteObject(background_brush);
   const auto value = reader_(); // Never paint the last cached owner's text.
   if (!value || !value->visible) {
     hide();
@@ -201,10 +209,11 @@ void CandidateWindow::paint() {
               bounds.right - metrics.padding,
               static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
     if (highlighted)
-      FillRect(painting.dc, &rect, GetSysColorBrush(COLOR_HIGHLIGHT));
-    SetTextColor(painting.dc, highlighted
-                              ? GetSysColor(COLOR_HIGHLIGHTTEXT)
-                              : text_color_.value_or(GetSysColor(COLOR_WINDOWTEXT)));
+      HBRUSH brush = CreateSolidBrush(highlight);
+      if (!brush) throw std::runtime_error("Candidate highlight unavailable");
+      FillRect(painting.dc, &rect, brush);
+      DeleteObject(brush);
+    SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
     rect.left += metrics.padding;
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
