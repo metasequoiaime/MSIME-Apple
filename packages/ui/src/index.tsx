@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };
@@ -89,6 +90,25 @@ function FallbackFontInput({ value, onChange }: { value: string[]; onChange: (fo
     setText(event.target.value);
     onChange(parseFontList(event.target.value));
   }} />;
+}
+
+function CustomDropdown({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find(([option]) => option === value) ?? options[0];
+  const choose = (next: string) => { onChange(next); setOpen(false); };
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(current => !current); }
+    else if (event.key === "Escape") setOpen(false);
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
+  };
+  return <div className="custom-dropdown">
+    <button type="button" className="dropdown-toggle" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(current => !current)} onKeyDown={onKeyDown}>
+      {selected?.[1] ?? value}<span aria-hidden="true" className="dropdown-chevron">⌄</span>
+    </button>
+    {open && <div className="dropdown-menu" role="listbox" aria-label="候选项排列方式">
+      {options.map(([option, label]) => <button type="button" role="option" aria-selected={option === value} className="dropdown-item" key={option} onClick={() => choose(option)}>{label}</button>)}
+    </div>}
+  </div>;
 }
 
 function message(error: unknown): string {
@@ -223,7 +243,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">主题模式<small>设置界面和候选预览的颜色主题</small></span><select value={draft.theme ?? "dark"} onChange={event => setDraft({ ...draft, theme: event.target.value as Preferences["theme"] })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置界面主题<small>可覆盖全局主题，仅影响当前设置界面</small></span><select value={draft.settings_theme ?? "follow"} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as Preferences["settings_theme"] })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗口主题<small>可覆盖全局主题，仅影响候选窗口</small></span><select value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as Preferences["candidate_theme"] })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选项排列方式</span><select value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}><option value="horizontal">横向</option><option value="vertical">纵向</option></select></label></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选项排列方式</span><CustomDropdown value={draft.candidate_layout ?? "vertical"} options={[["horizontal", "横向"], ["vertical", "纵向"]]} onChange={value => setDraft({ ...draft, candidate_layout: value as Preferences["candidate_layout"] })} /></div></div>
         <div className="section"><label className="section-header"><span className="section-title">行内预编辑</span><select value={draft.tsf_preedit_style ?? "raw"} onChange={event => setDraft({ ...draft, tsf_preedit_style: event.target.value as Preferences["tsf_preedit_style"] })}><option value="raw">原始按键</option><option value="pinyin">拼音分词</option><option value="empty">不显示</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">界面渲染<small>用于候选窗、悬浮工具栏和托盘菜单；更改后需重启输入法进程。</small></span><select value={draft.ui_backend ?? "direct2d"} onChange={event => setDraft({ ...draft, ui_backend: event.target.value as Preferences["ui_backend"] })}><option value="direct2d">Direct2D（原生）</option><option value="webview2">WebView2</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗口跟随光标<small>关闭后保持候选窗口首次位置，直到候选窗口消失。</small></span><input className="toggle" type="checkbox" checked={draft.candidate_follow_cursor ?? true} onChange={event => setDraft({ ...draft, candidate_follow_cursor: event.target.checked })} /></label></div>

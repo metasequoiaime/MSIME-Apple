@@ -48,6 +48,13 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .radio-option input[type="radio"]:checked::after { content: ""; position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: #8e8cd8; border-radius: 50%; transform: translate(-50%, -50%); }
 select { background: var(--dropdown-bg); border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; padding: 4px 6px 4px 9px; min-width: 110px; max-width: 100%; }
 select:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--border-strong); }
+.custom-dropdown { position: relative; min-width: 110px; }
+.dropdown-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--dropdown-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px 8px 4px 9px; text-align: left; }
+.dropdown-toggle:hover { background: var(--surface-raised); border-color: var(--border-strong); }
+.dropdown-chevron { color: var(--text-muted); font-size: 16px; line-height: 1; }
+.dropdown-menu { position: absolute; z-index: 10; right: 0; min-width: 100%; margin-top: 4px; padding: 4px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--dropdown-bg); box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.dropdown-item { display: block; width: 100%; border: 0; border-radius: 5px; background: transparent; padding: 6px 9px; text-align: left; white-space: nowrap; }
+.dropdown-item:hover, .dropdown-item[aria-selected="true"] { background: var(--surface-raised); }
 small { display: block; font-size: 12px; font-weight: 400; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
 .toggle { appearance: none; position: relative; width: 38px; height: 19px; flex: 0 0 38px; background: var(--toggle-off-bg); border: 0; border-radius: 9px; margin: 0; cursor: pointer; }
 .toggle::after { content: ""; position: absolute; top: 50%; left: 1px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transform: translateY(-50%); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
