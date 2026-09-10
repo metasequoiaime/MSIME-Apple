@@ -1418,6 +1418,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     }
     if (!s.view.at("candidates").empty()) {
+      if (key == IBUS_Home || key == IBUS_KP_Home) {
+        handled = apply(engine, msime_client_command(
+                                   s.session, MSIME_FIRST_CANDIDATE_ON_PAGE));
+        return;
+      }
+      if (key == IBUS_End || key == IBUS_KP_End) {
+        handled = apply(engine, msime_client_command(
+                                   s.session, MSIME_LAST_CANDIDATE_ON_PAGE));
+        return;
+      }
       auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0);
       if (edge && s.view.at("local_mode") != "unknown" &&
           !s.view.at("editing_text").get<std::string>().empty()) {
