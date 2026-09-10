@@ -12,7 +12,7 @@
 
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。
 
-Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件、读取或历史面板。Linux IBus 宿主不会读取或记录剪贴板内容，即使共享设置开启也保持禁用，避免把输入法进程扩展成无提示的剪贴板监视器。Linux 剪贴板历史若需实现，应由独立、明确授权的桌面服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，供桌面服务或 compositor 显式接管粘贴动作；它不会写入或读取系统剪贴板。
+Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件、读取或历史面板。Linux IBus 宿主不会读取或记录剪贴板内容，即使共享设置开启也保持禁用，避免把输入法进程扩展成无提示的剪贴板监视器。Linux 剪贴板历史若需实现，应由独立、明确授权的桌面服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，`remove-index INDEX` 按历史位置删除单个条目，供桌面服务或 compositor 显式接管粘贴和删除动作；它不会写入或读取系统剪贴板。
 
 `candidate_theme` 是 Windows 候选窗口的整体深浅主题覆盖。IBus Engine 只提交 lookup table 内容与文本属性，候选 panel 的背景、边框、间距和主题切换由桌面环境控制；Linux 保留共享设置，但不伪造 panel 主题覆盖。显式 `candidate_text_color` 仍按 IBus 前景属性传递。
 

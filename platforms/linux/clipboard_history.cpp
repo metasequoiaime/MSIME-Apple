@@ -95,6 +95,14 @@ int main(int argc, char **argv) {
     return save(path, items) ? 0 : 1;
   }
   if (op == "remove" && argc == 4) { auto old = items.size(); items.erase(std::remove(items.begin(), items.end(), argv[3]), items.end()); return old == items.size() ? 0 : (save(path, items) ? 0 : 1); }
+  if (op == "remove-index" && argc == 4) {
+    try {
+      const auto index = std::stoul(argv[3]);
+      if (index >= items.size()) return 1;
+      items.erase(items.begin() + static_cast<std::ptrdiff_t>(index));
+      return save(path, items) ? 0 : 1;
+    } catch (...) { return 2; }
+  }
   if (op == "clear") { std::error_code error; return std::filesystem::remove(path, error) || !std::filesystem::exists(path) ? 0 : 1; }
   return 2;
 }
