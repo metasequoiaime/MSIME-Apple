@@ -21,8 +21,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:nil];
-    [self apply:[self.session setFocused:YES error:nil]];
+    [self startSession];
     self.candidateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     self.candidateLabel.numberOfLines = 1;
     self.candidateLabel.textAlignment = NSTextAlignmentCenter;
@@ -46,6 +45,19 @@
         [self.candidateStack.topAnchor constraintEqualToAnchor:self.candidateLabel.bottomAnchor constant:2],
         [self.candidateStack.heightAnchor constraintEqualToConstant:30]]];
     [self buildKeyboard];
+}
+
+- (void)startSession {
+    if (self.session) return;
+    NSError *error = nil;
+    self.session = [[MSIMEClientSession alloc] initWithOptions:[self runtimeOptions] error:&error];
+    if (!self.session) return;
+    [self apply:[self.session setFocused:YES error:&error]];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self startSession];
 }
 
 - (void)buildKeyboard {
