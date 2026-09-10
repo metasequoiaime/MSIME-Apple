@@ -42,6 +42,15 @@ public final class PreferencesSmoke {
         worker.remove().run();
         main.remove().run();
         check(main.isEmpty() && received.size() == 2);
+        ArrayDeque<Runnable> retryMain = new ArrayDeque<>();
+        PreferencesReloader rejected = new PreferencesReloader(
+            (task, delay) -> retryMain.add(task), task -> { throw new IllegalStateException("full"); },
+            directory -> directory);
+        rejected.start("retry", received::add);
+        check(retryMain.size() == 1); // Rejected work must clear reading and schedule a retry.
+        retryMain.remove().run();
+        check(retryMain.size() == 1);
+        rejected.stop();
         System.out.println("Android preferences scheduling: background IO, stale completion, stop/restart, non-overlap and error retry passed");
     }
 }
