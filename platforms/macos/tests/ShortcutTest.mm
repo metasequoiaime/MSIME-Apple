@@ -739,7 +739,7 @@ int main() {
             uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
             assert(session.lastCommand == expected);
         }
-        assert([controller menu].numberOfItems == 8);
+        assert([controller menu].numberOfItems == 11);
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
