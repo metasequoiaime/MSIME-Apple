@@ -50,6 +50,8 @@ pub struct Preferences {
     pub candidate_text_color: Option<String>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
+    #[serde(default)]
+    pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -233,6 +235,7 @@ impl Default for Preferences {
             candidate_preedit_font_size: default_candidate_font_size(),
             candidate_text_color: None,
             candidate_font_family: default_candidate_font_family(),
+            candidate_fallback_fonts: Vec::new(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -336,6 +339,11 @@ impl Preferences {
         }
         if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 ||
             !self.candidate_font_family.is_ascii() {
+            return Err(PreferencesError::InvalidCandidateFontFamily);
+        }
+        if self.candidate_fallback_fonts.len() > 8 || self.candidate_fallback_fonts.iter().any(|font| {
+            font.is_empty() || font.len() > 128 || !font.is_ascii()
+        }) {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         let paging = match self.word_character.keys {

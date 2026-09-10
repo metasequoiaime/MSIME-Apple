@@ -31,6 +31,7 @@ export type Preferences = {
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
   candidate_font_family?: string;
+  candidate_fallback_fonts?: string[];
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -209,6 +210,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗字号</span><select value={draft.candidate_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主字体<small>使用系统已安装字体名称</small></span><input aria-label="候选窗主字体" value={draft.candidate_font_family ?? "Segoe UI"} onChange={event => setDraft({ ...draft, candidate_font_family: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗补充字体<small>按顺序回落，逗号分隔，最多 8 个</small></span><input aria-label="候选窗补充字体" value={(draft.candidate_fallback_fonts ?? []).join(", ")} onChange={event => setDraft({ ...draft, candidate_fallback_fonts: event.target.value.split(",").map(font => font.trim()).filter(Boolean) })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select value={draft.candidate_preedit_font_size ?? 16} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>{Array.from({ length: 21 }, (_, index) => index + 12).map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选文字颜色<small>留空时跟随系统主题</small></span><span><input aria-label="候选文字颜色" type="color" value={draft.candidate_text_color ?? "#ffffff"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} /> <button type="button" className="secondary" onClick={() => setDraft({ ...draft, candidate_text_color: null })}>跟随主题</button></span></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
