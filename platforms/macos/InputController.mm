@@ -174,7 +174,9 @@
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
     NSDictionary *identifier = button.candidateID;
-    if (![identifier[@"session"] isEqual:_view[@"session"]]) return;
+    if (![identifier isKindOfClass:NSDictionary.class] ||
+        ![identifier[@"session"] isEqual:_view[@"session"]])
+        return;
     [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
 }
 @end
