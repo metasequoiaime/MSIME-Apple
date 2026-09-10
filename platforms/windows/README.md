@@ -278,7 +278,7 @@ Server 的 SessionPump 接收已登记连接的键和通知，在输入队列与
 
 现有 DLL 的 `KeyEventSendResult` 区分 Sent、DefinitelyNotSent、DeliveryAmbiguous。只有确定未发送的键才可进入既有本地原始输入回退策略；发送结果不确定时禁止重新交给另一套路由，否则可能重复上屏。不能用一个 bool 代替该分类。本地 Enter 完成观察仍是预览入口的未完成项：不得从 Engine 文本或原始键包推断已经完成的 TSF 文档写入。
 
-该分类现在由 `MSIME-Windows/windows/tests/client_fallback.cpp` 的独立 Debug/Release 测试锁定，并以 x86/x64 MinGW 交叉编译检查 PE32/PE32+；测试只验证本地策略，不代表 Windows 实机、TSF 宿主或管道端到端验收。
+该分类现在由本仓平台适配层的独立 Debug/Release 测试锁定，并以 x86/x64 MinGW 交叉编译检查 PE32/PE32+；测试只验证本地策略，不代表 Windows 实机、TSF 宿主或管道端到端验收。
 
 接入验收须固定两端使用的 Engine 契约提交、DLL 与 Client 产物，先验证隔离管道握手、激活 fence、请求配对和断连，再验证普通/UILess、密码字段、焦点切换、候选与模式请求。不得借接线测试注册 TSF、接管生产管道或替换现有 Server；本说明不宣称这些验证已完成。
 
