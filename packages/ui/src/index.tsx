@@ -93,7 +93,7 @@ function FallbackFontInput({ value, onChange }: { value: string[]; onChange: (fo
   }} />;
 }
 
-function CustomDropdown({ value, options, onChange, ariaLabel }: { value: string; options: [string, string][]; onChange: (value: string) => void; ariaLabel?: string }) {
+function CustomDropdown({ value, options, onChange, ariaLabel, disabled = false }: { value: string; options: [string, string][]; onChange: (value: string) => void; ariaLabel?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const selected = options.find(([option]) => option === value) ?? options[0];
   const choose = (next: string) => { onChange(next); setOpen(false); };
@@ -103,7 +103,7 @@ function CustomDropdown({ value, options, onChange, ariaLabel }: { value: string
     else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
   };
   return <div className="custom-dropdown">
-    <button type="button" className="dropdown-toggle" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(current => !current)} onKeyDown={onKeyDown}>
+    <button type="button" className="dropdown-toggle" aria-label={ariaLabel} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(current => !current)} onKeyDown={onKeyDown}>
       {selected?.[1] ?? value}<span aria-hidden="true" className="dropdown-chevron">⌄</span>
     </button>
     {open && <div className="dropdown-menu" role="listbox" aria-label={ariaLabel}>
@@ -324,9 +324,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header frequency-option-row"><span className="section-title">触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small></span><select aria-label="触发字符数" disabled={!mixedInput.english} value={mixedInput.minimum_prefix} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, minimum_prefix: Number(event.target.value) } })}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value}</option>)}
-          </select></label>
+          <div className="section-header frequency-option-row"><span className="section-title">触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small></span><CustomDropdown ariaLabel="触发字符数" disabled={!mixedInput.english} value={String(mixedInput.minimum_prefix)} options={[1, 2, 3, 4, 5, 6, 7, 8].map(value => [String(value), String(value)] as [string, string])} onChange={value => setDraft({ ...draft, mixed_input: { ...mixedInput, minimum_prefix: Number(value) } })} /></div>
         </div>
         {([["emoji", "emoji 混输", "中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）"], ["kaomoji", "颜文字混输", "中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）"]] as const).map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={mixedInput[key]} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, [key]: event.target.checked } })} /></label>
