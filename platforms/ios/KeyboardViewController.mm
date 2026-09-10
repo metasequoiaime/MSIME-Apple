@@ -204,7 +204,15 @@
             [self.candidateStack addArrangedSubview:button];
         }
     }
-    self.candidateLabel.text = labels.count ? [labels componentsJoinedByString:@"  "] : @"";
+    if (labels.count) {
+        NSDictionary *view = transition[@"view"];
+        NSUInteger page = [view[@"page"] unsignedIntegerValue] + 1;
+        NSUInteger pageCount = [view[@"page_count"] unsignedIntegerValue];
+        self.candidateLabel.text = [NSString stringWithFormat:@"%lu/%lu  %@", (unsigned long)page,
+                                    (unsigned long)pageCount, [labels componentsJoinedByString:@"  "]];
+    } else {
+        self.candidateLabel.text = @"";
+    }
 }
 
 - (void)candidatePressed:(UIButton *)button {
