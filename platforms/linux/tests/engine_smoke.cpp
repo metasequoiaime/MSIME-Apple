@@ -322,6 +322,14 @@ int main(int argc, char **argv) {
     require(seen.preedit_visible && seen.preedit == "K",
             "Shift+K did not enter quick-phrase mode");
     require(key(IBUS_Escape), "Quick-phrase mode could not be canceled");
+    require(key('e', IBUS_SHIFT_MASK), "Shift+E emoji mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "E",
+            "Shift+E did not enter emoji mode");
+    require(key(IBUS_Escape), "Emoji mode could not be canceled");
+    require(key('m', IBUS_SHIFT_MASK), "Shift+M kaomoji mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "M",
+            "Shift+M did not enter kaomoji mode");
+    require(key(IBUS_Escape), "Kaomoji mode could not be canceled");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
