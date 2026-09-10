@@ -4,6 +4,20 @@
 
 namespace msime::windows {
 namespace {
+bool installed_font(const std::wstring &family) {
+  HDC dc = GetDC(nullptr);
+  if (!dc) return false;
+  LOGFONTW logfont{};
+  wcsncpy_s(logfont.lfFaceName, family.c_str(), LF_FACESIZE - 1);
+  bool found = false;
+  EnumFontFamiliesExW(dc, &logfont,
+      [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM data) -> int {
+        *reinterpret_cast<bool *>(data) = true;
+        return 0;
+      }, reinterpret_cast<LPARAM>(&found), 0);
+  ReleaseDC(nullptr, dc);
+  return found;
+}
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates";
 // Affect only this UI operation; restore the caller's thread context even on
 // failure. The created HWND retains PMv2 awareness for its entire lifetime.
@@ -69,7 +83,8 @@ struct Painting {
 CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  unsigned preedit_font_size,
                                  std::optional<COLORREF> text_color,
-                                 std::string font_family)
+                                 std::string font_family,
+                                 std::vector<std::string> fallback_fonts)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
       font_family_(wide(font_family)) {
@@ -78,6 +93,15 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
       preedit_font_size_ > 32)
     throw std::invalid_argument("Invalid candidate font size");
+  if (!installed_font(font_family_)) {
+    for (const auto &fallback : fallback_fonts) {
+      auto candidate = wide(fallback);
+      if (!candidate.empty() && candidate.size() <= 128 && installed_font(candidate)) {
+        font_family_ = std::move(candidate);
+        break;
+      }
+    }
+  }
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;

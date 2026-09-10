@@ -15,7 +15,8 @@ public:
   explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16,
                            unsigned preedit_font_size = 16,
                            std::optional<COLORREF> text_color = std::nullopt,
-                           std::string font_family = "Segoe UI");
+                           std::string font_family = "Segoe UI",
+                           std::vector<std::string> fallback_fonts = {});
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;

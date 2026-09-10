@@ -97,6 +97,8 @@ int wmain(int argc, wchar_t **argv) {
         "candidate_preedit_font_size", 16u);
     const auto candidate_font_family = prepared.at("value").at("preferences").value(
         "candidate_font_family", std::string("Segoe UI"));
+    std::vector<std::string> fallback_fonts = prepared.at("value").at("preferences")
+        .value("candidate_fallback_fonts", std::vector<std::string>{});
     std::optional<COLORREF> candidate_text_color;
     if (const auto color = prepared.at("value").at("preferences").value(
             "candidate_text_color", std::string{}); !color.empty()) {
@@ -148,7 +150,7 @@ int wmain(int argc, wchar_t **argv) {
         candidate_reader,
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         candidate_font_size, preedit_font_size, candidate_text_color,
-        candidate_font_family);
+        candidate_font_family, fallback_fonts);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout
