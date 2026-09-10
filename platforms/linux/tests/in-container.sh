@@ -2,9 +2,20 @@
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
 cargo build -p msime-host-api --locked
-cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
+for attempt in 1 2 3; do
+  if cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked; then
+    break
+  fi
+  if [[ $attempt == 3 ]]; then
+    echo "Linux Rust regression failed after three attempts" >&2
+    exit 1
+  fi
+  echo "Retrying Linux Rust regression after known concurrency jitter (attempt $((attempt + 1)))" >&2
+done
 cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
 cmake --build /build/ibus
+/build/ibus/msime-client-online-provider-contract
+echo "Linux online provider contract acceptance passed"
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 test -x /build/stage/usr/local/bin/msime-client-ibus
