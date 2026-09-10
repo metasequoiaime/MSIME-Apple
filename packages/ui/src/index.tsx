@@ -8,6 +8,7 @@ const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨�
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/appearance.svg", import.meta.url).href },
+  { id: "about", title: "关于", icon: new URL("./assets/msime.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
@@ -273,6 +274,15 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="skin-grid" role="radiogroup" aria-label="候选窗口皮肤">
           {([['follow', '跟随全局', '使用主题模式的颜色'], ['dark', '深色', '深色背景与浅色文字'], ['light', '浅色', '浅色背景与深色文字']] as const).map(([value, label, description]) => <button type="button" className={`skin-card${(draft.candidate_theme ?? "follow") === value ? " selected" : ""}`} role="radio" aria-checked={(draft.candidate_theme ?? "follow") === value} key={value} onClick={() => setDraft({ ...draft, candidate_theme: value })}><span className={`skin-swatch skin-swatch-${value}`} aria-hidden="true" /><span className="skin-card-title">{label}</span><small>{description}</small></button>)}
         </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
+        <div className="section about-hero"><img src={logo} alt="水杉 IME" /><div><h2>水杉 IME</h2><p>跨平台中文输入法客户端预览版</p></div></div>
+        <div className="section about-links">
+          <div className="about-row"><span>当前版本</span><strong>客户端预览版</strong></div>
+          <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client" target="_blank" rel="noreferrer"><span>开源项目</span><span aria-hidden="true">↗</span></a>
+          <a className="about-row about-link" href="https://github.com/metasequoiaime/MSIME-Client/blob/develop/LICENSE" target="_blank" rel="noreferrer"><span>开源许可协议</span><span aria-hidden="true">↗</span></a>
+        </div>
+        <p className="about-disclaimer">本客户端仍在持续迁移 Windows 版功能与界面；部分平台能力可能尚未接入。</p>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
