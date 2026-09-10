@@ -87,6 +87,16 @@ test("candidate preview reflects candidate and preedit font sizes", async () => 
   expect((preview.querySelector(".candidate-preview-preedit") as HTMLElement).style.fontSize).toBe("20px");
 });
 
+test("theme settings use custom dropdowns and persist", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "主题模式" }));
+  fireEvent.click(screen.getByRole("option", { name: "浅色" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, theme: "light" });
+});
+
 
 test("utility mode switches preserve defaults and drafts across pages", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
