@@ -89,51 +89,58 @@ pub unsafe extern "C" fn msime_client_dictionary(request: *const u8, length: usi
         }
         // SAFETY: the caller guarantees the readable buffer above.
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
-        let request: Request =
-            serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request")?;
-        if request.options.api_version != 1 {
-            return Err("unsupported host API version".into());
-        }
-        request
-            .options
-            .preferences
-            .validate()
-            .map_err(|_| "invalid dictionary options")?;
-        let options = request.options.into_engine_options();
-        match request.action {
-            Operation::List { offset, limit } => {
-                let _access = DictionaryAccess::try_session(
-                    Path::new(&options.user_data),
-                    Path::new(&options.dictionaries),
-                )
-                .map_err(|_| "dictionary access unavailable")?
-                .ok_or("dictionary maintenance busy")?;
-                let page = msime_engine_bridge::dictionary_entries(&options, offset, limit)
-                    .map_err(|_| "dictionary read rejected")?;
-                let entries: Vec<Entry> = page
-                    .entries
-                    .into_iter()
-                    .map(Entry::try_from)
-                    .collect::<Result<_, _>>()?;
-                Ok(json!({ "entries": entries, "has_more": page.has_more }))
-            }
-            Operation::Edit {
-                previous,
-                replacement,
-                request_id,
-            } => {
-                let previous = previous.map(DictionaryEntry::from);
-                let replacement = replacement.map(DictionaryEntry::from);
-                edit_personal_dictionary(
-                    &options,
-                    previous.as_ref(),
-                    replacement.as_ref(),
-                    &request_id,
-                )?;
-                Ok(json!({ "applied": true }))
-            }
-        }
+        dictionary_request_json(bytes)
     })
+}
+
+pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    if bytes.len() > 65536 {
+        return Err("invalid dictionary buffer".into());
+    }
+    let request: Request =
+        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request")?;
+    if request.options.api_version != 1 {
+        return Err("unsupported host API version".into());
+    }
+    request
+        .options
+        .preferences
+        .validate()
+        .map_err(|_| "invalid dictionary options")?;
+    let options = request.options.into_engine_options();
+    match request.action {
+        Operation::List { offset, limit } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            let page = msime_engine_bridge::dictionary_entries(&options, offset, limit)
+                .map_err(|_| "dictionary read rejected")?;
+            let entries: Vec<Entry> = page
+                .entries
+                .into_iter()
+                .map(Entry::try_from)
+                .collect::<Result<_, _>>()?;
+            Ok(json!({ "entries": entries, "has_more": page.has_more }))
+        }
+        Operation::Edit {
+            previous,
+            replacement,
+            request_id,
+        } => {
+            let previous = previous.map(DictionaryEntry::from);
+            let replacement = replacement.map(DictionaryEntry::from);
+            edit_personal_dictionary(
+                &options,
+                previous.as_ref(),
+                replacement.as_ref(),
+                &request_id,
+            )?;
+            Ok(json!({ "applied": true }))
+        }
+    }
 }
 
 #[cfg(test)]
