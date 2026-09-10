@@ -333,14 +333,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section" role="group" aria-labelledby="frequency-title">
           <div className="section-title" id="frequency-title">拼音方案调频</div>
           <div className="frequency-option-content">
-            <label className="section-header frequency-option-row"><span className="section-title">调频方式</span><select value={frequency.mode} onChange={event => setDraft({ ...draft, frequency: { ...frequency, mode: event.target.value as FrequencyPreferences["mode"] } })}>
-              <option value="disabled">关闭</option><option value="pin">一次置顶</option><option value="halve">折半调频</option><option value="linear">线性调频</option><option value="promote">一次置前</option>
-            </select></label>
+            <div className="section-header frequency-option-row"><span className="section-title">调频方式</span><CustomDropdown ariaLabel="调频方式" value={frequency.mode} options={[["disabled", "关闭"], ["pin", "一次置顶"], ["halve", "折半调频"], ["linear", "线性调频"], ["promote", "一次置前"]]} onChange={value => setDraft({ ...draft, frequency: { ...frequency, mode: value as FrequencyPreferences["mode"] } })} /></div>
             {([["trigger_count", "触发频次(第几次上屏触发)"], ["linear_step", "线性调频步长"]] as const).map(([key, label]) => <div key={key}>
               <div className="input-option-divider" />
-              <label className="section-header frequency-option-row"><span className="section-title">{label}</span><select value={frequency[key]} onChange={event => setDraft({ ...draft, frequency: { ...frequency, [key]: Number(event.target.value) } })}>
-                {[1, 2, 3, 4, 5, 6, ...(frequency[key] > 6 ? [frequency[key]] : [])].map(value => <option key={value} value={value}>{value}</option>)}
-              </select></label>
+              <div className="section-header frequency-option-row"><span className="section-title">{label}</span><CustomDropdown ariaLabel={label} value={String(frequency[key])} options={[1, 2, 3, 4, 5, 6, ...(frequency[key] > 6 ? [frequency[key]] : [])].map(value => [String(value), String(value)] as [string, string])} onChange={value => setDraft({ ...draft, frequency: { ...frequency, [key]: Number(value) } })} /></div>
             </div>)}
           </div>
         </div>
