@@ -33,6 +33,7 @@
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
     MSIMEAppearancePreferences *_appearance;
+    NSUInteger _requestedPageSize;
 }
 
 - (void)ensureAppearance {
@@ -42,7 +43,19 @@
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
+    [self syncPageSize];
     if (_activeClient) [self renderCandidates];
+}
+- (void)syncPageSize {
+    if (!_session) return;
+    [self ensureAppearance];
+    NSUInteger size = _appearance.pageSize;
+    if (_requestedPageSize == size) return;
+    NSDictionary *result = [_session setCandidatePageSize:(uint8_t)size error:nil];
+    if (result) {
+        _requestedPageSize = size;
+        _view = result[@"view"];
+    }
 }
 - (NSMenu *)menu {
     [self ensureAppearance];
@@ -75,6 +88,7 @@
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
     }
+    [self syncPageSize];
     if (_session) [self apply:[_session setFocused:YES error:nil]];
     if (_session && _preferencesDirectory) {
         [_preferencesTimer invalidate];
@@ -130,6 +144,7 @@
         _activeClient = sender;
         [self apply:[_session setFocused:YES error:nil]];
     }
+    [self syncPageSize];
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;

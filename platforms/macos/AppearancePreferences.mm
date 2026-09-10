@@ -4,12 +4,14 @@ NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientApp
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
+static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_fontButton;
     NSPopUpButton *_pageShortcutButton;
+    NSPopUpButton *_pageSizeButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -43,6 +45,14 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
     NSInteger value = [_defaults integerForKey:PageShortcutKey];
     return value == 1 || value == 2 ? value : 0;
 }
+- (NSUInteger)pageSize {
+    NSInteger value = [_defaults integerForKey:PageSizeKey];
+    return value == 5 || value == 7 ? value : 9;
+}
+- (void)setPageSize:(NSUInteger)value {
+    [_defaults setInteger:value == 5 || value == 7 ? value : 9 forKey:PageSizeKey];
+    [self preferencesChanged];
+}
 - (void)setPageShortcut:(NSInteger)value {
     [_defaults setInteger:value == 1 || value == 2 ? value : 0 forKey:PageShortcutKey];
     [self preferencesChanged];
@@ -51,6 +61,7 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
+    [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
 }
 - (NSWindow *)window {
     NSWindow *window = [super window];
@@ -61,7 +72,7 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 440, 200) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 440, 240) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -79,10 +90,16 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
     _pageShortcutButton.accessibilityLabel = @"候选翻页快捷键";
     _pageShortcutButton.target = self;
     _pageShortcutButton.action = @selector(pageShortcutChanged:);
+    _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_pageSizeButton addItemsWithTitles:@[@"5 个", @"7 个", @"9 个"]];
+    _pageSizeButton.accessibilityLabel = @"每页候选";
+    _pageSizeButton.target = self;
+    _pageSizeButton.action = @selector(pageSizeChanged:);
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
-        @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton]
+        @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
+        @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -98,6 +115,9 @@ static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
+- (void)pageSizeChanged:(NSPopUpButton *)sender {
+    self.pageSize = sender.indexOfSelectedItem == 0 ? 5 : sender.indexOfSelectedItem == 1 ? 7 : 9;
+}
 - (void)fontChanged:(NSPopUpButton *)sender {
     const NSUInteger sizes[] = {16, 18, 20};
     NSInteger index = sender.indexOfSelectedItem;
