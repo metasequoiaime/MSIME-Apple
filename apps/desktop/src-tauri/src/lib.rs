@@ -141,6 +141,21 @@ fn select_skin(
     Ok(())
 }
 
+#[tauri::command]
+fn selected_skin(app: tauri::AppHandle) -> Result<Option<String>, HostActionError> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .join("selected-skin");
+    match std::fs::read_to_string(path) {
+        Ok(id) if !id.is_empty() => Ok(Some(id)),
+        Ok(_) | Err(_) => Ok(None),
+    }
+}
+
 #[derive(Debug, serde::Serialize)]
 struct HostActionError {
     code: &'static str,
@@ -470,7 +485,8 @@ pub fn run() {
             list_external_skins,
             set_diagnostic_log,
             clear_clipboard_history,
-            select_skin
+            select_skin,
+            selected_skin
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");

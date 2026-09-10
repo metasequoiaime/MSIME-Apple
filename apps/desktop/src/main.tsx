@@ -29,6 +29,7 @@ const client: SettingsClient = {
     openDirectory: () => invoke("open_skin_directory"),
     refresh: () => invoke("refresh_skin_catalog"),
     list: () => invoke<ExternalSkinSummary[]>("list_external_skins"),
+    selected: () => invoke<string | null>("selected_skin"),
     select: id => invoke("select_skin", { id }),
   },
 };
