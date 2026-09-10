@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == "target list --installed" ]]
+printf '%s\n' aarch64-apple-ios aarch64-apple-ios-sim

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "$MSIME_TEST_VARIANT" in
+  device)
+    target=aarch64-apple-ios
+    [[ "$CARGO_TARGET_AARCH64_APPLE_IOS_LINKER" == /test/iphoneos/clang ]]
+    ;;
+  simulator)
+    target=aarch64-apple-ios-sim
+    [[ "$CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER" == /test/iphonesimulator/clang ]]
+    ;;
+esac
+[[ "$*" == "build -p msime-host-api --target $target --release --locked" ]]
+[[ "$IPHONEOS_DEPLOYMENT_TARGET" == 16.2 ]]
+[[ "$RUSTFLAGS" == "-C debuginfo=1" ]]
+[[ "$CMAKE_PREFIX_PATH" == "$MSIME_IOS_DEPS" ]]
+[[ "$CARGO_TARGET_DIR" == */target/ios-cargo/"$MSIME_TEST_VARIANT" ]]
+exit 42

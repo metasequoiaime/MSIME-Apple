@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "$MSIME_TEST_VARIANT" in
+  device) sdk=iphoneos ;;
+  simulator) sdk=iphonesimulator ;;
+esac
+[[ "$*" == "--sdk $sdk --find clang" ]]
+printf '/test/%s/clang\n' "$sdk"
