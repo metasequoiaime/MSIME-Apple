@@ -37,6 +37,8 @@ jobs:
       tag_name: ${{ steps.build_release.outputs.tag_name || (!inputs.bump_version && inputs.tag) || steps.finalized_promoted_release.outputs.tag_name || steps.finalized_release.outputs.tag_name || steps.release.outputs.tag_name }}
       target_sha: ${{ steps.build_release.outputs.target_sha || steps.requested_release.outputs.target_sha || steps.promote_release_commit.outputs.target_sha || steps.finalized_release.outputs.sha || steps.release.outputs.sha }}
       build_number: ${{ steps.build_number.outputs.value }}
+      macos: ${{ steps.platforms.outputs.macos }}
+      ios: ${{ steps.platforms.outputs.ios }}
     steps:
       - name: Validate invocation
         env:
@@ -72,6 +74,53 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Select the platforms this release covers
+        id: platforms
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          # A release builds the platforms whose sources moved. Everything both of them compile --
+          # shared code, the engine, the build system, the release automation itself -- reaches
+          # both, and so does anything unrecognised. The bias is deliberate: publishing a platform
+          # that did not change costs one build, while skipping one that did ships a fix that never
+          # reaches its users.
+          macos=false
+          ios=false
+          changed=""
+          if [[ "$GITHUB_EVENT_NAME" == push && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
+                "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            if ! changed=$(gh api --paginate "repos/$GH_REPO/compare/$BEFORE_SHA...$AFTER_SHA" \
+              --jq '.files[].filename'); then
+              printf 'Could not compare %s...%s; publishing both platforms.\n' "$BEFORE_SHA" "$AFTER_SHA" >&2
+              changed=""
+            fi
+          fi
+          if [[ -z "$changed" ]]; then
+            # A manual run names a tag rather than a range, and a first push has no predecessor.
+            # Neither can be classified, so both platforms are built.
+            macos=true
+            ios=true
+          else
+            while IFS= read -r path; do
+              [[ -n "$path" ]] || continue
+              case "$path" in
+                platforms/ios/*) ios=true ;;
+                platforms/macos/*) macos=true ;;
+                docs/*|licenses/*|*.md|LICENSE|PRIVACY.md|.mailmap|.gitignore) ;;
+                *) macos=true; ios=true ;;
+              esac
+            done <<< "$changed"
+          fi
+          if [[ "$macos" != true && "$ios" != true ]]; then
+            # A push to main is a deliberate promotion, so publish both rather than nothing.
+            macos=true
+            ios=true
+          fi
+          printf 'Publishing macOS: %s\nPublishing iOS: %s\n' "$macos" "$ios"
+          printf 'macos=%s\nios=%s\n' "$macos" "$ios" >> "$GITHUB_OUTPUT"
       - name: Create automatic build draft
         if: ${{ github.event_name == 'push' }}
         id: build_release
@@ -277,6 +326,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --timeout 20
       - name: Verify input method bundle
+        if: ${{ needs.prepare.outputs.macos == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           SIGNING_ENABLED: ${{ steps.signing.outputs.signing_enabled }}
@@ -291,6 +341,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/MetasequoiaIME.app/Contents/Info.plist)" = "${version%%-build.*}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/MetasequoiaIME.app/Contents/Info.plist)" = "$METASEQUOIA_BUILD_NUMBER"
       - name: Package release
+        if: ${{ needs.prepare.outputs.macos == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           METASEQUOIA_REQUIRE_RELEASE_SIGNING: ${{ steps.signing.outputs.signing_enabled }}
@@ -308,12 +359,15 @@ jobs:
       # Build the reproducible iOS artifact first. When App Store Connect and signing secrets are
       # configured, the TestFlight step below also produces the signed release artifacts.
       - name: Package the iOS dictionary
+        if: ${{ needs.prepare.outputs.ios == 'true' }}
         run: python3 platforms/ios/scripts/prepare_dictionary.py
       - name: Build the unsigned iOS archive
+        if: ${{ needs.prepare.outputs.ios == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: exec platforms/ios/scripts/package_ios_archive.sh "$TAG_NAME" dist
       - name: Prepare App Store Connect API key for TestFlight
+        if: ${{ needs.prepare.outputs.ios == 'true' }}
         id: testflight_credentials
         env:
           IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
@@ -389,7 +443,7 @@ jobs:
           printf 'enabled=true\nkey_path=%s\napp_profile_path=%s\nkeyboard_profile_path=%s\n' \
             "$key_path" "$app_profile_path" "$keyboard_profile_path" >> "$GITHUB_OUTPUT"
       - name: Upload iOS build to TestFlight
-        if: ${{ steps.testflight_credentials.outputs.enabled == 'true' }}
+        if: ${{ needs.prepare.outputs.ios == 'true' && steps.testflight_credentials.outputs.enabled == 'true' }}
         env:
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
@@ -410,6 +464,7 @@ jobs:
           export METASEQUOIA_IOS_RELEASE_DIR="$GITHUB_WORKSPACE/dist"
           exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
       - name: Detect the Sparkle update key
+        if: ${{ needs.prepare.outputs.macos == 'true' }}
         id: sparkle
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
@@ -422,7 +477,7 @@ jobs:
             printf 'appcast_enabled=false\n' >> "$GITHUB_OUTPUT"
           fi
       - name: Generate signed Sparkle appcast
-        if: ${{ steps.sparkle.outputs.appcast_enabled == 'true' }}
+        if: ${{ needs.prepare.outputs.macos == 'true' && steps.sparkle.outputs.appcast_enabled == 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
@@ -444,7 +499,7 @@ jobs:
           SPARKLE_TOOLS_DIR="$sparkle_root/bin" \
             exec "$RUNNER_TEMP/generate-sparkle-appcast.sh" "$TAG_NAME" "$update_archive" dist/appcast.xml
       - name: Skip Sparkle appcast without an update key
-        if: ${{ steps.sparkle.outputs.appcast_enabled != 'true' }}
+        if: ${{ needs.prepare.outputs.macos == 'true' && steps.sparkle.outputs.appcast_enabled != 'true' }}
         run: echo 'No SPARKLE_ED_PRIVATE_KEY is configured, so this release ships without an appcast and automatic updates stay paused.' >> "$GITHUB_STEP_SUMMARY"
       - name: Revalidate draft release target
         env:
@@ -464,6 +519,8 @@ jobs:
           ASSET_SUFFIX: ${{ steps.signing.outputs.asset_suffix }}
           SIGNING_ENABLED: ${{ steps.signing.outputs.signing_enabled }}
           IOS_TESTFLIGHT_ENABLED: ${{ steps.testflight_credentials.outputs.enabled }}
+          RELEASE_MACOS: ${{ needs.prepare.outputs.macos }}
+          RELEASE_IOS: ${{ needs.prepare.outputs.ios }}
           # Decides which channel the release is published into: push is an automatic per-merge build, workflow_dispatch is one somebody asked for.
           RELEASE_TRIGGER: ${{ github.event_name }}
         run: exec "$RUNNER_TEMP/publish-release.sh"

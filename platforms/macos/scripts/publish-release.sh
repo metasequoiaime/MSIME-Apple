@@ -6,6 +6,24 @@ set -euo pipefail
 : "${SIGNING_ENABLED:?SIGNING_ENABLED is required}"
 # push means an automatic per-merge build, anything else means somebody asked for this one. GitHub has no channel concept, so the two states it does have carry the two channels: automatic builds are prereleases, deliberate ones are ordinary releases and the newest of those takes the Latest badge. Before this the two were indistinguishable and the badge simply followed whatever merged last. Kept in step with MSIME-Windows#167.
 : "${RELEASE_TRIGGER:?RELEASE_TRIGGER is required}"
+# Which platforms this run publishes. The release workflow decides from the paths that changed;
+# a platform that is not covered contributes no artifacts and no release notes, while a covered
+# one still requires all of its files so a silently failed packaging step is caught here.
+: "${RELEASE_MACOS:?RELEASE_MACOS is required}"
+: "${RELEASE_IOS:?RELEASE_IOS is required}"
+for flag in "$RELEASE_MACOS" "$RELEASE_IOS"; do
+    case "$flag" in
+        true|false) ;;
+        *)
+            printf '%s\n' "RELEASE_MACOS and RELEASE_IOS must be true or false." >&2
+            exit 1
+            ;;
+    esac
+done
+if [[ "$RELEASE_MACOS" != true && "$RELEASE_IOS" != true ]]; then
+    printf '%s\n' "A release must cover at least one platform." >&2
+    exit 1
+fi
 : "${IOS_TESTFLIGHT_ENABLED:=false}"
 if [[ ${ASSET_SUFFIX+x} != x ]]; then
     printf '%s\n' "ASSET_SUFFIX is required." >&2
@@ -63,14 +81,20 @@ else
         "$dist_dir/MetasequoiaIME-$TAG_NAME-ios-testflight.ipa.sha256"
     )
 fi
-artifacts=("$installer" "$installer.sha256" "$archive" "$archive.sha256" "$update_archive" "$update_archive.sha256")
+artifacts=()
+if [[ "$RELEASE_MACOS" == true ]]; then
+    artifacts+=("$installer" "$installer.sha256" "$archive" "$archive.sha256"
+                "$update_archive" "$update_archive.sha256")
+fi
 # The Sparkle appcast is signed with the project's Ed25519 update key, which is independent of Apple code signing, so publish it whenever the release job produced one.
-if [[ -f "$appcast" ]]; then
+if [[ "$RELEASE_MACOS" == true && -f "$appcast" ]]; then
     artifacts+=("$appcast")
 fi
-# Required rather than optional: the iOS build is part of every release run, so a missing archive
-# means the step failed silently rather than that iOS is not being shipped.
-artifacts+=("$ios_archive" "$ios_archive.sha256" "$ios_ipa" "$ios_ipa.sha256")
+# Required rather than optional once iOS is covered: a missing archive then means the packaging
+# step failed silently rather than that iOS is not being shipped by this release.
+if [[ "$RELEASE_IOS" == true ]]; then
+    artifacts+=("$ios_archive" "$ios_archive.sha256" "$ios_ipa" "$ios_ipa.sha256")
+fi
 for artifact in "${artifacts[@]}"; do
     if [[ ! -f "$artifact" ]]; then
         printf 'Release artifact is missing: %s\n' "$artifact" >&2
@@ -94,8 +118,10 @@ done
     verify_checksum_manifest "$(basename "$installer")" "$(basename "$installer.sha256")"
     verify_checksum_manifest "$(basename "$archive")" "$(basename "$archive.sha256")"
     verify_checksum_manifest "$(basename "$update_archive")" "$(basename "$update_archive.sha256")"
-    verify_checksum_manifest "$(basename "$ios_archive")" "$(basename "$ios_archive.sha256")"
-    verify_checksum_manifest "$(basename "$ios_ipa")" "$(basename "$ios_ipa.sha256")"
+    if [[ "$RELEASE_IOS" == true ]]; then
+        verify_checksum_manifest "$(basename "$ios_archive")" "$(basename "$ios_archive.sha256")"
+        verify_checksum_manifest "$(basename "$ios_ipa")" "$(basename "$ios_ipa.sha256")"
+    fi
 )
 
 mode_marker="<!-- metasequoia-release-mode:$release_mode -->"
@@ -142,32 +168,35 @@ if [[ "$current_notes" != *"$mode_marker"* || "$current_notes" != *"$install_gui
         fi
         if [[ "$current_notes" != *"$install_guidance_marker"* ]]; then
             printf '%s\n\n' "$install_guidance_marker"
-            printf '%s\n' '### Install on macOS'
-            printf '%s\n' '- **Recommended: ZIP.** Verify its `.sha256`, extract it, then run `Install.command`. It installs for the current user, registers and enables the exact input source, and does not automatically log out or restart the Mac.'
-            printf '%s\n' '- **PKG option.** The native Installer copies the same app and attempts to register and enable 水杉 for the logged-in GUI user. If no GUI user is logged in or macOS blocks the app, enable it later in System Settings > Keyboard > Text Input > Edit. The package does not force a logout or restart; macOS may still require a later logout before a newly copied input method appears.'
-            printf '\n%s\n' '### iOS'
-            if [[ "$IOS_TESTFLIGHT_ENABLED" == true ]]; then
-                printf '%s\n' '- `-ios-testflight.ipa` and `-ios-testflight.xcarchive.zip` are distribution-signed with the project Team ID; the IPA is uploaded to App Store Connect for TestFlight.'
-                printf '%s\n' '- Install the processed build from TestFlight. Apple may take additional time to finish processing before it appears to testers.'
-            else
-                printf '%s\n' '- Both iOS assets are **unsigned** because App Store Connect and iOS signing secrets were not configured for this run.'
-                printf '%s\n' '- `-ios-unsigned.ipa` is the one to take. Sign it with your own Apple ID using a re-signing tool such as Sideloadly or AltStore and install it; the keyboard is then enabled in Settings > General > Keyboard > Keyboards.'
-                printf '%s\n' '- `-ios-unsigned.xcarchive.zip` is for a maintainer with a Developer Program membership: open it in Xcode Organizer and distribute to TestFlight or the App Store from the exact bits this tag built, without rebuilding.'
+            if [[ "$RELEASE_MACOS" == true ]]; then
+                printf '%s\n' '### Install on macOS'
+                printf '%s\n' '- **Recommended: ZIP.** Verify its `.sha256`, extract it, then run `Install.command`. It installs for the current user, registers and enables the exact input source, and does not automatically log out or restart the Mac.'
+                printf '%s\n' '- **PKG option.** The native Installer copies the same app and attempts to register and enable 水杉 for the logged-in GUI user. If no GUI user is logged in or macOS blocks the app, enable it later in System Settings > Keyboard > Text Input > Edit. The package does not force a logout or restart; macOS may still require a later logout before a newly copied input method appears.'
+            fi
+            if [[ "$RELEASE_IOS" == true ]]; then
+                printf '\n%s\n' '### iOS'
+                if [[ "$IOS_TESTFLIGHT_ENABLED" == true ]]; then
+                    printf '%s\n' '- `-ios-testflight.ipa` and `-ios-testflight.xcarchive.zip` are distribution-signed with the project Team ID; the IPA is uploaded to App Store Connect for TestFlight.'
+                    printf '%s\n' '- Install the processed build from TestFlight. Apple may take additional time to finish processing before it appears to testers.'
+                else
+                    printf '%s\n' '- Both iOS assets are **unsigned** because App Store Connect and iOS signing secrets were not configured for this run.'
+                    printf '%s\n' '- `-ios-unsigned.ipa` is the one to take. Sign it with your own Apple ID using a re-signing tool such as Sideloadly or AltStore and install it; the keyboard is then enabled in Settings > General > Keyboard > Keyboards.'
+                    printf '%s\n' '- `-ios-unsigned.xcarchive.zip` is for a maintainer with a Developer Program membership: open it in Xcode Organizer and distribute to TestFlight or the App Store from the exact bits this tag built, without rebuilding.'
+                fi
             fi
         fi
     } > "$release_notes"
     gh release edit "$TAG_NAME" --repo "$GH_REPO" --notes-file "$release_notes"
 fi
 
+if [[ "$RELEASE_IOS" == true ]]; then
 for opposite_ios_artifact in "${opposite_ios_artifacts[@]}"; do
     opposite_name=$(basename "$opposite_ios_artifact")
     if gh release view "$TAG_NAME" --repo "$GH_REPO" --json assets --jq '.assets[].name' | grep -Fxq "$opposite_name"; then
         gh release delete-asset "$TAG_NAME" --repo "$GH_REPO" "$opposite_name" --yes
     fi
 done
-upload_args=("$installer" "$installer.sha256" "$archive" "$archive.sha256" "$update_archive" "$update_archive.sha256" "$ios_archive" "$ios_archive.sha256" "$ios_ipa" "$ios_ipa.sha256")
-if [[ -f "$appcast" ]]; then
-    upload_args+=("$appcast")
 fi
-gh release upload "$TAG_NAME" --repo "$GH_REPO" "${upload_args[@]}" --clobber
+# The verified list is the uploaded list: keeping two copies is how one of them goes stale.
+gh release upload "$TAG_NAME" --repo "$GH_REPO" "${artifacts[@]}" --clobber
 gh release edit "$TAG_NAME" --repo "$GH_REPO" --draft=false "${channel[@]}" --title "$release_title"

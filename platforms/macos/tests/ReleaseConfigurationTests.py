@@ -345,9 +345,12 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("ios-testflight.xcarchive.zip", publish_script)
         # The .ipa is the asset a tester can actually re-sign and install, so it has to be uploaded
         # rather than only checked for existence — an earlier revision added it to one list and not
-        # the other.
+        # the other. There is only one list now: what is verified is what is uploaded, so the two
+        # cannot drift apart again.
         self.assertIn("ios-unsigned.ipa", publish_script)
-        self.assertIn('"$ios_ipa" "$ios_ipa.sha256")', publish_script.split("upload_args=", 1)[1])
+        self.assertIn('artifacts+=("$ios_archive" "$ios_archive.sha256" "$ios_ipa" "$ios_ipa.sha256")', publish_script)
+        self.assertIn('gh release upload "$TAG_NAME" --repo "$GH_REPO" "${artifacts[@]}"', publish_script)
+        self.assertNotIn("upload_args", publish_script)
         archive_script = (PROJECT_ROOT / "platforms/ios/scripts/package_ios_archive.sh").read_text()
         self.assertIn("CODE_SIGNING_ALLOWED=NO", archive_script)
         # The archive is worthless if it silently drops the extension the product exists for.
