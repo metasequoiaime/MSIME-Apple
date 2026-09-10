@@ -35,6 +35,8 @@ void preference_monitor_tests(const std::string &options,
   write(document.dump());
   const auto older = PreferenceSnapshot::load(directory);
   document["revision"] = 2;
+  document["preferences"]["navigation"] = {{"minus_equal", false}, {"comma_period", false},
+    {"brackets", true}, {"tab", false}, {"page_up_down", false}, {"arrows", false}};
   write(document.dump());
   FocusGate gate;
   InputQueue input(gate, 1, 1, options);
@@ -78,6 +80,10 @@ void preference_monitor_tests(const std::string &options,
       rejected = true;
     }
     require(rejected, "Monitor did not publish newest settings");
+    const auto navigation = state.navigation_bindings();
+    require(!navigation.minus_equal && !navigation.comma_period && navigation.brackets &&
+            !navigation.tab && !navigation.page_up_down && !navigation.arrows,
+            "Live navigation settings were not published or were reverted by stale settings");
     bool join_rejected = false;
     try {
       monitor.stop();

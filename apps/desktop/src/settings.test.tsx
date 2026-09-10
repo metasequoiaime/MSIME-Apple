@@ -5,6 +5,22 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("paging defaults match Windows and individual edits persist", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const brackets = await screen.findByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement;
+  expect(brackets.checked).toBe(false);
+  for (const name of ["- / =", ", / .", "Shift+Tab / Tab", "PageUp / PageDown", "上 / 下（移动候选项）"]) {
+    expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
+  }
+  fireEvent.click(brackets);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Shift+Tab / Tab" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: true, tab: false, page_up_down: true, arrows: true } });
+});
+
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

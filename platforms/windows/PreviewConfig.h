@@ -13,6 +13,7 @@ struct PreviewConfig {
   std::string pipe_namespace;
   TsfPreeditStyle style;
   NavigationBindings navigation{};
+  bool explicit_key_bindings = false;
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
@@ -43,6 +44,7 @@ struct PreviewConfig {
     else if (style != "local")
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("key_bindings")) {
+      result.explicit_key_bindings = true;
       const auto &keys = value.at("key_bindings");
       if (!keys.is_object() || keys.size() != 7)
         throw std::invalid_argument("Invalid preview key bindings");

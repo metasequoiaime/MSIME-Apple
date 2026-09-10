@@ -42,6 +42,32 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
+    #[serde(default)]
+    pub navigation: NavigationPreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavigationPreferences {
+    pub minus_equal: bool,
+    pub comma_period: bool,
+    pub brackets: bool,
+    pub tab: bool,
+    pub page_up_down: bool,
+    pub arrows: bool,
+}
+
+impl Default for NavigationPreferences {
+    fn default() -> Self {
+        Self {
+            minus_equal: true,
+            comma_period: true,
+            brackets: false,
+            tab: true,
+            page_up_down: true,
+            arrows: true,
+        }
+    }
 }
 
 fn enabled_by_default() -> bool {
@@ -60,6 +86,7 @@ impl Default for Preferences {
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
+            navigation: NavigationPreferences::default(),
         }
     }
 }
@@ -272,6 +299,43 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigation_defaults_and_independent_flags_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("navigation");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.navigation,
+            NavigationPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let preferences = Preferences {
+            navigation: NavigationPreferences {
+                minus_equal: false,
+                comma_period: false,
+                brackets: true,
+                tab: false,
+                page_up_down: false,
+                arrows: false,
+            },
+            ..Preferences::default()
+        };
+        let saved = store.save(0, preferences).unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+        let mut invalid = serde_json::to_value(saved).unwrap();
+        invalid["preferences"]["navigation"]["tab"] = "invalid".into();
+        let bytes = serde_json::to_vec(&invalid).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.save(1, Preferences::default()).is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
 
     #[test]
     fn remembered_chinese_scheme_roundtrips_without_changing_legacy_files() {

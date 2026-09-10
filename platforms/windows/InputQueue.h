@@ -51,6 +51,10 @@ public:
   // Snapshot loading happens outside the input queue. Older/conflicting values
   // are rejected; identical publications are safe retries.
   void publish_preferences(const PreferenceSnapshot &snapshot);
+  NavigationBindings navigation_bindings() const {
+    check_thread();
+    return navigation_;
+  }
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -71,6 +75,7 @@ private:
   FocusGate &gate_;
   FocusRouter router_;
   std::string options_;
+  NavigationBindings navigation_;
   std::optional<PreferenceSnapshot> preferences_;
   std::unordered_map<uint64_t, Client> clients_;
 };
