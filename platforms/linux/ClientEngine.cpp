@@ -3,8 +3,11 @@
 #include "WordCharacterBinding.h"
 #include "msime_client.h"
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 
 using Json = nlohmann::json;
@@ -53,6 +56,7 @@ struct State {
   bool preferences_loading = false;
   std::string online_provider_socket;
   bool online_loading = false;
+  std::string clipboard_history_path;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   ~State() { close(); }
@@ -67,6 +71,7 @@ struct State {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
+    clipboard_history_path = options.value("clipboard_history_path", "");
     online_provider_socket = options.value("online_provider_socket", "");
     if (scheme_override)
       options["preferences"]["scheme"] = *scheme_override;
@@ -111,6 +116,18 @@ struct State {
     word_character = edge_binding;
   }
 };
+std::optional<std::string> latest_clipboard(const std::string &path) {
+  if (path.empty() || path.size() > 4096) return std::nullopt;
+  std::ifstream input{std::filesystem::path(path)};
+  if (!input) return std::nullopt;
+  try {
+    auto value = Json::parse(input);
+    if (!value.is_array() || value.empty() || !value.front().is_string()) return std::nullopt;
+    auto text = value.front().get<std::string>();
+    if (text.size() > 4000) text.resize(4000);
+    return text.empty() ? std::nullopt : std::optional<std::string>(std::move(text));
+  } catch (...) { return std::nullopt; }
+}
 State &state(IBusEngine *engine);
 std::string fullwidth_text(const std::string &text) {
   std::string result;
@@ -300,6 +317,20 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto clipboard = ibus_property_new(
+      "ClipboardHistory", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("剪贴板历史"), "",
+      ibus_text_new_from_static_string("提交最近一条历史文本"),
+      s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
+      TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto clipboard_menu = ibus_prop_list_new();
+  auto latest = ibus_property_new(
+      "ClipboardHistory/Latest", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("提交最近一条"), "",
+      ibus_text_new_from_static_string("仅读取配置的历史文件，不读取系统剪贴板"),
+      TRUE, FALSE, PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(clipboard_menu, latest);
+  ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
       "CandidateLayout", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选布局"), "",
@@ -385,6 +416,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
+    ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
@@ -399,6 +431,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
+    ibus_engine_update_property(engine, clipboard);
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
@@ -564,6 +597,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
+       std::string(name) != "ClipboardHistory/Latest" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
        std::string(name) != "PreeditStyle/raw" &&
@@ -578,6 +612,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name) == "ClipboardHistory/Latest") {
+      if (auto text = latest_clipboard(s.clipboard_history_path)) {
+        ibus_engine_commit_text(engine, ibus_text_new_from_string(text->c_str()));
+      }
+      return;
+    }
     if (std::string(name) == "SmartPunctuation") {
       s.smart_punctuation = value == PROP_STATE_CHECKED;
       publish_mode(engine);
