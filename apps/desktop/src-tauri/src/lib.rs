@@ -313,8 +313,24 @@ fn selected_skin(app: tauri::AppHandle) -> Result<Option<String>, HostActionErro
         })?
         .join("selected-skin");
     match std::fs::read_to_string(path) {
-        Ok(id) if !id.is_empty() => Ok(Some(id)),
-        Ok(_) | Err(_) => Ok(None),
+        Ok(id) => {
+            let id = id.trim();
+            let valid = !id.is_empty()
+                && id.len() <= 128
+                && id != "."
+                && id != ".."
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'));
+            let builtin = matches!(id, "fluent" | "wechat" | "graphite" | "willow_green");
+            let external = skin_directory(&app)?.join(id).is_dir();
+            if valid && (builtin || external) {
+                Ok(Some(id.to_owned()))
+            } else {
+                Ok(None)
+            }
+        }
+        Err(_) => Ok(None),
     }
 }
 
