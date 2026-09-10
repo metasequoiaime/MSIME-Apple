@@ -92,6 +92,11 @@ struct State {
     session = view.at("session").get<uint64_t>();
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
+    punctuation_lock = configured.value("punctuation_lock", "follow");
+    if (punctuation_lock == "chinese")
+      chinese_punctuation = true;
+    else if (punctuation_lock == "english")
+      chinese_punctuation = false;
     candidate_text_color =
         ::candidate_text_color(options.at("preferences"));
     candidate_background_color =
