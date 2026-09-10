@@ -310,6 +310,11 @@ int main(int argc, char **argv) {
     require(seen.committed == "你好" + selected + "，“”",
             "Paired quote output mismatch");
     invoke("Reset");
+    require(key('u', IBUS_SHIFT_MASK), "Shift+U Unicode mode was not consumed");
+    require(seen.preedit_visible && seen.preedit == "U",
+            "Shift+U did not enter Unicode mode");
+    require(key(IBUS_Escape), "Unicode mode could not be canceled");
+    invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
     require(key('a'), "Japanese scheme did not consume Romaji input");
