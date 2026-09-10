@@ -325,6 +325,7 @@ struct HostActionError {
 
 #[tauri::command]
 fn clear_clipboard_history(
+    app: tauri::AppHandle,
     state: tauri::State<'_, ClipboardHistoryState>,
 ) -> Result<(), HostActionError> {
     state
@@ -334,7 +335,20 @@ fn clear_clipboard_history(
             code: "unavailable",
         })?
         .clear();
-    Ok(())
+    let history = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .join("clipboard_history.json");
+    match std::fs::remove_file(history) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(HostActionError {
+            code: "unavailable",
+        }),
+    }
 }
 
 #[tauri::command]
