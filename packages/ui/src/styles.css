@@ -104,6 +104,10 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .feedback-link { color: var(--accent-color); font-size: 12px; text-decoration: none; }
 .feedback-link:hover { text-decoration: underline; }
 .feedback-note { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.help-hero p { color: var(--text-muted); margin: 8px 0 0; line-height: 1.6; }
+.help-list { display: flex; flex-direction: column; margin-top: 12px; }
+.help-list > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--divider-color); }
+.help-list span { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 600px) { .skin-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
