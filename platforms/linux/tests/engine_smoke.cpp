@@ -204,6 +204,13 @@ int main(int argc, char **argv) {
             "Shortcut was intercepted or left stale composition");
     require(seen.committed == committed,
             "Shortcut unexpectedly committed input");
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space toggle was not handled");
+    require(!key('n'), "Disabled input consumed a character");
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space re-enable was not handled");
+    require(key('n'), "Re-enabled input did not consume a character");
+    invoke("Reset");
     phrase();
     invoke("FocusOut");
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
