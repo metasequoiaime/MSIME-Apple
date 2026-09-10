@@ -697,7 +697,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         ((flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
          (IBUS_CONTROL_MASK | IBUS_MOD1_MASK))));
   const bool fullwidth_toggle =
-      key == IBUS_space && modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+      (key == IBUS_space || key == IBUS_f) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;
