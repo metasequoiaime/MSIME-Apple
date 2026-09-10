@@ -33,7 +33,7 @@ public final class PreferencesReloader {
             return;
         }
         reading = true;
-        worker.execute(() -> {
+        Runnable task = () -> {
             String result;
             try { result = reader.read(directory); }
             catch (Exception | LinkageError error) { result = null; }
@@ -44,6 +44,13 @@ public final class PreferencesReloader {
                 try { receive.accept(response); }
                 finally { main.post(() -> poll(token, directory, receive), 1000); }
             }, 0);
-        });
+        };
+        try {
+            worker.execute(task);
+        } catch (RuntimeException error) {
+            reading = false;
+            if (token == generation)
+                main.post(() -> poll(token, directory, receive), 1000);
+        }
     }
 }
