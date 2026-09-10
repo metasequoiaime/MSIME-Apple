@@ -14,6 +14,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
   local_modes?: LocalModePreferences;
+  clipboard_history?: boolean;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -278,6 +279,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         })}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label></div>
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 0, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
           <label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label>

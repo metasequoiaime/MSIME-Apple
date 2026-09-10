@@ -52,6 +52,8 @@ pub struct Preferences {
     pub mixed_input: MixedInputPreferences,
     #[serde(default)]
     pub local_modes: LocalModePreferences,
+    #[serde(default = "enabled_by_default")]
+    pub clipboard_history: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,6 +205,7 @@ impl Default for Preferences {
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
+            clipboard_history: true,
         }
     }
 }
