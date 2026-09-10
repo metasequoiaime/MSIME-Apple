@@ -45,6 +45,7 @@
         [self.candidateStack.topAnchor constraintEqualToAnchor:self.candidateLabel.bottomAnchor constant:2],
         [self.candidateStack.heightAnchor constraintEqualToConstant:30]]];
     [self buildKeyboard];
+    if (self.session) [self apply:[self.session viewWithError:nil]];
 }
 
 - (void)startSession {
