@@ -93,7 +93,7 @@ fn open_skin_directory(app: tauri::AppHandle) -> Result<(), HostActionError> {
     let value = path.to_string_lossy().into_owned();
     #[cfg(target_os = "macos")]
     {
-        return run_external_command("open", &[&value]);
+        run_external_command("open", &[&value])
     }
     #[cfg(target_os = "linux")]
     {
@@ -437,7 +437,7 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "macos")]
     {
-        return run_external_command("open", &[&url]);
+        run_external_command("open", &[&url])
     }
     #[cfg(target_os = "linux")]
     {
@@ -507,7 +507,7 @@ fn open_screen_keyboard() -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "macos")]
     {
-        return run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"]);
+        run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"])
     }
     #[cfg(target_os = "windows")]
     {
@@ -535,7 +535,7 @@ fn open_handwriting() -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "macos")]
     {
-        return run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"]);
+        run_external_command("open", &["/System/Library/CoreServices/KeyboardViewer.app"])
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
@@ -576,7 +576,7 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
                 code: "unavailable",
             });
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "linux")]
     {
