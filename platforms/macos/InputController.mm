@@ -97,6 +97,9 @@
         return NO;
     }
     uint32_t command = UINT32_MAX;
+    // The current panel is vertical: Apple consumes the non-primary direction
+    // while candidates are visible, without editing the underlying composition.
+    if (_panel.isVisible && (event.keyCode == 123 || event.keyCode == 124)) return YES;
     switch (event.keyCode) {
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
