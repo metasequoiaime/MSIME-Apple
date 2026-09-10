@@ -5,6 +5,23 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("floating toolbar preview follows component visibility choices", async () => {
+  const toolbar = { enabled: true, scale_percent: 100, font_size: 24, fullwidth: false, punctuation: true, character_set: false, emoji: false, screen_keyboard: true, settings: true };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences: { ...initial.preferences, floating_toolbar: toolbar } }), save: vi.fn() };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  await screen.findByRole("checkbox", { name: "中英文标点" });
+  const preview = document.querySelector(
+    '[aria-label="悬浮工具栏预览"].candidate-preview-card',
+  ) as HTMLElement;
+  expect(preview).not.toBeNull();
+  expect(preview.textContent).toContain("标点");
+  expect(preview.textContent).toContain("键盘");
+  expect(preview.textContent).not.toContain("全角");
+  fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
+  expect(preview.textContent).toContain("全角");
+});
+
 test.each(["enabled", "scale", "font"])("toolbar %s edits preserve loaded and newly edited component choices", async control => {
   const toolbar = { enabled: true, scale_percent: 100, font_size: 24, fullwidth: false, punctuation: false, character_set: false, emoji: false, screen_keyboard: true, settings: false };
   const snapshot = { ...initial, preferences: { ...initial.preferences, floating_toolbar: toolbar } };
