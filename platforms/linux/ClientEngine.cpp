@@ -34,6 +34,7 @@ struct State {
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
+  std::optional<std::string> layout_override;
   std::optional<std::string> scheme_override;
   bool chinese_punctuation = true;
   std::optional<guint> candidate_text_color;
@@ -64,6 +65,8 @@ struct State {
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
       options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
+    if (layout_override)
+      options["preferences"]["candidate_layout"] = *layout_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -152,6 +155,8 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       configured.at("preferences").at("mixed_input").value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       configured.at("preferences").at("mixed_input").value("kaomoji", false));
+  const auto layout = s.layout_override.value_or(
+      configured.at("preferences").value("candidate_layout", "vertical"));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -186,6 +191,27 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
       ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto layout_property = ibus_property_new(
+      "CandidateLayout", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("候选布局"), "",
+      ibus_text_new_from_static_string("当前焦点会话的候选排列方向"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto layout_menu = ibus_prop_list_new();
+  auto vertical = ibus_property_new(
+      "CandidateLayout/Vertical", PROP_TYPE_RADIO,
+      ibus_text_new_from_static_string("竖排"), "",
+      ibus_text_new_from_static_string("竖直排列候选"), TRUE, TRUE,
+      layout == "vertical" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
+  auto horizontal = ibus_property_new(
+      "CandidateLayout/Horizontal", PROP_TYPE_RADIO,
+      ibus_text_new_from_static_string("横排"), "",
+      ibus_text_new_from_static_string("水平排列候选"), TRUE, TRUE,
+      layout == "horizontal" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
+  ibus_prop_list_append(layout_menu, vertical);
+  ibus_prop_list_append(layout_menu, horizontal);
+  ibus_property_set_sub_props(layout_property, layout_menu);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
@@ -212,6 +238,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, emoji);
     ibus_prop_list_append(properties, kaomoji);
+    ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, scheme);
     ibus_engine_register_properties(engine, properties);
   } else {
@@ -220,6 +247,7 @@ void publish_mode(IBusEngine *engine, bool registration = false) {
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
+    ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, scheme);
   }
 }
@@ -348,12 +376,31 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
+       std::string(name) != "CandidateLayout/Vertical" &&
+       std::string(name) != "CandidateLayout/Horizontal" &&
        std::string(name) != "Scheme/Chinese" &&
        std::string(name) != "Scheme/Japanese") ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (std::string(name) == "CandidateLayout/Vertical" ||
+        std::string(name) == "CandidateLayout/Horizontal") {
+      const auto selected = std::string(name) == "CandidateLayout/Horizontal"
+                                ? "horizontal" : "vertical";
+      if (s.layout_override.value_or(
+              configured.at("preferences").value("candidate_layout", "vertical")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.layout_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "EmojiCandidates" ||
         std::string(name) == "KaomojiCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
