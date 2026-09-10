@@ -631,6 +631,27 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn('xcrun simctl boot "${test_device_id}"', runner)
         self.assertNotIn("sleep ", runner)
 
+        # Build and run are two actions against one destination. A single `test` action rebuilt
+        # everything a separate workflow build step had just produced, because that step targeted
+        # `generic/platform=iOS Simulator` while this targets a specific x86_64 device -- different
+        # products, so nothing was reused and the job paid for the same compile twice.
+        self.assertIn("build-for-testing", runner)
+        self.assertIn("test-without-building", runner)
+        self.assertNotIn("generic/platform=iOS Simulator", workflow)
+        self.assertEqual(workflow.count("xcodebuild"), 0)
+        # Booting returns immediately and the build needs no simulator, so the wait belongs after
+        # the build rather than before it. Compare the commands rather than the file: prose that
+        # names a step would otherwise decide the order this reads.
+        commands = "\n".join(line for line in runner.splitlines() if not line.lstrip().startswith("#"))
+        order = [commands.index(fragment) for fragment in (
+            'xcrun simctl boot "${test_device_id}"', "build-for-testing",
+            "simctl bootstatus", "test-without-building")]
+        self.assertEqual(order, sorted(order), commands)
+        # The scope narrows the run, not the build: a narrower build would skip a target that
+        # test-without-building then fails to find.
+        build_invocation = commands.split("build-for-testing", 1)[0].rsplit("xcodebuild", 1)[1]
+        self.assertNotIn("scope_arguments", build_invocation)
+
     def test_ui_tests_are_main_actor_isolated_for_swift_6(self):
         ui_tests = (IOS_ROOT / "UITests/OnboardingUITests.swift").read_text()
 

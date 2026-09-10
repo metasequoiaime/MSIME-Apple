@@ -167,18 +167,6 @@ jobs:
           mkdir -p build/ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
           pod install --deployment --project-directory=platforms/ios
-      - name: Build host app and keyboard extension
-        run: |
-          xcodebuild \
-            -workspace build/ios/MetasequoiaImeIOS.xcworkspace \
-            -scheme MetasequoiaImeIOS \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/ios-derived \
-            BREW_PREFIX="$(brew --prefix)" \
-            CODE_SIGNING_ALLOWED=NO \
-            build
       - name: Test native iOS keyboard and settings
         # A pull request runs the unit suites and a handful of interface cases; a merge into develop
         # or main runs everything. The interface suite is 96% of this job -- 45 minutes for 37 cases

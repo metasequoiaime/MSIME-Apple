@@ -101,6 +101,42 @@ class BuildNumberTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout, expected, name)
 
+    def platforms_for(self, *paths, event="push", before=BASE_SHA):
+        quoted = " ".join('"' + path + '"' for path in paths)
+        stub = 'gh() { printf "%s\\n" ' + quoted + '; }' if paths else "gh() { :; }"
+        result, output = self.run_step(
+            "Select the platforms this release covers", prefix=stub,
+            GITHUB_EVENT_NAME=event, BEFORE_SHA=before, AFTER_SHA=HEAD_SHA)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split("=", 1) for line in output.strip().split("\n"))
+        return values["macos"], values["ios"]
+
+    def test_release_covers_only_the_platforms_whose_sources_changed(self):
+        self.assertEqual(self.platforms_for("platforms/ios/App/Sources/App.swift"), ("false", "true"))
+        self.assertEqual(self.platforms_for("platforms/macos/src/Controller.mm"), ("true", "false"))
+        self.assertEqual(
+            self.platforms_for("platforms/ios/App/Sources/App.swift", "platforms/macos/src/Controller.mm"),
+            ("true", "true"))
+
+    def test_shared_and_unrecognised_paths_reach_both_platforms(self):
+        # Anything both platforms compile, and anything this list does not name, must not be
+        # narrowed to one platform: a missed platform ships a fix that never reaches its users.
+        for path in ("shared/apple-bridge/InputSessionAdapter.cpp", "vendor/MetasequoiaImeEngine",
+                     "CMakeLists.txt", "cmake/Toolchain.cmake", "product-lock.json",
+                     ".github/workflows/release.yml", "some/new/directory/file.txt"):
+            self.assertEqual(self.platforms_for(path), ("true", "true"), path)
+
+    def test_documentation_alone_still_publishes_both(self):
+        # A push to main is a deliberate promotion, so a docs-only range publishes rather than
+        # leaving the draft this run already created with nothing attached to it.
+        self.assertEqual(self.platforms_for("README.md", "docs/guide.md", "LICENSE"), ("true", "true"))
+
+    def test_unclassifiable_ranges_publish_both(self):
+        self.assertEqual(self.platforms_for(event="workflow_dispatch"), ("true", "true"))
+        self.assertEqual(self.platforms_for("platforms/ios/a.swift", event="workflow_dispatch"), ("true", "true"))
+        self.assertEqual(self.platforms_for("platforms/ios/a.swift", before="0" * 40), ("true", "true"))
+        self.assertEqual(self.platforms_for(), ("true", "true"))
+
     def test_invalid_build_is_rejected(self):
         for tag in ["v0.48.6-build.1.100.1", "v0.48.6-build.x", "v0.48.6-build.0.1.1"]:
             result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)
@@ -505,6 +541,8 @@ class ReleasePublicationTests(unittest.TestCase):
         release_trigger="workflow_dispatch",
         ios_testflight=False,
         existing_assets="",
+        release_macos=True,
+        release_ios=True,
     ):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
@@ -583,6 +621,8 @@ fi
                     "FAKE_EXISTING_ASSETS": existing_assets,
                     "FAKE_CAPTURED_NOTES": str(captured_notes),
                     "IOS_TESTFLIGHT_ENABLED": "true" if ios_testflight else "false",
+                    "RELEASE_MACOS": "true" if release_macos else "false",
+                    "RELEASE_IOS": "true" if release_ios else "false",
                 }
             )
             result = subprocess.run(
@@ -596,6 +636,55 @@ fi
                 log.read_text() if log.exists() else "",
                 captured_notes.read_text() if captured_notes.exists() else "",
             )
+
+    def test_macos_only_release_ships_no_ios_assets_or_guidance(self):
+        result, calls, notes = self.run_publication("false", "-unsigned", release_ios=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("macos-universal-unsigned.pkg", calls)
+        self.assertIn("appcast.xml", calls)
+        # A platform this release does not cover contributes nothing: no asset, and no section
+        # telling a reader to install something that was never built.
+        self.assertNotIn("ios-unsigned.ipa", calls)
+        self.assertNotIn("ios-unsigned.xcarchive.zip", calls)
+        self.assertNotIn("### iOS", notes)
+        self.assertIn("Install on macOS", notes)
+
+    def test_ios_only_release_ships_no_macos_assets_or_guidance(self):
+        result, calls, notes = self.run_publication("false", "-unsigned", release_macos=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ios-unsigned.ipa", calls)
+        self.assertNotIn("macos-universal-unsigned.pkg", calls)
+        self.assertNotIn("macos-universal-unsigned-update.zip", calls)
+        # The appcast drives macOS automatic updates, so it must not accompany an iOS-only release.
+        self.assertNotIn("appcast.xml", calls)
+        self.assertNotIn("Install on macOS", notes)
+        self.assertIn("### iOS", notes)
+
+    def test_a_covered_platform_still_requires_all_of_its_artifacts(self):
+        # Narrowing the platforms must not weaken the check that catches a packaging step which
+        # failed without failing the job.
+        with tempfile.TemporaryDirectory() as directory:
+            environment = dict(os.environ, GH_REPO="metasequoiaime/MSIME-Apple", TAG_NAME="v1.2.3",
+                               ASSET_SUFFIX="-unsigned", SIGNING_ENABLED="false",
+                               RELEASE_TRIGGER="workflow_dispatch", DIST_DIR=directory,
+                               IOS_TESTFLIGHT_ENABLED="false", RELEASE_MACOS="false", RELEASE_IOS="true")
+            result = subprocess.run([MACOS_ROOT / "scripts/publish-release.sh"],
+                                    capture_output=True, text=True, env=environment)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Release artifact is missing", result.stderr)
+
+    def test_a_release_must_cover_at_least_one_platform(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = dict(os.environ, GH_REPO="metasequoiaime/MSIME-Apple", TAG_NAME="v1.2.3",
+                               ASSET_SUFFIX="-unsigned", SIGNING_ENABLED="false",
+                               RELEASE_TRIGGER="workflow_dispatch", DIST_DIR=directory,
+                               IOS_TESTFLIGHT_ENABLED="false", RELEASE_MACOS="false", RELEASE_IOS="false")
+            result = subprocess.run([MACOS_ROOT / "scripts/publish-release.sh"],
+                                    capture_output=True, text=True, env=environment)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("at least one platform", result.stderr)
 
     def test_unsigned_publication_records_mode_before_uploading_labeled_assets(self):
         result, calls, notes = self.run_publication("false", "-unsigned", "Existing notes")

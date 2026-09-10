@@ -1143,7 +1143,11 @@ final class OnboardingUITests: XCTestCase {
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     nine.tap()
-    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == true"))
+    // Same two steps as the hide above: the switch commits first and the scheme list is rebuilt
+    // from it, so waiting on the button alone races a rebuild that has not been asked for yet.
+    // Toggling back also follows a screenshot, which leaves the app busy for a moment longer.
+    XCTAssertTrue(wait(nine, until: "value == '1'"))
+    XCTAssertTrue(wait(app.buttons["inputScheme_nineKey"], until: "isEnabled == true", timeout: 15))
   }
 
   @MainActor

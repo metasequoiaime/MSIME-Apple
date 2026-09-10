@@ -141,6 +141,24 @@ struct TypingStatisticsStore {
     try transaction(write: false) { $0 }
   }
 
+  // Why the numbers are empty, answered without going through the write path that may be the thing
+  // at fault. The app can always reach the group container; the keyboard extension is the side that
+  // can be denied, so an unreachable directory or an absent file each mean something different.
+  enum Availability: Equatable {
+    case ready(lastWritten: Date?)
+    case containerUnavailable
+    case neverWritten
+  }
+
+  func availability() -> Availability {
+    guard let directory else { return .containerUnavailable }
+    let url = directory.appendingPathComponent("typing-statistics.json")
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+      return .neverWritten
+    }
+    return .ready(lastWritten: attributes[.modificationDate] as? Date)
+  }
+
   func record(_ text: String, source: TypingSource = .unknown, at date: Date = Date(), calendar: Calendar = .current) throws {
     var addition = TypingBreakdown()
     for character in text where !character.isWhitespace {
