@@ -5,20 +5,18 @@
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "AppearancePreferences.h"
+#import "CandidateChrome.h"
+#include "CandidateSkin.h"
+
+static NSColor *SkinColor(msime::mac::Rgba color) {
+    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
+}
 
 @interface MSIMECandidatePanel : NSPanel
 @end
 @implementation MSIMECandidatePanel
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
-@end
-
-@interface MSIMECandidateButton : NSButton
-@property(nonatomic, copy) NSDictionary *candidateID;
-@end
-@implementation MSIMECandidateButton
-- (BOOL)acceptsFirstResponder { return NO; }
-- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
 @end
 
 @interface MSIMEInputController : IMKInputController
@@ -223,6 +221,8 @@
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     const BOOL vertical = _appearance.vertical;
+    const auto geometry = msime::mac::BuiltInSkinTokens(_appearance.skinID.UTF8String, false);
+    const CGFloat inset = MAX(2.0, geometry.pad);
     NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
@@ -234,10 +234,10 @@
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
-        const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16;
+        const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
-        width = MAX(width, itemWidth + 12);
+        width = MAX(width, itemWidth + 2 * inset);
     }
     width = MIN(width, MAX(80, visible.size.width - 20));
     if (paging) width = MAX(width, 76);
@@ -251,7 +251,7 @@
                 totalWidth += widths[i].doubleValue;
             }
         }
-        width = totalWidth + 12 + (paging ? 56 : 0);
+        width = totalWidth + 2 * inset + (paging ? 56 : 0);
     }
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
@@ -261,31 +261,34 @@
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     }
-    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 12 + (paging && vertical ? 26 : 0);
+    _panel.opaque = NO;
+    _panel.backgroundColor = NSColor.clearColor;
+    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0);
     [_panel setContentSize:NSMakeSize(width, height)];
-    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
-    CGFloat x = 6;
+    CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         button.tag = (NSInteger)slot;
-        CGFloat itemWidth = vertical ? width - 12 : widths[slot].doubleValue;
-        button.frame = NSMakeRect(x, vertical ? height - 6 - ((slot + 1) * rowHeight) : 6, itemWidth, rowHeight);
+        CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
+        button.frame = NSMakeRect(x, vertical ? height - inset - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
         ++slot;
         if (!vertical) x += itemWidth;
         button.font = font;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = candidate[@"text"];
-        button.bordered = [candidate[@"highlighted"] boolValue];
+        button.bordered = NO;
+        button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
     if (paging) {
         for (NSUInteger direction = 0; direction < 2; ++direction) {
             MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
-            button.frame = NSMakeRect((vertical ? 6 : x) + direction * 28, 6, 28, vertical ? 26 : rowHeight);
+            button.frame = NSMakeRect((vertical ? inset : x) + direction * 28, inset, 28, vertical ? 26 : rowHeight);
             button.bordered = NO;
             button.tag = direction == 0 ? -1 : -2;
             button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;
@@ -296,8 +299,33 @@
         }
     }
     _panel.contentView = content;
+    content.appearanceTarget = self;
+    content.appearanceAction = @selector(refreshCandidateSkin);
+    [self refreshCandidateSkin];
     [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
     [_panel orderFrontRegardless];
+}
+
+- (void)refreshCandidateSkin {
+    if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
+    MSIMECandidateChromeView *content = (id)_panel.contentView;
+    NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    const auto tokens = msime::mac::BuiltInSkinTokens(_appearance.skinID.UTF8String, [match isEqual:NSAppearanceNameDarkAqua]);
+    content.fillColor = SkinColor(tokens.surface);
+    content.strokeColor = SkinColor(tokens.border);
+    content.cornerRadius = tokens.radius;
+    content.lineWidth = tokens.borderWidth;
+    for (MSIMECandidateButton *button in content.subviews) {
+        if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
+        button.fillColor = SkinColor(tokens.selected);
+        button.titleColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);
+        button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
+        button.barColor = SkinColor(tokens.accent);
+        button.showSelectedBar = tokens.showSelectedBar;
+        button.contentTintColor = SkinColor(tokens.text);
+        button.needsDisplay = YES;
+    }
+    content.needsDisplay = YES;
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
