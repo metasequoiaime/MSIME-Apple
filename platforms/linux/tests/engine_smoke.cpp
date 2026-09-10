@@ -276,6 +276,16 @@ int main(int argc, char **argv) {
     require(key(','), "Punctuation not consumed");
     require(seen.committed == "你好" + selected + "，",
             "Chinese punctuation not applied");
+    invoke("Reset");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
+    require(key('a'), "Japanese scheme did not consume Romaji input");
+    require(seen.lookup_visible && !seen.candidates.empty() &&
+                seen.candidates.front().find("あ") != std::string::npos,
+            "Japanese scheme menu did not switch the Engine");
+    invoke("Reset");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "Scheme/Chinese", PROP_STATE_CHECKED));
     auto committed = seen.committed;
     phrase();
     require(key(IBUS_KP_Page_Down), "Keypad paging not consumed");
