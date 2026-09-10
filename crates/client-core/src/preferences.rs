@@ -503,6 +503,27 @@ mod tests {
     }
 
     #[test]
+    fn appearance_preferences_legacy_defaults_and_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        for key in ["theme", "settings_theme", "ui_backend", "candidate_follow_cursor"] {
+            legacy["preferences"].as_object_mut().unwrap().remove(key);
+        }
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let mut preferences = Preferences::default();
+        preferences.theme = ThemeMode::Light;
+        preferences.settings_theme = SettingsTheme::Dark;
+        preferences.ui_backend = UiBackend::Webview2;
+        preferences.candidate_follow_cursor = false;
+        let saved = store.save(0, preferences).unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+    }
+
+    #[test]
     fn mixed_input_legacy_roundtrip_and_bounds() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
