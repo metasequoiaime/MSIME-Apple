@@ -10,6 +10,13 @@
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
 
+static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+    NSString *annotation = candidate[@"annotation"];
+    NSString *text = candidate[@"text"];
+    if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
+    return MSIMEChineseOutputString(text, traditional);
+}
+
 static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
@@ -332,7 +339,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSUInteger index = 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, MSIMEChineseOutputString(candidate[@"text"], traditional)];
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, CandidateDisplay(candidate, traditional)];
         const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
@@ -370,7 +377,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSUInteger slot = 0;
     CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
-        NSString *display = MSIMEChineseOutputString(candidate[@"text"], traditional);
+        NSString *display = CandidateDisplay(candidate, traditional);
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];

@@ -92,7 +92,8 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
 }
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
-    microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3) {}
+    microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3),
+    helpcode_keymap_(options.helpcode ? HelpcodeUtils::load_helpcode_keymap(paths_for(options).resources, std::string(options.helpcode_schema)) : nullptr) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
@@ -134,7 +135,14 @@ EngineSnapshot EngineSession::snapshot() const {
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) output.candidates.push_back(rust::String(candidate.word));
+    // Apple CandidateDisplay.h at b637828: only ordinary pinyin and super jianpin words.
+    const bool annotate = helpcode_keymap_ &&
+        (value.scheme == SchemeType::Quanpin || value.scheme == SchemeType::Shuangpin) &&
+        (value.local_mode == metasequoia::LocalInputMode::None || value.local_mode == metasequoia::LocalInputMode::SuperJianpin);
+    for (const auto& candidate : value.candidates) {
+        output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_annotations.push_back(rust::String(annotate ? HelpcodeUtils::compute_helpcodes(candidate.word, false, helpcode_keymap_.get()) : ""));
+    }
     return output;
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {

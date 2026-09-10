@@ -653,6 +653,8 @@ int main() {
         assert(!appearance.traditionalOutput);
         assert([MSIMEChineseOutputString(@"汉语", YES) isEqual:@"漢語"]);
         assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
+        assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": @"(aB)"}, YES) isEqual:@"漢語(aB)"]);
+        assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": NSNull.null}, NO) isEqual:@"汉语"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
@@ -664,6 +666,17 @@ int main() {
         assert([scriptButton.toolTip isEqual:@"漢語"] && [scriptButton.title containsString:@"漢語"]);
         assert([scriptButton.candidateID isEqual:scriptView[@"candidates"][0][@"id"]]);
         assert([[controller valueForKey:@"view"] isEqual:preserved]);
+        NSMutableDictionary *annotated = [scriptView mutableCopy];
+        NSMutableDictionary *word = [scriptView[@"candidates"][0] mutableCopy];
+        word[@"annotation"] = @"(aB)";
+        annotated[@"candidates"] = @[word];
+        [controller setValue:annotated forKey:@"view"];
+        [controller renderCandidates];
+        scriptButton = PageButton(layoutPanel.contentView, 0);
+        assert([scriptButton.title containsString:@"漢語(aB)"]);
+        assert([scriptButton.toolTip isEqual:@"漢語(aB)"]);
+        assert([scriptButton.candidateID isEqual:word[@"id"]]);
+        assert([word[@"text"] isEqual:@"汉语"]);
         NSUInteger contextIndex = 0;
         for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{}]) {
             BOOL convert = contextIndex++ < 2;
