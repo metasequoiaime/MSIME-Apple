@@ -33,6 +33,10 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        error = nil;
+        assert(![MSIMEClientSession prepareHostWithResourcesDirectory:@"relative/resources" stateRoot:root error:&error] && error);
+        error = nil;
+        assert(![MSIMEClientSession prepareHostWithResourcesDirectory:@"" stateRoot:root error:&error] && error);
         NSDictionary *invalidDictionary = [MSIMEClientSession dictionaryRequest:@{@"options": options, @"action": @{@"operation": @"unknown"}} error:&error];
         assert(!invalidDictionary && error);
         error = nil;
