@@ -4,6 +4,8 @@
 use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::thread::{self, JoinHandle};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
@@ -120,7 +122,7 @@ pub struct Transition {
     pub view: View,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
     pub scheme: u8,
     pub generation: u64,
@@ -131,6 +133,77 @@ pub struct OnlineQuery {
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
     pub session_id: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OnlineCandidate {
+    pub query: OnlineQuery,
+    pub text: String,
+    /// 0 = cloud suggestion, 1 = AI suggestion.
+    pub source: u8,
+}
+
+/// Bounded provider worker. Provider code runs off the host/IBus thread and
+/// receives only copied query data. Results remain inert until the owner
+/// applies them through Runtime::apply_online_candidate, which revalidates
+/// session identity and Engine generation.
+pub struct OnlineProviderWorker {
+    requests: Option<mpsc::SyncSender<OnlineQuery>>,
+    results: mpsc::Receiver<OnlineCandidate>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl OnlineProviderWorker {
+    pub fn spawn<F>(capacity: usize, provider: F) -> Result<Self, &'static str>
+    where
+        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+    {
+        if capacity == 0 {
+            return Err("provider queue capacity must be positive");
+        }
+        let (requests, incoming) = mpsc::sync_channel::<OnlineQuery>(capacity);
+        let (outgoing, results) = mpsc::channel();
+        let join = thread::Builder::new()
+            .name("msime-online-provider".into())
+            .spawn(move || {
+                while let Ok(query) = incoming.recv() {
+                    if let Some((text, source)) = provider(query.clone()) {
+                        if text.is_empty() || source > 1 {
+                            continue;
+                        }
+                        if outgoing
+                            .send(OnlineCandidate { query, text, source })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            })
+            .map_err(|_| "could not spawn provider worker")?;
+        Ok(Self {
+            requests: Some(requests),
+            results,
+            join: Some(join),
+        })
+    }
+
+    pub fn submit(&self, query: OnlineQuery) -> bool {
+        self.requests
+            .as_ref()
+            .is_some_and(|requests| requests.try_send(query).is_ok())
+    }
+
+    pub fn try_recv(&self) -> Option<OnlineCandidate> {
+        self.results.try_recv().ok()
+    }
+
+    pub fn shutdown(mut self) {
+        self.requests.take();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
 }
 
 pub enum Action {
@@ -526,6 +599,7 @@ fn empty_result(handled: bool) -> EngineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     struct Fixture {
         local_mode: String,
         words: Vec<String>,
@@ -633,6 +707,44 @@ mod tests {
                 shift: false,
             })
             .unwrap()
+    }
+
+    #[test]
+    fn online_provider_worker_is_bounded_and_filters_invalid_results() {
+        let query = OnlineQuery {
+            scheme: 0,
+            generation: 4,
+            identity: "identity".into(),
+            query_text: "nihao".into(),
+            cache_key: "cache".into(),
+            pinyin_segments: vec!["ni".into(), "hao".into()],
+            cloud_eligible: true,
+            ai_eligible: true,
+            session_id: 9,
+        };
+        let worker = OnlineProviderWorker::spawn(1, |query| {
+            if query.query_text == "nihao" { Some(("你好".into(), 0)) }
+            else { Some((String::new(), 7)) }
+        }).unwrap();
+        assert!(worker.submit(query.clone()));
+        let mut result = None;
+        for _ in 0..100 {
+            result = worker.try_recv();
+            if result.is_some() { break; }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let result = result.expect("provider result");
+        assert_eq!(result.query, query);
+        assert_eq!(result.text, "你好");
+        assert_eq!(result.source, 0);
+        worker.shutdown();
+    }
+
+    #[test]
+    fn online_provider_worker_rejects_zero_capacity_and_shutdowns_idle() {
+        assert!(OnlineProviderWorker::spawn(0, |_| None).is_err());
+        let worker = OnlineProviderWorker::spawn(1, |_| None).unwrap();
+        worker.shutdown();
     }
     #[test]
     fn replacement_requires_verified_idle_and_preserves_session_focus() {
