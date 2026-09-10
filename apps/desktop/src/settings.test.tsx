@@ -5,6 +5,27 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test.each(["enabled", "scale", "font"])("toolbar %s edits preserve loaded and newly edited component choices", async control => {
+  const toolbar = { enabled: true, scale_percent: 100, font_size: 24, fullwidth: false, punctuation: false, character_set: false, emoji: false, screen_keyboard: true, settings: false };
+  const snapshot = { ...initial, preferences: { ...initial.preferences, floating_toolbar: toolbar } };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" });
+  fireEvent.click(screen.getByRole("checkbox", { name: "表情与符号" }));
+  if (control === "enabled") {
+    fireEvent.click(screen.getByRole("checkbox", { name: "在桌面显示悬浮工具栏" }));
+  } else {
+    fireEvent.click(screen.getByRole("button", { name: control === "scale" ? "工具栏缩放" : "图标字号" }));
+    fireEvent.click(screen.getByRole("option", { name: control === "scale" ? "150%" : "32px" }));
+  }
+  expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "简繁切换" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...snapshot.preferences, floating_toolbar: { ...toolbar, emoji: true, ...(control === "enabled" ? { enabled: false } : control === "scale" ? { scale_percent: 150 } : { font_size: 32 }) } });
+});
+
 test("floating toolbar preferences save through the settings client", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
