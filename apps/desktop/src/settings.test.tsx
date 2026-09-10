@@ -5,6 +5,22 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
+test("floating toolbar preferences save through the settings client", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const enabled = await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(true);
+  fireEvent.click(enabled);
+  fireEvent.click(screen.getByRole("button", { name: "工具栏缩放" }));
+  fireEvent.click(screen.getByRole("option", { name: "150%" }));
+  fireEvent.click(screen.getByRole("button", { name: "图标字号" }));
+  fireEvent.click(screen.getByRole("option", { name: "32px" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({ floating_toolbar: { enabled: false, scale_percent: 150, font_size: 32 } }));
+});
+
 test("custom dropdown supports keyboard navigation and selection", async () => {
   Object.defineProperty(window, "matchMedia", { value: () => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }), configurable: true });
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
