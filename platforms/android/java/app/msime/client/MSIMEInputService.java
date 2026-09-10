@@ -3,6 +3,7 @@ package app.msime.client;
 import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
 import android.view.View;
 import android.view.KeyEvent;
 import android.view.inputmethod.EditorInfo;
@@ -241,8 +242,13 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject id = candidate.optJSONObject("id");
             if (id == null) continue;
             Button button = new Button(this);
-            button.setText((slot + 1) + ". " + candidate.optString("text"));
-            button.setSelected(candidate.optBoolean("highlighted"));
+            String text = candidate.optString("text");
+            boolean highlighted = candidate.optBoolean("highlighted");
+            button.setText((slot + 1) + ". " + text);
+            button.setContentDescription("候选 " + (slot + 1) + "：" + text);
+            button.setSelected(highlighted);
+            if (Build.VERSION.SDK_INT >= 30)
+                button.setStateDescription(highlighted ? "已选中" : "未选中");
             button.setOnClickListener(ignored -> {
                 if (session == 0 || id.optLong("session") != session) return;
                 try { apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index"))); }
