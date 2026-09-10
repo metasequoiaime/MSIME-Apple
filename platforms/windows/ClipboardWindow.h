@@ -21,7 +21,7 @@ private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
   Reader reader_; Click click_; Remove remove_; Clear clear_; HWND window_ = nullptr;
-  std::optional<ClipboardPresentation> shown_; bool failed_ = false;
+  std::optional<ClipboardPresentation> shown_; unsigned dpi_ = 96; bool failed_ = false;
 };
 } // namespace msime::windows
 #endif
