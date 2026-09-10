@@ -45,8 +45,10 @@ fi
 # A stale booted runner can accept status requests while its app installation service is wedged.
 # Restarting the selected device is bounded by bootstatus and preserves its installed data.
 xcrun simctl shutdown "${test_device_id}" >/dev/null 2>&1 || true
+# `boot` starts the simulator and returns; the wait is in `bootstatus`, which runs after the build
+# below. The build needs no simulator, so booting first lets the two spend the same minutes rather
+# than consecutive ones -- coming up takes about four of them on a hosted runner.
 xcrun simctl boot "${test_device_id}"
-xcrun simctl bootstatus "${test_device_id}" -b
 
 scope_arguments=()
 if [[ "${MSIME_TEST_SCOPE:-all}" == "pr" ]]; then
@@ -68,6 +70,23 @@ elif [[ "${MSIME_TEST_SCOPE:-all}" != "all" ]]; then
   exit 1
 fi
 
+# Build and run as two actions against one destination. A single `test` rebuilt everything the
+# workflow had just built, because that build targeted `generic/platform=iOS Simulator` and this
+# one targets a specific x86_64 device: different products, so nothing was reused.
+#
+# The scope belongs to the run rather than the build. Building every test target costs the same as
+# before and keeps `test-without-building` from failing on a target the narrower build skipped.
+xcodebuild \
+  -workspace "${project_path}" \
+  -scheme MetasequoiaImeIOS \
+  -configuration Debug \
+  -destination "platform=iOS Simulator,id=${test_device_id},arch=x86_64" \
+  -derivedDataPath "${derived_data_path}" \
+  BREW_PREFIX="$(brew --prefix)" \
+  build-for-testing
+
+xcrun simctl bootstatus "${test_device_id}" -b
+
 xcodebuild \
   -workspace "${project_path}" \
   -scheme MetasequoiaImeIOS \
@@ -76,4 +95,4 @@ xcodebuild \
   -derivedDataPath "${derived_data_path}" \
   BREW_PREFIX="$(brew --prefix)" \
   ${scope_arguments[@]+"${scope_arguments[@]}"} \
-  test
+  test-without-building
