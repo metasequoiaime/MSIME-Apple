@@ -415,6 +415,8 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,
         103 => Action::PreviousCandidate,
+        104 => Action::FirstCandidateOnPage,
+        105 => Action::LastCandidateOnPage,
         _ => return response(|| Err("unknown input command".into())),
     };
     dispatch(handle, action)

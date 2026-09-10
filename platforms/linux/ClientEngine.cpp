@@ -208,6 +208,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
+    if (!s.view.at("candidates").empty() &&
+        (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
+         key == IBUS_KP_End)) {
+      const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
+                               ? MSIME_FIRST_CANDIDATE_ON_PAGE
+                               : MSIME_LAST_CANDIDATE_ON_PAGE;
+      handled = apply(engine, msime_client_command(s.session, command));
+      return;
+    }
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:

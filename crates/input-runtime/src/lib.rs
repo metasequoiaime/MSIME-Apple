@@ -119,6 +119,8 @@ pub enum Action {
     PreviousPage,
     NextCandidate,
     PreviousCandidate,
+    FirstCandidateOnPage,
+    LastCandidateOnPage,
 }
 
 pub struct Runtime<E: InputEngine = Session> {
@@ -343,6 +345,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
             Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
+            Action::FirstCandidateOnPage if len > 0 => {
+                Some((self.highlighted / self.page_size) * self.page_size)
+            }
+            Action::LastCandidateOnPage if len > 0 => Some(
+                ((self.highlighted / self.page_size) * self.page_size + self.page_size)
+                    .min(len)
+                    .saturating_sub(1),
+            ),
             _ => None,
         };
         if let Some(index) = next_highlight {

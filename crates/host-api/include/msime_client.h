@@ -65,7 +65,8 @@ enum MsimeCommand {
     MSIME_MOVE_HOME = 6, MSIME_MOVE_END = 7, MSIME_DELETE_FORWARD = 8,
     MSIME_FINISH_COMPOSITION = 9,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
-    MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103
+    MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
+    MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
 };
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Pass the generation and global index from the displayed candidate's id. */
