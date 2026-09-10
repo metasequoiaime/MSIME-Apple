@@ -2,6 +2,7 @@
 #include "UiSelectionDelivery.h"
 #include "CandidatePresentation.h"
 #include "PreviewDispatcher.h"
+#include <fstream>
 #include <atomic>
 #include <exception>
 
@@ -378,74 +379,101 @@ void session_pump_tests(const std::string &options) {
   for (bool brackets : {false, true}) {
     for (bool paging : {false, true}) {
       for (bool uiless : {false, true}) {
-        FocusGate gate;
-        InputQueue queue(gate, 2, 8, options);
-        FixtureTransport transport;
-        auto &last = transport.packets.back();
-        last.keycode = brackets ? 0xDD : 0xBC;
-        last.wch = brackets ? ']' : ',';
-        if (uiless)
-          for (size_t i = 1; i < transport.packets.size(); ++i)
-            transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
-        const auto host = nlohmann::json::parse(options);
-        const nlohmann::json launch{{"format_version", 1},
-                                    {"resources", host.at("resources")},
-                                    {"state_root", host.at("user_data")},
-                                    {"pipe_namespace", "paging-fixture"},
-                                    {"preedit_style", "pinyin"},
-                                    {"key_bindings",
-                                     {{"minus_equal", false},
-                                      {"brackets", brackets && paging},
-                                      {"comma_period", !brackets && paging},
-                                      {"tab", false},
-                                      {"page_up_down", false},
-                                      {"arrows", false},
-                                      {"word_character", "disabled"}}}};
-        const auto handler =
-            preview_key_handler(PreviewConfig::parse(launch.dump()));
-        size_t keys = 0;
-        std::exception_ptr failure;
-        SessionPump pump(
-            transport, queue, gate,
-            [&](InputState &state, const FocusLease &lease,
-                const FanyImeNamedpipeData &packet) {
-              try {
-                auto result = handler(state, lease, packet);
-                require(result && result->encoded &&
-                        static_cast<bool>(*result->encoded));
-                if (++keys == 6) {
-                  const auto &transition = result->source.transition;
-                  if (paging) {
-                    require(transition.at("commit").is_null() &&
-                            transition.at("view").at("editing_text") ==
-                                "U4e2d");
-                    require(result->encoded->packet.msg_type ==
-                            (uiless     ? FanyImeReplyType::UiLessComposition
-                             : brackets ? FanyImeReplyType::MovePageNext
-                                        : FanyImeReplyType::MovePagePrevious));
-                  } else {
-                    require(transition.at("commit") ==
-                                (brackets ? "中】" : "中，") &&
-                            transition.at("view").at("editing_text") == "");
-                    require(result->encoded->packet.msg_type ==
-                            FanyImeReplyType::CommitExactText);
+        for (bool shared : {false, true}) {
+          FocusGate gate;
+          auto host = nlohmann::json::parse(options);
+          host["preferences"]["navigation"] = {
+              {"minus_equal", false},
+              {"brackets", brackets && !paging},
+              {"comma_period", !brackets && !paging},
+              {"tab", false},
+              {"page_up_down", false},
+              {"arrows", false}};
+          InputQueue queue(gate, 2, 8, host.dump());
+          FixtureTransport transport;
+          auto &last = transport.packets.back();
+          last.keycode = brackets ? 0xDD : 0xBC;
+          last.wch = brackets ? ']' : ',';
+          if (uiless)
+            for (size_t i = 1; i < transport.packets.size(); ++i)
+              transport.packets[i].modifiers_down |= FanyImePipeFlags::UiLess;
+          nlohmann::json launch{{"format_version", 1},
+                                {"resources", host.at("resources")},
+                                {"state_root", host.at("user_data")},
+                                {"pipe_namespace", "paging-fixture"},
+                                {"preedit_style", "pinyin"},
+                                {"key_bindings",
+                                 {{"minus_equal", false},
+                                  {"brackets", brackets && paging},
+                                  {"comma_period", !brackets && paging},
+                                  {"tab", false},
+                                  {"page_up_down", false},
+                                  {"arrows", false},
+                                  {"word_character", "disabled"}}}};
+          if (shared)
+            launch.erase("key_bindings");
+          std::optional<PreferenceSnapshot> publication;
+          if (shared) {
+            auto preferences = host.at("preferences");
+            preferences["navigation"]["brackets"] = brackets && paging;
+            preferences["navigation"]["comma_period"] = !brackets && paging;
+            const auto directory = std::filesystem::u8path(host.at("user_data").get<std::string>()) / "paging-publication";
+            std::filesystem::create_directories(directory);
+            std::ofstream file(directory / "preferences.json");
+            file << nlohmann::json{{"format_version", 1}, {"revision", 1}, {"preferences", preferences}}.dump();
+            file.close();
+            require(static_cast<bool>(file));
+            publication = PreferenceSnapshot::load(directory.u8string());
+          }
+          const auto handler =
+              preview_key_handler(PreviewConfig::parse(launch.dump()));
+          size_t keys = 0;
+          std::exception_ptr failure;
+          SessionPump pump(
+              transport, queue, gate,
+              [&](InputState &state, const FocusLease &lease,
+                  const FanyImeNamedpipeData &packet) {
+                try {
+                  if (keys == 5 && publication)
+                    state.publish_preferences(*publication);
+                  auto result = handler(state, lease, packet);
+                  require(result && result->encoded &&
+                          static_cast<bool>(*result->encoded));
+                  if (++keys == 6) {
+                    const auto &transition = result->source.transition;
+                    if (paging) {
+                      require(transition.at("commit").is_null() &&
+                              transition.at("view").at("editing_text") ==
+                                  "U4e2d");
+                      require(result->encoded->packet.msg_type ==
+                              (uiless ? FanyImeReplyType::UiLessComposition
+                               : brackets
+                                   ? FanyImeReplyType::MovePageNext
+                                   : FanyImeReplyType::MovePagePrevious));
+                    } else {
+                      require(transition.at("commit") ==
+                                  (brackets ? "中】" : "中，") &&
+                              transition.at("view").at("editing_text") == "");
+                      require(result->encoded->packet.msg_type ==
+                              FanyImeReplyType::CommitExactText);
+                    }
                   }
+                  return result;
+                } catch (...) {
+                  failure = std::current_exception();
+                  throw;
                 }
-                return result;
-              } catch (...) {
-                failure = std::current_exception();
-                throw;
-              }
-            },
-            [](const FocusRoute &, const FanyImeNamedpipeData &) {
-              return true;
-            });
-        const auto completed = pump.run(transport.ticket);
-        if (failure)
-          std::rethrow_exception(failure);
-        require(completed == PumpResult::Disconnected && keys == 6);
-        require(transport.writes.size() == 13);
-        queue.stop();
+              },
+              [](const FocusRoute &, const FanyImeNamedpipeData &) {
+                return true;
+              });
+          const auto completed = pump.run(transport.ticket);
+          if (failure)
+            std::rethrow_exception(failure);
+          require(completed == PumpResult::Disconnected && keys == 6);
+          require(transport.writes.size() == 13);
+          queue.stop();
+        }
       }
     }
   }

@@ -3,15 +3,17 @@
 #include "SessionPump.h"
 
 namespace msime::windows {
-// Capture a startup snapshot, not the configuration file or mutable UI state.
-// Native key bindings are independent of deferred Engine preference changes.
+// Explicit launch bindings override the latest shared input-thread publication.
 inline SessionPump::KeyHandler
 preview_key_handler(const PreviewConfig &config) {
   return
       [style = config.style, navigation = config.navigation,
+       explicit_keys = config.explicit_key_bindings,
        word = config.word_character](InputState &state, const FocusLease &focus,
                                      const FanyImeNamedpipeData &packet) {
-        return state.configured_key(focus, packet, style, navigation,
+        return state.configured_key(focus, packet, style,
+                                    explicit_keys ? navigation
+                                                  : state.navigation_bindings(),
                                     std::nullopt, word);
       };
 }

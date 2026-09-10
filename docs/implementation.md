@@ -591,3 +591,11 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 共享 Preferences 新增可缺省的 last_chinese_scheme，仅允许全拼、双拼、五笔。旧文件读取不重写；进入日文记住当前中文方案，保存及重新打开后切回中文恢复，双拼细分方案不丢失。活动 scheme 继续通过既有宿主接口在组合结束后切换，算法仍在 Engine。
 
 验证：27 项 client-core/host-api 测试、fmt/clippy、10 项前端测试及 TypeScript/Vite 构建、10 项本机 Windows 边界 CTest、Windows x64 交叉链接和导入检查通过。真实 Engine 回归覆盖微软双拼组合完成后切日文生成平假名/片假名候选，再恢复微软双拼；Chromium 四种宽度验证方向键切模式、保存/重新读取后的恢复及布局，并查看截图。没有 Windows 原生或逐像素验收，整体迁移仍未完成，CI 保持禁用。
+
+### Windows 翻页设置与实时按键绑定
+
+依据 Windows develop 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 config.toml 和 input.html，输入页新增六项翻页/候选移动复选框：减号等号、逗号句号、方括号、Tab、PageUp/Down、上下候选。共享 navigation 配置默认除方括号外均开启；旧文件缺省读取且不重写，非法布尔值不能覆盖原文件。
+
+预览启动未提供 key_bindings 时改用共享配置；InputState 在启动及已验证的设置发布时解析一次，按键路径只取值快照。绑定更新独立于 Engine 组合结束后的方案重建。显式 key_bindings 仍为启动覆盖项，保留旧配置优先级；默认路径的以词定字仍关闭，其共享设置及互斥交互待下一增量。
+
+28 项 Rust 测试、fmt/clippy、11 项前端测试与 TypeScript/Vite 构建、10 项本机 Windows 边界 CTest、x64 交叉构建和导入检查通过。会话泵测试在有效组合中发布新设置，验证下一键翻页/标点分支、普通/UILess 回复及启动覆盖；监听器测试覆盖六项更新和旧版本拒绝。未执行 Windows 原生 TSF 吃键同步或逐像素验收，整体迁移继续进行，CI 保持禁用。

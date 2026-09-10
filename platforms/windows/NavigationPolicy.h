@@ -1,6 +1,7 @@
 #pragma once
 #include "ReplyCodec.h"
 #include "msime_client.h"
+#include <nlohmann/json.hpp>
 #include <optional>
 
 namespace msime::windows {
@@ -19,6 +20,19 @@ struct NavigationAction {
   std::optional<uint32_t> command;
   NavigationReply reply;
 };
+// Decode once per publication; no file reads or JSON parsing on the key path.
+inline NavigationBindings
+preference_navigation(const nlohmann::json &preferences) {
+  if (!preferences.contains("navigation"))
+    return {true, true, false, true, true, true};
+  const auto &value = preferences.at("navigation");
+  return {value.at("minus_equal").get<bool>(),
+          value.at("comma_period").get<bool>(),
+          value.at("brackets").get<bool>(),
+          value.at("tab").get<bool>(),
+          value.at("page_up_down").get<bool>(),
+          value.at("arrows").get<bool>()};
+}
 inline std::optional<NavigationAction>
 navigation_action(const FanyImeNamedpipeData &packet,
                   const NavigationBindings &bindings, bool unicode) {
