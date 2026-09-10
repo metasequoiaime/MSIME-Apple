@@ -329,6 +329,10 @@ int main(int argc, char **argv) {
             "Shortcut was intercepted or left stale composition");
     require(seen.committed == committed,
             "Shortcut unexpectedly committed input");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+Space fullwidth toggle was not consumed");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+Space fullwidth toggle could not restore mode");
     phrase();
     invoke("FocusOut");
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
