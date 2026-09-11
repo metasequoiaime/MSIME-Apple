@@ -23,9 +23,22 @@ use tauri::Manager;
 #[cfg(all(not(target_os = "windows"), not(mobile)))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+mod skin_directory;
+
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
 struct SkinDirectoryState(PathBuf);
+
+#[tauri::command]
+async fn open_skin_directory(
+    directory: tauri::State<'_, SkinDirectoryState>,
+) -> Result<(), CommandError> {
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
+}
 
 #[derive(serde::Serialize)]
 struct SkinCatalogResponse {
@@ -1888,6 +1901,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_preferences,
             scan_skin_catalog,
+            open_skin_directory,
             save_preferences,
             list_clipboard_history,
             clear_clipboard_history,

@@ -32,7 +32,8 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-intro { color: var(--text-muted); line-height: 1.6; margin: 0 0 14px; }
 .external-skin-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin: 28px 4px 12px; }
 .external-skin-heading > div { min-width: 0; }
-.external-skin-heading > button { flex: 0 0 auto; height: 30px; margin-top: 2px; }
+.external-skin-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.external-skin-actions > button { flex: 0 0 auto; height: 30px; margin-top: 2px; }
 .external-skin-directory { display: inline-block; max-width: 620px; margin-top: 8px; padding: 4px 7px; overflow-wrap: anywhere; color: var(--text-muted); background: var(--button-secondary-bg); border-radius: 5px; }
 .external-skin-meta { margin-top: 4px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .external-skin-diagnostics { margin: 10px 4px 0; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }

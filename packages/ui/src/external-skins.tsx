@@ -63,14 +63,35 @@ function ExternalSkinCard({ skin, selected, layout, onSelect }: {
   </article>;
 }
 
-export function ExternalSkins({ scan, selected, layout, onSelect }: {
-  scan?: () => Promise<SkinCatalog>; selected: string; layout: string; onSelect: (id: string) => void;
+export function ExternalSkins({ scan, openDirectory, selected, layout, onSelect }: {
+  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; selected: string; layout: string; onSelect: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const generation = useRef(0);
   const pending = useRef(false);
+  const [opening, setOpening] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
+  const openGeneration = useRef(0);
+  const openPending = useRef(false);
+  useEffect(() => {
+    openGeneration.current++;
+    openPending.current = false;
+    setOpening(false); setOpenFailed(false);
+    return () => { openGeneration.current++; openPending.current = false; };
+  }, [openDirectory]);
+  async function openFolder() {
+    if (!openDirectory || openPending.current) return;
+    openPending.current = true;
+    const current = ++openGeneration.current;
+    setOpening(true); setOpenFailed(false);
+    try { await openDirectory(); }
+    catch { if (current === openGeneration.current) setOpenFailed(true); }
+    finally {
+      if (current === openGeneration.current) { openPending.current = false; setOpening(false); }
+    }
+  }
   useEffect(() => {
     generation.current++;
     pending.current = false;
@@ -94,8 +115,12 @@ export function ExternalSkins({ scan, selected, layout, onSelect }: {
   return <section aria-label="外部皮肤" className="external-skins">
     <div className="external-skin-heading">
       <div><div className="section-title">外部皮肤</div><p className="skin-card-description">把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。</p><code className="external-skin-directory">{catalog?.directory || "扫描后显示客户端皮肤目录"}</code></div>
-      <button type="button" className="skin-preview-switch" disabled={!scan || busy} onClick={() => void refresh()}>{busy ? "正在扫描…" : "刷新皮肤"}</button>
+      <div className="external-skin-actions">
+        <button type="button" className="skin-preview-switch" disabled={!openDirectory || opening} onClick={() => void openFolder()}>{opening ? "正在打开…" : "打开目录"}</button>
+        <button type="button" className="skin-preview-switch" disabled={!scan || busy} onClick={() => void refresh()}>{busy ? "正在扫描…" : "刷新皮肤"}</button>
+      </div>
     </div>
+    {openFailed && <p role="alert">无法打开皮肤目录，请重试。</p>}
     {failed && <p role="alert">读取皮肤目录失败，请重试。{catalog && "仍显示上次扫描结果。"}</p>}
     <div role="status">{!scan ? "当前宿主不支持扫描外部皮肤。" : busy ? "正在读取皮肤目录。" : !catalog ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。" : !catalog.packages.length ? "没有发现外部皮肤。" : ""}</div>
     <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} />)}</div>
