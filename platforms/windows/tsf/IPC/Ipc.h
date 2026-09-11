@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "../../../vendor/MetasequoiaImeEngine/contracts/windows_ipc.h"
+#include "../../../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 
 int InitIpc();
 int InitNamedpipe();
