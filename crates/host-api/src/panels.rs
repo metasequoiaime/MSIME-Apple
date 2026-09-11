@@ -5,6 +5,13 @@ use msime_client_core::panels::{
     KeyboardInputRequest, KeyboardInputSink, PanelContractError,
 };
 
+pub fn remember_keyboard_input_target<S: KeyboardInputSink>(
+    sink: &mut S,
+) -> Result<(), PanelContractError> {
+    sink.remember_input_target()
+        .map_err(|_| PanelContractError::InvalidKeyboardInput)
+}
+
 pub fn send_keyboard_input<S: KeyboardInputSink>(
     sink: &mut S,
     request: &KeyboardInputRequest,
@@ -91,8 +98,9 @@ mod tests {
             modifiers: KeyboardModifiers::default(),
             include_sticky_modifiers: true,
         };
+        assert!(remember_keyboard_input_target(&mut stub).is_ok());
+        assert!(stub.remembered);
         assert!(send_keyboard_input(&mut stub, &request).is_ok());
-        assert!(!stub.remembered);
         assert_eq!(stub.sent, vec![request]);
     }
 

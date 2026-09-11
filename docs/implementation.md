@@ -683,3 +683,11 @@ CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 
 桌面 Tauri 宿主加载同一状态目录的历史，提供读取、清空、从系统剪贴板同步和重新复制命令；macOS 使用 `pbpaste`/`pbcopy`，Windows 使用 PowerShell，Linux 使用 `xclip`。设置页在“实用功能”中展示开关和历史列表，关闭开关立即清空，系统同步按钮仅在已启用时可用。20 项 client-core、20 项 host-api、desktop Rust 测试、fmt/clippy、20 项前端测试、TypeScript/Vite 构建通过。
 
 本增量尚未实现 Windows Server 的持续剪贴板监听、表情面板分页及跨进程事件同步，也没有把快捷短语 CRUD/导入/导出伪装成已完成；Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
+
+### Windows 屏幕键盘与手写板平台契约
+
+依据 Windows 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 `KeyboardPanel` 与 `HandwritingPanel`，共享层新增可注入的平台能力边界：屏幕键盘在面板抢焦点前捕获原前台目标，并传递虚拟键、Shift、Ctrl/Alt/Win 修饰键及提交键是否继承粘滞修饰键；手写板传递有界笔迹坐标，由宿主调用原生识别器并提交候选。核心不依赖 Tauri、React、Windows API 或 Engine。
+
+React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔迹坐标归一化、撤销/重写及候选提交调用。未提供平台注入能力时只显示明确的宿主能力提示，不伪造输入或识别结果。host-api 对请求、坐标、笔迹数量、候选数量和候选文本做边界校验，并暴露捕获目标、发送按键、识别和提交的注入 trait。
+
+本地验证：client-core 27 项、host-api 25 项测试通过，Rust fmt/clippy、桌面 UI 26 项测试、TypeScript 类型检查和 Vite production build 通过。尚未实现或验证 Windows 原生 `SendInput`、Windows Ink、TSF 候选提交、焦点不抢占、安装器及逐像素系统验收；不能据此声称 Windows 面板系统接入完成，CI 保持禁用。
