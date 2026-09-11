@@ -20,6 +20,7 @@ public:
   bool chinese_punctuation(bool, std::string *, std::string *);
   bool character_width(bool, std::string *, std::string *);
   bool english_mode(bool, std::string *, std::string *);
+  bool dedicated_english(bool, std::string *, std::string *);
   bool paired_punctuation(bool, std::string *, std::string *);
   bool punctuation_lock(uint8_t, std::string *, std::string *);
   bool update_preferences(const std::string &, std::string *, std::string *);
