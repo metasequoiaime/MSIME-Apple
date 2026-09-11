@@ -2091,6 +2091,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   guarded(engine, "process_key", [&] {
     s.open();
     if (mode_toggle) {
+      if (s.voice_active)
+        voice_cancel(engine);
       s.invalidate_providers();
       s.input_enabled = !s.input_enabled;
       s.open();
@@ -2109,6 +2111,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         voice_cancel(engine);
       else
         voice_start(engine);
+      handled = true;
+      return;
+    }
+    if (key == IBUS_Escape && s.voice_active) {
+      voice_cancel(engine);
       handled = true;
       return;
     }
