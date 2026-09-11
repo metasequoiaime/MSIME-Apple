@@ -14,9 +14,11 @@
 
 “更多”菜单的“本地输入”子菜单接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。
 
-键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔和日语 26 键。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme`、`shuangpin_profile` 和平台无关的 `touch_keyboard_layout`，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认 26 键，桌面宿主只往返该布局值而不消费触屏展示。
+键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 26 键和日语 9 键。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme`、`shuangpin_profile` 和平台无关的 `touch_keyboard_layout`，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认 26 键，桌面宿主只往返该布局值而不消费触屏展示；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
 
-全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点、删除、重输和数字 0 分区，并显示 Engine 返回的拼音消歧条。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；布局严格跟随 `View.nine_key`，外部设置在组词结束前延迟应用时不会提前改变数字含义。日语九键、手写和 AI 回复仍待后续切片。
+全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点、删除、重输和数字 0 分区，并显示 Engine 返回的拼音消歧条。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。
+
+日语 9 键复刻 Apple 的 10 组五向假名：轻点输入中间假名，向左、上、右、下滑动选择其余假名，长按显示该键全部选项；“小゛゜”菜单提供小假名、浊音和半浊音，括号、长音和波浪号作为文字直接提交。Android 只把对应罗马字逐字符发送给日语 Engine，不在宿主实现假名组合或转换。手写和 AI 回复仍待后续切片。
 
 中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
 

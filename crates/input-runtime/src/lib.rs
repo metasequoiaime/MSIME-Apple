@@ -34,6 +34,7 @@ pub mod character_width {
     }
 }
 
+use msime_client_core::preferences::TouchKeyboardLayout;
 use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
 };
@@ -207,6 +208,8 @@ pub struct View {
     /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
     pub nine_key: bool,
     pub nine_key_spellings: Vec<String>,
+    /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
+    pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
@@ -729,6 +732,7 @@ pub struct Runtime<E: InputEngine = Session> {
     cached: EngineSnapshot,
     snapshot_valid: bool,
     character_width: CharacterWidth,
+    touch_keyboard_layout: TouchKeyboardLayout,
 }
 
 impl Runtime<Session> {
@@ -815,6 +819,14 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
+        Self::new_with_touch_layout(engine, page_size, TouchKeyboardLayout::default())
+    }
+
+    pub fn new_with_touch_layout(
+        engine: E,
+        page_size: u8,
+        touch_keyboard_layout: TouchKeyboardLayout,
+    ) -> Result<Self, RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
@@ -833,6 +845,7 @@ impl<E: InputEngine> Runtime<E> {
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
+            touch_keyboard_layout,
         })
     }
 
@@ -863,6 +876,7 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             nine_key: self.cached.nine_key,
             nine_key_spellings: self.cached.nine_key_spellings.clone(),
+            touch_keyboard_layout: self.touch_keyboard_layout,
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
@@ -950,6 +964,15 @@ impl<E: InputEngine> Runtime<E> {
     /// Preserve the host handle/focus while invalidating every old candidate ID.
     /// Validate the replacement before changing any live state.
     pub fn replace_engine(&mut self, engine: E, page_size: u8) -> Result<(), RuntimeError> {
+        self.replace_engine_with_touch_layout(engine, page_size, self.touch_keyboard_layout)
+    }
+
+    pub fn replace_engine_with_touch_layout(
+        &mut self,
+        engine: E,
+        page_size: u8,
+        touch_keyboard_layout: TouchKeyboardLayout,
+    ) -> Result<(), RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
@@ -963,6 +986,7 @@ impl<E: InputEngine> Runtime<E> {
         self.snapshot_valid = true;
         self.page_size = page_size.into();
         self.highlighted = 0;
+        self.touch_keyboard_layout = touch_keyboard_layout;
         Ok(())
     }
 
@@ -1468,6 +1492,37 @@ mod tests {
             active.replace_engine(runtime().engine, 2),
             Err(RuntimeError::CompositionActive)
         ));
+    }
+
+    #[test]
+    fn touch_layout_changes_atomically_with_engine_replacement() {
+        let mut active = runtime();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        active.focus(true).unwrap();
+        type_key(&mut active);
+        assert!(matches!(
+            active.replace_engine_with_touch_layout(
+                runtime().engine,
+                2,
+                TouchKeyboardLayout::NineKey
+            ),
+            Err(RuntimeError::CompositionActive)
+        ));
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        active.dispatch(Action::Command(Command::Cancel)).unwrap();
+        active
+            .replace_engine_with_touch_layout(runtime().engine, 2, TouchKeyboardLayout::NineKey)
+            .unwrap();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::NineKey
+        );
     }
 
     #[test]

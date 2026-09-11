@@ -19,8 +19,10 @@ import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
+import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
@@ -41,6 +43,9 @@ import org.json.JSONObject;
 
 /** Preview system host. No algorithms, pagination state or persistent input logs live here. */
 public final class MSIMEInputService extends InputMethodService {
+    private static final int STANDARD_TOUCH_LAYOUT = 0;
+    private static final int QUANPIN_NINE_KEY_LAYOUT = 1;
+    private static final int JAPANESE_NINE_KEY_LAYOUT = 2;
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -259,7 +264,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePreeditFontSize = nextPreeditFontSize;
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
-        boolean rebuildLayout = nineKeyActive(view) != nineKeyActive(nextView);
+        boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
         selectedScheme = nextScheme;
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -267,7 +272,7 @@ public final class MSIMEInputService extends InputMethodService {
             closeClipboardHistory();
         }
         view = nextView;
-        if (nineKeyActive(view)) shift = false;
+        if (touchLayout(view) != STANDARD_TOUCH_LAYOUT) shift = false;
         if (rebuildLayout) rebuildKeyRows();
         preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
     }
@@ -275,13 +280,13 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean apply(String response) throws JSONException {
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
-        boolean rebuildLayout = nineKeyActive(view) != nineKeyActive(next);
+        boolean rebuildLayout = touchLayout(view) != touchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
         if (connection != null && !bridge.apply(sink(), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
-        if (nineKeyActive(view)) shift = false;
+        if (touchLayout(view) != STANDARD_TOUCH_LAYOUT) shift = false;
         if (rebuildLayout) rebuildKeyRows();
         render();
         return result.getBoolean("handled");
@@ -307,8 +312,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (!character(output)) connection.commitText(String.valueOf(output), 1);
     }
 
-    private static boolean nineKeyActive(JSONObject value) {
-        return value != null && value.optBoolean("nine_key", false);
+    private static int touchLayout(JSONObject value) {
+        if (value == null) return STANDARD_TOUCH_LAYOUT;
+        if (value.optBoolean("nine_key", false)) return QUANPIN_NINE_KEY_LAYOUT;
+        if (value.optInt("scheme", -1) == 3
+                && "nine_key".equals(value.optString("touch_keyboard_layout"))) {
+            return JAPANESE_NINE_KEY_LAYOUT;
+        }
+        return STANDARD_TOUCH_LAYOUT;
     }
 
     private void enter() {
@@ -922,9 +933,15 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildKeyRows() {
         if (keyRows == null) return;
         keyRows.removeAllViews();
-        if (nineKeyActive(view) && keyboardLayer == KeyboardLayout.Layer.LETTERS) {
-            rebuildNineKeyRows();
-            return;
+        if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+            if (touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
+                rebuildNineKeyRows();
+                return;
+            }
+            if (touchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+                rebuildJapaneseNineKeyRows();
+                return;
+            }
         }
         for (java.util.List<String> keys : KeyboardLayout.rows(keyboardLayer, shift)) {
             LinearLayout row = new LinearLayout(this);
@@ -987,6 +1004,155 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
     }
 
+    private static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
+        return key.kana().get(0) + "\n" + String.join(" ", key.kana().subList(1, 5));
+    }
+
+    private void inputJapaneseStroke(String input) {
+        if (session == 0 || input.isEmpty()) return;
+        for (int index = 0; index < input.length(); index++) character(input.charAt(index));
+    }
+
+    private void selectJapaneseKey(JapaneseNineKeyLayout.Key key, int direction) {
+        if (direction < 0 || direction >= key.kana().size()) return;
+        String stroke = key.strokes().get(direction);
+        if (stroke.isEmpty()) commitNineKeyLiteral(key.kana().get(direction));
+        else inputJapaneseStroke(stroke);
+    }
+
+    private void showJapaneseKeyChoices(Button anchor, JapaneseNineKeyLayout.Key key) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (int index = 0; index < key.kana().size(); index++) {
+            final int direction = index;
+            popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
+                playFeedback(anchor);
+                selectJapaneseKey(key, direction);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private void bindJapaneseFlick(Button button, JapaneseNineKeyLayout.Key key) {
+        final float[] origin = new float[2];
+        final int[] direction = new int[1];
+        final boolean[] longPressed = new boolean[1];
+        final String label = japaneseKeyLabel(key);
+        button.setOnLongClickListener(ignored -> {
+            playFeedback(button);
+            showJapaneseKeyChoices(button, key);
+            return true;
+        });
+        Runnable longPress = () -> {
+            if (!button.isAttachedToWindow() || !button.isPressed()) return;
+            longPressed[0] = true;
+            button.setPressed(false);
+            button.performLongClick();
+        };
+        button.setOnTouchListener((ignored, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    origin[0] = event.getX();
+                    origin[1] = event.getY();
+                    direction[0] = 0;
+                    longPressed[0] = false;
+                    button.setPressed(true);
+                    main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    direction[0] = JapaneseNineKeyLayout.direction(
+                        event.getX() - origin[0], event.getY() - origin[1], pixels(12));
+                    if (direction[0] != 0) main.removeCallbacks(longPress);
+                    button.setText(key.kana().get(direction[0]));
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    main.removeCallbacks(longPress);
+                    button.setPressed(false);
+                    button.setText(label);
+                    if (longPressed[0]) return true;
+                    if (direction[0] == 0) button.performClick();
+                    else {
+                        playFeedback(button);
+                        selectJapaneseKey(key, direction[0]);
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    main.removeCallbacks(longPress);
+                    button.setPressed(false);
+                    button.setText(label);
+                    return true;
+                }
+                default -> {
+                    return true;
+                }
+            }
+        });
+    }
+
+    private Button japaneseKey(JapaneseNineKeyLayout.Key key) {
+        Button button = keyboardKey(japaneseKeyLabel(key), String.join("、", key.kana()),
+            () -> selectJapaneseKey(key, 0));
+        button.setContentDescription("轻点输入" + key.kana().get(0)
+            + "；左、上、右、下滑动选择其他假名；长按显示全部选项");
+        bindJapaneseFlick(button, key);
+        return button;
+    }
+
+    private void showJapaneseVariants(Button anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (JapaneseNineKeyLayout.VariantGroup group : JapaneseNineKeyLayout.variants()) {
+            android.view.SubMenu submenu = popup.getMenu().addSubMenu(group.title());
+            for (int index = 0; index < group.kana().size(); index++) {
+                final String input = group.strokes().get(index);
+                submenu.add(group.kana().get(index)).setOnMenuItemClickListener(ignored -> {
+                    playFeedback(anchor);
+                    inputJapaneseStroke(input);
+                    return true;
+                });
+            }
+        }
+        popup.show();
+    }
+
+    private void rebuildJapaneseNineKeyRows() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.HORIZONTAL);
+        keyRows.addView(container, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
+
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        java.util.List<JapaneseNineKeyLayout.Key> keys = JapaneseNineKeyLayout.keys();
+        for (int rowIndex = 0; rowIndex < 3; rowIndex++) {
+            LinearLayout row = new LinearLayout(this);
+            for (int column = 0; column < 3; column++) {
+                addNineKey(row, japaneseKey(keys.get(rowIndex * 3 + column)));
+            }
+            grid.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        container.addView(grid, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        addNineKey(actions, japaneseKey(keys.get(9)));
+        Button variants = keyboardKey("小゛゜", "小假名、浊音和半浊音", () -> {});
+        variants.setOnClickListener(ignored -> {
+            playFeedback(variants);
+            showJapaneseVariants(variants);
+        });
+        addNineKey(actions, variants);
+        addNineKey(actions, keyboardKey("⌫", "删除", () -> {
+            if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
+        }));
+        container.addView(actions, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+    }
+
     private void commitNineKeyLiteral(String text) {
         if (connection == null) return;
         command(9);
@@ -1003,7 +1169,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (nineKeySpellings == null || nineKeySpellingScroll == null) return;
         nineKeySpellings.removeAllViews();
         JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
-        boolean visible = nineKeyActive(view) && spellings != null && spellings.length() > 0;
+        boolean visible = touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT
+            && spellings != null && spellings.length() > 0;
         nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (!visible) return;
         long generation = view.optLong("generation", -1);
@@ -1188,7 +1355,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? "切换符号键盘" : "切换字母键盘");
         }
         if (shiftButton != null)
-            shiftButton.setVisibility(nineKeyActive(view)
+            shiftButton.setVisibility(touchLayout(view) != STANDARD_TOUCH_LAYOUT
                 && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
         if (schemeButton != null) {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
