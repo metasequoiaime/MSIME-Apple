@@ -20,12 +20,13 @@ struct NavigationBindings {
     if (!preferences.contains("navigation"))
       return {};
     const auto &value = preferences.at("navigation");
-    return {value.at("minus_equal").get<bool>(),
-            value.at("comma_period").get<bool>(),
-            value.at("brackets").get<bool>(),
-            value.at("tab").get<bool>(),
-            value.at("page_up_down").get<bool>(),
-            value.at("arrows").get<bool>()};
+    const auto get = [&](const char *key, bool fallback) {
+      const auto it = value.find(key);
+      return it != value.end() && it->is_boolean() ? it->get<bool>() : fallback;
+    };
+    return {get("minus_equal", true), get("comma_period", true),
+            get("brackets", false), get("tab", true),
+            get("page_up_down", true), get("arrows", true)};
   }
 
   std::optional<uint32_t> command(guint key, bool shift) const {
