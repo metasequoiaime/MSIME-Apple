@@ -189,6 +189,8 @@ NoPresenter:
 
 HRESULT CMetasequoiaIME::_HandleCandidateFinalizeForVKReturn(TfEditCookie ec, _In_ ITfContext *pContext)
 {
+    if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        return _HandleHostRawCommit(ec, pContext);
     HRESULT hr = S_OK;
     WCHAR committedLastChar = 0;
 

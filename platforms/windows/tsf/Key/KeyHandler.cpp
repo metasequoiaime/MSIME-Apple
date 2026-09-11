@@ -14,6 +14,8 @@
 #include "Ipc.h"
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
+#include "../HostRawCommit.h"
+#include <limits>
 
 namespace
 {
@@ -136,14 +138,6 @@ VOID CMetasequoiaIME::_DeleteCandidateList(BOOL isForce, _In_opt_ ITfContext *pC
 HRESULT CMetasequoiaIME::_HandleComplete(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     PerfTimer timer;
-    if (_pCompositionProcessorEngine)
-    {
-        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
-        {
-            std::string raw, error;
-            (void)host->command(MSIME_COMMIT_RAW, &raw, &error);
-        }
-    }
     g_toggleImeFallbackBuffer.clear();
     PerfTimer deleteTimer;
     _DeleteCandidateList(FALSE, pContext);
@@ -171,6 +165,37 @@ HRESULT CMetasequoiaIME::_HandleCompleteCommitFirst(TfEditCookie ec, _In_ ITfCon
     double terminateElapsedMs = terminateTimer.ElapsedMs();
 
     return S_OK;
+}
+
+HRESULT CMetasequoiaIME::_HandleHostRawCommit(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter();
+    if (!host || !host->valid()) return S_FALSE;
+    HRESULT writeResult = E_FAIL;
+    std::string error;
+    const auto status = msime::tsf::CommitHostRaw(*host, [&](const std::string &text) {
+        if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                               static_cast<int>(text.size()), nullptr, 0);
+        if (length <= 0) return false;
+        std::wstring commit(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                               static_cast<int>(text.size()), commit.data(), length) != length) return false;
+        CStringRange range;
+        range.Set(commit.c_str(), commit.size());
+        writeResult = _AddCharAndFinalize(ec, pContext, &range);
+        if (FAILED(writeResult)) return false;
+        _smartPunctuationShadowChar = commit.back();
+        _smartPunctuationShadowValid = true;
+        return true;
+    }, [&] {
+        GlobalIme::word_for_creating_word.clear();
+        GlobalIme::pending_create_word_preedit.clear();
+        _HandleCompleteCommitFirst(ec, pContext);
+    }, &error);
+    if (status == msime::tsf::RawCommitStatus::Completed) return S_OK;
+    if (status == msime::tsf::RawCommitStatus::Unhandled) return S_FALSE;
+    return FAILED(writeResult) ? writeResult : E_FAIL;
 }
 
 //+---------------------------------------------------------------------------
@@ -210,6 +235,13 @@ HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContex
 
 HRESULT CMetasequoiaIME::_HandleToogleIMEMode(TfEditCookie ec, _In_ ITfContext *pContext)
 {
+    if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        const HRESULT hr = _HandleHostRawCommit(ec, pContext);
+        if (hr == S_OK)
+            _pCompositionProcessorEngine->ApplyPendingImeModeAfterCompositionCommit(_GetThreadMgr(), _GetClientId());
+        return hr;
+    }
     CStringRange keyStrokebuffer = _pCompositionProcessorEngine->GetKeystrokeBuffer();
     std::wstring commitString;
 
