@@ -1,6 +1,7 @@
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <stdexcept>
+#include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 
 namespace msime {
 namespace {
@@ -25,7 +26,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         default: throw std::invalid_argument("Unsupported shuangpin profile");
     }
     options.learning = value.learning;
-    options.autocorrect = value.autocorrect;
+    options.autocorrect_types = value.autocorrect ? (quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor) : 0u;
     options.chinese_punctuation = value.chinese_punctuation;
     options.helpcode = value.helpcode;
     options.helpcode_schema = std::string(value.helpcode_schema);
