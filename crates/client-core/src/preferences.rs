@@ -1418,4 +1418,38 @@ mod tests {
         assert!(restored.preferences.floating_toolbar.fullwidth);
         assert!(!restored.preferences.floating_toolbar.screen_keyboard);
     }
+
+    #[test]
+    fn custom_translation_defaults_and_validation_are_stable() {
+        let defaults = Preferences::default();
+        assert!(!defaults.custom_translation.enabled);
+        assert!(defaults.custom_translation.endpoint.is_empty());
+        let json = serde_json::to_string(&defaults).unwrap();
+        let restored: Preferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.custom_translation, defaults.custom_translation);
+
+        let mut valid = defaults.clone();
+        valid.custom_translation.endpoint = "https://translate.example/api".into();
+        valid.custom_translation.api_key = "masked-test-key".into();
+        assert!(valid.validate().is_ok());
+
+        for endpoint in [
+            "http://translate.example/api",
+            "ftp://translate.example/api",
+            "https://translate.example/\napi",
+        ] {
+            let mut invalid = defaults.clone();
+            invalid.custom_translation.endpoint = endpoint.into();
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidCustomTranslation)
+            ));
+        }
+        let mut oversized = defaults;
+        oversized.custom_translation.api_key = "x".repeat(4097);
+        assert!(matches!(
+            oversized.validate(),
+            Err(PreferencesError::InvalidCustomTranslation)
+        ));
+    }
 }
