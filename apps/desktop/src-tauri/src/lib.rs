@@ -117,6 +117,23 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
+// The settings contract is ready for the native panels. Their window/session
+// implementations are platform-host work and must not be silently emulated by
+// the settings WebView.
+#[tauri::command]
+fn open_keyboard_panel() -> Result<(), HostActionError> {
+    Err(HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[tauri::command]
+fn open_handwriting_panel() -> Result<(), HostActionError> {
+    Err(HostActionError {
+        code: "unavailable",
+    })
+}
+
 fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, HostActionError> {
     store
         .load()
@@ -354,6 +371,8 @@ pub fn run() {
             sync_clipboard_history,
             copy_text,
             open_external_url,
+            open_keyboard_panel,
+            open_handwriting_panel,
             dictionary_request
         ])
         .run(tauri::generate_context!())

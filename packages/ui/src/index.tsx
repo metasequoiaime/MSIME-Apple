@@ -11,6 +11,8 @@ const pages = [
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
+  { id: "screen-keyboard", title: "屏幕键盘", icon: new URL("./assets/screen-keyboard.svg", import.meta.url).href },
+  { id: "handwriting", title: "手写识别板", icon: new URL("./assets/handwriting.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "floating-toolbar", title: "悬浮工具栏", icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href },
   { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
@@ -115,6 +117,8 @@ export interface SettingsClient {
   dictionary?: DictionaryClient;
   openExternalUrl?: (url: string) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
+  openScreenKeyboard?: () => Promise<void>;
+  openHandwriting?: () => Promise<void>;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -216,6 +220,15 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     } finally {
       setUpdateBusy(false);
     }
+  }
+
+  async function openPanel(action: (() => Promise<void>) | undefined) {
+    if (!action) {
+      setError("当前宿主未接入该原生面板。");
+      return;
+    }
+    try { await action(); }
+    catch { setError("无法打开原生面板，请稍后重试。"); }
   }
 
   const requestId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -501,6 +514,18 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(licenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
+        <div className="section panel-launch-card">
+          <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
+          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><div className="keyboard-mock"><div className="keyboard-mock-title">水杉屏幕键盘</div><div className="keyboard-mock-keys">{[..."QWERTYUIOP", ..."ASDFGHJKL", ..."ZXCVBNM"].map((key, index) => <span key={`${key}-${index}`}>{key}</span>)}</div><div className="keyboard-mock-space">空格</div></div></div>
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
+        <div className="section panel-launch-card">
+          <div className="section-header panel-launch-row"><span className="section-title">打开手写识别板<small>使用鼠标或触控方式手写输入，自动识别候选汉字</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openHandwriting} onClick={() => void openPanel(client.openHandwriting)}>打开</button></div>
+          <div className="panel-preview handwriting-preview" aria-label="手写识别板预览"><div className="panel-preview-label">预览</div><div className="handwriting-mock"><div className="handwriting-canvas"><span className="handwriting-stroke">水</span></div><div className="handwriting-candidates"><span>水</span><span>永</span><span>木</span><span>未</span></div></div></div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">

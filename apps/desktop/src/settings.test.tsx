@@ -278,6 +278,25 @@ test("about page validates a newer release before offering its URL", async () =>
   vi.unstubAllGlobals();
 });
 
+test("screen keyboard and handwriting pages expose the native panel actions", async () => {
+  const openScreenKeyboard = vi.fn().mockResolvedValue(undefined);
+  const openHandwriting = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openScreenKeyboard, openHandwriting };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(await screen.findByText("打开屏幕键盘")).toBeDefined();
+  expect(screen.getByLabelText("屏幕键盘预览")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(openScreenKeyboard).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
+  expect(await screen.findByText("打开手写识别板")).toBeDefined();
+  expect(screen.getByLabelText("手写识别板预览")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
+});
+
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

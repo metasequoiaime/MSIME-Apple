@@ -16,6 +16,8 @@ const client: SettingsClient = {
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
   openExternalUrl: url => invoke("open_external_url", { url }),
   copyText: text => invoke("copy_text", { text }),
+  openScreenKeyboard: () => invoke("open_keyboard_panel"),
+  openHandwriting: () => invoke("open_handwriting_panel"),
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
     list: () => invoke<string[]>("list_clipboard_history"),
