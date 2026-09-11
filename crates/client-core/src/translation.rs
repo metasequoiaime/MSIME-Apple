@@ -82,6 +82,53 @@ pub fn tencent_tmt_headers(
     ]
 }
 
+pub fn translate_tencent_batch(
+    secret_id: &str,
+    secret_key: &str,
+    region: &str,
+    timestamp: i64,
+    date: &str,
+    source: &str,
+    target: &str,
+    texts: &[String],
+) -> Vec<Option<String>> {
+    let results = vec![None; texts.len()];
+    let Some(payload) = tencent_tmt_payload(source, target, texts) else {
+        return results;
+    };
+    let authorization =
+        tencent_tc3_authorization(secret_id, secret_key, timestamp, date, payload.as_bytes());
+    if authorization.is_empty() {
+        return results;
+    }
+    let client = match reqwest::blocking::Client::builder()
+        .connect_timeout(REQUEST_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return results,
+    };
+    let mut request = client.post("https://tmt.tencentcloudapi.com").body(payload);
+    for (name, value) in tencent_tmt_headers(region, timestamp, &authorization) {
+        request = request.header(name, value);
+    }
+    let response = match request.send() {
+        Ok(response) if response.status().is_success() => response,
+        _ => return results,
+    };
+    let body = match response.text() {
+        Ok(body) => body,
+        Err(_) => return results,
+    };
+    parse_tencent_tmt_response(&body, texts.len())
+        .into_iter()
+        .flatten()
+        .map(Some)
+        .collect()
+}
+
 pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
     if source.is_empty()
         || target.is_empty()
