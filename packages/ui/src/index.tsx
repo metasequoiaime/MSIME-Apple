@@ -194,6 +194,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [cloudOffset, setCloudOffset] = useState(0);
   const [cloudHasMore, setCloudHasMore] = useState(false);
   const [cloudError, setCloudError] = useState("");
+  const [cloudForm, setCloudForm] = useState<{ code: string; word: string; weight: number } | null>(null);
   async function loadCloud(offset = 0) {
     if (!client.cloudDictionary) return;
     setCloudError("");
@@ -545,11 +546,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "cloud_dictionary"} aria-label="云词库">
         {client.cloudDictionary ? <div className="section" role="region" aria-label="云词库管理">
-          <div className="section-header"><span className="section-title">云词库<small>管理当前账户的云端词条。</small></span><button type="button" className="secondary" onClick={() => void loadCloud(0)}>查询</button></div>
+          <div className="section-header"><span className="section-title">云词库<small>管理当前账户的云端词条。</small></span><span><button type="button" className="secondary" onClick={() => void loadCloud(0)}>查询</button> <button type="button" className="secondary" onClick={() => setCloudForm({ code: "", word: "", weight: 100000 })}>新增</button></span></div>
           <label>词库 <select value={cloudKind} onChange={event => setCloudKind(event.target.value as CloudDictionaryKind)}><option value="pinyin">拼音</option><option value="wubi">五笔</option><option value="quick">快捷短语</option><option value="english">英文</option></select></label>
           <label>搜索 <input value={cloudSearch} onChange={event => setCloudSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void loadCloud(0); }} /></label>
           {cloudError && <p role="alert" className="error">{cloudError}</p>}
           <ul className="quick-phrase-list">{cloudEntries.map(entry => <li key={entry.id}><span><code>{entry.code}</code>　{entry.word}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" onClick={() => { const word = window.prompt("词条", entry.word); if (word && client.cloudDictionary) void client.cloudDictionary.update(entry, { code: entry.code, word, weight: entry.weight }).then(() => loadCloud(cloudOffset)); }}>编辑</button> <button type="button" className="secondary" onClick={() => { if (client.cloudDictionary && window.confirm("删除此云词条？")) void client.cloudDictionary.remove(entry).then(() => loadCloud(cloudOffset)); }}>删除</button></span></li>)}</ul>
+          {cloudForm && <div className="quick-phrase-form"><label>编码 <input value={cloudForm.code} onChange={event => setCloudForm({ ...cloudForm, code: event.target.value })} /></label><label>词条 <input value={cloudForm.word} onChange={event => setCloudForm({ ...cloudForm, word: event.target.value })} /></label><label>权重 <input type="number" value={cloudForm.weight} onChange={event => setCloudForm({ ...cloudForm, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => { if (client.cloudDictionary && cloudForm.code && cloudForm.word) void client.cloudDictionary.add(cloudKind, cloudForm).then(() => { setCloudForm(null); return loadCloud(cloudOffset); }); }}>保存</button><button type="button" className="secondary" onClick={() => setCloudForm(null)}>取消</button></div>}
           <div><button type="button" className="secondary" disabled={cloudOffset === 0} onClick={() => void loadCloud(Math.max(0, cloudOffset - 100))}>上一页</button> <button type="button" className="secondary" disabled={!cloudHasMore} onClick={() => void loadCloud(cloudOffset + 100)}>下一页</button></div>
         </div> : <div className="section"><p className="notice">当前宿主未提供云词库接口。</p></div>}
       </fieldset>
