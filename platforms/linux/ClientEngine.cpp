@@ -1592,9 +1592,14 @@ bool modifier(guint key) {
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
+  const guint chord_modifiers = flags &
+      (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
+       IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   if (shift_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_shift_candidate)
+    if (!s.pure_shift_candidate || chord_modifiers) {
+      s.pure_shift_candidate = false;
       return FALSE;
+    }
     s.pure_shift_candidate = false;
     if (!s.focused || s.blocked)
       return FALSE;
@@ -1615,7 +1620,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     return TRUE;
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
-    s.pure_shift_candidate = true;
+    // A modifier already held when Shift arrives makes this a chord.
+    // Ignore Caps/Num Lock so they do not disable the bare-Shift shortcut.
+    s.pure_shift_candidate = s.focused && !s.blocked &&
+                             chord_modifiers == 0 && !(flags & IBUS_SHIFT_MASK);
     return FALSE;
   }
   if (!(flags & IBUS_RELEASE_MASK))
