@@ -11,7 +11,8 @@ void reload_options(const char *path) {
     return;
   std::array<char, 16385> buffer;
   file.read(buffer.data(), buffer.size());
-  if (file.bad() || file.gcount() == 0 || file.gcount() >= buffer.size())
+  if (file.bad() || file.gcount() == 0 ||
+      static_cast<std::size_t>(file.gcount()) >= buffer.size())
     return;
   try {
     msime_preview_configure(
@@ -68,7 +69,8 @@ int main(int argc, char **argv) {
   g_signal_connect(bus, "disconnected",
                    G_CALLBACK(+[](IBusBus *, gpointer) { ibus_quit(); }),
                    nullptr);
-  auto monitor = g_file_monitor_file(argv[1], G_FILE_MONITOR_NONE, nullptr,
+  auto config_file = g_file_new_for_path(argv[1]);
+  auto monitor = g_file_monitor_file(config_file, G_FILE_MONITOR_NONE, nullptr,
                                      nullptr);
   if (monitor) {
     g_signal_connect(
@@ -88,6 +90,7 @@ int main(int argc, char **argv) {
   ibus_main();
   if (monitor)
     g_object_unref(monitor);
+  g_object_unref(config_file);
   g_object_unref(component);
   g_object_unref(factory);
   g_object_unref(bus);
