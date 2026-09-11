@@ -22,6 +22,10 @@ export interface PanelClient {
   submitHandwritingCandidate?(candidate: string): Promise<void>;
 }
 
+export interface VoicePanelClient extends PanelClient {
+  recognizeVoice?(language: string): Promise<{ text: string }>;
+}
+
 export interface EmojiPanelClient extends PanelClient {
   copyText?(text: string): Promise<void>;
   clipboard?: {
@@ -148,6 +152,62 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
       <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} onClick={() => chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
+    </div>
+  </main>;
+}
+
+export function VoicePanel({ client }: { client: VoicePanelClient }) {
+  const [language, setLanguage] = useState("zh-CN");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
+
+  useEffect(() => {
+    if (!client.rememberInputTarget) return;
+    void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+  }, [client]);
+
+  async function recognize() {
+    if (!client.recognizeVoice) {
+      setNotice("当前宿主未提供语音识别能力");
+      return;
+    }
+    setBusy(true);
+    setText("");
+    setNotice("正在录音并识别…");
+    try {
+      const result = await client.recognizeVoice(language);
+      setText(result.text);
+      setNotice(result.text ? "识别完成，点击提交即可输入" : "没有识别到内容");
+    } catch {
+      setNotice("语音识别失败，请确认录音服务已启动");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit() {
+    if (!text || !client.sendText) return;
+    try {
+      await client.sendText(text);
+      setNotice(`已提交：${text}`);
+      setText("");
+    } catch {
+      setNotice("提交失败，前台输入窗口可能已关闭");
+    }
+  }
+
+  return <main className="native-panel voice-panel" aria-label="语音输入">
+    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <div className="voice-panel-body">
+      <div className="voice-panel-icon" aria-hidden="true">🎙</div>
+      <h1>语音输入</h1>
+      <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
+      <label className="voice-panel-language">识别语言<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></select></label>
+      <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
+      <textarea aria-label="识别结果" value={text} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
+      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !client.sendText || busy}>提交到当前窗口</button>
+      <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
   </main>;
 }

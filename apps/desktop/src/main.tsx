@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 const dictionary: DictionaryClient = {
@@ -21,6 +21,7 @@ const client: SettingsClient = {
   copyText: text => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),
+  openVoice: () => invoke("open_voice_panel"),
   windowControl: async action => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
@@ -47,7 +48,7 @@ const client: SettingsClient = {
   },
   dictionary,
 };
-const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: EmojiPanelClient } = {
+const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
     close: () => invoke("close_panel", { label: "keyboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
@@ -59,6 +60,12 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: Em
     recognizeHandwriting: request => invoke("recognize_handwriting", { request }),
     submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
   },
+  voice: {
+    close: () => invoke("close_panel", { label: "voice-panel" }),
+    rememberInputTarget: () => invoke("remember_input_target"),
+    recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
+    sendText: text => invoke("send_text", { text }),
+  },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<string[]>("list_clipboard_history"),
     sync: () => invoke<string[]>("sync_clipboard_history"),
@@ -68,6 +75,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: Em
 const panel = new URLSearchParams(window.location.search).get("panel");
 const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
   : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
+  : panel === "voice" ? <VoicePanel client={panelClients.voice} />
   : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />
   : <SettingsPage client={client} />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);
