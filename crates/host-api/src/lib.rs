@@ -10,7 +10,8 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 use msime_input_runtime::{
-    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, Runtime, Transition,
+    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, OnlineQuery,
+    Runtime, Transition, TranslationQuery,
 };
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -34,6 +35,8 @@ struct HostSession {
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
     english_mode: bool,
+    page_size_override: Option<u8>,
+    voice: VoiceSessionState,
 }
 
 impl HostSession {
@@ -207,6 +210,12 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: self.preferences.chinese_punctuation,
+            paired_punctuation: self.preferences.paired_punctuation,
+            punctuation_lock: match self.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
         }
     }
 }
@@ -480,6 +489,14 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
             mixed_emoji: options.preferences.mixed_input.emoji,
             mixed_kaomoji: options.preferences.mixed_input.kaomoji,
+            local_unicode: options.preferences.local_modes.unicode,
+            local_date_time: options.preferences.local_modes.date_time,
+            local_quick_phrase: options.preferences.local_modes.quick_phrase,
+            local_emoji: options.preferences.local_modes.emoji,
+            local_kaomoji: options.preferences.local_modes.kaomoji,
+            local_super_jianpin: options.preferences.local_modes.super_jianpin,
+            local_temporary_english: options.preferences.local_modes.temporary_english,
+            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
@@ -511,6 +528,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     requested: None,
                     punctuation_override: None,
                     english_mode: default_english,
+                    page_size_override: None,
+                    voice: VoiceSessionState::default(),
                 },
             )
         });

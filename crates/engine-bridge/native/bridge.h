@@ -8,10 +8,11 @@ struct EngineOptions;
 struct DictionaryStateRecord;
 EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, rust::Str content_id,
                                      const rust::Vec<DictionaryStateRecord> &records);
-struct EngineOptions;
 struct EngineSnapshot;
 struct EngineResult;
 struct OnlineQuerySnapshot;
+struct DictionaryEntry;
+struct DictionaryPage;
 class EngineSession {
 public:
     explicit EngineSession(const EngineOptions& options);
@@ -38,4 +39,7 @@ private:
 rust::String validate_personal_dictionary(std::uint8_t kind, rust::Str key, rust::Str value);
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
+DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
+void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
+                     rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
 }

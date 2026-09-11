@@ -3,6 +3,25 @@
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DictionaryKind {
+        Pinyin,
+        Wubi,
+        QuickPhrase,
+        English,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryEntry {
+        kind: DictionaryKind,
+        key: String,
+        value: String,
+        weight: i64,
+    }
+    #[derive(Debug)]
+    struct DictionaryPage {
+        entries: Vec<DictionaryEntry>,
+        has_more: bool,
+    }
     #[derive(Clone)]
     pub struct DictionaryStateRecord {
         pub kind: u8,
@@ -29,6 +48,8 @@ mod ffi {
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub paired_punctuation: bool,
+        pub punctuation_lock: u8,
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
@@ -83,6 +104,17 @@ mod ffi {
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
         fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String;
+        fn dictionary_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_edit(
+            options: &EngineOptions,
+            previous: &[DictionaryEntry],
+            replacement: &[DictionaryEntry],
+            request_id: &str,
+        ) -> Result<()>;
         fn prepare_options(
             resources: &str,
             user_data: &str,
@@ -126,12 +158,38 @@ mod ffi {
 }
 
 pub use ffi::{
-    DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
+    DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateRecord, EngineOptions,
+    EngineResult, EngineSnapshot, OnlineQuerySnapshot,
 };
 
 /// Validate a personal dictionary entry using the pinned Engine contract.
 pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
     ffi::validate_personal_dictionary(kind, key, value)
+}
+
+/// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
+pub fn dictionary_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Atomically add, replace, or remove one personal-dictionary entry.
+/// The caller must quiesce sessions sharing these paths before editing.
+pub fn dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&DictionaryEntry>,
+    replacement: Option<&DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit(
+        options,
+        previous.map_or(&[], std::slice::from_ref),
+        replacement.map_or(&[], std::slice::from_ref),
+        request_id,
+    )
 }
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
@@ -243,6 +301,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
