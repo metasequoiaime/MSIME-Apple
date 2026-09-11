@@ -110,8 +110,6 @@ int wmain(int argc, wchar_t **argv) {
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     if (clipboard.enabled() && !clipboard_monitor.start())
       throw std::runtime_error("Clipboard monitor unavailable");
-    if (clipboard.enabled() && !clipboard_monitor.start())
-      throw std::runtime_error("Clipboard monitor unavailable");
     const bool follow_cursor = prepared.at("value").at("preferences").value(
         "candidate_follow_cursor", true);
     const auto candidate_font_size = prepared.at("value").at("preferences").value(
