@@ -681,6 +681,32 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
     })
 }
 
+/// Return the visible candidate texts that may receive asynchronous translations.
+/// The generation must be echoed to `msime_client_apply_translations`.
+#[no_mangle]
+pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            if !session.applied.candidate_translations {
+                return Ok(Value::Null);
+            }
+            let view = session.runtime.view();
+            if view.candidates.is_empty() {
+                return Ok(Value::Null);
+            }
+            let candidates = view
+                .candidates
+                .iter()
+                .map(|candidate| json!({ "text": candidate.text }))
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "generation": view.generation,
+                "candidates": candidates,
+            }))
+        })
+    })
+}
+
 /// Build the default HTTPS cloud URL for a copied eligible query. The host
 /// performs the request and later calls `msime_client_apply_online_candidate`.
 ///
