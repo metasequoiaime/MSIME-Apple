@@ -592,6 +592,31 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
     })
 }
 
+/// Build the default HTTPS cloud URL for a copied eligible query. The host
+/// performs the request and later calls `msime_client_apply_online_candidate`.
+///
+/// # Safety
+/// `query` must point to a readable UTF-8 JSON buffer of `query_length` bytes,
+/// or be null only when `query_length` is zero. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_request_url(
+    query: *const u8,
+    query_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || query_length > 16384 {
+            return Err("invalid cloud query buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let url = msime_input_runtime::cloud_request_url(&query)
+            .ok_or_else(|| "cloud query is not eligible".to_owned())?;
+        Ok(json!(url))
+    })
+}
+
 /// Query a user-owned Unix-socket provider off the session thread.
 /// Returns null when the provider has no candidate or is unavailable.
 ///

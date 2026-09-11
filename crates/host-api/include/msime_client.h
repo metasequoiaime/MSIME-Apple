@@ -116,6 +116,9 @@ char *msime_client_view(uint64_t session);
  * is not eligible for an online provider. The caller may perform provider work
  * off-thread and pass the unchanged document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
+/* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
+ * host performs network I/O and applies the copied result separately. */
+char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
 /* Linux: perform one bounded request to a user-owned Unix-socket provider.
  * Call from a worker thread with a copied query; returns null value when no
  * candidate is available. Credentials and network policy stay in that service. */
