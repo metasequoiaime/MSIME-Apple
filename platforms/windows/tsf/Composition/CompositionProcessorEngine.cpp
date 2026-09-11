@@ -520,6 +520,36 @@ void CCompositionProcessorEngine::GetCandidateList(_Inout_ CMetasequoiaImeArray<
     // Candidate generation now lives in the IPC server. TSF keeps a minimal
     // local mirror so selection/page bookkeeping still works.
     //
+    if (_hostEngineAdapter && _hostEngineAdapter->valid())
+    {
+        std::string raw, error;
+        msime::tsf::EngineResult result;
+        if (_hostEngineAdapter->view(&raw, &error) &&
+            msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
+            !result.view.candidates.empty())
+        {
+            for (size_t index = 0; index < result.view.candidates.size(); ++index)
+            {
+                const auto &candidate = result.view.candidates[index];
+                const int length = candidate.text.empty() ? 0 : MultiByteToWideChar(
+                    CP_UTF8, MB_ERR_INVALID_CHARS, candidate.text.data(), static_cast<int>(candidate.text.size()),
+                    nullptr, 0);
+                std::wstring text(static_cast<size_t>(length > 0 ? length : 0), L'\0');
+                if (length > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, candidate.text.data(),
+                                                    static_cast<int>(candidate.text.size()), text.data(), length);
+                auto *item = pCandidateList->Append();
+                if (item)
+                {
+                    item->_ItemString.Set(text.c_str(), text.size());
+                    item->_FindKeyCode.Set(L"", 0);
+                    item->_EngineGeneration = result.view.generation;
+                    item->_EngineIndex = static_cast<uint32_t>(index);
+                }
+            }
+            return;
+        }
+    }
+
     const std::wstring keystrokeStr(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength());
     CCandidateListItem *pLI = nullptr;
     pLI = pCandidateList->Append();
