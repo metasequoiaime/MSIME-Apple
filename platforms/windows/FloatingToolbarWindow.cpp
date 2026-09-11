@@ -84,7 +84,17 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: self->paint(); return 0;
-    case WM_NCLBUTTONDOWN: if (w == HTCLIENT || w == HTCAPTION) { ReleaseCapture(); SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0); return 0; } break;
+    case WM_LBUTTONDOWN:
+      ReleaseCapture();
+      SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+      return 0;
+    case WM_NCLBUTTONDOWN:
+      if (w == HTCLIENT || w == HTCAPTION) {
+        ReleaseCapture();
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        return 0;
+      }
+      break;
   }} catch (...) { self->failed_ = true; self->hide(); return 0; }
   return DefWindowProcW(window, message, w, l);
 }
