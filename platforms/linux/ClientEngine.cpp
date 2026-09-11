@@ -94,6 +94,7 @@ struct State {
   bool voice_hotkey_rctrl_ralt = false;
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
+  guint voice_hotkey_consumed_key = 0;
   bool voice_active = false;
   uint64_t voice_generation = 0;
   std::shared_ptr<std::atomic_bool> alive =
@@ -120,6 +121,7 @@ struct State {
       msime_client_string_free(msime_client_voice_cancel(session));
     voice_active = false;
     voice_generation = 0;
+    voice_hotkey_consumed_key = 0;
     voice_worker.cancel();
     invalidate_providers();
     ++clipboard_generation;
@@ -1476,6 +1478,7 @@ void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     voice_cancel(engine);
+    s.voice_hotkey_consumed_key = 0;
     s.focused = false;
     s.invalidate_providers();
     s.surrounding_text.clear();
@@ -1986,6 +1989,7 @@ void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     if (state(engine).voice_active)
       voice_cancel(engine);
+    state(engine).voice_hotkey_consumed_key = 0;
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
@@ -2056,8 +2060,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     s.pure_shift_candidate = s.focused && !s.blocked && chord_modifiers == 0;
     return FALSE;
   }
-  if (!(flags & IBUS_RELEASE_MASK))
-    s.pure_shift_candidate = false;
+  if (flags & IBUS_RELEASE_MASK) {
+    if (s.voice_hotkey_consumed_key == key) {
+      s.voice_hotkey_consumed_key = 0;
+      return TRUE;
+    }
+    return FALSE;
+  }
+  s.pure_shift_candidate = false;
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
@@ -2107,6 +2117,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     if (voice_hotkey(s, key, modifiers) && s.voice_enabled &&
         !s.voice_provider_socket.empty()) {
+      if (s.voice_hotkey_consumed_key == key) {
+        handled = true;
+        return;
+      }
+      s.voice_hotkey_consumed_key = key;
       if (s.voice_active)
         voice_cancel(engine);
       else
