@@ -1,5 +1,7 @@
 # macOS InputMethodKit 预览宿主
 
+双拼键位参考面板已迁移：输入法菜单提供小鹤、自然码、首道和微软四种方案，面板使用 Engine 键位表生成键位、支持当前键高亮、零声母提示，并保持非激活窗口和多屏定位。繁体中文输出辅助也已接入 transition 提交路径，由 `MSIMEClientTraditionalChineseOutput` 偏好控制。
+
 候选定位与焦点约束对照同一 Apple 提交的 `CandidatePanel.mm`：无效光标隐藏窗口、以光标垂直中点选屏、与光标相隔 4 点、底部不足时向上放置，超大窗口至少锚定可见屏幕原点。候选窗口不能成为 key/main window，按钮不接受键盘焦点但支持首次鼠标点击。候选支持竖排和横排，字号可选 16/18/20 点，内置 Fluent、微信绿、Graphite、柳绿四种皮肤，宽度随实际字体测量并受屏宽约束，长文本截断并提供完整 tooltip；候选页大小、布局、字号和皮肤由共享设置页保存并后台重读。
 
 外部皮肤读取 `~/Library/Application Support/app.msime.client.preview/skins/<id>/skin.toml` 的 schema 1。解析器校验安全 ID、包内相对路径、普通 manifest 文件、64 KiB 大小上限、内置 base、布局/主题枚举、明暗颜色、最小宽度和顶部装饰尺寸；资源不能通过符号链接逃出包目录。非法包保留诊断，渲染时安全回退 Fluent；`toolbar_stylesheet` 只作为受限元数据读取，不执行 CSS。共享设置仍负责保存皮肤 ID，候选控制器在配置重读或皮肤变更时缓存解析结果，并使用外部皮肤的颜色、尺寸和装饰图绘制。
