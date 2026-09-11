@@ -12,6 +12,7 @@ let package = Package(
       exclude: ["Package.swift", "Tests"],
       sources: [
         "BackendAccountClient.swift",
+        "BackendAiClient.swift",
         "BackendAccountSession.swift",
         "BackendCandidateClient.swift",
         "BackendClipboardClient.swift",
