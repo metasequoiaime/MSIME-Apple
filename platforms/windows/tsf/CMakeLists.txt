@@ -31,6 +31,8 @@ add_library(msime-tsf SHARED
   IME/MetasequoiaIME.rc
 )
 
+find_package(fmt CONFIG REQUIRED)
+
 target_include_directories(msime-tsf PRIVATE
   . Candidate Compartment Composition DisplayAttribute Edit FanyLog Global
   Header IME IPC Key LanguageBar Register Tf Thread UI Utils
@@ -38,8 +40,9 @@ target_include_directories(msime-tsf PRIVATE
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
-target_link_libraries(msime-tsf PRIVATE ole32 oleaut32 user32 advapi32 msctf)
+target_link_libraries(msime-tsf PRIVATE fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf)
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
+  set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
