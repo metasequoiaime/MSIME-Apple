@@ -209,3 +209,13 @@ deduplication, nested references, scope isolation and the read-count limit.
 Image-set, escaped resource syntax, fonts, animation/global rules, imports and
 native-platform visual acceptance remain unfinished; simple image URL support
 does not imply full external stylesheet parity.
+
+Image-set support now includes string/URL choices, resolution descriptors,
+type hints and the WebKit alias. Browser parsing normalizes each expression
+before the existing bounded image rewriter, including raw expressions stored
+in custom properties. Bare strings are never assumed safe if an older parser
+cannot normalize them. Quoted non-resource text is preserved. The Chromium
+regression covers nested/variable image sets, deduplication, scoped computed
+styles and rejection of unprepared remote options. This supersedes the
+image-set limitation above; escaped URLs, fonts, global animation/import rules
+and native platform acceptance remain outstanding.

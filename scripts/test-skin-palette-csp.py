@@ -78,8 +78,20 @@ with sync_playwright() as playwright:
       let resourceCount = 0;
       const manyImages = await prepareToolbarImages('.sample {' + Array.from({length:33}, (_, index) => '--image-' + index + ':url(images/' + index + '.svg);').join('') + '}', async () => { resourceCount++; return imageData; });
       if (!manyImages.partial || resourceCount !== 32 || manyImages.css.includes('--image-32')) throw Error('resource count cap failed');
+      const setRequests = [];
+      const preparedSet = await prepareToolbarImages('.sample { --choices: image-set("images/a.svg" 1x, "images/b.svg" 2x type("image/svg+xml")); background-image: var(--choices); &::before { background-image: -webkit-image-set(url(images/a.svg) 1x, url(images/b.svg) 2x); } }', async name => { setRequests.push(name); return imageData; });
+      if (preparedSet.partial || setRequests.join(',') !== 'images/a.svg,images/b.svg' || !preparedSet.css.includes('2x')) throw Error('image-set rewrite or deduplication failed');
+      const imageSet = installToolbarCss('card1', preparedSet.css);
+      if (imageSet.partial || !getComputedStyle(first).backgroundImage.includes('image-set(') || !getComputedStyle(first).backgroundImage.includes('data:image/svg+xml')) throw Error('image-set variable did not render');
+      if (getComputedStyle(second).backgroundImage !== 'none') throw Error('image-set scope escape');
+      imageSet.remove();
+      const remoteSet = await prepareToolbarImages('.sample { background-image: image-set("https://invalid.example/a.svg" 1x); }', async () => { throw Error('remote image-set must not reach reader'); });
+      if (!remoteSet.partial || remoteSet.css.includes('invalid.example')) throw Error('remote image-set retained');
+      const directSet = installToolbarCss('card1', '.sample { --remote: image-set("https://invalid.example/a.svg" 1x); background-image: var(--remote); }');
+      if (!directSet.partial || getComputedStyle(first).backgroundImage !== 'none') throw Error('unprepared image-set bypassed validation');
+      directSet.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true};
     }""")
     print(result)
     browser.close()
