@@ -19,9 +19,6 @@ for arch in x86_64 i686; do
     platforms/windows/tests/focus_router.cpp -o "$output/focus-router.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/tests/main_frame.cpp -o "$output/main-frame.exe"
-  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
-    platforms/windows/KeyboardPanel.cpp -municode -mwindows -luser32 -lgdi32 \
-    -o "$output/keyboard-panel.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
