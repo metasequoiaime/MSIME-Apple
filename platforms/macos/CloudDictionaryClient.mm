@@ -77,3 +77,17 @@ void MSIMESendCloudCandidateRequest(NSString *path, NSData *body, NSString *bear
     [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
 }
+
+void MSIMEListCloudFixedPositions(NSString *context, NSUInteger offset, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (context.length > 256 || offset > 1000000 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionary/positions?context=%@&offset=%lu&limit=100", [context stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet], (unsigned long)offset]; NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]];
+    [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
+}
+
+void MSIMEMutateCloudFixedPosition(NSString *method, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (![method isEqualToString:@"PUT"] && ![method isEqualToString:@"DELETE"]) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.msime.app/v1/users/me/dictionary/positions"]]; r.HTTPMethod = method; r.HTTPBody = body;
+    [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
+}

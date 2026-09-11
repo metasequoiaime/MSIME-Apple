@@ -11,3 +11,5 @@ FOUNDATION_EXPORT void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString
 FOUNDATION_EXPORT void MSIMEEditCloudDictionaryCatalog(NSString *kind, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
 FOUNDATION_EXPORT void MSIMEFetchCloudDictionaryChanges(long long after, NSUInteger limit, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
 FOUNDATION_EXPORT void MSIMESendCloudCandidateRequest(NSString *path, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
+FOUNDATION_EXPORT void MSIMEListCloudFixedPositions(NSString *context, NSUInteger offset, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
+FOUNDATION_EXPORT void MSIMEMutateCloudFixedPosition(NSString *method, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
