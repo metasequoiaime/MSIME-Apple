@@ -14,6 +14,11 @@ public:
   bool command(uint32_t, std::string *, std::string *);
   bool select(uint64_t, std::size_t, std::string *, std::string *);
   bool view(std::string *, std::string *) const;
+  bool punctuation(uint8_t, std::string *, std::string *);
+  bool focus(bool, std::string *, std::string *);
+  bool chinese_punctuation(bool, std::string *, std::string *);
+  bool character_width(bool, std::string *, std::string *);
+  bool english_mode(bool, std::string *, std::string *);
 private:
   bool response(char *, std::string *, std::string *) const;
   uint64_t session_ = 0;
