@@ -166,11 +166,15 @@ fn open_keyboard_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
                         .map(|parent| parent.join("msime-client-keyboard-panel.exe"))
                 })
             })
-            .ok_or(HostActionError { code: "unavailable" })?;
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         std::process::Command::new(executable)
             .spawn()
             .map(|_| ())
-            .map_err(|_| HostActionError { code: "unavailable" })?;
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
         return Ok(());
     }
     #[cfg(not(target_os = "windows"))]
