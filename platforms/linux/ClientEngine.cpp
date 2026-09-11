@@ -494,6 +494,11 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     if (!candidate.is_object() || !candidate.contains("id") ||
         !candidate.at("id").is_object())
       continue;
+    const auto &id = candidate.at("id");
+    if (!id.contains("session") || !id.contains("generation") || !id.contains("index") ||
+        !id.at("session").is_number_unsigned() || !id.at("generation").is_number_unsigned() ||
+        !id.at("index").is_number_unsigned())
+      continue;
     ++slot;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"}}) {
