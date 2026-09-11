@@ -23,6 +23,12 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .helpcode-schema { margin-top: 12px; }
 .frequency-option-content { margin-top: 8px; }
 .frequency-option-row { padding: 10px 0; }
+.shortcut-intro { color: var(--text-secondary); line-height: 1.6; }
+.shortcut-section .section-title { font-size: 15px; }
+.shortcut-list { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--divider-color); }
+.shortcut-row kbd { min-width: 120px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--button-secondary-bg); color: var(--text-color); font: 12px inherit; text-align: center; }
+.shortcut-row-danger { color: var(--danger-text); }
 .input-option-content { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .input-mode-options { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
 .input-option-item { display: flex; flex-direction: column; gap: 8px; }

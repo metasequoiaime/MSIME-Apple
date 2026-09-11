@@ -135,6 +135,15 @@ test("helpcode schemes save independently and retain disabled selections", async
     quanpin_helpcode: { enabled: false, schema: "xiaohe" },
     shuangpin_helpcode: { enabled: true, schema: "shouyou2_0" } });
 });
+
+test("shortcut page reflects enabled navigation shortcuts", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("候选操作")).toBeDefined();
+  expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
+  expect(screen.getByText("↑ / ↓")).toBeDefined();
+  expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
+});
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use legacy defaults", async () => {
