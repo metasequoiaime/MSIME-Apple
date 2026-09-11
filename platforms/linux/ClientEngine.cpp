@@ -1661,6 +1661,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     // Apply configured candidate bindings before punctuation can consume them.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
         !s.view.at("candidates").empty()) {
+      if (const auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
+        handled = apply(engine, msime_client_command(s.session, *edge));
+        return;
+      }
       if (const auto navigation = s.navigation.command(
               key, (flags & IBUS_SHIFT_MASK) != 0)) {
         handled = apply(engine, msime_client_command(s.session, *navigation));
