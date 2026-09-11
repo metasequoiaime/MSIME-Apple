@@ -1,6 +1,7 @@
 #include "PreviewConfig.h"
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
+#include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
@@ -115,11 +116,12 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidateClick &click) { (void)clicks.submit(click); });
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
+    FloatingToolbarWindow toolbar([&] { return server.mode_view(); });
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() &&
-           !modes.failed() && !mode_clicks.failed()) {
+           !modes.failed() && !mode_clicks.failed() && !toolbar.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -135,12 +137,14 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
+      toolbar.refresh(config.floating_toolbar_enabled);
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
     modes.hide();
+    toolbar.hide();
     clicks.request_stop();
     mode_clicks.request_stop();
     server.stop();
