@@ -2,5 +2,5 @@
   "name": "msime-windows-native",
   "version-string": "0.1.0",
   "builtin-baseline": "ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0",
-  "dependencies": ["boost-algorithm", "fmt", "spdlog", "sqlite3", "nlohmann-json"]
+  "dependencies": ["boost-algorithm", "fmt", "spdlog", "sqlite3", "nlohmann-json", "utf8cpp"]
 }
