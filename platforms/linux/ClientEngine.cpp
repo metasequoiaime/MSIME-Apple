@@ -1624,16 +1624,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   const bool english_toggle =
-      key == IBUS_e && (flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK)) ==
-                            (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+      (key == IBUS_e || key == IBUS_E) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
   const bool mode_toggle =
       english_toggle ||
       (key == IBUS_space &&
-       (((flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) == IBUS_CONTROL_MASK) ||
-        ((flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
-         (IBUS_CONTROL_MASK | IBUS_MOD1_MASK))));
+       (modifiers == IBUS_CONTROL_MASK ||
+        modifiers == (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)));
   const bool fullwidth_toggle =
-      (key == IBUS_space || key == IBUS_f) &&
+      (key == IBUS_space || key == IBUS_f || key == IBUS_F) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
       (flags & IBUS_RELEASE_MASK))
@@ -1653,12 +1652,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   bool handled = false;
   guarded(engine, "process_key", [&] {
     s.open();
-    if ((flags & IBUS_CONTROL_MASK) && key == IBUS_space) {
+    if (mode_toggle) {
       s.input_enabled = !s.input_enabled;
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
       clear(engine);
-      publish_punctuation(engine, s.chinese_punctuation);
+      publish_mode(engine);
       handled = true;
       return;
     }
