@@ -149,4 +149,15 @@ mod tests {
         assert!(state.apply(old, "你好").is_none());
         assert_eq!(state.apply(new, "你好"), Some("你好".into()));
     }
+
+    #[test]
+    fn translation_cache_tracks_positive_and_negative_results() {
+        let mut cache = TranslationCache::new(Duration::from_millis(1));
+        cache.remember("positive".into(), Some("译文".into()));
+        cache.remember("negative".into(), None);
+        assert_eq!(cache.get("positive"), Some(Some("译文".into())));
+        assert_eq!(cache.get("negative"), Some(None));
+        std::thread::sleep(Duration::from_millis(3));
+        assert_eq!(cache.get("negative"), None);
+    }
 }
