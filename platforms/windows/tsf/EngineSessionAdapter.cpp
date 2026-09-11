@@ -23,9 +23,15 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.preedit = view.value("preedit", "");
       parsed.view.editing_text = view.value("editing_text", "");
       parsed.view.generation = view.value("generation", uint64_t{0});
-      for (const auto &candidate : view.value("candidates", json::array()))
-        parsed.view.candidates.push_back({candidate.value("id", ""),
+      for (const auto &candidate : view.value("candidates", json::array())) {
+        std::string id;
+        if (candidate.contains("id")) {
+          const auto &raw_id = candidate.at("id");
+          id = raw_id.is_string() ? raw_id.get<std::string>() : raw_id.dump();
+        }
+        parsed.view.candidates.push_back({std::move(id),
                                           candidate.value("text", "")});
+      }
     }
     if (out) *out = std::move(parsed);
     return true;
