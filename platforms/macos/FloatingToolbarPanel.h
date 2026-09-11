@@ -30,3 +30,7 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 @end
+#define MSIMEFloatingToolbarDelegate MetasequoiaFloatingToolbarDelegate
+#define MSIMEFloatingToolbarPanel MetasequoiaFloatingToolbarPanel
+#define MSIMEFloatingToolbarFrame MetasequoiaFloatingToolbarFrame
+#define CreateMSIMEFloatingToolbarUtilityMenu CreateMetasequoiaFloatingToolbarUtilityMenu

@@ -20,5 +20,6 @@ typedef void (^MetasequoiaUpdateActivationHandler)(void);
 @property(nonatomic, readonly) BOOL automaticallyChecksForUpdates;
 - (void)checkForUpdates:(nullable id)sender;
 @end
+#define MSIMEUpdateController MetasequoiaUpdateController
 
 NS_ASSUME_NONNULL_END
