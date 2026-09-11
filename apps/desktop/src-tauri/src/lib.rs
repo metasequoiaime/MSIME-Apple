@@ -1238,6 +1238,12 @@ fn open_panel_window(
     #[cfg(not(mobile))]
     {
         if let Some(window) = app.get_webview_window(label) {
+            #[cfg(target_os = "linux")]
+            if let Some((x, y)) = position {
+                let _ = window.set_position(tauri::Position::Physical(
+                    tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32),
+                ));
+            }
             window
                 .show()
                 .and_then(|_| window.set_focus())
