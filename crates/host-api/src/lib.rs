@@ -1034,6 +1034,21 @@ mod tests {
     }
 
     #[test]
+    fn dedicated_english_mode_switches_through_host_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let enabled = read(msime_client_set_english_mode(handle, true));
+        assert_eq!(enabled["ok"], true);
+        assert_eq!(enabled["value"]["view"]["focused"], true);
+        assert_eq!(
+            read(msime_client_set_english_mode(handle, false))["ok"],
+            true
+        );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn preferences_wait_for_commit_keep_handle_and_reject_old_revisions() {
         let dir = tempfile::tempdir().unwrap();
         let handle = test_host(dir.path());
