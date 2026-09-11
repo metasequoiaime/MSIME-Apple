@@ -37,13 +37,14 @@ export interface CloudClipboardPanelClient extends PanelClient {
 }
 
 export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
+export type CloudDictionaryFileFormat = "standard" | "windows" | "hans";
 export type CloudDictionaryAction =
   | { operation: "list"; kind: CloudDictionaryKind; offset: number; search: string }
   | { operation: "add"; kind: CloudDictionaryKind; code: string; word: string; weight: number }
   | { operation: "update"; kind: CloudDictionaryKind; id: string; code: string; word: string; weight: number; revision: number }
   | { operation: "delete"; kind: CloudDictionaryKind; id: string; revision: number }
-  | { operation: "import"; kind: CloudDictionaryKind; format: string; text: string }
-  | { operation: "export"; kind: CloudDictionaryKind; format: string };
+  | { operation: "import"; kind: CloudDictionaryKind; format: CloudDictionaryFileFormat; text: string }
+  | { operation: "export"; kind: CloudDictionaryKind; format: Exclude<CloudDictionaryFileFormat, "hans"> };
 export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
 export type CloudDictionaryResponse = { entries?: CloudDictionaryEntry[]; has_more?: boolean; offset?: number; text?: string; content?: string; filename?: string };
 export interface CloudDictionaryPanelClient extends PanelClient {
@@ -244,6 +245,7 @@ function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
 
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
   const [search, setSearch] = useState("");
+  const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [items, setItems] = useState<CloudClipboardItem[]>([]);
   const [draft, setDraft] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -322,6 +324,7 @@ function cloudDictionaryEntries(value: CloudDictionaryResponse) {
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
+  const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState<CloudDictionaryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -370,14 +373,15 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   async function importFile(file: File) {
     if (file.size > 65536) { setNotice("导入文件不能超过 64 KiB"); return; }
     setBusy(true);
-    try { await client.request({ operation: "import", kind, format: "standard", text: await file.text() }); setNotice("云词库已导入"); await refresh(offset, search); }
+    try { await client.request({ operation: "import", kind, format, text: await file.text() }); setNotice("云词库已导入"); await refresh(offset, search); }
     catch { setNotice("导入失败，请检查 UTF-8 TSV 文件格式"); setBusy(false); }
   }
 
   async function exportDictionary() {
     setBusy(true);
     try {
-      const result = await client.request({ operation: "export", kind, format: "standard" });
+      if (format === "hans") throw new Error("format cannot be exported");
+      const result = await client.request({ operation: "export", kind, format });
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
@@ -388,13 +392,13 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     finally { setBusy(false); }
   }
 
-  function changeKind(next: CloudDictionaryKind) { setKind(next); setOffset(0); setEntries([]); void refresh(0, search, next); }
+  function changeKind(next: CloudDictionaryKind) { setKind(next); if (next !== "pinyin" && format === "hans") setFormat("standard"); setOffset(0); setEntries([]); void refresh(0, search, next); }
   return <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
     <header className="native-panel-header"><span>水杉云词典</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="cloud-dictionary-body">
       <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
       <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button></div>
-      <div className="cloud-dictionary-actions"><button type="button" onClick={() => void exportDictionary()} disabled={busy}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file); event.currentTarget.value = ""; }} /></label></div>
+      <div className="cloud-dictionary-actions"><label>文件格式<select aria-label="文件格式" value={format} onChange={event => setFormat(event.target.value as CloudDictionaryFileFormat)} disabled={busy}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option>{kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><button type="button" onClick={() => void exportDictionary()} disabled={busy || format === "hans"}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file); event.currentTarget.value = ""; }} /></label></div>
       {form && <div className="cloud-dictionary-form"><label>编码<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
       <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
       <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
