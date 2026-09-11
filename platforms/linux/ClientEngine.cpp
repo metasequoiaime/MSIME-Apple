@@ -1724,10 +1724,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     }
     if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 && key >= IBUS_0 && key <= IBUS_9) {
-      const size_t index = static_cast<size_t>(key - IBUS_1);
-      if (key == IBUS_0) {
-        if (s.view.at("candidates").size() < 10) return;
-      } else if (index >= s.view.at("candidates").size()) return;
+      const size_t index = key == IBUS_0 ? 9 : static_cast<size_t>(key - IBUS_1);
+      if (index >= s.view.at("candidates").size()) return;
       const auto &candidate = s.view.at("candidates").at(index);
       handled = apply(engine, msime_client_select(
           s.session, candidate.at("id").at("generation").get<uint64_t>(), index));
