@@ -226,7 +226,7 @@ int main() {
         assert(![[controller valueForKey:@"englishMode"] boolValue] && !session.englishMode);
         assert([menu itemAtIndex:2].isSeparatorItem);
         assert([[menu itemAtIndex:3].title isEqualToString:@"候选预览…"]);
-        NSMenu *profiles = [menu itemAtIndex:4].submenu;
+        NSMenu *profiles = [menu itemAtIndex:7].submenu;
         assert(profiles.numberOfItems == 6);
         assert([[profiles itemAtIndex:3].representedObject isEqual:@"microsoft"]);
         [controller showShuangpinKeymap:[profiles itemAtIndex:3]];
