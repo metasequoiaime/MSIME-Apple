@@ -44,9 +44,12 @@ private struct MacInkCanvas: NSViewRepresentable {
 struct MacHandwritingCanvasView: View {
   @Binding var strokes: [MacInkStroke]
   var onSubmit: ([MacInkStroke]) -> Void
+  var candidates: [String] = []
+  var onCandidate: (String) -> Void = { _ in }
   var body: some View {
     VStack(spacing: 8) {
       MacInkCanvas(strokes: $strokes).frame(minHeight: 180).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+      if !candidates.isEmpty { ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(candidates, id: \.self) { candidate in Button(candidate) { onCandidate(candidate) }.buttonStyle(.bordered) } } } }
       HStack { Button("撤销") { _ = strokes.popLast() }.disabled(strokes.isEmpty); Button("清空") { strokes.removeAll() }.disabled(strokes.isEmpty); Spacer(); Button("识别") { onSubmit(strokes) }.disabled(strokes.isEmpty) }
     }
   }
