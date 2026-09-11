@@ -185,7 +185,19 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [windowMaximized, setWindowMaximized] = useState(false);
   useEffect(() => {
     let active = true; let unsubscribe: (() => void) | undefined;
-    void client.onWindowStateChanged?.(setWindowMaximized).then(value => { if (active) unsubscribe = value; else value(); });
+    setWindowMaximized(false);
+    const subscribe = client.onWindowStateChanged;
+    if (subscribe) {
+      void Promise.resolve().then(() => {
+        if (!active) return;
+        return subscribe(maximized => { if (active) setWindowMaximized(maximized); });
+      }).then(value => {
+        if (active) unsubscribe = value;
+        else value?.();
+      }).catch(() => {
+        if (active) setError("无法读取窗口状态，请重试。");
+      });
+    }
     return () => { active = false; unsubscribe?.(); };
   }, [client]);
   const snapshotRef = useRef(snapshot);
