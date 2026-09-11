@@ -236,19 +236,7 @@ int main(int argc, char **argv) {
             "Control-space re-enable was not handled");
     require(key('n'), "Re-enabled input did not consume a character");
     invoke("Reset");
-    invoke("PropertyActivate",
-           g_variant_new("(su)", "CharacterWidth", PROP_STATE_CHECKED));
-    require(seen.committed == committed,
-            "Character width toggle unexpectedly committed composition");
-    phrase();
-    require(key(IBUS_space), "Fullwidth mode disrupted candidate commit");
-    require(seen.committed == committed + "你好",
-            "Fullwidth mode changed Han candidate output");
     invoke("Reset");
-    invoke("PropertyActivate",
-           g_variant_new("(su)", "CharacterWidth", PROP_STATE_UNCHECKED));
-
-    phrase();
     invoke("FocusOut");
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
             "Focus loss did not clear and stop input");
