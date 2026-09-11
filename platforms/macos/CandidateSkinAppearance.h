@@ -4,11 +4,6 @@
 
 #include "CandidateSkin.h"
 
-namespace metasequoia
-{
-namespace mac = msime::mac;
-}
-
 FOUNDATION_EXPORT NSNotificationName const MetasequoiaCandidateSkinDidChangeNotification;
 
 NSColor *MetasequoiaColorFromRgba(metasequoia::mac::Rgba color);
