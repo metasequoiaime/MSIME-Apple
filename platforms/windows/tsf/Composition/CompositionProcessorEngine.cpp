@@ -531,24 +531,13 @@ void CCompositionProcessorEngine::GetCandidateList(_Inout_ CMetasequoiaImeArray<
         }
     }
 
-    const std::wstring keystrokeStr(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength());
+    const std::wstring keystrokeStr = _keystrokeBuffer.ToWString();
     CCandidateListItem *pLI = nullptr;
     pLI = pCandidateList->Append();
     if (pLI)
     {
         pLI->_ItemString.Set(keystrokeStr.c_str(), keystrokeStr.size());
         pLI->_FindKeyCode.Set(keystrokeStr.c_str(), keystrokeStr.size());
-    }
-    for (UINT index = 0; index < pCandidateList->Count();)
-    {
-        CCandidateListItem *pLI = pCandidateList->GetAt(index);
-        CStringRange startItemString;
-        CStringRange endItemString;
-
-        startItemString.Set(pLI->_ItemString.Get(), 1);
-        endItemString.Set(pLI->_ItemString.Get() + pLI->_ItemString.GetLength() - 1, 1);
-
-        index++;
     }
     return;
 }
