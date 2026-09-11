@@ -1,6 +1,9 @@
 #import "PreferencesWindowController.h"
 #import "AppearancePreferences.h"
 
+static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
+static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
+
 @implementation MSIMEPreferencesWindowController
 + (instancetype)sharedController {
     static MSIMEPreferencesWindowController *controller;
