@@ -891,6 +891,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_ime_mode_legacy_defaults_and_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("default_ime_mode");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.default_ime_mode,
+            DefaultImeMode::Chinese
+        );
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["default_ime_mode"] = "english".into();
+        let saved = store
+            .save(0, serde_json::from_value(value).unwrap())
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.default_ime_mode,
+            DefaultImeMode::English
+        );
+        assert_eq!(saved.preferences.default_ime_mode, DefaultImeMode::English);
+    }
+
+    #[test]
     fn local_mode_defaults_and_each_switch_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
