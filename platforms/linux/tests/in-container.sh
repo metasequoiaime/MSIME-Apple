@@ -22,6 +22,7 @@ rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 test -x /build/stage/usr/local/bin/msime-client-ibus
 test -x /build/stage/usr/local/bin/msime-client-dictionary
+test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-client-voice
 test -f /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
