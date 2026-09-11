@@ -1561,6 +1561,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (enabled != s.input_enabled) {
+      s.invalidate_providers();
       if (!enabled && s.session)
         apply(engine,
               msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
@@ -1680,7 +1681,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   guarded(engine, "process_key", [&] {
     s.open();
     if (mode_toggle) {
+      s.invalidate_providers();
       s.input_enabled = !s.input_enabled;
+      s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
       clear(engine);
