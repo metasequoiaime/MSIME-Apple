@@ -1,0 +1,45 @@
+cmake_minimum_required(VERSION 3.25)
+
+# The TSF tip is an in-process DLL.  It is intentionally a separate target
+# from the out-of-process Windows Server.
+if(NOT WIN32)
+  return()
+endif()
+
+add_library(msime-tsf SHARED
+  Candidate/EnumTfCandidates.cpp Candidate/SearchCandidateProvider.cpp
+  Candidate/TipCandidateList.cpp Candidate/TipCandidateString.cpp
+  Compartment/Compartment.cpp
+  Composition/Composition.cpp Composition/CompositionProcessorEngine.cpp
+  Composition/EndComposition.cpp Composition/StartComposition.cpp
+  DisplayAttribute/DisplayAttribute.cpp DisplayAttribute/DisplayAttributeInfo.cpp
+  DisplayAttribute/DisplayAttributeProvider.cpp DisplayAttribute/EnumDisplayAttributeInfo.cpp
+  Edit/EditSession.cpp Edit/GetTextExtentEditSession.cpp Edit/TextEditSink.cpp
+  Global/Globals.cpp
+  IME/ActiveLanguageProfileNotifySink.cpp IME/FunctionProviderSink.cpp
+  IME/MetasequoiaIME.cpp IME/MetasequoiaIMEBaseStructure.cpp
+  IPC/Ipc.cpp
+  Key/KeyEventSink.cpp Key/KeyHandler.cpp Key/KeyHandlerEditSession.cpp
+  Key/KeyStateCategory.cpp
+  LanguageBar/LanguageBar.cpp
+  Register/Register.cpp Register/RegKey.cpp
+  Tf/TfInputProcessorProfile.cpp Tf/TfTextLayoutSink.cpp
+  Thread/ThreadFocusSink.cpp Thread/ThreadMgrEventSink.cpp
+  UI/CandidateSessionState.cpp UI/CandidateListUIPresenter.cpp
+  Utils/CommonUtils.cpp Utils/FanyUtils.cpp
+  DllMain.cpp Server.cpp
+  IME/MetasequoiaIME.rc
+)
+
+target_include_directories(msime-tsf PRIVATE
+  . Candidate Compartment Composition DisplayAttribute Edit FanyLog Global
+  Header IME IPC Key LanguageBar Register Tf Thread UI Utils
+  ../../../vendor/MSIME-Engine/contracts
+)
+target_compile_features(msime-tsf PRIVATE cxx_std_17)
+target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
+target_link_libraries(msime-tsf PRIVATE ole32 oleaut32 user32 advapi32 msctf)
+set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
+if(MSVC)
+  target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
+endif()
