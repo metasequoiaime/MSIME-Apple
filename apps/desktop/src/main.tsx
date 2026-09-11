@@ -27,8 +27,17 @@ const client: SettingsClient = {
   dictionary,
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: EmojiPanelClient } = {
-  keyboard: { close: () => invoke("close_panel", { label: "keyboard-panel" }) },
-  handwriting: { close: () => invoke("close_panel", { label: "handwriting-panel" }) },
+  keyboard: {
+    close: () => invoke("close_panel", { label: "keyboard-panel" }),
+    rememberInputTarget: () => invoke("remember_input_target"),
+    sendKey: request => invoke("send_key", { request }),
+  },
+  handwriting: {
+    close: () => invoke("close_panel", { label: "handwriting-panel" }),
+    rememberInputTarget: () => invoke("remember_input_target"),
+    recognizeHandwriting: request => invoke("recognize_handwriting", { request }),
+    submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
+  },
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), copyText: text => invoke("copy_text", { text }), clipboard: {
     list: () => invoke<string[]>("list_clipboard_history"),
     sync: () => invoke<string[]>("sync_clipboard_history"),
