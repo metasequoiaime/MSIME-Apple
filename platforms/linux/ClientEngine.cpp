@@ -1744,6 +1744,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     case IBUS_KP_End:
       command = MSIME_MOVE_END;
       break;
+    case IBUS_Page_Up:
+    case IBUS_KP_Page_Up:
+      command = MSIME_PREVIOUS_PAGE;
+      break;
+    case IBUS_Page_Down:
+    case IBUS_KP_Page_Down:
+      command = MSIME_NEXT_PAGE;
+      break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
       command = MSIME_DELETE_FORWARD;
