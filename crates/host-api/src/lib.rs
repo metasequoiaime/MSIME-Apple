@@ -753,6 +753,38 @@ pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize
 }
 
 #[no_mangle]
+pub extern "C" fn msime_client_pin_candidate(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::PinCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_remove_candidate(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::RemoveCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
+#[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
