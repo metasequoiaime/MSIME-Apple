@@ -18,6 +18,9 @@ use std::thread::{self, JoinHandle};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
+/// Windows cloud-candidate settle delay, matching the native Server behavior.
+pub const WINDOWS_CLOUD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("candidate page size must be between 1 and 9")]
@@ -876,6 +879,10 @@ mod tests {
 
     #[test]
     fn cloud_request_requires_eligible_query() {
+        assert_eq!(
+            WINDOWS_CLOUD_DEBOUNCE,
+            std::time::Duration::from_millis(500)
+        );
         let mut query = OnlineQuery {
             scheme: 0,
             generation: 1,
