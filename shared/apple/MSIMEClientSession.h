@@ -7,6 +7,7 @@ typedef NSDictionary *_Nullable (^MSIMESnapshotNextRecord)(NSError *_Nullable *e
 /// Foundation adapter for macOS input controllers and iOS keyboard extensions.
 /// Construct and use on the main thread. No Tauri process is required.
 @interface MSIMEClientSession : NSObject
+FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification;
 /// The validated creation options, copied for native maintenance UI; never mutable by callers.
 @property(nonatomic, readonly) NSDictionary<NSString *, id> *hostOptions;
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
