@@ -415,6 +415,49 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
         }
     }
 
+    // Prefer the shared Engine session when it is available.  Keep the legacy
+    // processor as a compatibility fallback for profiles which could not
+    // initialise the host session.
+    if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        std::string raw;
+        std::string error;
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (host->character(static_cast<uint8_t>(wch & 0xff), shift, &raw, &error))
+        {
+            msime::tsf::EngineResult result;
+            if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
+            {
+                auto utf8ToWide = [](const std::string &value) {
+                    if (value.empty()) return std::wstring();
+                    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                         static_cast<int>(value.size()), nullptr, 0);
+                    if (size <= 0) return std::wstring();
+                    std::wstring output(static_cast<size_t>(size), L'\0');
+                    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                        static_cast<int>(value.size()), output.data(), size);
+                    return output;
+                };
+                const std::wstring preedit = utf8ToWide(result.view.preedit);
+                CStringRange rendered;
+                rendered.Set(preedit.c_str(), preedit.size());
+                if (!preedit.empty())
+                    workerResult = _AddComposingAndChar(ec, pContext, &rendered);
+                else if (_pComposition)
+                    workerResult = _HandleCompositionFinalize(ec, pContext, FALSE);
+                if (SUCCEEDED(workerResult) && result.has_commit && !result.commit.empty())
+                {
+                    CStringRange commit;
+                    const std::wstring text = utf8ToWide(result.commit);
+                    commit.Set(text.c_str(), text.size());
+                    workerResult = _AddCharAndFinalize(ec, pContext, &commit);
+                }
+                if (SUCCEEDED(workerResult))
+                    goto Exit;
+            }
+        }
+    }
+
     // Add virtual key to composition processor engine
     const DWORD_PTR previousLength = pCompositionProcessorEngine->GetVirtualKeyLength();
     if (pCompositionProcessorEngine->AddVirtualKey(wch) &&
