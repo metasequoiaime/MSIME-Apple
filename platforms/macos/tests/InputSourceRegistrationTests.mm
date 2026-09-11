@@ -69,28 +69,28 @@ int main()
         const char *registrationArguments[] = {"MetasequoiaIME", "--register-input-source"};
         const char *ordinaryArguments[] = {"MetasequoiaIME"};
         const char *unknownArguments[] = {"MetasequoiaIME", "--unknown"};
-        require(MetasequoiaShouldRegisterInputSource(2, registrationArguments),
+        require(MSIMEShouldRegisterInputSource(2, registrationArguments),
                 "The registration command was not recognized.");
-        require(!MetasequoiaShouldRegisterInputSource(1, ordinaryArguments),
+        require(!MSIMEShouldRegisterInputSource(1, ordinaryArguments),
                 "Ordinary InputMethodKit startup was treated as registration.");
-        require(!MetasequoiaShouldRegisterInputSource(2, unknownArguments),
+        require(!MSIMEShouldRegisterInputSource(2, unknownArguments),
                 "An unknown command was treated as registration.");
 
         NSURL *bundleURL = [NSURL fileURLWithPath:@"/tmp/MetasequoiaIME.app" isDirectory:YES];
-        require(MetasequoiaRegisterInputSource(bundleURL, CaptureRegistration) == noErr,
+        require(MSIMERegisterInputSource(bundleURL, CaptureRegistration) == noErr,
                 "A successful registration callback was reported as failed.");
         require([registeredURL isEqual:bundleURL], "Registration did not receive the installed bundle URL.");
-        require(MetasequoiaRegisterInputSource(bundleURL, RejectRegistration) == -50,
+        require(MSIMERegisterInputSource(bundleURL, RejectRegistration) == -50,
                 "A registration callback failure was not preserved.");
-        require(MetasequoiaRegisterInputSource(nil, CaptureRegistration) == paramErr,
+        require(MSIMERegisterInputSource(nil, CaptureRegistration) == paramErr,
                 "A missing bundle URL was accepted.");
-        require(MetasequoiaRegisterInputSource(bundleURL, nullptr) == paramErr,
+        require(MSIMERegisterInputSource(bundleURL, nullptr) == paramErr,
                 "A missing registration callback was accepted.");
 
         const void *sources[] = {parentSource, modeSource};
         sourceList = CFArrayCreate(nullptr, sources, 2, nullptr);
         NSString *bundleIdentifier = @"com.houko.inputmethod.MetasequoiaIME";
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "A registered input method was not enabled.");
@@ -101,7 +101,7 @@ int main()
 
         enabledSources.clear();
         rejectedSource = modeSource;
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == -50,
                 "An input source enable failure was not preserved.");
@@ -109,7 +109,7 @@ int main()
 
         CFRelease(sourceList);
         sourceList = CFArrayCreate(nullptr, nullptr, 0, nullptr);
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == fnfErr,
                 "A registration with no discoverable input sources was accepted.");
@@ -119,7 +119,7 @@ int main()
         const void *modeOnlySources[] = {modeSource};
         sourceList = CFArrayCreate(nullptr, modeOnlySources, 1, nullptr);
         enabledSources.clear();
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == fnfErr,
                 "An input mode without its enabled parent was accepted.");
@@ -127,14 +127,14 @@ int main()
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, RejectRegistration,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, RejectRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == -50,
                 "A registration failure was not returned before discovery.");
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, nil, CaptureRegistration, CopyInputSources,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, nil, CaptureRegistration, CopyInputSources,
                                                          GetInputSourceProperty, EnableInputSource) == paramErr,
                 "A missing bundle identifier was accepted.");
-        require(MetasequoiaRegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration, nullptr,
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration, nullptr,
                                                          GetInputSourceProperty, EnableInputSource) == paramErr,
                 "A missing input source lister was accepted.");
     }
