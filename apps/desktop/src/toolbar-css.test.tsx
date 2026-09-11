@@ -3,14 +3,38 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useToolbarCss } from "../../../packages/ui/src/use-toolbar-css";
 import { installToolbarCss } from "../../../packages/ui/src/skin-toolbar-css";
+import { prepareToolbarImages } from "../../../packages/ui/src/toolbar-images";
+import type { SkinImageReader } from "../../../packages/ui/src/skin-image";
 
 // jsdom does not implement CSSScopeRule. The real helper is exercised by the
 // Chromium regression; these tests exercise asynchronous React ownership.
 vi.mock("../../../packages/ui/src/skin-toolbar-css", () => ({ installToolbarCss: vi.fn() }));
+vi.mock("../../../packages/ui/src/toolbar-images", () => ({ prepareToolbarImages: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-function Probe({ read, revision = 0, filename = "toolbar.css" }: { read?: (id: string) => Promise<string | null>; revision?: number; filename?: string | null }) {
-  return <span>{useToolbarCss(read, "sample", filename, revision, "scope")}</span>;
+function Probe({ read, revision = 0, filename = "toolbar.css", readImage }: { read?: (id: string) => Promise<string | null>; revision?: number; filename?: string | null; readImage?: SkinImageReader }) {
+  return <span>{useToolbarCss(read, "sample", filename, revision, "scope", readImage)}</span>;
 }
+test("image preparation uses the same package id and reports partial resources", async () => {
+  const readImage = vi.fn().mockResolvedValue({ contentType: "image/png", bytes: [0] });
+  vi.mocked(prepareToolbarImages).mockImplementation(async (_css, resolve) => {
+    expect(await resolve("images/a.png")).toBe("data:image/png;base64,AA==");
+    return { css: ".prepared {}", partial: true };
+  });
+  vi.mocked(installToolbarCss).mockReturnValue({ remove: vi.fn(), partial: false });
+  const mounted = render(<Probe read={async () => ".source {}"} readImage={readImage} />);
+  await waitFor(() => expect(mounted.container.textContent).toBe("partial"));
+  expect(readImage).toHaveBeenCalledExactlyOnceWith("sample", "images/a.png");
+  expect(installToolbarCss).toHaveBeenCalledWith("scope", ".prepared {}");
+});
+test("unmounted image preparation cannot adopt a late stylesheet", async () => {
+  let finish!: (value: { css: string; partial: boolean }) => void;
+  vi.mocked(prepareToolbarImages).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const mounted = render(<Probe read={async () => ".source {}"} readImage={vi.fn()} />);
+  await waitFor(() => expect(prepareToolbarImages).toHaveBeenCalledTimes(1));
+  mounted.unmount();
+  await act(async () => finish({ css: ".late {}", partial: false }));
+  expect(installToolbarCss).not.toHaveBeenCalled();
+});
 test("loads declared source by id and cleans up on refresh and unmount", async () => {
   const remove = vi.fn();
   vi.mocked(installToolbarCss).mockReturnValue({ remove, partial: false });

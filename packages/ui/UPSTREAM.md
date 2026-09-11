@@ -192,3 +192,20 @@ every depth, without discarding their supported parent rule. The Chromium
 regression now checks declaration order, nested conditions, pseudo-elements,
 scope isolation, nested resource filtering and cleanup. This supersedes the
 earlier nesting limitation, not the remaining resource/font/keyframe limitations.
+
+Toolbar CSS image URLs now resolve against the same validated skin package via
+the existing host image reader, then become bounded image-only data URLs before
+scoped adoption. Repeated relative names share one read; nested declarations
+and conditional groups use the same rewrite path. Remote/absolute/traversal
+references never reach the reader. Failed resources omit only their declaration
+and keep the partial-support notice. Preparation is tied to the card's refresh
+generation, so stale image reads cannot install an old sheet. Per preparation,
+32 unique reads and 16 MiB resolved/expanded content budgets bound fan-out.
+
+Compile `toolbar-images.ts` together with the two stylesheet modules for the
+manual Chromium test (TypeScript also emits `css-image-value.ts`). The regression
+now verifies background data URLs, real image decoding under desktop CSP,
+deduplication, nested references, scope isolation and the read-count limit.
+Image-set, escaped resource syntax, fonts, animation/global rules, imports and
+native-platform visual acceptance remain unfinished; simple image URL support
+does not imply full external stylesheet parity.
