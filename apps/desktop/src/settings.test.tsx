@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import minimizeIcon from "../../../packages/ui/src/assets/minimize.svg";
+import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
+import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
+import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -16,6 +20,38 @@ test("titlebar sits above the shared sidebar and content body", async () => {
   expect(body.previousElementSibling).toBe(screen.getByRole("banner", { name: "窗口控制" }));
   expect(screen.getByRole("button", { name: "关闭" }).classList.contains("window-close")).toBe(true);
   expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
+});
+
+test("window SVGs follow host state and retain accessible controls", async () => {
+  let publish: (maximized: boolean) => void = () => {};
+  const windowControl = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl,
+    onWindowStateChanged: async listener => { publish = listener; return () => {}; } }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  function icon(label: string, source: string) {
+    const button = screen.getByRole("button", { name: label });
+    const img = button.querySelector("img")!;
+    expect(img).not.toBeNull();
+    expect(img.getAttribute("src")).toBe(source);
+    expect(img.alt).toBe("");
+    expect(img.draggable).toBe(false);
+    expect(img.className).toBe("window-icon");
+    expect(button.textContent).toBe("");
+    return button;
+  }
+  fireEvent.click(icon("最小化", minimizeIcon));
+  expect(windowControl).toHaveBeenLastCalledWith("minimize");
+  fireEvent.click(icon("最大化", maximizeIcon));
+  expect(windowControl).toHaveBeenLastCalledWith("maximize");
+  act(() => publish(true));
+  expect(screen.queryByRole("button", { name: "最大化" })).toBeNull();
+  fireEvent.click(icon("还原", restoreIcon));
+  expect(windowControl).toHaveBeenLastCalledWith("restore");
+  act(() => publish(false));
+  expect(screen.queryByRole("button", { name: "还原" })).toBeNull();
+  icon("最大化", maximizeIcon);
+  fireEvent.click(icon("关闭", closeIcon));
+  expect(windowControl).toHaveBeenLastCalledWith("close");
 });
 
 test("resize starts on edge press, not pointer movement", async () => {

@@ -46,3 +46,15 @@ test("close interaction and keyboard focus keep dedicated styles", () => {
   expect(declarations(styles, ".window-controls .window-close:active").getPropertyValue("background")).toBe("rgb(167, 34, 22)");
   expect(declarations(styles, ".window-controls button:focus-visible").getPropertyValue("outline-offset")).toBe("-3px");
 });
+
+test("window SVGs retain upstream sizing and light-theme contrast", () => {
+  const icon = declarations(styles, ".window-icon");
+  expect(icon.getPropertyValue("width")).toBe("9px");
+  expect(icon.getPropertyValue("height")).toBe("10px");
+  expect(icon.getPropertyValue("object-fit")).toBe("contain");
+  expect(icon.getPropertyValue("pointer-events")).toBe("none");
+  expect(declarations(styles, 'html[data-theme="light"] .window-icon').getPropertyValue("filter"))
+    .toBe("invert(1) brightness(0.2)");
+  expect(declarations(styles, 'html[data-theme="light"] .window-close:hover .window-icon, html[data-theme="light"] .window-close:active .window-icon')
+    .getPropertyValue("filter")).toBe("none");
+});

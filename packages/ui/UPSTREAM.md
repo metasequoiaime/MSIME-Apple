@@ -47,3 +47,10 @@ The dedicated skin category follows `src/partials/skin.html` at the same pinned
 commit. The four built-in theme cards retain the shared `candidate_skin` values;
 the compact candidate previews are CSS adaptations for the React settings page.
 External skin directory scanning and live preview asset loading remain pending.
+
+Window control icons (`src/assets/minimize.svg`, `maximize.svg`, `restore.svg`,
+and `close.svg`) come from the upstream settings `public/assets/` directory at
+`develop` commit `04a8df56f86312474a069f4335a1b58da7afaa9e` (GPL-3.0), with only
+a final newline added. Dimensions and light-theme filters follow that commit's
+`src/styles/components/titlebar.css`. Maximize/restore icons follow the injected
+host state subscription; native behavior and full visual parity remain unverified.

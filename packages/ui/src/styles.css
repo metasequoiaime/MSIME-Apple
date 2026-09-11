@@ -347,3 +347,13 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .window-controls .window-close:hover { background: #c42b1c; color: #fff; }
 .window-controls .window-close:active { background: #a72216; color: #fff; }
 .window-controls button:focus-visible { outline-offset: -3px; }
+.window-icon {
+  width: 9px;
+  height: 10px;
+  display: block;
+  pointer-events: none;
+  object-fit: contain;
+}
+html[data-theme="light"] .window-icon { filter: invert(1) brightness(0.2); }
+html[data-theme="light"] .window-close:hover .window-icon,
+html[data-theme="light"] .window-close:active .window-icon { filter: none; }
