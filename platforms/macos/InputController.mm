@@ -171,6 +171,14 @@
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
         width = MAX(width, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 28);
     }
+    if (!vertical) {
+        width = 20;
+        index = 0;
+        for (NSDictionary *candidate in candidates) {
+            NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
+            width += MIN(180, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 12);
+        }
+    }
     width = MIN(width, MAX(80, visible.size.width - 20));
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
