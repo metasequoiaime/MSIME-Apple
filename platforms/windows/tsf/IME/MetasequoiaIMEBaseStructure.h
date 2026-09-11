@@ -241,11 +241,18 @@ struct CCandidateListItem
 {
     CStringRange _ItemString;
     CStringRange _FindKeyCode;
+    // Identity supplied by the shared Engine.  The legacy TSF presenter still
+    // renders the strings, while selection can now preserve generation/index
+    // across UI events without reconstructing identity from display text.
+    uint64_t _EngineGeneration = 0;
+    uint32_t _EngineIndex = 0;
 
     CCandidateListItem &CCandidateListItem::operator=(const CCandidateListItem &rhs)
     {
         _ItemString = rhs._ItemString;   // e.g. 你好
         _FindKeyCode = rhs._FindKeyCode; // e.g. nihao
+        _EngineGeneration = rhs._EngineGeneration;
+        _EngineIndex = rhs._EngineIndex;
         return *this;
     }
 };
