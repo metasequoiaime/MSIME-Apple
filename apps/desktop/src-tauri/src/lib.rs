@@ -155,6 +155,29 @@ fn open_panel_window(
 
 #[tauri::command]
 fn open_keyboard_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        let executable = std::env::var_os("MSIME_CLIENT_KEYBOARD_PANEL")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::current_exe().ok().and_then(|path| {
+                    path.parent()
+                        .map(|parent| parent.join("msime-client-keyboard-panel.exe"))
+                })
+            })
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        std::process::Command::new(executable)
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
     open_panel_window(
         &app,
         "keyboard-panel",
