@@ -76,3 +76,10 @@ omits repeated `realContainer` IDs and unused hidden candidates 7–9. Scoped
 layout CSS comes from `src/styles/modules/candidate/style-h.css` and `style-v.css`;
 the vertical preview is constrained to the card width. Detailed skin-specific
 decoration, toolbar previews and native visual validation remain outstanding.
+
+`src/skin-candidate-decorations.css` now ports the 32 non-palette candidate
+decoration rules from the same pinned settings `src/styles/modules/skin.css`
+(GPL-3.0). Selectors map skin/theme classes onto the shared card and its preview
+appearance attribute; declaration bodies remain unchanged. This includes
+WeChat selected text, Graphite selected contrast and Willow full-row treatment.
+Toolbar previews and native visual validation remain outstanding.
