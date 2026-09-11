@@ -478,6 +478,7 @@ fn is_allowed_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::validate_update_metadata;
     use super::{compare_versions, is_allowed_external_url, is_valid_version};
 
     #[test]
@@ -510,6 +511,28 @@ mod tests {
         assert!(!is_allowed_external_url(
             "https://github.com/metasequoiaime/MSIME-Client&bad"
         ));
+    }
+
+    #[test]
+    fn update_metadata_accepts_release_pipeline_shape() {
+        let value = serde_json::json!({
+            "installerName": "MetasequoiaIME_Setup_v1.2.3.exe",
+            "installerSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "signed": true
+        });
+        assert!(validate_update_metadata(&value).is_ok());
+    }
+
+    #[test]
+    fn update_metadata_rejects_tampered_optional_fields() {
+        for (key, value) in [
+            ("installerName", serde_json::json!("setup.exe")),
+            ("installerSha256", serde_json::json!("not-a-digest")),
+            ("signed", serde_json::json!("yes")),
+        ] {
+            let value = serde_json::json!({ key: value });
+            assert!(validate_update_metadata(&value).is_err(), "{key}");
+        }
     }
 }
 
