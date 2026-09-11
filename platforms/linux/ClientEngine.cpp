@@ -69,6 +69,7 @@ struct State {
   bool preferences_loading = false;
   std::string online_provider_socket;
   bool online_loading = false;
+  bool translation_loading = false;
   std::string clipboard_history_path;
   std::vector<std::string> clipboard_items_cache;
   uint64_t clipboard_generation = 0;
@@ -83,6 +84,7 @@ struct State {
     session = 0;
     view = nullptr;
     online_loading = false;
+    translation_loading = false;
     clipboard_loading = false;
     clipboard_loaded = false;
     clipboard_items_cache.clear();
@@ -310,6 +312,35 @@ struct OnlineTask {
   std::string query;
   std::string socket;
 };
+struct TranslationTask {
+  uint64_t session;
+  std::string query;
+  std::string socket;
+};
+bool apply(IBusEngine *engine, char *raw);
+void translation_complete(GObject *source, GAsyncResult *result, gpointer);
+void translation_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.online_provider_socket.empty() || s.translation_loading || !s.session ||
+      !s.focused || s.blocked || !s.view.value("candidates", Json::array()).size())
+    return;
+  try {
+    auto query = response(msime_client_translation_query(s.session));
+    if (query.is_null() || !query.is_object()) return;
+    auto *task_data = new TranslationTask{s.session, query.dump(), s.online_provider_socket};
+    s.translation_loading = true;
+    auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
+    g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
+    g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+      auto &request = *static_cast<TranslationTask *>(data);
+      auto *raw = msime_client_translation_provider_request(
+          reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
+          reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
+      g_task_return_pointer(task, raw, [](gpointer value) { msime_client_string_free(static_cast<char *>(value)); });
+    });
+    g_object_unref(task);
+  } catch (...) { s.translation_loading = false; }
+}
 void online_complete(GObject *source, GAsyncResult *result, gpointer);
 void online_schedule(IBusEngine *engine) {
   auto &s = state(engine);
@@ -850,7 +881,28 @@ bool apply(IBusEngine *engine, char *raw) {
   state(engine).view = result.at("view");
   render(engine, state(engine).view);
   online_schedule(engine);
+  translation_schedule(engine);
   return result.at("handled").get<bool>();
+}
+
+void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
+  auto *engine = IBUS_ENGINE(source);
+  auto &s = state(engine);
+  auto *request = static_cast<TranslationTask *>(g_task_get_task_data(G_TASK(result)));
+  s.translation_loading = false;
+  auto *raw = g_task_propagate_pointer(G_TASK(result), nullptr);
+  if (!raw || !request || s.session != request->session || !s.focused) return;
+  try {
+    auto reply = response(static_cast<char *>(raw));
+    if (reply.is_null() || !reply.is_object() || !reply.contains("translations")) return;
+    auto query = Json::parse(request->query);
+    const auto generation = query.at("generation").get<uint64_t>();
+    auto encoded = reply.at("translations").dump();
+    s.translation_loading = true;
+    apply(engine, msime_client_apply_translations(
+        s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    s.translation_loading = false;
+  } catch (...) { g_warning("MSIME translation provider result rejected"); }
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto *engine = IBUS_ENGINE(source);
