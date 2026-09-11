@@ -6,5 +6,6 @@ pub mod dictionary_access;
 mod file_lock;
 pub mod preferences;
 pub mod resources;
+pub mod skin_catalog;
 pub mod translation;
 pub mod voice;
