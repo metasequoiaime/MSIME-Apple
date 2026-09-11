@@ -55,6 +55,33 @@ pub fn tencent_tc3_authorization(
     format!("TC3-HMAC-SHA256 Credential={secret_id}/{scope}, SignedHeaders=content-type;host;x-tc-action, Signature={signature}")
 }
 
+pub fn tencent_tmt_headers(
+    region: &str,
+    timestamp: i64,
+    authorization: &str,
+) -> Vec<(String, String)> {
+    vec![
+        (
+            "Content-Type".into(),
+            "application/json; charset=utf-8".into(),
+        ),
+        ("Host".into(), "tmt.tencentcloudapi.com".into()),
+        ("X-TC-Action".into(), "TextTranslateBatch".into()),
+        ("X-TC-Timestamp".into(), timestamp.to_string()),
+        ("X-TC-Version".into(), "2018-03-21".into()),
+        (
+            "X-TC-Region".into(),
+            if region.is_empty() {
+                "ap-guangzhou"
+            } else {
+                region
+            }
+            .into(),
+        ),
+        ("Authorization".into(), authorization.into()),
+    ]
+}
+
 pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
     if source.is_empty()
         || target.is_empty()
