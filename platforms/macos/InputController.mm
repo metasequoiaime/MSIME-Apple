@@ -166,6 +166,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [menu addItem:dictionary];
     NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
     NSMenuItem *clipboard = [[NSMenuItem alloc] initWithTitle:@"云剪贴板…" action:@selector(showCloudClipboard:) keyEquivalent:@""]; clipboard.target = self; [menu addItem:clipboard];
+    NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""]; handwriting.target = self; [menu addItem:handwriting];
     NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
     prepare.target = self;
     [menu addItem:prepare];
@@ -197,6 +198,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
         [self showAccount:sender];
     }
+}
+- (void)showHandwriting:(id)sender {
+    (void)sender;
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
+    [shared performSelector:@selector(showHandwriting)];
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
