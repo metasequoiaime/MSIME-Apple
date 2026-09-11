@@ -18,9 +18,9 @@ int main()
     assert(FrequencyAdjustmentModeOptionIndex("promote") == 3);
     assert(std::strcmp(FrequencyAdjustmentModeForOptionIndex(0), "pin") == 0);
     assert(std::strcmp(FrequencyAdjustmentModeForOptionIndex(99), "promote") == 0);
-    assert(EngineFrequencyOptions(false, "pin", 3, 4).mode == FrequencyAdjustmentMode::Disabled);
+    assert(EngineFrequencyOptions(false, "pin", 3, 4).mode == metasequoia::FrequencyAdjustmentMode::Disabled);
     const auto options = EngineFrequencyOptions(true, "linear", 3, 4);
-    assert(options.mode == FrequencyAdjustmentMode::Linear);
+    assert(options.mode == metasequoia::FrequencyAdjustmentMode::Linear);
     assert(options.trigger_count == 3 && options.linear_step == 4);
     return 0;
 }
