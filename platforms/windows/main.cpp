@@ -116,7 +116,9 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidateClick &click) { (void)clicks.submit(click); });
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    FloatingToolbarWindow toolbar([&] { return server.mode_view(); });
+    FloatingToolbarWindow toolbar(
+        [&] { return server.mode_view(); },
+        [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&

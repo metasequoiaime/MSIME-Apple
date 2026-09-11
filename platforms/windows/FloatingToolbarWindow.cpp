@@ -13,9 +13,9 @@ bool same(const FocusLease &a, const FocusLease &b) {
 }
 } // namespace
 
-FloatingToolbarWindow::FloatingToolbarWindow(Reader reader)
-    : reader_(std::move(reader)) {
-  if (!reader_) throw std::invalid_argument("Missing toolbar callback");
+FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
+    : reader_(std::move(reader)), click_(std::move(click)) {
+  if (!reader_ || !click_) throw std::invalid_argument("Missing toolbar callback");
   WNDCLASSEXW type{};
   type.cbSize = sizeof(type);
   type.lpfnWndProc = procedure;
@@ -88,6 +88,18 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       ReleaseCapture();
       SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
       return 0;
+    case WM_LBUTTONUP: {
+      const auto value = self->reader_();
+      const int x = GET_X_LPARAM(l);
+      if (value && x >= 8 && x < 296) {
+        const int slot = (x - 8) / 72;
+        const WorkerMode modes[] = {WorkerMode::Chinese,
+                                    WorkerMode::ChinesePunctuation,
+                                    WorkerMode::Fullwidth};
+        if (slot < 3) self->click_(ModeClick{value->lease, modes[slot]});
+      }
+      return 0;
+    }
     case WM_NCLBUTTONDOWN:
       if (w == HTCLIENT || w == HTCAPTION) {
         ReleaseCapture();
