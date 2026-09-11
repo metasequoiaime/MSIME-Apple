@@ -5,6 +5,8 @@
 
 namespace msime {
 struct EngineOptions;
+struct DictionaryRevision;
+void hash_dictionary_state(const EngineOptions& options, DictionaryRevision& sink);
 struct EngineSnapshot;
 struct EngineResult;
 struct OnlineQuerySnapshot;

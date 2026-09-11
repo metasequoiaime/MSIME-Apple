@@ -1,7 +1,9 @@
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
+#include <metasequoia/dictionary_state.h>
 #include <stdexcept>
+#include <type_traits>
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_set>
@@ -103,6 +105,33 @@ EngineSession::EngineSession(const EngineOptions& options) : session_(options_fo
     shuangpin_profile_(options_for(options).shuangpin_profile.name) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
+}
+// Framing matches Apple DictionaryStateRevision at 2b0250f4dd7012520392b310dfcc0288c3208a75.
+void hash_dictionary_state(const EngineOptions& options, DictionaryRevision& sink) {
+    metasequoia::stream_dictionary_state(paths_for(options), [&](const metasequoia::DictionaryStateRecord& record) {
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, metasequoia::DictionaryStateEntry>) {
+                sink.text("entry");
+                switch (value.kind) {
+                case metasequoia::PersonalDictionaryKind::Pinyin: sink.text("pinyin"); break;
+                case metasequoia::PersonalDictionaryKind::Wubi: sink.text("wubi"); break;
+                case metasequoia::PersonalDictionaryKind::QuickPhrase: sink.text("quick"); break;
+                case metasequoia::PersonalDictionaryKind::English: sink.text("english"); break;
+                }
+                sink.text(value.key); sink.text(value.value);
+                sink.integer(static_cast<std::uint64_t>(value.weight));
+                sink.text(value.display); sink.integer(value.deleted); sink.integer(value.user_inserted);
+            } else {
+                if constexpr (std::is_same_v<T, metasequoia::DictionaryStatePosition>) sink.text("position");
+                else sink.text("selection");
+                sink.text(value.context); sink.text(value.key); sink.text(value.value);
+                if constexpr (std::is_same_v<T, metasequoia::DictionaryStatePosition>) sink.integer(value.position);
+                else sink.integer(value.count);
+            }
+        }, record);
+        return true;
+    });
 }
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit) {
     auto page = metasequoia::personal_dictionary_entries(paths_for(options), offset, limit);
