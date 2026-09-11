@@ -1,10 +1,48 @@
 //! Safe, host-independent contract for the Windows cloud-candidate service.
 
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 const MAX_INPUT: usize = 256;
 const MAX_RESPONSE: usize = 256 * 1024;
 const MAX_CANDIDATE: usize = 512;
+const MAX_CACHE_ENTRIES: usize = 4096;
+
+#[derive(Debug)]
+pub struct TranslationCache {
+    positive: HashMap<String, (String, Instant)>,
+    negative: HashMap<String, Instant>,
+    negative_ttl: Duration,
+}
+
+impl TranslationCache {
+    pub fn new(negative_ttl: Duration) -> Self {
+        Self { positive: HashMap::new(), negative: HashMap::new(), negative_ttl }
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<Option<String>> {
+        if let Some((value, _)) = self.positive.get(key) {
+            return Some(Some(value.clone()));
+        }
+        if let Some(expires) = self.negative.get(key).copied() {
+            if expires > Instant::now() { return Some(None); }
+            self.negative.remove(key);
+        }
+        None
+    }
+
+    pub fn remember(&mut self, key: String, value: Option<String>) {
+        if self.positive.len() + self.negative.len() >= MAX_CACHE_ENTRIES {
+            self.positive.clear();
+            self.negative.clear();
+        }
+        match value {
+            Some(value) => { self.positive.insert(key, (value, Instant::now())); }
+            None => { self.negative.insert(key, Instant::now() + self.negative_ttl); }
+        }
+    }
+}
 
 /// Host-side orchestration state for debounced cloud requests. Network I/O stays injected.
 #[derive(Debug, Default)]
