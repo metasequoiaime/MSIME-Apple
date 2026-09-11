@@ -251,7 +251,7 @@ mod tests {
             previous: None,
             replacement: None,
         };
-        assert!(validate_change_page(1, &[change.clone()], 3, true));
+        assert!(validate_change_page(1, std::slice::from_ref(&change), 3, true));
         assert!(!validate_change_page(3, &[change], 3, false));
         assert!(!validate_change_page(1, &[], 1, true));
     }

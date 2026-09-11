@@ -954,6 +954,10 @@ pub unsafe extern "C" fn msime_client_translation_provider_request(
 /// Query a user-owned Linux handwriting recognizer over a Unix socket.
 /// The request is a bounded JSON HandwritingQuery; the response is
 /// `{candidates:[...]}` or null when the recognizer is unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_handwriting_provider_request(
@@ -989,6 +993,10 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
 
 /// Query a user-owned Linux emoji catalog over a Unix socket.
 /// The response is `{items:[{text,annotation}]}` or null when unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_emoji_provider_request(
