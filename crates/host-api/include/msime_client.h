@@ -154,6 +154,12 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
+/* Query the verified local others.db Emoji catalog. Resources is an absolute
+ * generation directory containing others.db; no provider socket is needed. */
+char *msime_client_emoji_catalog_request(const uint8_t *query,
+                                         size_t query_length,
+                                         const uint8_t *resources,
+                                         size_t resources_length);
 /* Linux voice adapter. The user-owned socket captures audio and runs ASR,
  * returning {text}; the query contains language and the active generation. */
 char *msime_client_voice_provider_request(const uint8_t *query,

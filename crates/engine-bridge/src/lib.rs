@@ -86,6 +86,11 @@ mod ffi {
         pub ai_eligible: bool,
         pub session_id: u64,
     }
+    #[derive(Debug)]
+    pub struct EmojiCatalogItem {
+        pub text: String,
+        pub annotation: String,
+    }
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
@@ -115,6 +120,12 @@ mod ffi {
             candidate: &str,
             source: u8,
         ) -> Result<bool>;
+        fn emoji_catalog(
+            resources: &str,
+            search: &str,
+            category: &str,
+            limit: u8,
+        ) -> Result<Vec<EmojiCatalogItem>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
@@ -143,7 +154,7 @@ mod ffi {
 
 pub use ffi::{
     DictionaryEntry, DictionaryKind, DictionaryPage, EngineOptions, EngineResult,
-    EngineSnapshot, OnlineQuerySnapshot,
+    EmojiCatalogItem, EngineSnapshot, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -180,6 +191,15 @@ pub fn prepare_options(
     content_id: &str,
 ) -> Result<EngineOptions, cxx::Exception> {
     ffi::prepare_options(resources, user_data, cache, content_id)
+}
+
+pub fn emoji_catalog(
+    resources: &str,
+    search: &str,
+    category: &str,
+    limit: u8,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog(resources, search, category, limit)
 }
 
 #[derive(Clone, Copy)]
