@@ -9,7 +9,13 @@ bool EngineSessionAdapter::response(char *raw, std::string *out,
   std::string text(raw); msime_client_string_free(raw);
   try {
     auto value = json::parse(text);
-    if (!value.value("ok", false)) { if (error) *error = text; return false; }
+    if (!value.value("ok", false)) {
+      if (error) {
+        const auto code = value.value("error", "Engine request failed");
+        *error = code.size() > 256 ? "Engine request failed" : code;
+      }
+      return false;
+    }
     if (out) *out = std::move(text);
     return true;
   } catch (...) { if (error) *error = "Invalid Engine response"; return false; }
@@ -65,6 +71,10 @@ bool EngineSessionAdapter::character_width(bool value, std::string *out, std::st
   return response(msime_client_set_character_width(session_, value), out, error);
 }
 bool EngineSessionAdapter::english_mode(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_english_mode(session_, value), out, error);
+}
+bool EngineSessionAdapter::dedicated_english(bool value, std::string *out, std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_set_english_mode(session_, value), out, error);
 }
