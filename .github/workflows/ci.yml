@@ -139,7 +139,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.mac_only != true }}
     # ML Kit ships x86_64 simulator binaries; run them natively instead of under Rosetta.
     runs-on: macos-15-intel
-    timeout-minutes: 120
+    timeout-minutes: 130
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
@@ -169,14 +169,23 @@ jobs:
           pod install --deployment --project-directory=platforms/ios
       - name: Test native iOS keyboard and settings
         # A pull request runs the unit suites and a handful of interface cases; a merge into develop
-        # or main runs everything. The interface suite is 96% of this job -- 45 minutes for 37 cases
+        # or main runs everything. The interface suite is 96% of this step -- 45 minutes for 37 cases
         # against one minute for 111 unit cases -- because each case is a cold launch and a walk
         # through the app on a Simulator that is half the speed of an arm64 one. Paying that on
         # every push made the step time out at 80 minutes; paying it per merge keeps the coverage
         # and takes it off the critical path. Interface regressions surface at merge, not review.
+        #
+        # 80 was the number this used to die at, not a budget the suite fits inside. The last merge
+        # it passed on finished the step in 78m13s: under two minutes of margin, which is noise on a
+        # shared Intel runner. The three merges after it lost the coin flip -- two killed at the cap
+        # mid-suite, and the failures they reported were different cases each time, which is what a
+        # suite cut off partway through looks like rather than a regression. Twenty-five of those
+        # minutes are the test build, before a case has run at all. The job cap is the real ceiling
+        # and it had 35 spare minutes; the step now gets 110, leaving the job 13 beyond its worst
+        # observed run.
         env:
           MSIME_TEST_SCOPE: ${{ github.event_name == 'pull_request' && 'pr' || 'all' }}
-        timeout-minutes: 80
+        timeout-minutes: 110
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
