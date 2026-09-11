@@ -449,8 +449,8 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
-  expect((screen.getByRole("radio", { name: /Fluent/ }) as HTMLInputElement).checked).toBe(true);
-  fireEvent.click(screen.getByRole("radio", { name: /微信绿/ }));
+  expect(screen.getByRole("switch", { name: /Fluent/ }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
@@ -467,13 +467,13 @@ test("skin preview switches are independent, reversible and do not change saved 
     expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
     fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
     expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
-    expect((screen.getByRole("radio", { name: /Fluent/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("switch", { name: /Fluent/ }).getAttribute("aria-checked")).toBe("true");
     for (const other of cards.filter(item => item !== card))
       expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
     fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
   }
   expect(save).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("radio", { name: /微信绿/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   const wechat = mounted.container.querySelector(".skin-wechat")!.closest("article")!;
   fireEvent.click(within(wechat).getByRole("button", { name: "预览浅色" }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
@@ -508,6 +508,31 @@ test("each skin card includes both six-candidate previews without duplicate IDs"
   expect(mounted.container.querySelectorAll("#realContainer")).toHaveLength(0);
   const ids = Array.from(mounted.container.querySelectorAll("[id]"), element => element.id);
   expect(new Set(ids).size).toBe(ids.length);
+});
+
+test("skin header controls precede previews and always keep one selected skin", async () => {
+  const save = vi.fn();
+  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  const cards = screen.getAllByRole("article");
+  for (const card of cards) {
+    const header = card.querySelector(".skin-card-header")!;
+    expect(header.nextElementSibling).toBe(card.querySelector(".skin-card-preview"));
+    const control = within(card).getByRole("switch");
+    expect(control.tagName).toBe("BUTTON");
+    expect(header.contains(control)).toBe(true);
+    expect(card.querySelectorAll(".skin-preview-stage")).toHaveLength(3);
+    fireEvent.click(control);
+    fireEvent.click(control);
+    expect(control.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByRole("switch").filter(item => item.getAttribute("aria-checked") === "true")).toHaveLength(1);
+    // Static samples cannot select a different skin by clicking their labels.
+    const other = cards.find(item => item !== card)!;
+    fireEvent.click(other.querySelector(".skin-card-preview")!);
+    expect(control.getAttribute("aria-checked")).toBe("true");
+  }
+  expect(save).not.toHaveBeenCalled();
 });
 
 test("floating toolbar settings use Windows defaults and persist independently", async () => {

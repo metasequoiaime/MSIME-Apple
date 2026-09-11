@@ -93,3 +93,10 @@ handlers are included. `src/skin-toolbar-preview.css` adapts the toolbar rules
 from settings `floating-toolbar.css` and `skin.css` to card-local selectors.
 All sources are GPL-3.0. This preview is decorative and does not control the
 real toolbar; native visual parity and external skin support remain unverified.
+
+Skin card arrangement follows the pinned `skin.html` and `skin.css`: one column,
+title and selection/preview actions above three preview stages, with 20px/24px
+header padding and 9px/24px stage padding. Selection uses a native button with
+switch semantics and the upstream 38px/19px toggle geometry. Like upstream
+`bindSkinSwitch`, activating an already-selected skin keeps it selected. Saving
+still uses the shared draft/revision workflow, not immediate WebView2 writes.
