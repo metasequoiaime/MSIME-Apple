@@ -395,11 +395,15 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   s.clipboard_loading = false;
   auto request = static_cast<ClipboardTask *>(
       g_task_get_task_data(G_TASK(result)));
-  if (request->generation != s.clipboard_generation || !s.focused || s.blocked ||
-      request->path != s.clipboard_history_path)
-    return;
+  // Always propagate the task result, including stale completions, so its
+  // destroy notifier releases the worker allocation.
   auto *items = static_cast<std::vector<std::string> *>(
       g_task_propagate_pointer(G_TASK(result), nullptr));
+  if (request->generation != s.clipboard_generation || !s.focused || s.blocked ||
+      request->path != s.clipboard_history_path) {
+    delete items;
+    return;
+  }
   if (!items)
     return;
   s.clipboard_items_cache = std::move(*items);
