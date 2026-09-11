@@ -21,7 +21,7 @@ use tauri::Manager;
 #[cfg(not(target_os = "windows"))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
+struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
 
 #[derive(Clone)]
@@ -910,6 +910,35 @@ fn write_linux_clipboard(text: &str) -> bool {
     write_with(child, text)
 }
 
+#[cfg(target_os = "linux")]
+fn start_linux_clipboard_monitor(
+    history: Arc<Mutex<ClipboardHistoryStore>>,
+    preferences: Arc<PreferencesStore>,
+) {
+    let _ = std::thread::Builder::new()
+        .name("msime-clipboard-monitor".to_owned())
+        .spawn(move || {
+            let mut last_text = None;
+            loop {
+                let enabled = preferences
+                    .load()
+                    .map(|snapshot| snapshot.preferences.clipboard_history)
+                    .unwrap_or(false);
+                if !enabled {
+                    last_text = None;
+                } else if let Ok(text) = linux_clipboard_text() {
+                    if last_text.as_deref() != Some(text.as_str()) {
+                        if let Ok(mut store) = history.lock() {
+                            let _ = store.push(text.clone());
+                        }
+                        last_text = Some(text);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(750));
+            }
+        });
+}
+
 #[tauri::command]
 fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
@@ -1095,8 +1124,12 @@ pub fn run() {
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
-            app.manage(std::sync::Arc::new(PreferencesStore::new(&directory)));
-            app.manage(ClipboardHistoryState(std::sync::Mutex::new(clipboard)));
+            let preferences = Arc::new(PreferencesStore::new(&directory));
+            app.manage(preferences.clone());
+            let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
+            app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
+            #[cfg(target_os = "linux")]
+            start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
