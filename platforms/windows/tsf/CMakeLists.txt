@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
 
+project(MSIMEClientTsf LANGUAGES CXX)
+enable_testing()
+find_package(nlohmann_json 3.11 REQUIRED)
+add_executable(msime-tsf-engine-response-test tests/engine_response.cpp EngineResponse.cpp)
+target_compile_features(msime-tsf-engine-response-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-engine-response-test PRIVATE ../../../crates/host-api/include)
+target_link_libraries(msime-tsf-engine-response-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME msime-tsf-engine-response COMMAND msime-tsf-engine-response-test)
+
 # The TSF tip is an in-process DLL.  It is intentionally a separate target
 # from the out-of-process Windows Server.
 if(NOT WIN32)
@@ -28,7 +37,7 @@ add_library(msime-tsf SHARED
   UI/CandidateSessionState.cpp UI/CandidateListUIPresenter.cpp
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
-  EngineSessionAdapter.cpp EngineSessionAdapter.h
+  EngineSessionAdapter.cpp EngineSessionAdapter.h EngineResponse.cpp
   HostOptionsPaths.cpp HostOptionsPaths.h
   IME/MetasequoiaIME.rc
 )
@@ -41,11 +50,11 @@ target_include_directories(msime-tsf PRIVATE
   Header IME IPC Key LanguageBar Register Tf Thread UI Utils
   ../../../vendor/MSIME-Engine/contracts
   ${UTF8CPP_INCLUDE_DIR}
-  ../../../../crates/host-api/include
+  ../../../crates/host-api/include
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
-target_link_libraries(msime-tsf PRIVATE fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf)
+target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf)
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built msime-host library for the TSF DLL")
 if(MSIME_HOST_LIBRARY)
   target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
@@ -56,13 +65,6 @@ install(TARGETS msime-tsf
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )
-add_executable(msime-tsf-engine-response-test tests/engine_response.cpp
-  EngineSessionAdapter.cpp)
-target_include_directories(msime-tsf-engine-response-test PRIVATE .
-  ../../../../crates/host-api/include)
-target_link_libraries(msime-tsf-engine-response-test PRIVATE nlohmann_json::nlohmann_json)
-add_test(NAME msime-tsf-engine-response
-  COMMAND msime-tsf-engine-response-test)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
   set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
