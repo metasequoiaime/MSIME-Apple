@@ -1658,6 +1658,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    // Apply configured candidate bindings before punctuation can consume them.
+    if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
+        !s.view.at("candidates").empty()) {
+      if (const auto navigation = s.navigation.command(
+              key, (flags & IBUS_SHIFT_MASK) != 0)) {
+        handled = apply(engine, msime_client_command(s.session, *navigation));
+        return;
+      }
+    }
+    // Disabled navigation keys belong to the application, including when a
+    // composition is active. Do not fall through to the generic cancellation.
+    if (msime::linux_host::navigation_key(key))
+      return;
     if (s.chinese_punctuation && s.paired_punctuation &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
         s.view.at("editing_text").get<std::string>().empty() &&
@@ -1743,14 +1756,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     case IBUS_End:
     case IBUS_KP_End:
       command = MSIME_MOVE_END;
-      break;
-    case IBUS_Page_Up:
-    case IBUS_KP_Page_Up:
-      command = MSIME_PREVIOUS_PAGE;
-      break;
-    case IBUS_Page_Down:
-    case IBUS_KP_Page_Down:
-      command = MSIME_NEXT_PAGE;
       break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
