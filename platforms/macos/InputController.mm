@@ -15,6 +15,7 @@
 #include "FullWidthInput.h"
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
+#import "VoiceInputService.h"
 #include "WubiCommitPolicy.h"
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
@@ -40,6 +41,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
+    MSIMEVoiceInputService *_voiceService;
+    uint64_t _voiceGeneration;
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
@@ -178,7 +181,20 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
-- (void)toggleVoiceInput:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; NSDictionary *result = [_session startVoiceWithError:nil]; if (result) [self apply:result]; else [_session cancelVoiceWithError:nil]; }
+- (void)toggleVoiceInput:(id)sender {
+    (void)sender;
+    if (!_session) [self prepareSession];
+    if (!_session) return;
+    if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
+    if (_voiceService.active) { [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; return; }
+    NSError *error = nil;
+    if (![_voiceService startWithSession:_session generation:&_voiceGeneration error:&error]) return;
+    if (![_voiceService startTranscriptionWithLanguage:@"zh-CN" textHandler:^(NSString *text, BOOL final) {
+        (void)final;
+        [_voiceService applyText:text generation:_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [self apply:result]; }];
+    } error:&error]) { [_voiceService cancelWithError:nil]; return; }
+    if (![_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) { (void)buffer; } error:&error]) { [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; }
+}
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
