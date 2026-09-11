@@ -14,8 +14,8 @@ use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, NineKeySpellingId,
-    OnlineQuery, Runtime, Transition, TranslationQuery,
+    AiAssistantProviderConfig, Action, CandidateId, CharacterWidth, EmojiPanelQuery,
+    HandwritingQuery, NineKeySpellingId, OnlineQuery, Runtime, Transition, TranslationQuery,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -959,8 +959,27 @@ pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
 pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
-            serde_json::to_value(session.runtime.online_query().map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())
+            let Some(query) = session.runtime.online_query().map_err(|e| e.to_string())? else {
+                return Ok(Value::Null);
+            };
+            let mut value = serde_json::to_value(query).map_err(|e| e.to_string())?;
+            let ai = &session.applied.ai_assistant;
+            if ai.enabled {
+                value["ai_assistant"] = serde_json::to_value(AiAssistantProviderConfig {
+                    enabled: true,
+                    provider: ai.provider.clone(),
+                    model: ai.model.clone(),
+                    endpoint: ai.endpoint.clone(),
+                    candidate_limit: ai.candidate_limit,
+                    prompt_id: ai.prompt_id.clone(),
+                    prompt: ai.prompt.clone(),
+                    prompt_custom_1: ai.prompt_custom_1.clone(),
+                    prompt_custom_2: ai.prompt_custom_2.clone(),
+                    prompt_custom_3: ai.prompt_custom_3.clone(),
+                })
+                .map_err(|e| e.to_string())?;
+            }
+            Ok(value)
         })
     })
 }
