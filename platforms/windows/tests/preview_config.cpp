@@ -16,6 +16,7 @@ int main() {
                             {"preedit_style", "pinyin"}};
     const auto good = PreviewConfig::parse(document.dump());
     require(good.style == TsfPreeditStyle::Pinyin);
+    require(good.floating_toolbar_enabled);
     require(!good.navigation.minus_equal && !good.navigation.comma_period &&
             !good.navigation.brackets && !good.navigation.tab &&
             !good.navigation.page_up_down && !good.navigation.arrows &&
@@ -68,6 +69,11 @@ int main() {
     document["preedit_style"] = "local";
     require(PreviewConfig::parse(document.dump()).style ==
             TsfPreeditStyle::Local);
+    document["floating_toolbar_enabled"] = false;
+    require(!PreviewConfig::parse(document.dump()).floating_toolbar_enabled);
+    document["floating_toolbar_enabled"] = 1;
+    reject(document);
+    document["floating_toolbar_enabled"] = true;
     const nlohmann::json bindings{
         {"minus_equal", false},        {"comma_period", false},
         {"brackets", false},           {"tab", false},
