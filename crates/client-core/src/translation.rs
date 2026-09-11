@@ -266,4 +266,12 @@ mod tests {
         assert_ne!(first, tencent_tc3_derive("secret", "20240101", "tmt", "other"));
         assert_ne!(first, tencent_tc3_derive("different", "20240101", "tmt", "request"));
     }
+
+    #[test]
+    fn tencent_tc3_canonical_request_matches_protocol_layout() {
+        assert_eq!(
+            tencent_tc3_canonical_request("payload-hash"),
+            "POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\npayload-hash"
+        );
+    }
 }
