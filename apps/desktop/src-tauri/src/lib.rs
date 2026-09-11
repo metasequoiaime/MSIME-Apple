@@ -536,6 +536,8 @@ fn open_keyboard_panel(
     }
     #[cfg(not(target_os = "windows"))]
     {
+        #[cfg(not(target_os = "linux"))]
+        let _ = &state;
         #[cfg(target_os = "linux")]
         let _ = remember_panel_input_target(&state, true);
         open_panel_window(
@@ -578,6 +580,8 @@ fn open_handwriting_panel(
     }
     #[cfg(not(target_os = "windows"))]
     {
+        #[cfg(not(target_os = "linux"))]
+        let _ = &state;
         #[cfg(target_os = "linux")]
         let _ = remember_panel_input_target(&state, true);
         open_panel_window(
