@@ -21,6 +21,7 @@ const pages = [
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "cloud_dictionary", title: "云词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "cloud_clipboard", title: "云剪贴板", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
@@ -213,6 +214,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [cloudHasMore, setCloudHasMore] = useState(false);
   const [cloudError, setCloudError] = useState("");
   const [cloudForm, setCloudForm] = useState<{ code: string; word: string; weight: number } | null>(null);
+  const [clipboardItems, setClipboardItems] = useState<CloudClipboardItem[]>([]);
+  const [clipboardEnabled, setClipboardEnabled] = useState(false);
+  const [clipboardSearch, setClipboardSearch] = useState("");
+  const [clipboardText, setClipboardText] = useState("");
+  async function loadClipboard() { if (!client.cloudClipboard) return; try { const value = await client.cloudClipboard.get(clipboardSearch); setClipboardEnabled(value.enabled); setClipboardItems(value.items); } catch (reason) { setError(message(reason)); } }
+  async function addClipboard() { if (!client.cloudClipboard || !clipboardText.trim() || clipboardText.length > 4000) return; await client.cloudClipboard.add(clipboardText); setClipboardText(""); await loadClipboard(); }
   const [catalogEntries, setCatalogEntries] = useState<CloudDictionaryEntry[]>([]);
   const [cloudSyncStatus, setCloudSyncStatus] = useState(0);
   async function loadCloud(offset = 0) {
@@ -585,6 +592,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {cloudForm && <div className="quick-phrase-form"><label>编码 <input value={cloudForm.code} onChange={event => setCloudForm({ ...cloudForm, code: event.target.value })} /></label><label>词条 <input value={cloudForm.word} onChange={event => setCloudForm({ ...cloudForm, word: event.target.value })} /></label><label>权重 <input type="number" value={cloudForm.weight} onChange={event => setCloudForm({ ...cloudForm, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => { if (client.cloudDictionary && cloudForm.code && cloudForm.word) void client.cloudDictionary.add(cloudKind, cloudForm).then(() => { setCloudForm(null); return loadCloud(cloudOffset); }); }}>保存</button><button type="button" className="secondary" onClick={() => setCloudForm(null)}>取消</button></div>}
           <div><button type="button" className="secondary" disabled={cloudOffset === 0} onClick={() => void loadCloud(Math.max(0, cloudOffset - 100))}>上一页</button> <button type="button" className="secondary" disabled={!cloudHasMore} onClick={() => void loadCloud(cloudOffset + 100)}>下一页</button></div>
         </div> : <div className="section"><p className="notice">当前宿主未提供云词库接口。</p></div>}
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "cloud_clipboard"} aria-label="云剪贴板">
+        {client.cloudClipboard ? <div className="section" role="region" aria-label="云剪贴板管理"><div className="section-header"><span className="section-title">云剪贴板<small>只上传你明确添加的内容。</small></span><button type="button" className="secondary" onClick={() => void loadClipboard()}>刷新</button></div><label>启用云剪贴板 <input type="checkbox" checked={clipboardEnabled} onChange={event => { setClipboardEnabled(event.target.checked); void client.cloudClipboard?.setEnabled(event.target.checked); }} /></label><textarea aria-label="上传内容" value={clipboardText} onChange={event => setClipboardText(event.target.value)} /><button type="button" onClick={() => void addClipboard()}>上传</button><label>搜索 <input value={clipboardSearch} onChange={event => setClipboardSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void loadClipboard(); }} /></label><ul className="quick-phrase-list">{clipboardItems.map(item => <li key={item.id}><span>{item.text}</span><button type="button" className="secondary" onClick={() => void client.cloudClipboard?.remove(item.id).then(loadClipboard)}>删除</button></li>)}</ul></div> : <div className="section"><p className="notice">当前宿主未提供云剪贴板接口。</p></div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>{client.clipboard?.sync && <button type="button" className="secondary" onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}{client.clipboard?.list && <div className="help-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}</div>
