@@ -203,8 +203,9 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
-  s.surrounding_cursor = cursor;
-  s.surrounding_anchor = anchor;
+  const auto length = static_cast<guint>(s.surrounding_text.size());
+  s.surrounding_cursor = std::min(cursor, length);
+  s.surrounding_anchor = std::min(anchor, length);
 }
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
