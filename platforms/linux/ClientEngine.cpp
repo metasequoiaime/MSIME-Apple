@@ -74,6 +74,12 @@ struct State {
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
   bool online_loading = false, translation_loading = false;
+  uint64_t provider_epoch = 0;
+  void invalidate_providers() {
+    ++provider_epoch;
+    online_loading = false;
+    translation_loading = false;
+  }
   std::string surrounding_text;
   guint surrounding_cursor = 0;
   guint surrounding_anchor = 0;
@@ -82,6 +88,7 @@ struct State {
     close();
   }
   void close() {
+    invalidate_providers();
     ++clipboard_generation;
     clipboard_loading = false;
     clipboard_loaded = false;
@@ -314,25 +321,28 @@ const char *smart_punctuation_pair(char value) {
 
 struct OnlineTask {
   uint64_t session;
+  uint64_t epoch;
   std::string query;
   std::string socket;
 };
 struct TranslationTask {
   uint64_t session;
+  uint64_t epoch;
   std::string query;
   std::string socket;
 };
 bool apply(IBusEngine *engine, char *raw);
+void render(IBusEngine *engine, const Json &view);
 void translation_complete(GObject *source, GAsyncResult *result, gpointer);
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.online_provider_socket.empty() || s.translation_loading || !s.session ||
-      !s.focused || s.blocked || !s.view.value("candidates", Json::array()).size())
+      !s.focused || s.blocked || !s.input_enabled || !s.view.value("candidates", Json::array()).size())
     return;
   try {
     auto query = response(msime_client_translation_query(s.session));
     if (query.is_null() || !query.is_object()) return;
-    auto *task_data = new TranslationTask{s.session, query.dump(), s.online_provider_socket};
+    auto *task_data = new TranslationTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
     s.translation_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
     g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
@@ -350,13 +360,14 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer);
 void online_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.online_provider_socket.empty() || s.online_loading || !s.session ||
-      !s.focused || s.blocked)
+      !s.focused || s.blocked || !s.input_enabled)
     return;
   try {
     auto query = response(msime_client_online_query(s.session));
-    if (!query.value("available", false))
+    if (!query.is_object() ||
+        !(query.value("cloud_eligible", false) || query.value("ai_eligible", false)))
       return;
-    auto *task_data = new OnlineTask{s.session, query.dump(), s.online_provider_socket};
+    auto *task_data = new OnlineTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
     s.online_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
     g_task_set_task_data(task, task_data, [](gpointer value) {
@@ -379,17 +390,22 @@ void online_schedule(IBusEngine *engine) {
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  s.translation_loading = false;
   std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
       static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
       msime_client_string_free);
-  if (!raw || !s.session || !s.focused || s.blocked) return;
+  const auto *request = static_cast<const TranslationTask *>(
+      g_task_get_task_data(G_TASK(result)));
+  if (!request || request->session != s.session || request->epoch != s.provider_epoch)
+    return;
+  s.translation_loading = false;
+  if (!raw || !s.session || !s.focused || s.blocked || !s.input_enabled) return;
   try {
     const auto document = Json::parse(raw.get());
     if (!document.value("ok", false)) return;
     const auto value = document.at("value");
-    const auto generation = value.at("generation").get<uint64_t>();
-    const auto encoded = value.value("candidates", Json::array()).dump();
+    if (!value.is_object()) return;
+    const auto generation = Json::parse(request->query).at("generation").get<uint64_t>();
+    const auto encoded = value.at("translations").dump();
     auto applied = response(msime_client_apply_translations(
         s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     s.view = applied.at("view");
@@ -399,26 +415,28 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
   auto &s = state(engine);
-  s.online_loading = false;
   std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
       static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
       msime_client_string_free);
-  if (!raw || !s.session || !s.focused || s.blocked) return;
+  const auto *request = static_cast<const OnlineTask *>(
+      g_task_get_task_data(G_TASK(result)));
+  if (!request || request->session != s.session || request->epoch != s.provider_epoch)
+    return;
+  s.online_loading = false;
+  if (!raw || !s.session || !s.focused || s.blocked || !s.input_enabled) return;
   try {
     const auto document = Json::parse(raw.get());
     if (!document.value("ok", false)) return;
     const auto value = document.at("value");
     const auto candidate = value.value("text", std::string{});
     if (candidate.empty()) return;
-    const auto *request = static_cast<const OnlineTask *>(
-        g_task_get_task_data(G_TASK(result)));
-    if (!request || request->session != s.session) return;
     auto applied = response(msime_client_apply_online_candidate(
         s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
         reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
         static_cast<uint8_t>(value.value("source", 0))));
     s.view = applied.at("view");
     render(engine, s.view);
+    translation_schedule(engine);
   } catch (...) {}
 }
 } // namespace
@@ -1098,6 +1116,7 @@ void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     s.focused = false;
+    s.invalidate_providers();
     s.surrounding_text.clear();
     s.surrounding_cursor = 0;
     s.surrounding_anchor = 0;
