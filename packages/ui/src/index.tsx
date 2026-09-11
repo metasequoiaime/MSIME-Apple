@@ -60,6 +60,7 @@ export type Preferences = {
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
+  touch_voice_shortcut?: boolean;
   default_ime_mode?: "chinese" | "english";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -727,6 +728,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">行间距 <small>{(touchRowSpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="行间距" type="range" min="40" max="100" step="1" value={touchRowSpacingTenths} onChange={event => setDraft({ ...draft, touch_row_spacing_tenths: Number(event.target.value) })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">顶部语音入口 <small>在触屏键盘工具栏直接打开最近一次语音结果</small></span><input aria-label="顶部语音入口" className="toggle" type="checkbox" checked={draft.touch_voice_shortcut ?? false} onChange={event => setDraft({ ...draft, touch_voice_shortcut: event.target.checked })} /></label>
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>

@@ -31,6 +31,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
 import android.widget.Toast;
@@ -75,6 +76,7 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout layoutSettingsPanel;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
+    private Switch voiceShortcutSwitch;
     private TextView keySpacingValue;
     private TextView rowSpacingValue;
     private ClipboardHistoryStore clipboardHistory;
@@ -84,11 +86,15 @@ public final class MSIMEInputService extends InputMethodService {
     private int candidatePreeditFontSize = 16;
     private int touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
     private int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
+    private boolean touchVoiceShortcutEnabled;
+    private boolean voiceInputEnabled = true;
+    private String voiceLanguage = "zh-CN";
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
     private Button layoutSettingsButton;
+    private Button voiceShortcutButton;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
@@ -120,6 +126,12 @@ public final class MSIMEInputService extends InputMethodService {
     private long preferenceSaveGeneration;
     private boolean schemeSaving;
     private boolean touchGeometrySaving;
+    private ScrollView voiceResultScroll;
+    private LinearLayout voiceResultPanel;
+    private VoiceResultStore voiceResultStore;
+    private VoiceResultStore.Entry voiceResultEntry;
+    private EditorContextSnapshot voiceTarget;
+    private long editorContextRevision;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
@@ -146,6 +158,7 @@ public final class MSIMEInputService extends InputMethodService {
         super.onStartInput(info, restarting);
         stop(false);
         connection = getCurrentInputConnection();
+        editorContextRevision++;
         bridge = new EditorBridge();
         shift = false;
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
@@ -170,6 +183,7 @@ public final class MSIMEInputService extends InputMethodService {
                 if (localModes == null) localModes = new JSONObject();
                 applyCandidateAppearance(preferences);
                 applyTouchGeometry(preferences);
+                applyVoicePreferences(preferences);
                 applyClipboardPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
@@ -214,6 +228,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
         closeSchemePicker();
         closeLayoutSettings();
+        closeVoiceResult();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -236,6 +251,14 @@ public final class MSIMEInputService extends InputMethodService {
             : preferences.optInt("touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
             : preferences.optInt("touch_row_spacing_tenths", -1));
+        touchVoiceShortcutEnabled = preferences != null
+            && preferences.optBoolean("touch_voice_shortcut", false);
+    }
+
+    private void applyVoicePreferences(JSONObject preferences) {
+        JSONObject voice = preferences == null ? null : preferences.optJSONObject("voice_input");
+        voiceInputEnabled = voice == null || voice.optBoolean("enabled", true);
+        voiceLanguage = voice == null ? "zh-CN" : voice.optString("language", "zh-CN");
     }
 
     private void applyClipboardPreference(JSONObject preferences) {
@@ -250,7 +273,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private String touchGeometryKey() {
-        return touchKeySpacingTenths + ":" + touchRowSpacingTenths;
+        return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
+            + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage;
     }
 
     private void reloadPreferences(String response) {
@@ -294,6 +318,11 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optInt("touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             preferences.optInt("touch_row_spacing_tenths", -1));
+        boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
+        JSONObject nextVoice = preferences.optJSONObject("voice_input");
+        boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
+        String nextVoiceLanguage = nextVoice == null ? "zh-CN"
+            : nextVoice.optString("language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
@@ -312,6 +341,9 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePreeditFontSize = nextPreeditFontSize;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
+        touchVoiceShortcutEnabled = nextVoiceShortcut;
+        voiceInputEnabled = nextVoiceEnabled;
+        voiceLanguage = nextVoiceLanguage;
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
@@ -326,6 +358,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (rebuildLayout) rebuildKeyRows();
         else if (geometryChanged) applyKeyboardGeometry();
         renderLayoutSettingsState();
+        if (voiceResultScroll != null && voiceResultScroll.getVisibility() == View.VISIBLE)
+            renderVoiceResult();
         preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
     }
 
@@ -409,6 +443,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd, int composingStart, int composingEnd) {
         super.onUpdateSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+        if (oldStart != newStart || oldEnd != newEnd) editorContextRevision++;
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
@@ -520,6 +555,8 @@ public final class MSIMEInputService extends InputMethodService {
             schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (layoutSettingsPanel != null)
             layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (voiceResultPanel != null)
+            voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
     }
@@ -586,13 +623,152 @@ public final class MSIMEInputService extends InputMethodService {
         if (layoutSettingsScroll != null) layoutSettingsScroll.setVisibility(View.GONE);
     }
 
+    private void closeVoiceResult() {
+        if (voiceResultScroll != null) voiceResultScroll.setVisibility(View.GONE);
+        voiceResultEntry = null;
+        voiceTarget = null;
+    }
+
+    private boolean voiceInsertionReady() {
+        return session != 0 && connection != null && view != null
+            && view.optString("editing_text", "").isEmpty()
+            && view.optString("local_mode", "none").equals("none");
+    }
+
+    private String editorContext(boolean before) {
+        if (connection == null) return null;
+        CharSequence text = before ? connection.getTextBeforeCursor(64, 0)
+            : connection.getTextAfterCursor(64, 0);
+        return text == null ? null : text.toString();
+    }
+
+    private String selectedEditorText() {
+        if (connection == null) return null;
+        CharSequence text = connection.getSelectedText(0);
+        return text == null ? null : text.toString();
+    }
+
+    private void captureVoiceTarget() {
+        voiceTarget = new EditorContextSnapshot(connection, editorContextRevision, editorContext(true),
+            selectedEditorText(), editorContext(false));
+    }
+
+    private boolean voiceTargetMatches() {
+        return voiceTarget != null && voiceTarget.matches(connection, editorContextRevision,
+            editorContext(true), selectedEditorText(), editorContext(false));
+    }
+
+    private void startVoiceRecognition() {
+        if (!voiceInputEnabled) {
+            Toast.makeText(this, "请先在共享设置中启用语音输入", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!VoiceRecognitionActivity.available(this)) {
+            Toast.makeText(this, "设备没有可用的系统语音识别服务", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeVoiceResult();
+        try { VoiceRecognitionActivity.launch(this, voiceLanguage); }
+        catch (RuntimeException error) {
+            Toast.makeText(this, "系统语音识别服务无法启动", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void insertVoiceResult() {
+        VoiceResultStore.Entry entry = voiceResultEntry;
+        if (entry == null || voiceResultStore == null) return;
+        if (!voiceInsertionReady() || !voiceTargetMatches()) {
+            Toast.makeText(this, "输入位置已变化，请关闭后重新打开语音结果", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            String text = voiceResultStore.consume(entry.id(), System.currentTimeMillis());
+            boolean committed;
+            try { committed = connection.commitText(text, 1); }
+            catch (RuntimeException error) { committed = false; }
+            closeVoiceResult();
+            if (!committed)
+                Toast.makeText(this, "编辑器拒绝插入；结果已安全清除", Toast.LENGTH_SHORT).show();
+        } catch (VoiceResultStore.Failure error) {
+            voiceResultEntry = null;
+            renderVoiceResult();
+            Toast.makeText(this, error.reason() == VoiceResultStore.Reason.BUSY
+                ? "语音结果正在更新，请稍后重试" : "语音结果已过期、已使用或不可读取",
+                Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showVoiceResult() {
+        if (!voiceInsertionReady()) {
+            Toast.makeText(this, "请先完成当前输入，再插入语音结果", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (voiceResultStore == null || voiceResultScroll == null) {
+            Toast.makeText(this, "语音结果存储尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try { voiceResultEntry = voiceResultStore.read(System.currentTimeMillis()); }
+        catch (VoiceResultStore.Failure error) {
+            Toast.makeText(this, error.reason() == VoiceResultStore.Reason.BUSY
+                ? "语音结果正在更新，请稍后重试" : "语音结果无法读取",
+                Toast.LENGTH_SHORT).show();
+            return;
+        }
+        captureVoiceTarget();
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        renderVoiceResult();
+        voiceResultScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void renderVoiceResult() {
+        if (voiceResultPanel == null) return;
+        voiceResultPanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("语音结果");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        button(header, "返回键盘", this::closeVoiceResult);
+        voiceResultPanel.addView(header);
+        if (voiceResultEntry == null) {
+            TextView empty = new TextView(this);
+            empty.setText("暂无待插入结果。点击下方按钮使用系统语音识别；只保留最新一条，10 分钟内有效。");
+            voiceResultPanel.addView(empty);
+        } else {
+            TextView recognized = new TextView(this);
+            recognized.setText(voiceResultEntry.text());
+            recognized.setContentDescription("待插入语音结果");
+            voiceResultPanel.addView(recognized);
+            TextView hint = new TextView(this);
+            hint.setText("点击插入后清除待插入结果；输入位置变化时会拒绝插入。");
+            voiceResultPanel.addView(hint);
+            Button insert = button(voiceResultPanel, "插入语音结果", this::insertVoiceResult);
+            insert.setContentDescription("插入并清除语音结果");
+            insert.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        Button recognize = button(voiceResultPanel, "开始系统语音识别",
+            this::startVoiceRecognition);
+        recognize.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        recognize.setEnabled(voiceInputEnabled && VoiceRecognitionActivity.available(this));
+        applySkin();
+    }
+
     private void renderLayoutSettingsState() {
         if (keySpacingSlider == null || rowSpacingSlider == null
-                || keySpacingValue == null || rowSpacingValue == null) return;
+                || keySpacingValue == null || rowSpacingValue == null
+                || voiceShortcutSwitch == null) return;
         keySpacingSlider.setProgress(touchKeySpacingTenths);
         rowSpacingSlider.setProgress(touchRowSpacingTenths);
         keySpacingSlider.setEnabled(!touchGeometrySaving);
         rowSpacingSlider.setEnabled(!touchGeometrySaving);
+        voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
+        voiceShortcutSwitch.setEnabled(!touchGeometrySaving);
         keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
         rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
     }
@@ -628,6 +804,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
+        closeVoiceResult();
         renderLayoutSettingsState();
         layoutSettingsScroll.setVisibility(View.VISIBLE);
     }
@@ -640,7 +817,9 @@ public final class MSIMEInputService extends InputMethodService {
                 && KeyboardGeometry.keySpacing(acceptedPreferences.optInt(
                     "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
                 && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
-                    "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths) return;
+                    "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
+                && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
+                    == touchVoiceShortcutEnabled) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
@@ -652,13 +831,14 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject preferences = pending.getJSONObject("preferences");
             preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
             preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+            preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
         } catch (JSONException error) {
-            preferencesNotice = " · 键盘间距保存失败，保留原设置";
+            preferencesNotice = " · 键盘设置保存失败，保留原设置";
             render();
             return;
         }
         touchGeometrySaving = true;
-        preferencesNotice = " · 正在保存键盘间距";
+        preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
         renderLayoutSettingsState();
         render();
@@ -679,7 +859,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (RuntimeException error) {
             if (operation == preferenceSaveGeneration) {
                 touchGeometrySaving = false;
-                preferencesNotice = " · 键盘间距保存失败，保留原设置";
+                preferencesNotice = " · 键盘设置保存失败，保留原设置";
                 renderLayoutSettingsState();
                 render();
             }
@@ -702,14 +882,14 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
-                preferencesNotice = " · 键盘间距已保存";
+                preferencesNotice = " · 键盘设置已保存";
             }
         } catch (JSONException | LinkageError error) {
             if (preferencesSnapshot != null)
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
             applyKeyboardGeometry();
-            preferencesNotice = " · 键盘间距保存失败，已恢复原设置";
-            Toast.makeText(this, "键盘间距未能保存", Toast.LENGTH_SHORT).show();
+            preferencesNotice = " · 键盘设置保存失败，已恢复原设置";
+            Toast.makeText(this, "键盘设置未能保存", Toast.LENGTH_SHORT).show();
         }
         renderLayoutSettingsState();
         render();
@@ -724,6 +904,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeClipboardHistory();
         closeLayoutSettings();
+        closeVoiceResult();
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -969,6 +1150,9 @@ public final class MSIMEInputService extends InputMethodService {
         Menu menu = popup.getMenu();
         MenuItem clipboard = menu.add("剪贴板历史");
         clipboard.setEnabled(clipboardHistoryEnabled);
+        MenuItem voiceInput = menu.add("语音输入");
+        voiceInput.setEnabled(voiceInputEnabled && VoiceRecognitionActivity.available(this));
+        MenuItem voiceResult = menu.add("语音结果");
         MenuItem sound = menu.add("按键音");
         sound.setCheckable(true).setChecked(soundEnabled);
         MenuItem haptics = menu.add("按键振动");
@@ -988,6 +1172,14 @@ public final class MSIMEInputService extends InputMethodService {
         popup.setOnMenuItemClickListener(item -> {
             if (item == clipboard) {
                 showClipboardHistory();
+                return true;
+            }
+            if (item == voiceInput) {
+                startVoiceRecognition();
+                return true;
+            }
+            if (item == voiceResult) {
+                showVoiceResult();
                 return true;
             }
             if (item == sound) soundEnabled = !soundEnabled;
@@ -1717,6 +1909,9 @@ public final class MSIMEInputService extends InputMethodService {
         deactivateHandwriting();
         loadFeedbackPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
+        File files = getFilesDir();
+        voiceResultStore = files == null ? null
+            : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         if (!clipboardHistoryEnabled) clipboardHistory.clear();
         keyboardRoot = new FrameLayout(this);
         LinearLayout keyboard = new LinearLayout(this);
@@ -1735,6 +1930,10 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         candidatePage = new TextView(this);
         candidateHeader.addView(candidatePage, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        voiceShortcutButton = button(candidateHeader, "语音", this::showVoiceResult);
+        voiceShortcutButton.setContentDescription("打开语音结果");
+        voiceShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         expandCandidates = new Button(this);
         expandCandidates.setAllCaps(false);
@@ -1890,6 +2089,17 @@ public final class MSIMEInputService extends InputMethodService {
         rowSpacingSlider.setContentDescription("行间距");
         configureSpacingSlider(rowSpacingSlider, false);
         layoutSettingsPanel.addView(rowSpacingSlider);
+        voiceShortcutSwitch = new Switch(this);
+        voiceShortcutSwitch.setText("顶部语音入口");
+        voiceShortcutSwitch.setContentDescription("顶部语音入口");
+        voiceShortcutSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (checked == touchVoiceShortcutEnabled || touchGeometrySaving) return;
+            touchVoiceShortcutEnabled = checked;
+            renderLayoutSettingsState();
+            render();
+            saveTouchGeometry();
+        });
+        layoutSettingsPanel.addView(voiceShortcutSwitch);
         TextView layoutHint = new TextView(this);
         layoutHint.setText("间距只改变键位外观，不改变输入方案；松手后自动保存。");
         layoutSettingsPanel.addView(layoutHint);
@@ -1897,6 +2107,16 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsScroll.addView(layoutSettingsPanel);
         layoutSettingsScroll.setVisibility(View.GONE);
         keyboardRoot.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        voiceResultPanel = new LinearLayout(this);
+        voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
+        voiceResultPanel.setPadding(24, 16, 24, 16);
+        voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        voiceResultPanel.setContentDescription("语音结果面板");
+        voiceResultScroll = new ScrollView(this);
+        voiceResultScroll.addView(voiceResultPanel);
+        voiceResultScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(voiceResultScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
@@ -1924,6 +2144,10 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.setText(view == null ? "" : view.optString("editing_text", ""));
         }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
+        if (voiceShortcutButton != null) {
+            voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled ? View.VISIBLE : View.GONE);
+            voiceShortcutButton.setEnabled(voiceInsertionReady());
+        }
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS

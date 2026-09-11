@@ -105,6 +105,9 @@ pub struct Preferences {
     /// Vertical row gap in tenths of a density-independent pixel.
     #[serde(default = "default_touch_row_spacing_tenths")]
     pub touch_row_spacing_tenths: u8,
+    /// Show a direct voice-result entry in touch-keyboard toolbars.
+    #[serde(default)]
+    pub touch_voice_shortcut: bool,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -581,6 +584,7 @@ impl Default for Preferences {
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
+            touch_voice_shortcut: false,
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
@@ -1290,7 +1294,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
         let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths"] {
+        for key in [
+            "touch_key_spacing_tenths",
+            "touch_row_spacing_tenths",
+            "touch_voice_shortcut",
+        ] {
             legacy["preferences"].as_object_mut().unwrap().remove(key);
         }
         let bytes = serde_json::to_vec(&legacy).unwrap();
@@ -1298,6 +1306,7 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded.preferences.touch_key_spacing_tenths, 60);
         assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
+        assert!(!loaded.preferences.touch_voice_shortcut);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
         let saved = store
@@ -1306,12 +1315,14 @@ mod tests {
                 Preferences {
                     touch_key_spacing_tenths: 35,
                     touch_row_spacing_tenths: 95,
+                    touch_voice_shortcut: true,
                     ..Preferences::default()
                 },
             )
             .unwrap();
         assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
         assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
+        assert!(saved.preferences.touch_voice_shortcut);
 
         for (key, value) in [
             ("touch_key_spacing_tenths", 29),
