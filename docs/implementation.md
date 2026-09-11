@@ -691,3 +691,9 @@ CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 
 React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔迹坐标归一化、撤销/重写及候选提交调用。未提供平台注入能力时只显示明确的宿主能力提示，不伪造输入或识别结果。host-api 对请求、坐标、笔迹数量、候选数量和候选文本做边界校验，并暴露捕获目标、发送按键、识别和提交的注入 trait。
 
 本地验证：client-core 27 项、host-api 25 项测试通过，Rust fmt/clippy、桌面 UI 26 项测试、TypeScript 类型检查和 Vite production build 通过。尚未实现或验证 Windows 原生 `SendInput`、Windows Ink、TSF 候选提交、焦点不抢占、安装器及逐像素系统验收；不能据此声称 Windows 面板系统接入完成，CI 保持禁用。
+
+### Windows 原生屏幕键盘面板
+
+依据同一固定 Windows 提交，新增独立的 Win32 `msime-client-keyboard-panel.exe`。面板使用不激活、置顶工具窗口，绘制完整五行键盘布局，保留 Shift/Caps Lock/Ctrl/Alt/Win 粘滞状态；鼠标按下时记录面板外前台目标，再以有界 `SendInput` 修饰键、按下和释放序列发送按键。Tauri Windows 命令启动同目录面板，也允许用 `MSIME_CLIENT_KEYBOARD_PANEL` 指定测试或部署路径；单实例互斥避免重复窗口。运行时 staging、交叉构建检查和 Windows smoke help 已纳入。
+
+本地验证：x64/i686 MinGW 适配器与键盘面板交叉编译通过；全新 CMake MinGW 构建通过，PE 子系统确认为 Windows GUI，导入检查包含 `USER32.dll` 与 `GDI32.dll`。未执行 Windows 原生桌面运行、焦点不抢占、真实编辑器 `SendInput`、DPI、多显示器、安装器或签名验收；Windows Ink 手写识别和 TSF 候选提交仍待实现，不能据此声称 Windows 系统接入完成，CI 保持禁用。
