@@ -141,6 +141,7 @@ EngineSnapshot EngineSession::snapshot() const {
     for (const auto& candidate : value.candidates) {
         output.candidates.push_back(rust::String(candidate.word));
         output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+        output.candidate_sources.push_back(static_cast<std::uint8_t>(candidate.source));
     }
     return output;
 }
