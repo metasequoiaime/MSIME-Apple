@@ -9,7 +9,9 @@ import android.view.KeyEvent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
 import java.io.File;
@@ -27,7 +29,14 @@ public final class MSIMEInputService extends InputMethodService {
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
     private JSONObject view;
+    private FrameLayout keyboardRoot;
     private LinearLayout candidates;
+    private LinearLayout candidatePaging;
+    private LinearLayout expandedCandidates;
+    private TextView preedit;
+    private TextView candidatePage;
+    private Button expandCandidates;
+    private boolean candidatePanelOpen;
     private LinearLayout keyRows;
     private Button layerButton;
     private TextView status;
@@ -206,6 +215,92 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button candidateButton(JSONObject candidate, int slot) {
+        JSONObject id = candidate.optJSONObject("id");
+        Button button = new Button(this);
+        String text = candidate.optString("text");
+        boolean highlighted = candidate.optBoolean("highlighted");
+        button.setAllCaps(false);
+        button.setText((slot + 1) + ". " + text);
+        button.setContentDescription("候选 " + (slot + 1) + "：" + text);
+        button.setSelected(highlighted);
+        if (Build.VERSION.SDK_INT >= 30)
+            button.setStateDescription(highlighted ? "已选中" : "未选中");
+        if (id == null) {
+            button.setEnabled(false);
+        } else {
+            button.setOnClickListener(ignored -> {
+                if (session == 0 || id.optLong("session") != session) return;
+                candidatePanelOpen = false;
+                try { apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index"))); }
+                catch (JSONException | LinkageError error) { fail(); }
+            });
+        }
+        return button;
+    }
+
+    private void closeCandidatePanel() {
+        candidatePanelOpen = false;
+        if (keyboardRoot != null && expandedCandidates != null)
+            expandedCandidates.setVisibility(View.GONE);
+    }
+
+    private void openCandidatePanel() {
+        if (view == null || view.optJSONArray("candidates") == null) return;
+        candidatePanelOpen = true;
+        renderExpandedCandidates();
+    }
+
+    private void renderExpandedCandidates() {
+        if (expandedCandidates == null) return;
+        expandedCandidates.removeAllViews();
+        if (!candidatePanelOpen || view == null) {
+            expandedCandidates.setVisibility(View.GONE);
+            return;
+        }
+        expandedCandidates.setVisibility(View.VISIBLE);
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("候选面板 · 当前页");
+        title.setTextSize(18);
+        header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button close = new Button(this);
+        close.setAllCaps(false);
+        close.setText("收起");
+        close.setContentDescription("收起候选面板");
+        close.setOnClickListener(ignored -> closeCandidatePanel());
+        header.addView(close, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT));
+        expandedCandidates.addView(header);
+        TextView spelling = new TextView(this);
+        spelling.setText("正在输入：" + view.optString("editing_text", ""));
+        spelling.setContentDescription("当前组合文本：" + view.optString("editing_text", ""));
+        expandedCandidates.addView(spelling);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        JSONArray entries = view.optJSONArray("candidates");
+        if (entries != null) {
+            for (int slot = 0; slot < entries.length(); slot++) {
+                JSONObject candidate = entries.optJSONObject(slot);
+                if (candidate == null) continue;
+                Button button = candidateButton(candidate, slot);
+                list.addView(button, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+        }
+        expandedCandidates.addView(list);
+        LinearLayout panelPaging = new LinearLayout(this);
+        panelPaging.setOrientation(LinearLayout.HORIZONTAL);
+        button(panelPaging, "上词", () -> command(103));
+        button(panelPaging, "下词", () -> command(102));
+        button(panelPaging, "上一页", () -> command(101));
+        button(panelPaging, "下一页", () -> command(100));
+        expandedCandidates.addView(panelPaging);
+        TextView hint = new TextView(this);
+        hint.setText("可在此面板直接翻页或选择候选");
+        expandedCandidates.addView(hint);
+    }
+
     private void rebuildKeyRows() {
         if (keyRows == null) return;
         keyRows.removeAllViews();
@@ -221,15 +316,41 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        keyboardRoot = new FrameLayout(this);
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
         WindowLayout.fitSystemBars(keyboard);
+        keyboardRoot.addView(keyboard, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         status = new TextView(this);
         keyboard.addView(status);
+        LinearLayout candidateRegion = new LinearLayout(this);
+        candidateRegion.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout candidateHeader = new LinearLayout(this);
+        preedit = new TextView(this);
+        preedit.setTextSize(16);
+        candidateHeader.addView(preedit, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        candidatePage = new TextView(this);
+        candidateHeader.addView(candidatePage, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        expandCandidates = new Button(this);
+        expandCandidates.setAllCaps(false);
+        expandCandidates.setText("展开");
+        expandCandidates.setContentDescription("展开候选面板");
+        expandCandidates.setOnClickListener(ignored -> openCandidatePanel());
+        candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        candidateRegion.addView(candidateHeader);
         candidates = new LinearLayout(this);
+        candidates.setOrientation(LinearLayout.HORIZONTAL);
         HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
         candidateScroll.addView(candidates);
-        keyboard.addView(candidateScroll);
+        candidateRegion.addView(candidateScroll);
+        candidatePaging = new LinearLayout(this);
+        candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
+        candidateRegion.addView(candidatePaging);
+        keyboard.addView(candidateRegion);
         keyRows = new LinearLayout(this);
         keyRows.setOrientation(LinearLayout.VERTICAL);
         keyboard.addView(keyRows);
@@ -275,8 +396,18 @@ public final class MSIMEInputService extends InputMethodService {
             params.weight = 0;
             child.setLayoutParams(params);
         }
+        expandedCandidates = new LinearLayout(this);
+        expandedCandidates.setOrientation(LinearLayout.VERTICAL);
+        expandedCandidates.setPadding(24, 16, 24, 16);
+        expandedCandidates.setBackgroundColor(0xfff5f5f5);
+        expandedCandidates.setContentDescription("候选面板");
+        expandedCandidates.setVisibility(View.GONE);
+        ScrollView expandedScroll = new ScrollView(this);
+        expandedScroll.addView(expandedCandidates);
+        keyboardRoot.addView(expandedScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         render();
-        return keyboard;
+        return keyboardRoot;
     }
 
     private void render() {
@@ -284,6 +415,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
         if (status != null) status.setText(message + preferencesNotice + page + (shift ? " · Shift" : ""));
+        if (preedit != null) preedit.setText(view == null ? "" : view.optString("editing_text", ""));
+        if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -291,34 +424,29 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (candidates == null) return;
         candidates.removeAllViews();
-        if (view == null) return;
-        JSONArray entries = view.optJSONArray("candidates");
-        if (entries == null || entries.length() == 0) return;
-        for (int slot = 0; slot < entries.length(); slot++) {
-            JSONObject candidate = entries.optJSONObject(slot);
-            if (candidate == null) continue;
-            JSONObject id = candidate.optJSONObject("id");
-            if (id == null) continue;
-            Button button = new Button(this);
-            String text = candidate.optString("text");
-            boolean highlighted = candidate.optBoolean("highlighted");
-            button.setText((slot + 1) + ". " + text);
-            button.setContentDescription("候选 " + (slot + 1) + "：" + text);
-            button.setSelected(highlighted);
-            if (Build.VERSION.SDK_INT >= 30)
-                button.setStateDescription(highlighted ? "已选中" : "未选中");
-            button.setOnClickListener(ignored -> {
-                if (session == 0 || id.optLong("session") != session) return;
-                try { apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index"))); }
-                catch (JSONException | LinkageError error) { fail(); }
-            });
-            candidates.addView(button);
+        if (candidatePaging != null) candidatePaging.removeAllViews();
+        if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
+        if (view == null) {
+            closeCandidatePanel();
+            return;
         }
-        LinearLayout paging = new LinearLayout(this);
-        candidates.addView(paging);
-        button(paging, "上词", () -> command(103));
-        button(paging, "下词", () -> command(102));
-        button(paging, "上一页", () -> command(101));
-        button(paging, "下一页", () -> command(100));
+        JSONArray entries = view.optJSONArray("candidates");
+        if (entries != null) {
+            for (int slot = 0; slot < entries.length(); slot++) {
+                JSONObject candidate = entries.optJSONObject(slot);
+                if (candidate == null) continue;
+                Button candidateView = candidateButton(candidate, slot);
+                candidates.addView(candidateView, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+            if (entries.length() > 1 && expandCandidates != null) expandCandidates.setVisibility(View.VISIBLE);
+        }
+        if (candidatePaging != null) {
+            button(candidatePaging, "上词", () -> command(103));
+            button(candidatePaging, "下词", () -> command(102));
+            button(candidatePaging, "上一页", () -> command(101));
+            button(candidatePaging, "下一页", () -> command(100));
+        }
+        renderExpandedCandidates();
     }
 }
