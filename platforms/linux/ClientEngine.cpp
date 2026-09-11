@@ -377,14 +377,49 @@ void online_schedule(IBusEngine *engine) {
   }
 }
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto &s = state(IBUS_ENGINE(source));
+  auto engine = IBUS_ENGINE(source);
+  auto &s = state(engine);
   s.translation_loading = false;
-  g_task_propagate_pointer(G_TASK(result), nullptr);
+  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
+      msime_client_string_free);
+  if (!raw || !s.session || !s.focused || s.blocked) return;
+  try {
+    const auto document = Json::parse(raw.get());
+    if (!document.value("ok", false)) return;
+    const auto value = document.at("value");
+    const auto generation = value.at("generation").get<uint64_t>();
+    const auto encoded = value.value("candidates", Json::array()).dump();
+    auto applied = response(msime_client_apply_translations(
+        s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    s.view = applied.at("view");
+    render(engine, s.view);
+  } catch (...) {}
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto &s = state(IBUS_ENGINE(source));
+  auto engine = IBUS_ENGINE(source);
+  auto &s = state(engine);
   s.online_loading = false;
-  g_task_propagate_pointer(G_TASK(result), nullptr);
+  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+      static_cast<char *>(g_task_propagate_pointer(G_TASK(result), nullptr)),
+      msime_client_string_free);
+  if (!raw || !s.session || !s.focused || s.blocked) return;
+  try {
+    const auto document = Json::parse(raw.get());
+    if (!document.value("ok", false)) return;
+    const auto value = document.at("value");
+    const auto candidate = value.value("text", std::string{});
+    if (candidate.empty()) return;
+    const auto *request = static_cast<const OnlineTask *>(
+        g_task_get_task_data(G_TASK(result)));
+    if (!request || request->session != s.session) return;
+    auto applied = response(msime_client_apply_online_candidate(
+        s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
+        reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
+        static_cast<uint8_t>(value.value("source", 0))));
+    s.view = applied.at("view");
+    render(engine, s.view);
+  } catch (...) {}
 }
 } // namespace
 
