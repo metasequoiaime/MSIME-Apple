@@ -1,5 +1,6 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
+#import "SkinSettingsView.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
@@ -22,6 +23,7 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     std::vector<msime::mac::SkinListEntry> _skins;
     MSIMECandidatePreviewView *_preview;
     NSButton *_themeButton;
+    NSWindowController *_skinWindow;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -155,13 +157,15 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     _skinButton.target = self;
     _skinButton.action = @selector(skinChanged:);
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
+    NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
         @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
         @[[NSTextField labelWithString:@"候选皮肤"], _skinButton],
-        @[[NSTextField labelWithString:@"外部皮肤"], reload]
+        @[[NSTextField labelWithString:@"外部皮肤"], reload],
+        @[[NSTextField labelWithString:@"皮肤卡片"], browse]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -202,6 +206,27 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (NSWindowController *)skinCatalogController {
+    if (!_skinWindow) {
+        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+        window.title = @"皮肤";
+        window.releasedWhenClosed = NO;
+        MSIMESkinSettingsView *cards = [[MSIMESkinSettingsView alloc] initWithFrame:NSZeroRect preferences:self];
+        [window.contentView addSubview:cards];
+        [NSLayoutConstraint activateConstraints:@[
+            [cards.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor],
+            [cards.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor],
+            [cards.topAnchor constraintEqualToAnchor:window.contentView.topAnchor],
+            [cards.bottomAnchor constraintEqualToAnchor:window.contentView.bottomAnchor]
+        ]];
+        _skinWindow = [[NSWindowController alloc] initWithWindow:window];
+        [window center];
+    } else {
+        [(MSIMESkinSettingsView *)_skinWindow.window.contentView.subviews.firstObject reload];
+    }
+    return _skinWindow;
+}
+- (void)showSkinCatalog:(id)sender { [[self skinCatalogController] showWindow:sender]; }
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
 - (void)skinChanged:(NSPopUpButton *)sender {
