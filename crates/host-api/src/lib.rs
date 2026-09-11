@@ -1398,7 +1398,8 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
 
 /// Run one bounded voice capture/ASR request through a user-owned Unix socket.
 /// The socket service owns microphone access, credentials and network policy.
-/// The query is a bounded JSON object containing `language` and `generation`.
+/// The query is a bounded JSON object containing `language`, `generation`,
+/// and optional non-sensitive voice behavior `options`.
 ///
 /// # Safety
 /// All pointers must reference readable buffers of the stated lengths for
@@ -1419,6 +1420,8 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
         struct VoiceQuery {
             language: String,
             generation: u64,
+            #[serde(default)]
+            options: Value,
         }
         let query = serde_json::from_slice::<VoiceQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
@@ -1431,7 +1434,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
-            .voice(&query.language, query.generation)
+            .voice_with_options(&query.language, query.generation, &query.options)
             .map(|text| json!({"text": text}))
             .unwrap_or(Value::Null))
     })

@@ -1429,6 +1429,31 @@ struct VoiceResult {
   uint64_t generation;
   std::string text;
 };
+Json voice_provider_options(const Json &preferences) {
+  const auto voice = preferences.value("voice_input", Json::object());
+  Json options = Json::object();
+  constexpr const char *boolean_keys[] = {
+      "sound_enabled", "start_sound", "end_sound", "mute_system_audio",
+      "polish_enabled", "polish_text", "doubao_enable_itn",
+      "doubao_enable_punc", "doubao_enable_ddc"};
+  for (const auto *key : boolean_keys) {
+    if (voice.contains(key) && voice.at(key).is_boolean())
+      options[key] = voice.at(key);
+  }
+  constexpr const char *string_keys[] = {
+      "commit_mode", "asr_provider", "asr_endpoint", "asr_model",
+      "polish_provider", "polish_endpoint", "polish_model",
+      "polish_prompt_id"};
+  for (const auto *key : string_keys) {
+    if (!voice.contains(key) || !voice.at(key).is_string())
+      continue;
+    auto value = voice.at(key).get<std::string>();
+    if (value.size() > 512)
+      value.resize(512);
+    options[key] = std::move(value);
+  }
+  return options;
+}
 void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active && s.session)
@@ -1449,12 +1474,18 @@ void voice_start(IBusEngine *engine) {
   s.voice_generation = generation;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
+  const auto provider_options = voice_provider_options(
+      configured.value("preferences", Json::object()));
   const auto alive = s.alive;
   s.voice_worker.run(
-      [socket, language, generation](const std::atomic_bool &cancelled) {
+      [socket, language, generation,
+       provider_options](const std::atomic_bool &cancelled) {
         if (cancelled.load())
           return std::string{};
-        const auto query = Json{{"language", language}, {"generation", generation}}.dump();
+        const auto query = Json{{"language", language},
+                                {"generation", generation},
+                                {"options", provider_options}}
+                               .dump();
         auto *raw = msime_client_voice_provider_request(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size());

@@ -1110,6 +1110,48 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
+fn voice_provider_options(document: &Value) -> Value {
+    let Some(voice) = document
+        .get("preferences")
+        .and_then(|value| value.get("voice_input"))
+        .and_then(Value::as_object)
+    else {
+        return Value::Object(Default::default());
+    };
+    let mut options = serde_json::Map::new();
+    for key in [
+        "sound_enabled",
+        "start_sound",
+        "end_sound",
+        "mute_system_audio",
+        "polish_enabled",
+        "polish_text",
+        "doubao_enable_itn",
+        "doubao_enable_punc",
+        "doubao_enable_ddc",
+    ] {
+        if let Some(value) = voice.get(key).filter(|value| value.is_boolean()) {
+            options.insert(key.to_owned(), value.clone());
+        }
+    }
+    for key in [
+        "commit_mode",
+        "asr_provider",
+        "asr_endpoint",
+        "asr_model",
+        "polish_provider",
+        "polish_endpoint",
+        "polish_model",
+        "polish_prompt_id",
+    ] {
+        if let Some(value) = voice.get(key).and_then(Value::as_str) {
+            let bounded = value.chars().take(512).collect::<String>();
+            options.insert(key.to_owned(), Value::String(bounded));
+        }
+    }
+    Value::Object(options)
+}
+
 #[tauri::command]
 async fn recognize_voice(
     request: VoiceRecognitionRequest,
@@ -1125,6 +1167,8 @@ async fn recognize_voice(
     }
     #[cfg(unix)]
     {
+        let document = serde_json::from_str::<Value>(&options.0).unwrap_or(Value::Null);
+        let provider_options = voice_provider_options(&document);
         let configured = serde_json::from_str::<serde_json::Value>(&options.0)
             .ok()
             .and_then(|value| {
@@ -1145,7 +1189,7 @@ async fn recognize_voice(
             })?;
         let language = request.language;
         let text = tauri::async_runtime::spawn_blocking(move || {
-            UnixSocketProvider::new(path).voice(&language, 1)
+            UnixSocketProvider::new(path).voice_with_options(&language, 1, &provider_options)
         })
         .await
         .map_err(|_| HostActionError {

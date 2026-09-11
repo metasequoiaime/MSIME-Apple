@@ -105,6 +105,11 @@ export type VoiceInputPreferences = {
   hotkey_ctrl_win?: boolean;
   hotkey_rctrl_ralt?: boolean;
   hotkey_hold_space_lock?: boolean;
+  sound_enabled?: boolean;
+  start_sound?: boolean;
+  end_sound?: boolean;
+  mute_system_audio?: boolean;
+  polish_enabled?: boolean;
   [key: string]: unknown;
 };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
@@ -793,6 +798,19 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice_input?.enabled ?? true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: event.target.checked, language: draft.voice_input?.language ?? "zh-CN" } })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(draft.voice_input?.asr_provider ?? "local_whisper")} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: event.target.value, language: draft.voice_input?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice_input?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: draft.voice_input?.asr_provider ?? "local_whisper", language: event.target.value } })} /></label></div>
+        <div className="section"><div className="section-title">Linux provider 行为<small>这些选项会随请求传给用户管理的语音服务，不包含凭据</small></div>
+          {([[
+            "sound_enabled", "语音提示音", true,
+          ], [
+            "start_sound", "开始录音提示音", true,
+          ], [
+            "end_sound", "结束录音提示音", true,
+          ], [
+            "mute_system_audio", "录音时静音其他音频", false,
+          ], [
+            "polish_enabled", "识别结果润色", false,
+          ]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? draft.voice_input?.[key] !== false : draft.voice_input?.[key] === true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
+        </div>
         <div className="section"><div className="section-title">Linux IBus 快捷键<small>在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入</small></div>
           {([[
             "hotkey_ctrl_f9", "Ctrl+F9 切换语音",

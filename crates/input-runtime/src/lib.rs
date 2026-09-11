@@ -584,6 +584,18 @@ impl UnixSocketProvider {
     /// service. The service owns PipeWire/ALSA access, credentials and the
     /// recognizer; the input host only receives bounded UTF-8 text.
     pub fn voice(&self, language: &str, generation: u64) -> Option<String> {
+        self.voice_with_options(language, generation, &Value::Null)
+    }
+
+    /// Run a voice request with non-sensitive behavior options. Credentials
+    /// are deliberately not accepted here; the provider owns authentication
+    /// and may ignore options it does not understand.
+    pub fn voice_with_options(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+    ) -> Option<String> {
         if language.len() > 64 {
             return None;
         }
@@ -591,12 +603,18 @@ impl UnixSocketProvider {
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(30)))
             .ok()?;
-        let request = json!({
+        let mut request = json!({
             "version": 1,
             "kind": "voice",
             "query": {"language": language, "generation": generation}
         })
-        .to_string();
+        ;
+        if let Some(query) = request.get_mut("query").and_then(Value::as_object_mut) {
+            if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
+                query.insert("options".to_owned(), options.clone());
+            }
+        }
+        let request = request.to_string();
         if request.len() > 4096
             || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()
