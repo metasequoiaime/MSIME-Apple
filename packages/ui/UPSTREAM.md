@@ -68,3 +68,11 @@ six WeChat/Graphite/Willow color-variable rules from that commit's
 variables. License: GPL-3.0. Preview state is UI-only, separate from saved skin
 selection. Candidate markup, toolbar previews and external skin catalog parity
 remain incomplete; these palette changes are not full visual parity.
+
+Skin cards now render both candidate layouts with the first six fixed samples
+from `src/partials/candidate/candidate-wnd-h.html` and `candidate-wnd-v.html` at
+`04a8df56f86312474a069f4335a1b58da7afaa9e` (GPL-3.0). The React translation
+omits repeated `realContainer` IDs and unused hidden candidates 7–9. Scoped
+layout CSS comes from `src/styles/modules/candidate/style-h.css` and `style-v.css`;
+the vertical preview is constrained to the card width. Detailed skin-specific
+decoration, toolbar previews and native visual validation remain outstanding.

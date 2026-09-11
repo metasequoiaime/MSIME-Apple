@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { SkinCandidatePreview } from "./skin-candidate-preview";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
@@ -494,8 +495,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <label className="skin-card-select">
             <input type="radio" name="candidate-skin" value={id} checked={(draft.candidate_skin ?? "fluent") === id} onChange={() => setDraft({ ...draft, candidate_skin: id })} />
             <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
-              <div className="skin-candidate skin-candidate-horizontal"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span><span className="skin-number">3</span><span>明天</span></div>
-              <div className="skin-candidate skin-candidate-vertical"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span></div>
+              <SkinCandidatePreview orientation="horizontal" />
+              <SkinCandidatePreview orientation="vertical" />
             </div>
             <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
             </label>
