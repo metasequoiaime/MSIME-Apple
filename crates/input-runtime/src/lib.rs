@@ -75,6 +75,8 @@ pub trait InputEngine {
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { self.select(index) }
+    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { self.select(index) }
     fn select_edge(
         &mut self,
         index: usize,
@@ -112,6 +114,8 @@ impl InputEngine for Session {
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
+    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::pin_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
+    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::remove_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -438,6 +442,8 @@ pub enum Action {
     Command(Command),
     Select(CandidateId),
     SelectEdge(CandidateId, CandidateEdge),
+    PinCandidate(CandidateId),
+    RemoveCandidate(CandidateId),
     SelectHighlighted,
     Finish,
     NextPage,
@@ -781,7 +787,7 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
-        if let Action::Select(id) | Action::SelectEdge(id, _) = &action {
+        if let Action::Select(id) | Action::SelectEdge(id, _) | Action::PinCandidate(id) | Action::RemoveCandidate(id) = &action {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
                 || id.generation != self.generation
@@ -844,6 +850,8 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
+            Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
+            Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),

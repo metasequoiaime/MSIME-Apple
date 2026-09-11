@@ -138,6 +138,8 @@ impl Session {
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
     }
+    pub fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> { self.inner.pin_mut().pin_candidate(index) }
+    pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> { self.inner.pin_mut().remove_candidate(index) }
     pub fn select_edge(
         &mut self,
         index: usize,
