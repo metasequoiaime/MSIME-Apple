@@ -1,5 +1,6 @@
 mod update_body;
 
+use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::cloud::{build_google_url, parse_google_response};
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
@@ -11,7 +12,7 @@ use tauri::Manager;
 
 struct DictionaryHostOptions(Arc<String>);
 struct DiagnosticState(std::sync::Mutex<(bool, bool)>);
-struct ClipboardHistoryState(std::sync::Mutex<Vec<String>>);
+struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
 struct SkinState(std::sync::Mutex<Option<String>>);
 
 #[derive(Debug, serde::Serialize)]
@@ -366,7 +367,6 @@ struct UpdateSummary {
 
 #[tauri::command]
 fn clear_clipboard_history(
-    app: tauri::AppHandle,
     state: tauri::State<'_, ClipboardHistoryState>,
 ) -> Result<(), HostActionError> {
     state
@@ -375,21 +375,10 @@ fn clear_clipboard_history(
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?
-        .clear();
-    let history = app
-        .path()
-        .app_data_dir()
+        .clear()
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?
-        .join("clipboard_history.json");
-    match std::fs::remove_file(history) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(HostActionError {
-            code: "unavailable",
-        }),
-    }
+        })
 }
 
 #[tauri::command]
@@ -758,7 +747,23 @@ fn open_handwriting() -> Result<(), HostActionError> {
 }
 
 #[tauri::command]
-fn copy_text(text: String) -> Result<(), HostActionError> {
+fn copy_text(
+    text: String,
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let record = || {
+        state
+            .0
+            .lock()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .push(text.clone())
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    };
     #[cfg(target_os = "macos")]
     {
         let mut child = std::process::Command::new("pbcopy")
@@ -788,7 +793,7 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
                 code: "unavailable",
             });
         }
-        Ok(())
+        record()
     }
     #[cfg(target_os = "linux")]
     {
@@ -820,7 +825,7 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
                 code: "unavailable",
             });
         }
-        return Ok(());
+        return record();
     }
     #[cfg(target_os = "windows")]
     {
@@ -851,7 +856,7 @@ fn copy_text(text: String) -> Result<(), HostActionError> {
                 code: "unavailable",
             });
         }
-        return Ok(());
+        return record();
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
@@ -998,7 +1003,7 @@ pub fn run() {
                 }
                 None => app.path().app_data_dir()?,
             };
-            app.manage(std::sync::Arc::new(PreferencesStore::new(directory)));
+            app.manage(std::sync::Arc::new(PreferencesStore::new(&directory)));
             // Native packaging/installer supplies this verified JSON after resource
             // generation; never let a webview choose resource or state paths.
             let host_options = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -1009,7 +1014,10 @@ pub fn run() {
                 })?;
             app.manage(DictionaryHostOptions(Arc::new(host_options)));
             app.manage(DiagnosticState(std::sync::Mutex::new((false, false))));
-            app.manage(ClipboardHistoryState(std::sync::Mutex::new(Vec::new())));
+            let mut clipboard =
+                ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
+            let _ = clipboard.load();
+            app.manage(ClipboardHistoryState(std::sync::Mutex::new(clipboard)));
             let selected_skin = app
                 .path()
                 .app_data_dir()
