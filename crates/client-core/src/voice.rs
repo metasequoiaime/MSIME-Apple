@@ -42,6 +42,17 @@ pub struct VoiceRecognitionResult {
     pub confidence: Option<u16>,
 }
 
+pub trait VoiceRecognizer {
+    fn recognize(&self, request: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError>;
+}
+
+pub fn recognize<R: VoiceRecognizer>(recognizer: &R, request: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError> {
+    request.validate()?;
+    let result = recognizer.recognize(request)?;
+    result.validate()?;
+    Ok(result)
+}
+
 impl VoiceRecognitionResult {
     pub fn validate(&self) -> Result<(), VoiceError> {
         if self.text.len() > 16 * 1024 {
@@ -85,4 +96,8 @@ mod tests {
         empty.audio.clear();
         assert!(empty.validate().is_err());
     }
+
+    struct Stub;
+    impl VoiceRecognizer for Stub { fn recognize(&self, _: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError> { Ok(VoiceRecognitionResult { text: "你好".into(), confidence: Some(900) }) } }
+    #[test] fn dispatch_validates_request_and_result() { let r=VoiceRecognitionRequest{provider:VoiceProvider::Cloud,language:"zh-CN".into(),audio:vec![1]}; assert_eq!(recognize(&Stub,&r).unwrap().text,"你好"); }
 }
