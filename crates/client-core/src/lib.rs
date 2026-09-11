@@ -1,6 +1,7 @@
 //! Shared client business logic. Independent of UI frameworks and IME hosts.
 
 pub mod clipboard;
+pub mod account;
 pub mod cloud;
 pub mod cloud_dictionary;
 pub mod dictionary_access;
