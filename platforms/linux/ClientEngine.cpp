@@ -31,6 +31,7 @@ struct State {
   bool private_input = false;
   bool input_enabled = true;
   bool chinese_punctuation = true;
+  bool properties_registered = false;
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
@@ -192,7 +193,10 @@ void focus_in(IBusEngine *engine) {
     s.open();
     if (s.session)
       apply(engine, msime_client_focus(s.session, true));
-    register_properties(engine);
+    if (!s.properties_registered) {
+      register_properties(engine);
+      s.properties_registered = true;
+    }
   });
 }
 void focus_out(IBusEngine *engine) {
