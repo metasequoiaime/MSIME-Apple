@@ -31,6 +31,15 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * The host must prepare and validate its dictionary generation before creation.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
+/* Management JSON (<=65536 bytes), trusted native caller only:
+ * {options:<same HostOptions as create>,action:{operation:"list",offset,limit}}
+ * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id}.
+ * Entry:{kind:"pinyin"|"wubi"|"quick_phrase"|"english",key,value,weight}.
+ * List returns {entries,has_more}; edit returns {applied:true}; errors are redacted.
+ * Edit requires all participating sessions to be destroyed and must be retried with
+ * the same request ID and content if the result is ambiguous.
+ */
+char *msime_client_dictionary(const uint8_t *request, size_t length);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.

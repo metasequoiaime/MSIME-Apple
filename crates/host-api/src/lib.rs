@@ -1,6 +1,7 @@
 //! Versioned, thread-confined C interface for native IME hosts.
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
+use msime_client_core::dictionary_access::DictionaryAccess;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
@@ -14,6 +15,9 @@ use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+mod dictionary;
+pub use dictionary::msime_client_dictionary;
+
 thread_local! {
     static SESSIONS: RefCell<HashMap<u64, HostSession>> = RefCell::new(HashMap::new());
 }
@@ -25,6 +29,8 @@ struct HostSession {
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
     english_mode: bool,
+    // Declared last so the runtime/Engine are dropped before releasing access.
+    _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
@@ -188,6 +194,46 @@ struct HostOptions {
     preferences_directory: Option<String>,
 }
 
+impl HostOptions {
+    fn into_engine_options(self) -> EngineOptions {
+        let helpcode = self.preferences.active_helpcode();
+        EngineOptions {
+            resources: self.resources,
+            user_data: self.user_data,
+            cache: self.cache,
+            dictionaries: self.dictionaries,
+            scheme: scheme_code(self.preferences.scheme),
+            shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
+            learning: self.preferences.learning,
+            autocorrect: self.preferences.autocorrect,
+            frequency_mode: self.preferences.frequency.mode.as_str().into(),
+            frequency_trigger_count: self.preferences.frequency.trigger_count,
+            frequency_linear_step: self.preferences.frequency.linear_step,
+            mixed_english: self.preferences.mixed_input.english,
+            english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
+            mixed_emoji: self.preferences.mixed_input.emoji,
+            mixed_kaomoji: self.preferences.mixed_input.kaomoji,
+            local_unicode: self.preferences.local_modes.unicode,
+            local_date_time: self.preferences.local_modes.date_time,
+            local_quick_phrase: self.preferences.local_modes.quick_phrase,
+            local_emoji: self.preferences.local_modes.emoji,
+            local_kaomoji: self.preferences.local_modes.kaomoji,
+            local_super_jianpin: self.preferences.local_modes.super_jianpin,
+            local_temporary_english: self.preferences.local_modes.temporary_english,
+            local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
+            helpcode: helpcode.enabled,
+            helpcode_schema: helpcode.schema.as_str().into(),
+            chinese_punctuation: self.preferences.chinese_punctuation,
+            paired_punctuation: self.preferences.paired_punctuation,
+            punctuation_lock: match self.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
+        }
+    }
+}
+
 /// Bootstrap a new host using the reviewed desktop data and Engine-owned replay.
 /// Call only while all sessions using state_root are stopped. Does not activate it.
 pub fn prepare_host_configuration(
@@ -227,6 +273,27 @@ pub fn prepare_host_configuration(
                 .to_owned(),
         ),
     })?)
+}
+
+/// Edit the Engine-owned personal dictionary while all participating sessions are stopped.
+/// Errors are intentionally redacted because Engine diagnostics may contain user text.
+pub fn edit_personal_dictionary(
+    options: &EngineOptions,
+    previous: Option<&msime_engine_bridge::DictionaryEntry>,
+    replacement: Option<&msime_engine_bridge::DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), &'static str> {
+    let _access = DictionaryAccess::try_maintenance(
+        std::path::Path::new(&options.user_data),
+        std::path::Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    if request_id.is_empty() {
+        return Err("dictionary request id required");
+    }
+    msime_engine_bridge::dictionary_edit(options, previous, replacement, request_id)
+        .map_err(|_| "dictionary edit rejected")
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
@@ -377,41 +444,13 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
-        let helpcode = options.preferences.active_helpcode();
-        let options = EngineOptions {
-            resources: options.resources,
-            user_data: options.user_data,
-            cache: options.cache,
-            dictionaries: options.dictionaries,
-            scheme: scheme_code(options.preferences.scheme),
-            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
-            learning: options.preferences.learning,
-            autocorrect: options.preferences.autocorrect,
-            frequency_mode: options.preferences.frequency.mode.as_str().into(),
-            frequency_trigger_count: options.preferences.frequency.trigger_count,
-            frequency_linear_step: options.preferences.frequency.linear_step,
-            mixed_english: options.preferences.mixed_input.english,
-            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
-            mixed_emoji: options.preferences.mixed_input.emoji,
-            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
-            local_unicode: options.preferences.local_modes.unicode,
-            local_date_time: options.preferences.local_modes.date_time,
-            local_quick_phrase: options.preferences.local_modes.quick_phrase,
-            local_emoji: options.preferences.local_modes.emoji,
-            local_kaomoji: options.preferences.local_modes.kaomoji,
-            local_super_jianpin: options.preferences.local_modes.super_jianpin,
-            local_temporary_english: options.preferences.local_modes.temporary_english,
-            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
-            helpcode: helpcode.enabled,
-            helpcode_schema: helpcode.schema.as_str().into(),
-            chinese_punctuation: options.preferences.chinese_punctuation,
-            paired_punctuation: options.preferences.paired_punctuation,
-            punctuation_lock: match options.preferences.punctuation_lock {
-                msime_client_core::preferences::PunctuationLock::Follow => 0,
-                msime_client_core::preferences::PunctuationLock::Chinese => 1,
-                msime_client_core::preferences::PunctuationLock::English => 2,
-            },
-        };
+        let options = options.into_engine_options();
+        let dictionary_access = DictionaryAccess::try_session(
+            std::path::Path::new(&options.user_data),
+            std::path::Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable")?
+        .ok_or("dictionary maintenance busy")?;
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
         let view = runtime.view();
@@ -426,6 +465,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     requested: None,
                     punctuation_override: None,
                     english_mode: false,
+                    _dictionary_access: dictionary_access,
                 },
             )
         });
@@ -928,6 +968,41 @@ mod tests {
         assert_eq!(created["ok"], true);
         created["value"]["session"].as_u64().unwrap()
     }
+
+    #[test]
+    fn dictionary_edit_waits_for_all_sessions_without_cancelling_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        let options = json!({
+            "api_version": 1,
+            "resources": dir.path().join("resources"),
+            "user_data": dir.path().join("user"),
+            "cache": dir.path().join("cache"),
+            "dictionaries": dir.path().join("dictionaries"),
+            "preferences": Preferences::default(),
+        });
+        let request = json!({
+            "options": options,
+            "action": {
+                "operation": "edit",
+                "previous": null,
+                "replacement": {
+                    "kind": "quick_phrase",
+                    "key": "x",
+                    "value": "fixture",
+                    "weight": 100,
+                },
+                "request_id": "host-lock-test",
+            },
+        });
+        assert_eq!(
+            dictionary::dictionary_request_json(&serde_json::to_vec(&request).unwrap())
+                .unwrap_err(),
+            "dictionary maintenance busy"
+        );
+        read(msime_client_destroy(handle));
+    }
+
     fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {
         let snapshot =
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
