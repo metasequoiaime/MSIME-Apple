@@ -488,6 +488,19 @@ LRESULT Window::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam)
             ScreenToClient(hwnd_, &point);
             RECT client = {};
             GetClientRect(hwnd_, &client);
+            const LONG border = std::max<LONG>(1, static_cast<LONG>(DipsToPixels(6.0f, GetDpi())));
+            const bool left = point.x < border;
+            const bool right = point.x >= client.right - border;
+            const bool top = point.y < border;
+            const bool bottom = point.y >= client.bottom - border;
+            if (top && left) return HTTOPLEFT;
+            if (top && right) return HTTOPRIGHT;
+            if (bottom && left) return HTBOTTOMLEFT;
+            if (bottom && right) return HTBOTTOMRIGHT;
+            if (left) return HTLEFT;
+            if (right) return HTRIGHT;
+            if (top) return HTTOP;
+            if (bottom) return HTBOTTOM;
             const float dragHeightPixels = DipsToPixels(dragRegionHeight_, GetDpi());
             const float reservedRightPixels = DipsToPixels(58.0f, GetDpi());
             if (static_cast<float>(point.y) < dragHeightPixels &&
