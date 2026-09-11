@@ -130,6 +130,7 @@ export interface SettingsClient {
   openHandwriting?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
+  onWindowStateChanged?: (listener: (maximized: boolean) => void) => () => void;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -169,6 +170,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseError, setPhraseError] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
+  const [windowMaximized, setWindowMaximized] = useState(false);
+  useEffect(() => client.onWindowStateChanged?.(setWindowMaximized), [client]);
 
   useEffect(() => {
     let active = true;
@@ -315,7 +318,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       onPointerDown={event => { if (event.button === 0 && client.beginWindowDrag) void client.beginWindowDrag(); }}>
       <span>水杉 IME</span><span className="window-controls">
         <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>−</button>
-        <button type="button" aria-label="最大化" onClick={() => void client.windowControl!("maximize")}>□</button>
+        <button type="button" aria-label={windowMaximized ? "还原" : "最大化"} onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}>{windowMaximized ? "❐" : "□"}</button>
         <button type="button" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
       </span>
     </header>}
