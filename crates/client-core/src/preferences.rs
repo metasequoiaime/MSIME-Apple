@@ -33,6 +33,8 @@ pub struct Preferences {
     #[serde(default)]
     pub ai_assistant: AiAssistantPreferences,
     #[serde(default)]
+    pub custom_translation: CustomTranslationPreferences,
+    #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub theme: ThemeMode,
@@ -215,6 +217,16 @@ pub struct AiAssistantPreferences {
     pub prompt_custom_2: String,
     #[serde(default)]
     pub prompt_custom_3: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CustomTranslationPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
 }
 
 fn default_ai_candidate_limit() -> u8 {
@@ -478,6 +490,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             ai_assistant: AiAssistantPreferences::default(),
+            custom_translation: CustomTranslationPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             theme: ThemeMode::default(),
@@ -577,6 +590,15 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        let translation = &self.custom_translation;
+        if translation.endpoint.len() > 2048
+            || translation.api_key.len() > 4096
+            || translation.endpoint.chars().any(char::is_control)
+            || translation.api_key.chars().any(char::is_control)
+            || (!translation.endpoint.is_empty() && !translation.endpoint.starts_with("https://"))
+        {
+            return Err(PreferencesError::InvalidCustomTranslation);
+        }
         if !(1..=10).contains(&self.ai_assistant.candidate_limit)
             || !matches!(
                 self.ai_assistant.provider.as_str(),
@@ -664,6 +686,8 @@ pub enum PreferencesError {
     InvalidFloatingToolbar,
     #[error("AI assistant provider or candidate limit is invalid")]
     InvalidAiAssistant,
+    #[error("custom translation endpoint or API key is invalid")]
+    InvalidCustomTranslation,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("candidate font size must be between 12 and 32")]
