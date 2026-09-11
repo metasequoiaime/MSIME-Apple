@@ -41,8 +41,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
@@ -83,10 +83,14 @@ pub trait InputEngine {
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
-        Err(RuntimeError::Engine("Candidate pinning is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Candidate pinning is unsupported".into(),
+        ))
     }
     fn remove_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
-        Err(RuntimeError::Engine("Candidate removal is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Candidate removal is unsupported".into(),
+        ))
     }
     fn select_edge(
         &mut self,
@@ -125,8 +129,12 @@ impl InputEngine for Session {
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
-    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::pin_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
-    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::remove_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
+    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::pin_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::remove_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -459,9 +467,7 @@ impl UnixSocketProvider {
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.items.len() > 96
             || reply.items.iter().any(|item| {
-                item.text.is_empty()
-                    || item.text.len() > 64
-                    || item.annotation.len() > 256
+                item.text.is_empty() || item.text.len() > 64 || item.annotation.len() > 256
             })
         {
             return None;
@@ -956,7 +962,11 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
-        if let Action::Select(id) | Action::SelectEdge(id, _) | Action::PinCandidate(id) | Action::RemoveCandidate(id) = &action {
+        if let Action::Select(id)
+        | Action::SelectEdge(id, _)
+        | Action::PinCandidate(id)
+        | Action::RemoveCandidate(id) = &action
+        {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
                 || id.generation != self.generation
