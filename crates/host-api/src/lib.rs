@@ -10,7 +10,9 @@ use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
-use msime_input_runtime::{Action, CandidateId, OnlineQuery, Runtime, Transition};
+use msime_input_runtime::{
+    Action, CandidateId, OnlineQuery, Runtime, Transition, TranslationQuery,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -764,6 +766,41 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
         Ok(UnixSocketProvider::new(path)
             .query(query)
             .map(|(text, source)| json!({"text": text, "source": source}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Unix-socket translation provider.
+///
+/// # Safety
+/// Both buffers must be non-null readable UTF-8 buffers for the stated lengths;
+/// they are copied for the duration of this call and never retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_translation_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || socket_path.is_null() || query_length > 16384 || socket_length > 4096
+        {
+            return Err("invalid translation provider buffer".into());
+        }
+        let query = serde_json::from_slice::<TranslationQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid translation query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .translate(query)
+            .map(|items| json!({"translations": items}))
             .unwrap_or(Value::Null))
     })
 }
