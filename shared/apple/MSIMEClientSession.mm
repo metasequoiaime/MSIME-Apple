@@ -3,6 +3,7 @@
 #include <cstring>
 
 static NSString *const MSIMEClientErrorDomain = @"app.msime.client.host";
+static __weak MSIMEClientSession *gActiveSession;
 
 static void setError(NSError **error, NSString *message) {
     if (error) *error = [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
@@ -57,10 +58,21 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![version isKindOfClass:NSString.class] || version.length != 64) { setError(error, @"本地词库版本响应无效"); return nil; }
     return version;
 }
++ (NSDictionary *)snapshotVersion:(NSDictionary<NSString *, id> *)options {
+    NSError *error = nil;
+    NSString *value = [self snapshotVersionForOptions:options error:&error];
+    return value ? @{ @"version": value } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+}
 + (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error {
     if (!handle) { setError(error, @"本地词库准备句柄无效"); return NO; }
     return decode(msime_client_snapshot_discard(handle), error) != nil;
 }
++ (NSDictionary *)discardSnapshot:(NSDictionary<NSString *, id> *)parameters {
+    NSError *error = nil;
+    BOOL discarded = [self discardSnapshotHandle:[parameters[@"handle"] unsignedLongLongValue] error:&error];
+    return discarded ? @{ @"discarded": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+}
++ (NSDictionary *)activeHostOptions { return gActiveSession ? [gActiveSession.hostOptions copy] : @{@"error" : [NSError errorWithDomain:MSIMEClientErrorDomain code:503 userInfo:nil]}; }
 + (NSDictionary *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
                                nextRecord:(MSIMESnapshotNextRecord)nextRecord
                                     error:(NSError **)error {
@@ -74,6 +86,13 @@ static NSDictionary *decode(char *response, NSError **error) {
                                                                  SnapshotNext, &context), error);
     context.block = nil;
     return result;
+}
++ (NSDictionary *)prepareSnapshot:(NSDictionary<NSString *, id> *)parameters {
+    NSError *error = nil;
+    NSDictionary *request = parameters[@"request"];
+    MSIMESnapshotNextRecord next = parameters[@"nextRecord"];
+    NSDictionary *result = [self prepareSnapshotRequest:request nextRecord:next error:&error];
+    return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
 + (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
     if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
@@ -108,6 +127,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!view) return nil;
     _handle = [view[@"session"] unsignedLongLongValue];
     if (!_handle) { setError(error, @"输入会话句柄无效"); return nil; }
+    gActiveSession = self;
     return self;
 }
 
@@ -189,6 +209,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     });
 }
 - (void)dealloc {
+    if (gActiveSession == self) gActiveSession = nil;
     uint64_t handle = _handle;
     if (!handle) return;
     if ([NSThread isMainThread]) {

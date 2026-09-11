@@ -55,7 +55,7 @@ final class MacSnapshotModel: ObservableObject {
   func downloadForLocal() {
     run { token in
       self.discard()
-      let context = try MacPreparedLocalSnapshot.invoke("context")
+      let context = try MacPreparedLocalSnapshot.invoke("activeHostOptions")
       let file = try await self.client.dictionarySnapshot(token: token)
       defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
       let source = file.url

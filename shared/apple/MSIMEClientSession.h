@@ -26,12 +26,20 @@ typedef NSDictionary *_Nullable (^MSIMESnapshotNextRecord)(NSError *_Nullable *e
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
 /// Return the current local dictionary version without exposing dictionary text.
 + (nullable NSString *)snapshotVersionForOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
+/// Dynamic Swift-backend form; returns {version} or {error}.
++ (NSDictionary<NSString *, id> *)snapshotVersion:(NSDictionary<NSString *, id> *)options;
 /// Discard a process-owned, unpublished preparation handle.
 + (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error;
+/// Dynamic Swift-backend form; returns {discarded} or {error}.
++ (NSDictionary<NSString *, id> *)discardSnapshot:(NSDictionary<NSString *, id> *)parameters;
+/// Current validated host options for the live input session, or an error dictionary.
++ (nullable NSDictionary<NSString *, id> *)activeHostOptions;
 /// Prepare a bounded, checksummed record stream synchronously; invoke off-main-thread.
 + (nullable NSDictionary<NSString *, id> *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
                                                        nextRecord:(MSIMESnapshotNextRecord)nextRecord
                                                             error:(NSError **)error;
+/// Dynamic Swift-backend form; parameters contains request and nextRecord.
++ (NSDictionary<NSString *, id> *)prepareSnapshot:(NSDictionary<NSString *, id> *)parameters;
 /// Prepare isolated Engine working data; call off the main thread and before creating sessions.
 + (nullable NSDictionary<NSString *, id> *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error;
 + (nullable NSDictionary<NSString *, id> *)savePreferencesInDirectory:(NSString *)directory expectedRevision:(uint64_t)revision snapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
