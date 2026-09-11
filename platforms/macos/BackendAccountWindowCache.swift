@@ -4,6 +4,13 @@ final class BackendAccountWindowCache<Window> {
   private var accountID: String?
   private var windows: [String: Window] = [:]
 
+  func closeAll(close: (Window) -> Void) {
+    let previous = Array(windows.values)
+    windows.removeAll()
+    accountID = nil
+    previous.forEach(close)
+  }
+
   func window(for key: String, accountID: String, reusable: (Window) -> Bool,
               close: (Window) -> Void, create: () -> Window) -> Window {
     if self.accountID != accountID {

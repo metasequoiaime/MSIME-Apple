@@ -11,6 +11,7 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
   func clear() throws { lock.lock(); defer { lock.unlock() }; saved = nil }
 }
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
+  static var failLogout = false
   private static var preferenceRevision = 1
   private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
   private static var clipboardEnabled = false
@@ -56,7 +57,8 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     case (_, "/v1/auth/login"):
       let token = String(repeating: "a", count: 64), refresh = String(repeating: "b", count: 64)
       body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08\"}}"
-    case ("PATCH", "/v1/users/me"), (_, "/v1/auth/logout"): body = ""; status = 204
+    case (_, "/v1/auth/logout"): body = ""; status = Self.failLogout ? 503 : 204
+    case ("PATCH", "/v1/users/me"): body = ""; status = 204
     case ("GET", "/v1/users/me"): body = #"{"user":{"id":"synthetic-user","display_name":"新昵称","created_at":"2026-09-08"},"identities":[]}"#
     case ("DELETE", "/v1/users/me"): body = #"{"error":{"code":"recent_login_required"}}"#; status = 403
     default: body = "{}"; status = 404
@@ -120,7 +122,8 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let client = BackendAccountClient(configuration: configuration)
     let storage = MemoryCredentials()
     let session = BackendAccountSession(api: client, storage: storage)
-    let model = MacAccountModel(client: client, account: session)
+    var windowClosures = 0
+    let model = MacAccountModel(client: client, account: session, closeAccountWindows: { windowClosures += 1 })
     model.load(); try await finished(model)
     try require(model.providers["email"] == true && model.user == nil)
     model.channel = "phone"; model.target = "+10000000000"
@@ -135,6 +138,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
+    try require(windowClosures == 0)
     var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_skin": .string("wechat"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
       guard values.count == 3 else { throw Failure() }
@@ -175,6 +179,13 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(clipboard.text.isEmpty && clipboard.items.isEmpty)
     model.logout(all: true); try await finished(model)
     try require(model.user == nil && storage.load() == nil)
+    try require(windowClosures == 1)
+    try await session.signIn(challenge: "synthetic", credential: "123456")
+    model.load(); try await finished(model)
+    AccountFixture.failLogout = true
+    model.logout(); try await finished(model)
+    AccountFixture.failLogout = false
+    try require(windowClosures == 2 && model.user == nil && storage.load() == nil && model.message != nil)
     model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
     try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
     print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
@@ -204,5 +215,11 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(reopened !== otherAccount && otherAccount.closed && creations == 4)
     let returned = open("dictionary", "synthetic-a")
     try require(returned !== dictionary && reopened.closed && creations == 5)
+    var closedCount = 0
+    cache.closeAll { $0.closed = true; closedCount += 1 }
+    try require(returned.closed && closedCount == 1)
+    cache.closeAll { _ in closedCount += 1 }
+    try require(closedCount == 1)
+    try require(open("dictionary", "synthetic-a") !== returned && creations == 6)
   }
 }
