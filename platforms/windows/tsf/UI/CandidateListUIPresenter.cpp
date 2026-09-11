@@ -1063,6 +1063,7 @@ void CCandidateListUIPresenter::SetPageIndexWithScrollInfo(       //
 void CCandidateListUIPresenter::_ClearList()
 {
     _candidateState.Clear();
+    _engineIndices.clear();
 }
 
 //+---------------------------------------------------------------------------
