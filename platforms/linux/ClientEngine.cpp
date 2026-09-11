@@ -82,6 +82,10 @@ struct State {
     close();
   }
   void close() {
+    ++clipboard_generation;
+    clipboard_loading = false;
+    clipboard_loaded = false;
+    clipboard_items_cache.clear();
     if (session)
       msime_client_string_free(msime_client_destroy(session));
     session = 0;
