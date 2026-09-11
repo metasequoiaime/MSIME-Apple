@@ -7,13 +7,27 @@ use msime_client_core::preferences::{
 };
 #[cfg(unix)]
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
-use std::sync::Arc;
+use serde_json::Value;
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::io::Write;
+#[cfg(target_os = "linux")]
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 #[cfg(not(target_os = "windows"))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
 struct DictionaryHostOptions(Arc<String>);
+
+#[derive(Clone)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct RuntimeOptionsState {
+    path: Option<PathBuf>,
+    document: Arc<Mutex<Value>>,
+}
 
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
@@ -64,17 +78,61 @@ async fn load_preferences(
 #[tauri::command]
 async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
     expected_revision: u64,
     preferences: Preferences,
 ) -> Result<PreferencesSnapshot, CommandError> {
     let store = store.inner().clone();
+    let runtime = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store
+        let snapshot = store
             .save(expected_revision, preferences)
-            .map_err(CommandError::from)
+            .map_err(CommandError::from)?;
+        sync_linux_runtime_options(&runtime, &snapshot.preferences)
+            .map_err(|_| CommandError { code: "storage" })?;
+        Ok(snapshot)
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+fn sync_linux_runtime_options(
+    runtime: &RuntimeOptionsState,
+    preferences: &Preferences,
+) -> Result<(), std::io::Error> {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(path) = runtime.path.as_ref() else {
+            return Ok(());
+        };
+        let mut document = runtime
+            .document
+            .lock()
+            .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
+        document["preferences"] = serde_json::to_value(preferences)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let bytes = serde_json::to_vec_pretty(&*document)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        atomic_write(path, &bytes)?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (runtime, preferences);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(contents)?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(path)
+        .map(|_| ())
+        .map_err(|error| error.error)
 }
 
 #[tauri::command]
@@ -891,13 +949,31 @@ pub fn run() {
             app.manage(PanelInputState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
-            let host_options = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
-                .and_then(|value| std::fs::read_to_string(value).ok())
+            let host_options_path = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .or_else(|| {
+                    std::env::var_os("MSIME_IBUS_OPTIONS")
+                        .map(PathBuf::from)
+                        .filter(|path| path.is_absolute())
+                })
                 .ok_or_else(|| {
-                    "MSIME_CLIENT_HOST_OPTIONS must point to a prepared HostOptions JSON"
+                    "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
                         .to_string()
                 })?;
+            let host_options = fs::read_to_string(&host_options_path)
+                .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
+            let host_document: Value = serde_json::from_str(&host_options)
+                .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?;
+            let runtime_path = std::env::var_os("MSIME_IBUS_OPTIONS")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .or_else(|| Some(host_options_path.clone()));
             app.manage(DictionaryHostOptions(Arc::new(host_options)));
+            app.manage(RuntimeOptionsState {
+                path: runtime_path,
+                document: Arc::new(Mutex::new(host_document)),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -920,4 +996,32 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn runtime_options_sync_replaces_preferences_atomically() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("runtime-options.json");
+        let document = serde_json::json!({
+            "api_version": 1,
+            "resources": "/resources",
+            "preferences": {"candidate_page_size": 5}
+        });
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let state = RuntimeOptionsState {
+            path: Some(path.clone()),
+            document: Arc::new(Mutex::new(document)),
+        };
+        let mut preferences = Preferences::default();
+        preferences.candidate_page_size = 9;
+        sync_linux_runtime_options(&state, &preferences).unwrap();
+        let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(updated["preferences"]["candidate_page_size"], 9);
+    }
 }
