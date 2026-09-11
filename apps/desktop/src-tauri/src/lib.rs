@@ -17,6 +17,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "linux")]
+use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(target_os = "windows"))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -123,6 +125,30 @@ fn sync_linux_runtime_options(
         let _ = (runtime, preferences);
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn start_linux_preferences_monitor(
+    app: &tauri::AppHandle,
+    store: std::sync::Arc<PreferencesStore>,
+) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("msime-preferences-monitor".to_owned())
+        .spawn(move || {
+            let mut revision = store.load().ok().map(|snapshot| snapshot.revision);
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(750));
+                let Ok(snapshot) = store.load() else {
+                    continue;
+                };
+                if revision == Some(snapshot.revision) {
+                    continue;
+                }
+                revision = Some(snapshot.revision);
+                let _ = app.emit("preferences-changed", snapshot);
+            }
+        });
 }
 
 #[cfg(target_os = "linux")]
@@ -1152,6 +1178,8 @@ pub fn run() {
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
             app.manage(preferences.clone());
+            #[cfg(target_os = "linux")]
+            start_linux_preferences_monitor(app.handle(), preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
             #[cfg(target_os = "linux")]

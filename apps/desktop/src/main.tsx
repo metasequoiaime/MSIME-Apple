@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
@@ -14,6 +15,7 @@ const client: SettingsClient = {
     return invoke<Snapshot>("load_preferences");
   },
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
+  onPreferencesChanged: listener => listen<Snapshot>("preferences-changed", event => listener(event.payload)),
   openExternalUrl: url => invoke("open_external_url", { url }),
   copyText: text => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),

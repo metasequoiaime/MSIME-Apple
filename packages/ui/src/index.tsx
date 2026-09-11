@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { EmojiPanel, HandwritingPanel, KeyboardPanel, type EmojiPanelClient, type PanelClient } from "./panels";
@@ -123,6 +123,7 @@ const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16,
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
+  onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
   openExternalUrl?: (url: string) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
@@ -167,6 +168,41 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseError, setPhraseError] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
+  const snapshotRef = useRef(snapshot);
+  const draftRef = useRef(draft);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+    draftRef.current = draft;
+  }, [snapshot, draft]);
+
+  useEffect(() => {
+    if (!client.onPreferencesChanged) return;
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void client.onPreferencesChanged(value => {
+      if (!active) return;
+      const currentSnapshot = snapshotRef.current;
+      const currentDraft = draftRef.current;
+      const dirty = !!currentSnapshot && !!currentDraft &&
+        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+      if (dirty) {
+        setNotice("设置已被其他窗口修改。请重新读取后再保存。");
+        return;
+      }
+      setSnapshot(value);
+      setDraft(value.preferences);
+      setError("");
+      setNotice("设置已从其他窗口更新。");
+    }).then(value => {
+      if (active) unsubscribe = value;
+      else value();
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [client]);
 
   useEffect(() => {
     let active = true;
