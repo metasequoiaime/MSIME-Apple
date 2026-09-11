@@ -424,7 +424,10 @@ void register_properties(IBusEngine *engine) {
       "ChinesePunctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
       ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
-      PROP_STATE_CHECKED, nullptr);
+      configured.at("preferences").value("chinese_punctuation", true)
+          ? PROP_STATE_CHECKED
+          : PROP_STATE_UNCHECKED,
+      nullptr);
   ibus_prop_list_append(properties, punctuation);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
