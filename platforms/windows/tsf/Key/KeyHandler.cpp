@@ -1260,6 +1260,27 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     std::wstring pendingPunctuationCommitText = prefetchedText;
     const bool hasPendingPunctuationCommitText = !pendingPunctuationCommitText.empty();
     std::wstring punctuationStr;
+    if (!hasPendingPunctuationCommitText && _candidateMode == CANDIDATE_NONE)
+    {
+        if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            msime::tsf::EngineResult result;
+            if (host->punctuation(static_cast<uint8_t>(wch & 0xff), &raw, &error) &&
+                msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled &&
+                result.has_commit && !result.commit.empty())
+            {
+                const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                                  static_cast<int>(result.commit.size()), nullptr, 0);
+                std::wstring commit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+                if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                               static_cast<int>(result.commit.size()), commit.data(), n);
+                CStringRange text;
+                text.Set(commit.c_str(), commit.size());
+                return _AddCharAndFinalize(ec, pContext, &text);
+            }
+        }
+    }
     if (hasPendingPunctuationCommitText)
     {
         // Prefetch already contains the fully resolved commit text (candidate
