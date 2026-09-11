@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod account;
 pub mod cloud;
 pub mod cloud_dictionary;
+pub mod cloud_transport;
 pub mod dictionary_access;
 mod file_lock;
 pub mod preferences;
