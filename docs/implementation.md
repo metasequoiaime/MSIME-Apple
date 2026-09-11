@@ -631,3 +631,5 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 ### Linux IBus 配置热重载（增量）
 
 Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
+
+使用固定 Debian bookworm arm64 容器、IBus 1.5.27 和已校验 Release 词库完成真实验收：Rust workspace 测试、CMake/Ninja 构建、独立 Engine D-Bus smoke、IBus daemon/factory 启动以及 Python InputContext 合成输入全部通过。合成 fixture 通过显式环境标记隔离属性信号；生产宿主仍注册并更新 IBus 属性。GTK/Qt 真编辑器、X11/Wayland 选区定位、安装打包和其他发行版仍待验证。
