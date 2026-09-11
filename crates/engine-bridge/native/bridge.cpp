@@ -1,6 +1,8 @@
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
+#include <metasequoia/handwriting.h>
+#include <algorithm>
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
 #include <type_traits>
@@ -323,6 +325,25 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str se
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
                                           rust::Str category, std::uint8_t limit) {
     return emoji_catalog_page(resources, search, category, 0, limit);
+}
+rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
+                                               rust::Slice<const HandwritingPoint> points,
+                                               float width, float height) {
+    if (model_path.empty() || points.empty())
+        return {};
+    std::vector<metasequoia::handwriting::Stroke> strokes;
+    std::uint32_t stroke_count = 0;
+    for (const auto &point : points)
+        stroke_count = std::max(stroke_count, point.stroke + 1);
+    strokes.resize(stroke_count);
+    for (const auto &point : points)
+        strokes[point.stroke].push_back({point.x, point.y});
+    metasequoia::handwriting::Recognizer recognizer{std::string(model_path)};
+    const auto candidates = recognizer.recognize(strokes, width, height);
+    rust::Vec<rust::String> result;
+    for (const auto &candidate : candidates)
+        result.push_back(rust::String(candidate));
+    return result;
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");

@@ -14,6 +14,7 @@ struct EngineSnapshot;
 struct EngineResult;
 struct OnlineQuerySnapshot;
 struct EmojiCatalogItem;
+struct HandwritingPoint;
 struct DictionaryEntry;
 struct DictionaryPage;
 class EngineSession {
@@ -53,4 +54,7 @@ rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
 rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
                                                rust::Str category, std::size_t offset,
                                                std::uint16_t limit);
+rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
+                                               rust::Slice<const HandwritingPoint> points,
+                                               float width, float height);
 }
