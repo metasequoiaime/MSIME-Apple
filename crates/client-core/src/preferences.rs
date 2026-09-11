@@ -1,11 +1,11 @@
 //! Versioned local preferences. Hosts supply a private application data directory.
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
+use crate::voice::VoicePreferences;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use crate::voice::VoicePreferences;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

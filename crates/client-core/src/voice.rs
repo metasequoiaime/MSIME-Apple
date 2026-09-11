@@ -3,7 +3,18 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
-pub enum VoiceError { #[error("invalid language")] InvalidLanguage, #[error("audio is empty")] EmptyAudio, #[error("audio is too large")] AudioTooLarge, #[error("recognized text is too large")] TextTooLarge, #[error("invalid confidence")] InvalidConfidence }
+pub enum VoiceError {
+    #[error("invalid language")]
+    InvalidLanguage,
+    #[error("audio is empty")]
+    EmptyAudio,
+    #[error("audio is too large")]
+    AudioTooLarge,
+    #[error("recognized text is too large")]
+    TextTooLarge,
+    #[error("invalid confidence")]
+    InvalidConfidence,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,10 +54,16 @@ pub struct VoiceRecognitionResult {
 }
 
 pub trait VoiceRecognizer {
-    fn recognize(&self, request: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError>;
+    fn recognize(
+        &self,
+        request: &VoiceRecognitionRequest,
+    ) -> Result<VoiceRecognitionResult, VoiceError>;
 }
 
-pub fn recognize<R: VoiceRecognizer>(recognizer: &R, request: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError> {
+pub fn recognize<R: VoiceRecognizer>(
+    recognizer: &R,
+    request: &VoiceRecognitionRequest,
+) -> Result<VoiceRecognitionResult, VoiceError> {
     request.validate()?;
     let result = recognizer.recognize(request)?;
     result.validate()?;
@@ -98,6 +115,24 @@ mod tests {
     }
 
     struct Stub;
-    impl VoiceRecognizer for Stub { fn recognize(&self, _: &VoiceRecognitionRequest) -> Result<VoiceRecognitionResult, VoiceError> { Ok(VoiceRecognitionResult { text: "你好".into(), confidence: Some(900) }) } }
-    #[test] fn dispatch_validates_request_and_result() { let r=VoiceRecognitionRequest{provider:VoiceProvider::Cloud,language:"zh-CN".into(),audio:vec![1]}; assert_eq!(recognize(&Stub,&r).unwrap().text,"你好"); }
+    impl VoiceRecognizer for Stub {
+        fn recognize(
+            &self,
+            _: &VoiceRecognitionRequest,
+        ) -> Result<VoiceRecognitionResult, VoiceError> {
+            Ok(VoiceRecognitionResult {
+                text: "你好".into(),
+                confidence: Some(900),
+            })
+        }
+    }
+    #[test]
+    fn dispatch_validates_request_and_result() {
+        let r = VoiceRecognitionRequest {
+            provider: VoiceProvider::Cloud,
+            language: "zh-CN".into(),
+            audio: vec![1],
+        };
+        assert_eq!(recognize(&Stub, &r).unwrap().text, "你好");
+    }
 }
