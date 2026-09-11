@@ -3,7 +3,7 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
 struct DictionaryHostOptions(Arc<String>);
@@ -117,21 +117,81 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
-// The settings contract is ready for the native panels. Their window/session
-// implementations are platform-host work and must not be silently emulated by
-// the settings WebView.
-#[tauri::command]
-fn open_keyboard_panel() -> Result<(), HostActionError> {
-    Err(HostActionError {
+fn open_panel_window(
+    app: &tauri::AppHandle,
+    label: &'static str,
+    route: &'static str,
+    title: &'static str,
+    width: f64,
+    height: f64,
+) -> Result<(), HostActionError> {
+    if let Some(window) = app.get_webview_window(label) {
+        window
+            .show()
+            .and_then(|_| window.set_focus())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(
+        app,
+        label,
+        WebviewUrl::App(format!("index.html?panel={route}").into()),
+    )
+    .title(title)
+    .inner_size(width, height)
+    .min_inner_size(width, height)
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .build()
+    .map(|_| ())
+    .map_err(|_| HostActionError {
         code: "unavailable",
     })
 }
 
 #[tauri::command]
-fn open_handwriting_panel() -> Result<(), HostActionError> {
-    Err(HostActionError {
-        code: "unavailable",
-    })
+fn open_keyboard_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    open_panel_window(
+        &app,
+        "keyboard-panel",
+        "keyboard",
+        "水杉屏幕键盘",
+        1100.0,
+        400.0,
+    )
+}
+
+#[tauri::command]
+fn open_handwriting_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    open_panel_window(
+        &app,
+        "handwriting-panel",
+        "handwriting",
+        "水杉手写识别板",
+        980.0,
+        650.0,
+    )
+}
+
+#[tauri::command]
+fn close_panel(app: tauri::AppHandle, label: String) -> Result<(), HostActionError> {
+    if !matches!(label.as_str(), "keyboard-panel" | "handwriting-panel") {
+        return Err(HostActionError {
+            code: "invalid_panel",
+        });
+    }
+    app.get_webview_window(&label)
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?
+        .close()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
 }
 
 fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, HostActionError> {
@@ -373,6 +433,7 @@ pub fn run() {
             open_external_url,
             open_keyboard_panel,
             open_handwriting_panel,
+            close_panel,
             dictionary_request
         ])
         .run(tauri::generate_context!())

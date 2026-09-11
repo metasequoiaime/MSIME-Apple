@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
+export { HandwritingPanel, KeyboardPanel, type PanelClient } from "./panels";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };

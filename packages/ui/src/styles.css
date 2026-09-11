@@ -154,6 +154,36 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .handwriting-stroke { color: var(--text-secondary); font-family: "KaiTi", "STKaiti", serif; font-size: 110px; line-height: 1; transform: rotate(-7deg); }
 .handwriting-candidates { display: flex; gap: 8px; margin-top: 10px; }
 .handwriting-candidates span { flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--button-secondary-bg); color: var(--text-color); text-align: center; }
+.native-panel { width: 100vw; min-height: 100vh; overflow: hidden; background: var(--chrome-bg); color: var(--text-color); }
+.native-panel-header { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border-color); background: var(--surface-raised); color: var(--text-color); font-size: 13px; user-select: none; }
+.native-panel-header button { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font-size: 21px; line-height: 1; }
+.native-panel-header button:hover { background: var(--button-secondary-hover); color: var(--text-color); }
+.keyboard-panel { background: #17181d; color: #f1f1f3; }
+.keyboard-panel .native-panel-header { border-bottom-color: rgba(255, 255, 255, .09); background: #17181d; color: #f1f1f3; }
+.keyboard-panel .native-panel-header button { color: #aeb0b7; }
+.keyboard-panel-body { padding: 12px; }
+.keyboard-panel-notice { min-height: 20px; margin-bottom: 9px; color: #aeb0b7; font-size: 12px; text-align: center; }
+.keyboard-layout { display: flex; flex-direction: column; gap: 5px; }
+.keyboard-row { display: flex; gap: 5px; }
+.keyboard-key { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0 8px; border: 1px solid #3b3d45; border-radius: 6px; background: #24262c; color: #f1f1f3; font-size: 15px; transition: background 100ms ease, border-color 100ms ease; }
+.keyboard-key:hover, .keyboard-key.active { border-color: #8e8cd8; background: #3b3240; }
+.keyboard-key-special { flex: 1.45 1 0; color: #c6c7cf; font-size: 12px; }
+.keyboard-key-space { flex: 5 1 0; }
+.handwriting-panel { background: #202027; color: #f5f5f7; }
+.handwriting-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
+.handwriting-panel-body { display: grid; grid-template-columns: minmax(300px, .43fr) minmax(360px, .57fr); gap: 28px; padding: 24px; }
+.ink-canvas-section { min-width: 0; }
+.ink-canvas { display: block; width: 100%; aspect-ratio: 1; border: 1px solid #45454f; border-radius: 8px; background: #25262d; touch-action: none; }
+.ink-canvas polyline { fill: none; stroke: #f5f5f7; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.ink-canvas text { fill: #b8b8c0; font-size: 18px; }
+.handwriting-actions { display: flex; gap: 12px; margin-top: 18px; }
+.handwriting-actions button { flex: 0 0 112px; padding: 10px; border: 1px solid #45454f; border-radius: 6px; background: #292a31; color: #f5f5f7; }
+.handwriting-actions button:hover { background: #3b3240; }
+.recognition-section h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+.handwriting-candidate-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.handwriting-candidate-grid button { aspect-ratio: 1; border: 1px solid #45454f; border-radius: 6px; background: #292a31; color: #f5f5f7; font-size: 30px; }
+.handwriting-candidate-grid button:hover { border-color: #d88bde; background: #3b3240; }
+.recognition-section p { margin-top: 24px; color: #b8b8c0; font-size: 13px; }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }
@@ -170,6 +200,7 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .panel-preview { padding-left: 16px; padding-right: 16px; }
   .keyboard-mock { padding: 10px; }
   .keyboard-mock-keys { gap: 3px; }
+  .handwriting-panel-body { grid-template-columns: 1fr; padding: 14px; }
 }
 @media (forced-colors: active) {
   .radio-option input[type="radio"] { appearance: auto; }

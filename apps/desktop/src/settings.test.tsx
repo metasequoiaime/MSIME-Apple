@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { HandwritingPanel, KeyboardPanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -295,6 +295,29 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
   expect(screen.getByLabelText("手写识别板预览")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "打开" }));
   await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
+});
+
+test("native panel views support close, modifier, drawing and undo interactions", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const keyboard = render(<KeyboardPanel client={{ close }} />);
+  const shifts = screen.getAllByRole("button", { name: "Shift" });
+  fireEvent.click(shifts[0]);
+  expect(shifts[0].getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "A" }));
+  expect(screen.getByRole("status").textContent).toContain("Shift+A");
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  keyboard.unmount();
+
+  const panel = render(<HandwritingPanel client={{ close }} />);
+  const canvas = screen.getByLabelText("手写画布");
+  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+  fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+  expect(screen.getByRole("status").textContent).toContain("识别结果");
+  fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+  expect(screen.getByText("请在左侧书写，松开鼠标后自动识别")).toBeDefined();
+  panel.unmount();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {

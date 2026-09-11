@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { SettingsPage, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
+import { HandwritingPanel, KeyboardPanel, SettingsPage, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 const dictionary: DictionaryClient = {
@@ -26,4 +26,12 @@ const client: SettingsClient = {
   },
   dictionary,
 };
-createRoot(document.getElementById("root")!).render(<StrictMode><SettingsPage client={client} /></StrictMode>);
+const panelClients: Record<string, PanelClient> = {
+  keyboard: { close: () => invoke("close_panel", { label: "keyboard-panel" }) },
+  handwriting: { close: () => invoke("close_panel", { label: "handwriting-panel" }) },
+};
+const panel = new URLSearchParams(window.location.search).get("panel");
+const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
+  : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
+  : <SettingsPage client={client} />;
+createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);
