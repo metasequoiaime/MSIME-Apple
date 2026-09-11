@@ -64,6 +64,27 @@ test("traditional Chinese output toggle persists", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, traditional_chinese_output: true });
 });
 
+test("input parity controls persist cloud, translation and punctuation settings", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
+  fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /智能标点/ }));
+  fireEvent.change(screen.getByLabelText("标点锁定"), { target: { value: "english" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    cloud_candidates: false,
+    candidate_translations: false,
+    translation_target_language: "ja",
+    smart_punctuation: false,
+    punctuation_lock: "english",
+  });
+});
+
 test("frequency values above the upstream dropdown range remain visible", async () => {
   const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
