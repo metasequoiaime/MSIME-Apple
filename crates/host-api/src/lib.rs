@@ -2,21 +2,26 @@
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
 use msime_client_core::dictionary_access::DictionaryAccess;
+pub mod cloud_dictionary;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
+use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, CharacterWidth, Runtime, Transition};
+use msime_input_runtime::{
+    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, OnlineQuery,
+    Runtime, Transition, TranslationQuery,
+};
+#[cfg(unix)]
+use msime_input_runtime::UnixSocketProvider;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-
 mod dictionary;
-pub mod panels;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
 
 thread_local! {
@@ -30,33 +35,23 @@ struct HostSession {
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
     english_mode: bool,
-    // Declared last so the runtime/Engine are dropped before releasing access.
-    _dictionary_access: DictionaryAccess,
+    page_size_override: Option<u8>,
+    voice: VoiceSessionState,
 }
 
 impl HostSession {
-    fn engine_preferences_equal(&self, next: &Preferences) -> bool {
-        let mut current = self.applied.clone();
-        current.candidate_font_size = next.candidate_font_size;
-        current.candidate_orientation = next.candidate_orientation;
-        current.candidate_skin = next.candidate_skin.clone();
-        current.clipboard_history = next.clipboard_history;
-        current.floating_toolbar = next.floating_toolbar;
-        current == *next
-    }
-
     fn apply_pending(&mut self) -> Result<(), String> {
+        if self.runtime.is_idle() {
+            if let Some(size) = self.page_size_override {
+                self.runtime
+                    .set_page_size(size)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         let Some(snapshot) = &self.requested else {
             return Ok(());
         };
-        if snapshot.preferences == self.applied {
-            return Ok(());
-        }
-        if self.engine_preferences_equal(&snapshot.preferences) {
-            self.applied = snapshot.preferences.clone();
-            return Ok(());
-        }
-        if !self.runtime.is_idle() {
+        if snapshot.preferences == self.applied || !self.runtime.is_idle() {
             return Ok(());
         }
         let mut options = self.options.clone();
@@ -71,14 +66,6 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
-        options.local_unicode = snapshot.preferences.local_modes.unicode;
-        options.local_date_time = snapshot.preferences.local_modes.date_time;
-        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
-        options.local_emoji = snapshot.preferences.local_modes.emoji;
-        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
-        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
-        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
-        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
@@ -100,7 +87,11 @@ impl HostSession {
             .set_dedicated_english(self.english_mode)
             .map_err(|e| e.to_string())?;
         self.runtime
-            .replace_engine(engine, snapshot.preferences.candidate_page_size)
+            .replace_engine(
+                engine,
+                self.page_size_override
+                    .unwrap_or(snapshot.preferences.candidate_page_size),
+            )
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
@@ -152,17 +143,9 @@ impl HostSession {
         self.requested = Some(snapshot);
         self.apply_pending()?;
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
-        Ok(json!({
-            "revision": snapshot.revision,
-            "deferred": snapshot.preferences != self.applied,
-            "presentation": {
-                "candidate_font_size": snapshot.preferences.candidate_font_size,
-                "candidate_orientation": snapshot.preferences.candidate_orientation,
-                "candidate_skin": snapshot.preferences.candidate_skin,
-                "floating_toolbar": snapshot.preferences.floating_toolbar,
-            },
-            "view": self.runtime.view()
-        }))
+        Ok(
+            json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } }),
+        )
     }
 }
 
@@ -195,6 +178,12 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    clipboard_history_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    online_provider_socket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    voice_provider_socket: Option<String>,
 }
 
 impl HostOptions {
@@ -273,13 +262,18 @@ pub fn prepare_host_configuration(
             state_root
                 .to_str()
                 .ok_or("non-UTF-8 state path")?
-                .to_owned(),
+            .to_owned(),
         ),
+        clipboard_history_path: None,
+        online_provider_socket: None,
+        voice_provider_socket: None,
     })?)
 }
 
-/// Edit the Engine-owned personal dictionary while all participating sessions are stopped.
-/// Errors are intentionally redacted because Engine diagnostics may contain user text.
+/// Edit only after every participating host has destroyed its sessions.
+/// Busy is retryable without cancelling any composition. The host must recreate
+/// sessions after success; no native/Tauri management command is exposed yet.
+/// Engine diagnostics are deliberately not returned: they may include user text.
 pub fn edit_personal_dictionary(
     options: &EngineOptions,
     previous: Option<&msime_engine_bridge::DictionaryEntry>,
@@ -429,6 +423,46 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
     })
 }
 
+/// Compare-and-swap save for a validated PreferencesSnapshot.
+///
+/// # Safety
+/// The caller must provide non-null pointers to readable UTF-8 buffers whose
+/// lengths match the supplied lengths and remain valid for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_save_preferences(
+    directory: *const u8,
+    directory_length: usize,
+    expected_revision: u64,
+    snapshot: *const u8,
+    snapshot_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null()
+            || snapshot.is_null()
+            || directory_length > 16384
+            || snapshot_length > 16384
+        {
+            return Err("invalid preferences save buffer".into());
+        }
+        let directory_bytes = unsafe { std::slice::from_raw_parts(directory, directory_length) };
+        let directory = std::str::from_utf8(directory_bytes)
+            .map_err(|_| "invalid preferences directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("preferences directory must be absolute".into());
+        }
+        let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
+        let snapshot: PreferencesSnapshot =
+            serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;
+        if snapshot.format_version != 1 {
+            return Err("unsupported preferences format".into());
+        }
+        let saved = PreferencesStore::new(directory)
+            .save(expected_revision, snapshot.preferences)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(saved).map_err(|e| e.to_string())
+    })
+}
+
 /// # Safety
 /// `options` must point to `length` readable bytes for this call. Null is rejected.
 #[no_mangle]
@@ -447,14 +481,49 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
-        let options = options.into_engine_options();
-        let dictionary_access = DictionaryAccess::try_session(
-            std::path::Path::new(&options.user_data),
-            std::path::Path::new(&options.dictionaries),
-        )
-        .map_err(|_| "dictionary access unavailable")?
-        .ok_or("dictionary maintenance busy")?;
-        let engine = Session::new(&options).map_err(|e| e.to_string())?;
+        let helpcode = options.preferences.active_helpcode();
+        let options = EngineOptions {
+            resources: options.resources,
+            user_data: options.user_data,
+            cache: options.cache,
+            dictionaries: options.dictionaries,
+            scheme: scheme_code(options.preferences.scheme),
+            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
+            learning: options.preferences.learning,
+            autocorrect: options.preferences.autocorrect,
+            frequency_mode: options.preferences.frequency.mode.as_str().into(),
+            frequency_trigger_count: options.preferences.frequency.trigger_count,
+            frequency_linear_step: options.preferences.frequency.linear_step,
+            mixed_english: options.preferences.mixed_input.english,
+            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
+            mixed_emoji: options.preferences.mixed_input.emoji,
+            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
+            local_unicode: options.preferences.local_modes.unicode,
+            local_date_time: options.preferences.local_modes.date_time,
+            local_quick_phrase: options.preferences.local_modes.quick_phrase,
+            local_emoji: options.preferences.local_modes.emoji,
+            local_kaomoji: options.preferences.local_modes.kaomoji,
+            local_super_jianpin: options.preferences.local_modes.super_jianpin,
+            local_temporary_english: options.preferences.local_modes.temporary_english,
+            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
+            helpcode: helpcode.enabled,
+            helpcode_schema: helpcode.schema.as_str().into(),
+            chinese_punctuation: options.preferences.chinese_punctuation,
+            paired_punctuation: options.preferences.paired_punctuation,
+            punctuation_lock: match options.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
+        };
+        let default_english = matches!(
+            applied.default_ime_mode,
+            msime_client_core::preferences::DefaultImeMode::English
+        );
+        let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+        engine
+            .set_dedicated_english(default_english)
+            .map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
@@ -467,8 +536,9 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
-                    english_mode: false,
-                    _dictionary_access: dictionary_access,
+                    english_mode: default_english,
+                    page_size_override: None,
+                    voice: VoiceSessionState::default(),
                 },
             )
         });
@@ -483,6 +553,113 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
             let result = session.runtime.focus(focused).map_err(|e| e.to_string())?;
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_voice_start(handle: u64) -> *mut c_char {
+    response(|| with_session(handle, |session| Ok(json!(session.voice.start()))))
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_voice_cancel(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.voice.cancel();
+            Ok(Value::Null)
+        })
+    })
+}
+
+/// Apply asynchronous ASR text only for the active voice token.
+///
+/// # Safety
+/// `text` must point to a readable UTF-8 buffer of `length` bytes and must not
+/// be null. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_apply(
+    handle: u64,
+    generation: u64,
+    text: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if text.is_null() || length > 65536 {
+            return Err("invalid voice text buffer".into());
+        }
+        let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, length) })
+            .map_err(|_| "voice text is not UTF-8")?;
+        with_session(handle, |session| {
+            Ok(session
+                .voice
+                .apply(generation, text)
+                .map(Value::String)
+                .unwrap_or(Value::Null))
+        })
+    })
+}
+
+/// Apply asynchronous candidate translations for an exact candidate generation.
+/// The buffer is a JSON array of `{text, translation}` objects and is not retained.
+///
+/// # Safety
+/// `translations` must point to a readable UTF-8 buffer of `length` bytes and
+/// must not be null. The buffer is not retained after this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_translations(
+    handle: u64,
+    generation: u64,
+    translations: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if translations.is_null() || length > 1_048_576 {
+            return Err("invalid translation buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Translation {
+            text: String,
+            translation: String,
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(translations, length) };
+        let values: Vec<Translation> =
+            serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
+        if values.len() > 4096
+            || values
+                .iter()
+                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+        {
+            return Err("translation entries exceed limits".into());
+        }
+        with_session(handle, |session| {
+            let applied = session.runtime.apply_translations(
+                generation,
+                values.into_iter().map(|item| (item.text, item.translation)),
+            );
+            Ok(json!({"applied": applied, "view": session.runtime.view()}))
+        })
+    })
+}
+
+/// Native presentation override; changes wait for the current composition to end.
+#[no_mangle]
+pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
+    response(|| {
+        if !(1..=9).contains(&size) {
+            return Err("candidate page size must be between 1 and 9".into());
+        }
+        with_session(handle, |session| {
+            if session.runtime.is_idle() {
+                session
+                    .runtime
+                    .set_page_size(size)
+                    .map_err(|e| e.to_string())?;
+            }
+            session.page_size_override = Some(size);
+            let view = session.runtime.view();
+            Ok(json!({"deferred": view.page_size != usize::from(size), "view": view}))
         })
     })
 }
@@ -609,10 +786,337 @@ pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize
 }
 
 #[no_mangle]
+pub extern "C" fn msime_client_pin_candidate(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::PinCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_remove_candidate(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::RemoveCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
+#[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            serde_json::to_value(session.runtime.online_query().map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())
+        })
+    })
+}
+
+/// Return the visible candidate texts that may receive asynchronous translations.
+/// The generation must be echoed to `msime_client_apply_translations`.
+#[no_mangle]
+pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            if !session.applied.candidate_translations {
+                return Ok(Value::Null);
+            }
+            let view = session.runtime.view();
+            if view.candidates.is_empty() {
+                return Ok(Value::Null);
+            }
+            let candidates = view
+                .candidates
+                .iter()
+                .map(|candidate| json!({ "text": candidate.text }))
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "generation": view.generation,
+                "target_language": serde_json::to_value(session.applied.translation_target_language)
+                    .map_err(|e| e.to_string())?,
+                "candidates": candidates,
+            }))
+        })
+    })
+}
+
+/// Build the default HTTPS cloud URL for a copied eligible query. The host
+/// performs the request and later calls `msime_client_apply_online_candidate`.
+///
+/// # Safety
+/// `query` must point to a readable UTF-8 JSON buffer of `query_length` bytes,
+/// or be null only when `query_length` is zero. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_request_url(
+    query: *const u8,
+    query_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || query_length > 16384 {
+            return Err("invalid cloud query buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let url = msime_input_runtime::cloud_request_url(&query)
+            .ok_or_else(|| "cloud query is not eligible".to_owned())?;
+        Ok(json!(url))
+    })
+}
+
+/// Query a user-owned Unix-socket provider off the session thread.
+/// Returns null when the provider has no candidate or is unavailable.
+///
+/// # Safety
+/// The caller must provide readable buffers of the stated lengths, or null pointers only with
+/// zero lengths; buffers are read for the duration of this call and never retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_online_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || socket_path.is_null() || query_length > 16384 || socket_length > 4096
+        {
+            return Err("invalid online provider buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .query(query)
+            .map(|(text, source)| json!({"text": text, "source": source}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Unix-socket translation provider.
+///
+/// # Safety
+/// Both buffers must be non-null readable UTF-8 buffers for the stated lengths;
+/// they are copied for the duration of this call and never retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_translation_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || socket_path.is_null() || query_length > 16384 || socket_length > 4096
+        {
+            return Err("invalid translation provider buffer".into());
+        }
+        let query = serde_json::from_slice::<TranslationQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid translation query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .translate(query)
+            .map(|items| json!({"translations": items}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Linux handwriting recognizer over a Unix socket.
+/// The request is a bounded JSON HandwritingQuery; the response is
+/// `{candidates:[...]}` or null when the recognizer is unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_handwriting_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 262_144
+            || socket_length > 4096
+        {
+            return Err("invalid handwriting provider buffer".into());
+        }
+        let query = serde_json::from_slice::<HandwritingQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid handwriting query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .handwriting(query)
+            .map(|candidates| json!({"candidates": candidates}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Linux emoji catalog over a Unix socket.
+/// The response is `{items:[{text,annotation}]}` or null when unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_emoji_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 16_384
+            || socket_length > 4096
+        {
+            return Err("invalid emoji provider buffer".into());
+        }
+        let query = serde_json::from_slice::<EmojiPanelQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid emoji query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .emoji(query)
+            .map(|items| json!({"items": items}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Run one bounded voice capture/ASR request through a user-owned Unix socket.
+/// The socket service owns microphone access, credentials and network policy.
+/// The query is a bounded JSON object containing `language` and `generation`.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 4096
+            || socket_length > 4096
+        {
+            return Err("invalid voice provider buffer".into());
+        }
+        #[derive(Deserialize)]
+        struct VoiceQuery {
+            language: String,
+            generation: u64,
+        }
+        let query = serde_json::from_slice::<VoiceQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid voice query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .voice(&query.language, query.generation)
+            .map(|text| json!({"text": text}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Apply a provider result returned for a previously copied OnlineQuery.
+/// The query and candidate buffers are UTF-8 and are never retained.
+///
+/// # Safety
+/// The caller must provide readable buffers of the stated lengths, or null pointers only with
+/// zero lengths; buffers are read for the duration of this call and never retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_online_candidate(
+    handle: u64,
+    query: *const u8,
+    query_length: usize,
+    candidate: *const u8,
+    candidate_length: usize,
+    source: u8,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || candidate.is_null() || query_length > 16384 || candidate_length > 4096
+        {
+            return Err("invalid online candidate buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let candidate =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(candidate, candidate_length) })
+                .map_err(|_| "candidate is not UTF-8")?;
+        with_session(handle, |session| {
+            let applied = session
+                .runtime
+                .apply_online_candidate(&query, candidate, source)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({ "applied": applied, "view": session.runtime.view() }))
         })
     })
 }
@@ -722,80 +1226,6 @@ mod tests {
         assert_eq!(update(handle, 2, &preferences)["ok"], false);
         read(msime_client_destroy(handle));
     }
-
-    #[test]
-    fn local_mode_disable_is_deferred_and_preserves_other_modes() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        read(msime_client_focus(handle, true));
-        read(msime_client_character(handle, b'U', true));
-        let before = read(msime_client_view(handle));
-        let mut preferences = Preferences::default();
-        preferences.local_modes.unicode = false;
-        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
-        assert_eq!(read(msime_client_view(handle)), before);
-        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.local_unicode));
-        read(msime_client_command(handle, 3));
-        SESSIONS.with(|sessions| {
-            let sessions = sessions.borrow();
-            assert!(!sessions[&handle].options.local_unicode);
-            assert!(sessions[&handle].options.local_emoji);
-        });
-        read(msime_client_destroy(handle));
-    }
-
-    #[test]
-    fn presentation_changes_apply_without_rebuilding_the_engine() {
-        use msime_client_core::preferences::CandidateOrientation;
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        let preferences = Preferences {
-            candidate_font_size: 20,
-            candidate_orientation: CandidateOrientation::Horizontal,
-            candidate_skin: "wechat".to_owned(),
-            ..Preferences::default()
-        };
-        let result = update(handle, 1, &preferences);
-        assert_eq!(result["value"]["deferred"], false);
-        assert_eq!(result["value"]["presentation"]["candidate_font_size"], 20);
-        assert_eq!(
-            result["value"]["presentation"]["candidate_orientation"],
-            "horizontal"
-        );
-        assert_eq!(result["value"]["presentation"]["candidate_skin"], "wechat");
-        assert_eq!(
-            result["value"]["presentation"]["floating_toolbar"]["scale"],
-            100
-        );
-        SESSIONS.with(|sessions| {
-            assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
-        });
-        read(msime_client_destroy(handle));
-    }
-
-    #[test]
-    fn floating_toolbar_changes_apply_without_rebuilding_the_engine() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        let mut preferences = Preferences::default();
-        preferences.floating_toolbar.enabled = false;
-        preferences.floating_toolbar.screen_keyboard = true;
-        let result = update(handle, 1, &preferences);
-        assert_eq!(result["value"]["deferred"], false);
-        assert_eq!(
-            result["value"]["presentation"]["floating_toolbar"]["enabled"],
-            false
-        );
-        assert_eq!(
-            result["value"]["presentation"]["floating_toolbar"]["screen_keyboard"],
-            true
-        );
-        SESSIONS.with(|sessions| {
-            assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
-        });
-        read(msime_client_destroy(handle));
-    }
-
     #[test]
     fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
         use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
@@ -847,13 +1277,14 @@ mod tests {
             ..chinese.clone()
         };
         assert_eq!(update(handle, 1, &japanese)["value"]["deferred"], true);
-        assert_eq!(
-            read(msime_client_command(handle, 2))["value"]["commit"],
-            "b;"
-        );
+        let committed = read(msime_client_command(handle, 2));
+        assert_eq!(committed["value"]["commit"], "b;");
+        assert_eq!(committed["value"]["commit_context"]["scheme"], 1);
+        assert_eq!(committed["value"]["view"]["scheme"], 3);
         let kana = read(msime_client_character(handle, b'a', false));
         assert_eq!(kana["ok"], true);
         assert_eq!(kana["value"]["view"]["preedit"], "a");
+        assert_eq!(kana["value"]["view"]["scheme"], 3);
         assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
         assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
         assert_eq!(update(handle, 2, &chinese)["value"]["deferred"], true);
@@ -999,41 +1430,6 @@ mod tests {
         assert_eq!(created["ok"], true);
         created["value"]["session"].as_u64().unwrap()
     }
-
-    #[test]
-    fn dictionary_edit_waits_for_all_sessions_without_cancelling_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        let options = json!({
-            "api_version": 1,
-            "resources": dir.path().join("resources"),
-            "user_data": dir.path().join("user"),
-            "cache": dir.path().join("cache"),
-            "dictionaries": dir.path().join("dictionaries"),
-            "preferences": Preferences::default(),
-        });
-        let request = json!({
-            "options": options,
-            "action": {
-                "operation": "edit",
-                "previous": null,
-                "replacement": {
-                    "kind": "quick_phrase",
-                    "key": "x",
-                    "value": "fixture",
-                    "weight": 100,
-                },
-                "request_id": "host-lock-test",
-            },
-        });
-        assert_eq!(
-            dictionary::dictionary_request_json(&serde_json::to_vec(&request).unwrap())
-                .unwrap_err(),
-            "dictionary maintenance busy"
-        );
-        read(msime_client_destroy(handle));
-    }
-
     fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {
         let snapshot =
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
@@ -1061,6 +1457,7 @@ mod tests {
         let before = read(msime_client_view(handle))["value"].clone();
         let queued = update(handle, 1, &xiaohe);
         assert_eq!(before["microsoft_shuangpin"], true);
+        assert_eq!(before["shuangpin_profile"], "microsoft");
         assert_eq!(queued["value"]["deferred"], true);
         assert_eq!(queued["value"]["view"], before);
         // The old composition completes under Microsoft before replacing Engine.
@@ -1069,6 +1466,10 @@ mod tests {
             "b;"
         );
         assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["shuangpin_profile"],
+            "xiaohe"
+        );
         assert_eq!(
             read(msime_client_view(handle))["value"]["microsoft_shuangpin"],
             false
@@ -1387,7 +1788,7 @@ mod tests {
         );
         read(msime_client_destroy(handle));
     }
-    fn read(pointer: *mut c_char) -> Value {
+    pub(super) fn read(pointer: *mut c_char) -> Value {
         // SAFETY: all callers pass a fresh response allocation.
         let string = unsafe { CString::from_raw(pointer) };
         serde_json::from_slice(string.as_bytes()).unwrap()
