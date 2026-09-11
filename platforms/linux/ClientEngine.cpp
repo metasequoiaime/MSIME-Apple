@@ -400,11 +400,20 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CharacterWidth" &&
        std::string(name) != "EnglishMode" &&
        std::string(name) != "PunctuationChineseLock" &&
-       std::string(name) != "PunctuationEnglishLock") ||
+       std::string(name) != "PunctuationEnglishLock" &&
+       std::string(name) != "PairedPunctuation") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
+    if (std::string(name) == "PairedPunctuation") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        s.view = response(msime_client_set_paired_punctuation(s.session, enabled));
+        render(engine, s.view);
+      }
+      return;
+    }
     if (std::string(name) == "PunctuationChineseLock" ||
         std::string(name) == "PunctuationEnglishLock") {
       const bool enabled = value == PROP_STATE_CHECKED;
@@ -500,6 +509,11 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("使用 Engine 专用英文输入模式"), TRUE, TRUE,
       PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(properties, english_mode);
+  auto paired = ibus_property_new(
+      "PairedPunctuation", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("成对标点"), "",
+      ibus_text_new_from_static_string("启用引号和书名号成对转换"), TRUE, TRUE,
+      PROP_STATE_CHECKED, nullptr);
+  ibus_prop_list_append(properties, paired);
   for (const auto &[name, label] : {
            std::tuple<const char *, const char *>
                {"PunctuationChineseLock", "强制中文标点"},
