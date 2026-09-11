@@ -103,6 +103,9 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     (void)sender;
     [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
+- (void)showPreferences:(id)sender { (void)sender; [[MSIMEPreferencesWindowController sharedController] showAndActivate]; }
+- (void)openCharacterPalette:(id)sender { (void)sender; [[NSApplication sharedApplication] orderFrontCharacterPalette:nil]; }
+- (void)checkForUpdates:(id)sender { (void)sender; }
 
 - (void)cancelVoiceInput {
     ++_voiceGeneration;
@@ -175,6 +178,9 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [menu addItem:CreateInputModeItem(@"中文输入", @selector(selectChineseMode:), self, !_englishMode)];
     [menu addItem:CreateInputModeItem(@"英文输入", @selector(selectEnglishMode:), self, _englishMode)];
     [menu addItem:[NSMenuItem separatorItem]];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""]];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""]];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showPreferences:) keyEquivalent:@""]];
     NSMenuItem *preview = [[NSMenuItem alloc] initWithTitle:@"候选预览…"
                                                         action:@selector(showCandidatePreview:)
                                                  keyEquivalent:@""];
