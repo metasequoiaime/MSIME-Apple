@@ -193,7 +193,8 @@ void focus_in(IBusEngine *engine) {
     s.open();
     if (s.session)
       apply(engine, msime_client_focus(s.session, true));
-    if (!s.properties_registered) {
+    if (!s.properties_registered &&
+        g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
       s.properties_registered = true;
     }
