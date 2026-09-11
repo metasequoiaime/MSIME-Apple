@@ -3,6 +3,7 @@
 
 @interface RecordingAccountWindow : NSObject <MSIMEBackendAccountEntry>
 @property(nonatomic) NSUInteger presentations;
+@property(nonatomic) NSUInteger clipboards;
 @end
 @implementation RecordingAccountWindow
 + (id)shared {
@@ -10,6 +11,7 @@
     return window;
 }
 - (void)showAccount { self.presentations += 1; }
+- (void)showCloudClipboard { self.clipboards += 1; }
 @end
 
 @interface InvalidAccountWindow : NSObject
@@ -21,6 +23,11 @@
 int main() {
     @autoreleasepool {
         assert(!MSIMEOpenBackendAccount(Nil));
+        assert(!MSIMEOpenBackendClipboard(Nil));
+        assert(!MSIMEOpenBackendClipboard(NSObject.class));
+        assert(!MSIMEOpenBackendClipboard(InvalidAccountWindow.class));
+        assert(MSIMEOpenBackendClipboard(RecordingAccountWindow.class));
+        assert(((RecordingAccountWindow *)[RecordingAccountWindow shared]).clipboards == 1);
         assert(!MSIMEOpenBackendAccount(NSObject.class));
         assert(!MSIMEOpenBackendAccount(InvalidAccountWindow.class));
         assert(MSIMEOpenBackendAccount(RecordingAccountWindow.class));

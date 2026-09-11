@@ -16,6 +16,7 @@ int main(int argc, const char *argv[]) {
         Class account = NSClassFromString(@"MSIMEBackendAccountWindow");
         assert(account && [account respondsToSelector:@selector(shared)]);
         assert([account instancesRespondToSelector:@selector(showAccount)]);
+        assert([account instancesRespondToSelector:@selector(showCloudClipboard)]);
         // Objective-C classes remain registered; retain the library for process lifetime.
     }
     return 0;

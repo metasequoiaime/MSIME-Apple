@@ -10,7 +10,6 @@
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
-#import "CloudClipboardWindowController.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -189,7 +188,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [alert runModal];
     }
 }
-- (void)showCloudClipboard:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户 access token"; NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"打开"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMECloudClipboardWindowController sharedController] showWithToken:field.stringValue]; }
+- (void)showCloudClipboard:(id)sender {
+    if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
+        [self showAccount:sender];
+    }
+}
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
