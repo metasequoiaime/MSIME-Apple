@@ -8,6 +8,11 @@ pub enum VoiceProvider { LocalWhisper, Cloud }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VoiceRecognitionRequest { pub provider: VoiceProvider, pub language: String, pub audio: Vec<u8> }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VoiceRecognitionResult { pub text: String, pub confidence: Option<u16> }
+
+impl VoiceRecognitionResult { pub fn validate(&self) -> Result<(), &'static str> { if self.text.len() > 16 * 1024 { return Err("text too large"); } if self.confidence.is_some_and(|v| v > 1000) { return Err("invalid confidence"); } Ok(()) } }
+
 impl VoiceRecognitionRequest {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.language.is_empty() || self.language.len() > 32 { return Err("invalid language"); }
