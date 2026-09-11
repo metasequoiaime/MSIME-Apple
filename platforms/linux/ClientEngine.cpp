@@ -663,6 +663,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                               : Json::array();
   const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
   size_t slot = 0;
+  bool editable_candidates = false;
   for (const auto &candidate : candidates) {
     if (!candidate.is_object() || !candidate.contains("id") ||
         !candidate.at("id").is_object())
@@ -678,6 +679,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto source = candidate.value("source", 0);
     if (scheme == 3 || (source != 0 && source != 1 && source != 4))
       continue;
+    editable_candidates = true;
     ++slot;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"},
@@ -698,7 +700,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
   return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选操作"), "",
       ibus_text_new_from_static_string("固定或删除当前页候选"),
-      s.session && s.focused && !s.blocked && s.input_enabled && !candidates.empty(),
+      s.session && s.focused && !s.blocked && s.input_enabled && editable_candidates,
       TRUE, PROP_STATE_UNCHECKED, items);
 }
 void publish_mode(IBusEngine *engine, bool registration) {
