@@ -5,6 +5,32 @@ import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type Setting
 
 afterEach(cleanup);
 
+test("window state subscription failures are handled", async () => {
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
+    onWindowStateChanged: async () => { throw new Error("unavailable"); } }} />);
+  expect(await screen.findByText("无法读取窗口状态，请重试。")).toBeTruthy();
+});
+
+test("late window subscriptions are disposed and old callbacks ignored", async () => {
+  let publish: (value: boolean) => void = () => {};
+  let finish: (cleanup: () => void) => void = () => {};
+  const unsubscribe = vi.fn();
+  const windowControl = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: async () => initial, save: vi.fn(), windowControl,
+    onWindowStateChanged: listener => {
+      publish = listener;
+      return new Promise(resolve => { finish = resolve; });
+    } };
+  const mounted = render(<SettingsPage client={client} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  mounted.rerender(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl }} />);
+  finish(unsubscribe);
+  await waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
+  publish(true);
+  expect(screen.queryByRole("button", { name: "还原" })).toBeNull();
+  expect(screen.getByRole("button", { name: "最大化" })).toBeTruthy();
+});
+
 test("drag-only hosts do not expose unavailable window controls", async () => {
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag: vi.fn() }} />);
   await screen.findByRole("button", { name: "保存设置" });
