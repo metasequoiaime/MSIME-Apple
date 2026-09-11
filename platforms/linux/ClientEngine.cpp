@@ -1,4 +1,6 @@
 #include "ClientEngine.h"
+#include "NavigationBindings.h"
+#include "WordCharacterBinding.h"
 #include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
@@ -46,6 +48,30 @@ struct State {
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
+  std::optional<bool> punctuation_override, autocorrect_override, helpcode_override;
+  std::optional<bool> word_character_override;
+  std::optional<uint8_t> candidate_page_size_override;
+  std::optional<std::string> frequency_mode_override, helpcode_schema_override;
+  std::optional<std::string> layout_override, preedit_override, theme_override;
+  std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
+  bool fullwidth = false;
+  bool smart_punctuation = true;
+  bool smart_punctuation_repeat = true;
+  bool paired_punctuation = true;
+  bool pure_shift_candidate = false;
+  char last_smart_punctuation = 0;
+  gint64 last_smart_punctuation_time = 0;
+  std::string punctuation_lock = "follow";
+  std::string preedit_style = "raw";
+  std::optional<guint> candidate_text_color, candidate_background_color;
+  IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
+  msime::linux_host::NavigationBindings navigation;
+  msime::linux_host::WordCharacterBinding word_character;
+  std::string clipboard_history_path, online_provider_socket;
+  std::vector<std::string> clipboard_items_cache;
+  uint64_t clipboard_generation = 0;
+  bool clipboard_loading = false, clipboard_loaded = false;
+  bool online_loading = false, translation_loading = false;
   std::string surrounding_text;
   guint surrounding_cursor = 0;
   guint surrounding_anchor = 0;
@@ -66,6 +92,23 @@ struct State {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
+    auto &preferences = options["preferences"];
+    if (scheme_override) preferences["scheme"] = *scheme_override;
+    if (shuangpin_profile_override) preferences["shuangpin_profile"] = *shuangpin_profile_override;
+    if (candidate_page_size_override) preferences["candidate_page_size"] = *candidate_page_size_override;
+    if (layout_override) preferences["candidate_layout"] = *layout_override;
+    if (preedit_override) preferences["tsf_preedit_style"] = *preedit_override;
+    if (theme_override) preferences["candidate_theme"] = *theme_override;
+    if (skin_override) preferences["candidate_skin"] = *skin_override;
+    if (autocorrect_override) preferences["autocorrect"] = *autocorrect_override;
+    if (frequency_mode_override) preferences["frequency"]["mode"] = *frequency_mode_override;
+    const auto active_scheme = preferences.value("scheme", "quanpin");
+    if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
+      if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
+      if (helpcode_schema_override) preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+    }
+    clipboard_history_path = options.value("clipboard_history_path", std::string{});
+    online_provider_socket = options.value("online_provider_socket", std::string{});
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
