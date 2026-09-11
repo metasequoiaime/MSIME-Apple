@@ -1580,11 +1580,22 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishMode" &&
        std::string(name) != "PunctuationChineseLock" &&
        std::string(name) != "PunctuationEnglishLock" &&
-       std::string(name) != "PairedPunctuation") ||
-      (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+       std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") ||
+       std::string(name) != "PairedPunctuation" &&
+       std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") ||
+      ((std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") &&
+       value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
+    if ((std::string(name) == "CandidatePin" || std::string(name) == "CandidateRemove") && s.session) {
+      const auto generation = s.view.value("generation", 0ULL);
+      s.view = response(std::string(name) == "CandidatePin"
+          ? msime_client_pin_candidate(s.session, generation, value)
+          : msime_client_remove_candidate(s.session, generation, value));
+      render(engine, s.view);
+      return;
+    }
     if (std::string(name) == "PairedPunctuation") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.session) {
