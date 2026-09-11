@@ -16,3 +16,16 @@ void MSIMEMutateCloudDictionary(NSString *method, NSString *kind, NSString *entr
     [request setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) { NSInteger status = [(NSHTTPURLResponse *)response statusCode]; dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(data, status, error); }); }] resume];
 }
+
+NSString *MSIMEReadDictionaryImportFile(NSURL *url, NSError **error) {
+    if (!url || ![url isFileURL]) { if (error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
+    NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:error];
+    if (!data || data.length == 0 || data.length > 65536) { if (error && !*error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!text.length || [text rangeOfString:@"\0"].location != NSNotFound) { if (error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
+    return text;
+}
+
+BOOL MSIMESaveDictionaryExportFile(NSData *data, NSURL *url, NSError **error) {
+    return data && url && [url isFileURL] && data.length <= 384 * 1024 * 1024 && [data writeToURL:url options:NSDataWritingAtomic error:error];
+}
