@@ -125,6 +125,35 @@ pub fn usable_tencent_secret(value: &str) -> bool {
         && !trimmed.starts_with("FAKESECRET_")
 }
 
+pub fn is_cloud_translatable_english(text: &str) -> bool {
+    let mut has_letter = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphabetic() {
+            has_letter = true;
+        } else if !matches!(ch, ' ' | '-' | '\'') {
+            return false;
+        }
+    }
+    has_letter
+}
+
+pub fn is_cloud_translatable_chinese(text: &str) -> bool {
+    let mut has_han = false;
+    for ch in text.chars() {
+        if ('\u{3400}'..='\u{4DBF}').contains(&ch)
+            || ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+            || ch == '\u{3007}'
+        {
+            has_han = true;
+        } else if ch.is_ascii_punctuation() || ch.is_ascii_whitespace() {
+            continue;
+        } else if ch.is_ascii() || ('\u{1F000}'..='\u{1FAFF}').contains(&ch) {
+            return false;
+        }
+    }
+    has_han
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
@@ -464,5 +493,13 @@ mod tests {
         assert!(!usable_tencent_secret("<YOUR_TENCENT_SECRET_ID>"));
         assert!(!usable_tencent_secret("FAKESECRET_test"));
         assert!(!usable_tencent_secret(" \n\t"));
+    }
+
+    #[test]
+    fn filters_cloud_translation_candidates_by_script() {
+        assert!(is_cloud_translatable_english("hello-world"));
+        assert!(!is_cloud_translatable_english("123"));
+        assert!(is_cloud_translatable_chinese("你好"));
+        assert!(!is_cloud_translatable_chinese("你好😀"));
     }
 }
