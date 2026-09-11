@@ -2128,8 +2128,10 @@ dependencies = [
  "msime-client-core",
  "msime-engine-bridge",
  "msime-input-runtime",
+ "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
