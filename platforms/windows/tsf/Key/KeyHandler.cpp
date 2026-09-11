@@ -15,6 +15,7 @@
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
+#include "../HostCharacterResult.h"
 #include <limits>
 
 namespace
@@ -438,54 +439,48 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
         }
     }
 
-    // Prefer the shared Engine session when it is available.  Keep the legacy
-    // processor as a compatibility fallback for profiles which could not
-    // initialise the host session.
+    // An initialized host owns this key, including failures. Only profiles
+    // without a host session may use the legacy processor below.
     if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
     {
-        std::string raw;
-        std::string error;
+        std::string raw, error;
+        msime::tsf::EngineResult result;
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        if (host->character(static_cast<uint8_t>(wch & 0xff), shift, &raw, &error))
+        if (wch > 0x7f)
+            workerResult = S_FALSE;
+        else if (!host->character(static_cast<uint8_t>(wch), shift, &raw, &error) ||
+                 !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
+            workerResult = E_FAIL;
+        else
         {
-            msime::tsf::EngineResult result;
-            if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
-            {
-                auto utf8ToWide = [](const std::string &value) {
-                    if (value.empty()) return std::wstring();
-                    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                                         static_cast<int>(value.size()), nullptr, 0);
-                    if (size <= 0) return std::wstring();
-                    std::wstring output(static_cast<size_t>(size), L'\0');
-                    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                        static_cast<int>(value.size()), output.data(), size);
-                    return output;
-                };
-                const std::wstring preedit = utf8ToWide(result.view.preedit);
-                CStringRange rendered;
-                rendered.Set(preedit.c_str(), preedit.size());
-                if (!preedit.empty())
-                    workerResult = _AddComposingAndChar(ec, pContext, &rendered);
-                else if (_pComposition)
-                    workerResult = _HandleCompositionFinalize(ec, pContext, FALSE);
-                if (SUCCEEDED(workerResult) && result.has_commit && !result.commit.empty())
-                {
-                    CStringRange commit;
-                    const std::wstring text = utf8ToWide(result.commit);
-                    commit.Set(text.c_str(), text.size());
-                    workerResult = _AddCharAndFinalize(ec, pContext, &commit);
-                }
-                if (SUCCEEDED(workerResult))
-                {
-                    if (result.has_commit)
-                        goto Exit;
-                    // The host result owns candidate generation; let the
-                    // worker refresh the TSF candidate UI from that view.
-                    workerResult = _HandleCompositionInputWorker(pCompositionProcessorEngine, ec, pContext, requestId);
-                    if (SUCCEEDED(workerResult)) goto Exit;
-                }
-            }
+            const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
+                if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
+                const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                       static_cast<int>(text.size()), nullptr, 0);
+                if (length <= 0) return false;
+                std::wstring commit(static_cast<size_t>(length), L'\0');
+                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                       static_cast<int>(text.size()), commit.data(), length) != length) return false;
+                CStringRange range;
+                range.Set(commit.c_str(), commit.size());
+                workerResult = _AddCharAndFinalize(ec, pContext, &range);
+                return workerResult == S_OK;
+            }, [&] {
+                workerResult = _HandleCompleteCommitFirst(ec, pContext);
+                return workerResult == S_OK;
+            }, [&] {
+                if (!_IsComposing()) _StartComposition(pContext);
+                if (!_IsComposing()) { workerResult = E_FAIL; return false; }
+                workerResult = _HandleCompositionInputWorker(pCompositionProcessorEngine, ec, pContext,
+                                                             FANY_IME_NO_REQUEST_ID);
+                return workerResult == S_OK;
+            });
+            if (status == msime::tsf::CharacterResultStatus::Unhandled) workerResult = S_FALSE;
+            else if (status == msime::tsf::CharacterResultStatus::Failed && SUCCEEDED(workerResult))
+                workerResult = E_FAIL;
         }
+        tfSelection.range->Release();
+        return workerResult;
     }
 
     // Add virtual key to composition processor engine
