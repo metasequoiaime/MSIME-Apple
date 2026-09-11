@@ -19,12 +19,15 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   weak var window: NSWindow?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
+  private let closeAccountWindows: @MainActor () -> Void
   private var pending: Task<Void, Never>?
   private var appleController: ASAuthorizationController?
   private var appleChallenge: String?
 
-  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
+  init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
+       closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() }) {
     self.client = client; self.account = account
+    self.closeAccountWindows = closeAccountWindows
     super.init()
   }
 
@@ -121,8 +124,11 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       if delete {
         let identity = try await self.account.credentials()
         try await self.client.deleteAccount(token: identity.token)
+        self.closeAccountWindows()
         try await self.account.forget()
       } else {
+        // Hide private views before awaiting logout, including offline failures.
+        self.closeAccountWindows()
         do { try await self.account.logout(all: all) }
         catch { self.user = try await self.account.user(); throw error }
       }
@@ -221,4 +227,3 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
 func showBackendAccount() {
   Task { @MainActor in BackendAccountWindow.shared.showAccount() }
 }
-
