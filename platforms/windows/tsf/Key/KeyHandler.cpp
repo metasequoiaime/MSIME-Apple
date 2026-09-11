@@ -521,6 +521,26 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     //
     PerfTimer readingTimer;
     pCompositionProcessorEngine->GetReadingStrings(&readingStrings, &isWildcardIncluded);
+    if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        std::string raw, error;
+        msime::tsf::EngineResult result;
+        if (host->view(&raw, &error) && msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
+        {
+            const auto &value = result.view.preedit;
+            const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                                                  value.data(), static_cast<int>(value.size()), nullptr, 0);
+            std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+            if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                           static_cast<int>(value.size()), preedit.data(), n);
+            readingStrings.Clear();
+            if (!preedit.empty())
+            {
+                auto *reading = readingStrings.Append();
+                if (reading) reading->Set(preedit.c_str(), preedit.size());
+            }
+        }
+    }
     double readingElapsedMs = readingTimer.ElapsedMs();
 
     if (readingStrings.Count())
