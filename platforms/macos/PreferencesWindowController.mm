@@ -1,10 +1,13 @@
 #import "PreferencesWindowController.h"
 #import "AppearancePreferences.h"
+#import "CandidateSkinAppearance.h"
 
 static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
 static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
 
 @implementation MSIMEPreferencesWindowController
++ (NSString *)storedCandidateSkin { return MetasequoiaStoredCandidateSkin(); }
++ (void)setStoredCandidateSkin:(NSString *)skinId { MetasequoiaSetStoredCandidateSkin(skinId); }
 + (instancetype)sharedController {
     static MSIMEPreferencesWindowController *controller;
     static dispatch_once_t once;

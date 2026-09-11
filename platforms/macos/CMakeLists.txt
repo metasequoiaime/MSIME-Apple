@@ -18,16 +18,44 @@ target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates/host-api/include)
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm CloudClipboardWindowController.mm CloudClipboardClient.mm AccountSessionManager.mm AccountAuthClient.mm AccountWindowController.mm AccountKeychain.mm CloudDictionaryClient.mm PreferencesWindowController.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm InputController.mm CandidatePanel.mm CandidateSkinAppearance.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm StringConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm DictionaryInstaller.mm)
+file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Backend*.swift")
+set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
+add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
+  DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh")
+add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
+add_dependencies(MSIMEClientInputMethod macos-swift-backend)
 target_include_directories(MSIMEClientInputMethod PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
 if(MSIME_OPTIONS_FILE)
   target_sources(MSIMEClientInputMethod PRIVATE "${MSIME_OPTIONS_FILE}")
   set_source_files_properties("${MSIME_OPTIONS_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 enable_testing()
+add_executable(backend-library-load-test tests/BackendLibraryLoadTest.mm)
+target_compile_options(backend-library-load-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(backend-library-load-test PRIVATE "-framework Foundation")
+add_dependencies(backend-library-load-test MSIMEClientInputMethod)
+add_test(NAME backend-library-load COMMAND backend-library-load-test "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
+set(MSIME_SPARKLE_ROOT "" CACHE PATH "Directory containing the pinned Sparkle.framework (Apple reference: 2.9.6)")
+if(MSIME_SPARKLE_ROOT)
+  find_library(MSIME_SPARKLE_FRAMEWORK Sparkle PATHS "${MSIME_SPARKLE_ROOT}" NO_DEFAULT_PATH REQUIRED)
+  target_compile_options(MSIMEClientInputMethod PRIVATE "-F${MSIME_SPARKLE_ROOT}")
+  target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
+  set_property(TARGET MSIMEClientInputMethod APPEND PROPERTY BUILD_RPATH "@executable_path/../Frameworks")
+  add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${MSIME_SPARKLE_FRAMEWORK}"
+      "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/Sparkle.framework")
+endif()
 add_executable(candidate-skin-test tests/CandidateSkinTest.cpp CandidateSkin.cpp)
 target_include_directories(candidate-skin-test PRIVATE .)
 target_compile_options(candidate-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
