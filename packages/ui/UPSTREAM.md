@@ -38,8 +38,10 @@ is off. Candidate generation and ordering remain owned by Engine.
 The utilities category and eight local-mode toggles follow
 `src/partials/tools-settings.html`; `src/assets/utilities.svg` is copied from
 `public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0). Descriptions
-are condensed for the shared cards. Clipboard history and the quick-phrase
-CRUD/import/export manager are not migrated in this increment.
+are condensed for the shared cards. Clipboard history now uses the shared
+bounded store and desktop host actions; system clipboard observation remains a
+host responsibility. The quick-phrase CRUD/import/export manager is not
+migrated in this increment.
 
 The dedicated skin category follows `src/partials/skin.html` at the same pinned
 commit. The four built-in theme cards retain the shared `candidate_skin` values;

@@ -16,6 +16,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
   local_modes?: LocalModePreferences;
+  clipboard_history?: boolean;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -63,6 +64,12 @@ const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
+  clipboard?: {
+    clear(): Promise<void>;
+    list?(): Promise<string[]>;
+    sync?(): Promise<string[]>;
+    copy?(text: string): Promise<void>;
+  };
 }
 
 function message(error: unknown): string {
@@ -121,6 +128,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
+  const clipboardHistory = draft?.clipboard_history ?? false;
+  const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
+  useEffect(() => {
+    if (!client.clipboard?.list) return;
+    void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
+  }, [client, page]);
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -280,6 +293,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>
+          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}
+          {client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
+        </div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}

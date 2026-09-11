@@ -159,6 +159,22 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: { unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true } });
 });
+
+test("clipboard history defaults off, clears when disabled, and saves independently", async () => {
+  const clear = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })), clipboard: { clear } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  const clipboard = await screen.findByRole("checkbox", { name: "剪贴板管理" }) as HTMLInputElement;
+  expect(clipboard.checked).toBe(false);
+  fireEvent.click(clipboard);
+  expect(clipboard.checked).toBe(true);
+  fireEvent.click(clipboard);
+  expect(clear).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, clipboard_history: false });
+});
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use legacy defaults", async () => {

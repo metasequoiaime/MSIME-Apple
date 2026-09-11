@@ -10,5 +10,11 @@ const client: SettingsClient = {
     return invoke<Snapshot>("load_preferences");
   },
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
+  clipboard: {
+    clear: () => invoke("clear_clipboard_history"),
+    list: () => invoke<string[]>("list_clipboard_history"),
+    sync: () => invoke<string[]>("sync_clipboard_history"),
+    copy: text => invoke("copy_text", { text }),
+  },
 };
 createRoot(document.getElementById("root")!).render(<StrictMode><SettingsPage client={client} /></StrictMode>);

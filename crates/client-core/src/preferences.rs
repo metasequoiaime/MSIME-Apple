@@ -79,6 +79,9 @@ pub struct Preferences {
     pub mixed_input: MixedInputPreferences,
     #[serde(default)]
     pub local_modes: LocalModePreferences,
+    /// Records copied text only when the host explicitly observes clipboard events.
+    #[serde(default)]
+    pub clipboard_history: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +246,7 @@ impl Default for Preferences {
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
+            clipboard_history: false,
         }
     }
 }

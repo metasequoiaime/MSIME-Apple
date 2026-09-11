@@ -33,6 +33,7 @@ impl HostSession {
         current.candidate_font_size = next.candidate_font_size;
         current.candidate_orientation = next.candidate_orientation;
         current.candidate_skin = next.candidate_skin.clone();
+        current.clipboard_history = next.clipboard_history;
         current == *next
     }
 

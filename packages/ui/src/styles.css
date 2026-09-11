@@ -76,6 +76,10 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .secondary:hover:not(:disabled) { background: var(--button-secondary-hover); }
 .error { color: var(--danger-text); background: var(--surface-raised); padding: 12px; border-radius: 8px; }
 .notice { color: var(--text-secondary); }
+.clipboard-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.clipboard-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+.clipboard-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clipboard-row .secondary { flex: 0 0 auto; margin-top: 0; padding: 4px 9px; }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }
