@@ -1,148 +1,47 @@
-//! Host independent voice input contracts.
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+//! Host-independent voice session lifecycle. Audio and ASR transports are injected.
 
-#[derive(Clone, Debug, Error, Eq, PartialEq)]
-pub enum VoiceError {
-    #[error("invalid language")]
-    InvalidLanguage,
-    #[error("audio is empty")]
-    EmptyAudio,
-    #[error("audio is too large")]
-    AudioTooLarge,
-    #[error("recognized text is too large")]
-    TextTooLarge,
-    #[error("invalid confidence")]
-    InvalidConfidence,
+#[derive(Debug, Default)]
+pub struct VoiceSessionState {
+    generation: u64,
+    active: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VoiceProvider {
-    LocalWhisper,
-    Cloud,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct VoicePreferences {
-    pub enabled: bool,
-    pub provider: VoiceProvider,
-    pub language: String,
-}
-
-impl Default for VoicePreferences {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            provider: VoiceProvider::LocalWhisper,
-            language: "zh-CN".into(),
-        }
+impl VoiceSessionState {
+    pub fn start(&mut self) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        self.active = true;
+        self.generation
     }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct VoiceRecognitionRequest {
-    pub provider: VoiceProvider,
-    pub language: String,
-    pub audio: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct VoiceRecognitionResult {
-    pub text: String,
-    pub confidence: Option<u16>,
-}
-
-pub trait VoiceRecognizer {
-    fn recognize(
-        &self,
-        request: &VoiceRecognitionRequest,
-    ) -> Result<VoiceRecognitionResult, VoiceError>;
-}
-
-pub fn recognize<R: VoiceRecognizer>(
-    recognizer: &R,
-    request: &VoiceRecognitionRequest,
-) -> Result<VoiceRecognitionResult, VoiceError> {
-    request.validate()?;
-    let result = recognizer.recognize(request)?;
-    result.validate()?;
-    Ok(result)
-}
-
-impl VoiceRecognitionResult {
-    pub fn validate(&self) -> Result<(), VoiceError> {
-        if self.text.len() > 16 * 1024 {
-            return Err(VoiceError::TextTooLarge);
-        }
-        if self.confidence.is_some_and(|v| v > 1000) {
-            return Err(VoiceError::InvalidConfidence);
-        }
-        Ok(())
+    pub fn cancel(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.active = false;
     }
-}
 
-impl VoiceRecognitionRequest {
-    pub fn validate(&self) -> Result<(), VoiceError> {
-        if self.language.is_empty() || self.language.len() > 32 {
-            return Err(VoiceError::InvalidLanguage);
+    pub fn apply(&mut self, generation: u64, text: &str) -> Option<String> {
+        if !self.active || generation != self.generation || text.is_empty() {
+            return None;
         }
-        if self.audio.is_empty() {
-            return Err(VoiceError::EmptyAudio);
-        }
-        if self.audio.len() > 25 * 1024 * 1024 {
-            return Err(VoiceError::AudioTooLarge);
-        }
-        Ok(())
+        self.active = false;
+        Some(text.to_owned())
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn validates_bounds() {
-        let request = VoiceRecognitionRequest {
-            provider: VoiceProvider::LocalWhisper,
-            language: "zh-CN".into(),
-            audio: vec![1],
-        };
-        assert!(request.validate().is_ok());
-        let mut empty = request.clone();
-        empty.audio.clear();
-        assert!(empty.validate().is_err());
-    }
-
-    struct Stub;
-    impl VoiceRecognizer for Stub {
-        fn recognize(
-            &self,
-            _: &VoiceRecognitionRequest,
-        ) -> Result<VoiceRecognitionResult, VoiceError> {
-            Ok(VoiceRecognitionResult {
-                text: "你好".into(),
-                confidence: Some(900),
-            })
-        }
-    }
-    #[test]
-    fn dispatch_validates_request_and_result() {
-        let r = VoiceRecognitionRequest {
-            provider: VoiceProvider::Cloud,
-            language: "zh-CN".into(),
-            audio: vec![1],
-        };
-        assert_eq!(recognize(&Stub, &r).unwrap().text, "你好");
-    }
-
-    #[test]
-    fn protocol_roundtrips_json() {
-        let value = VoicePreferences::default();
-        let encoded = serde_json::to_string(&value).unwrap();
-        assert_eq!(
-            serde_json::from_str::<VoicePreferences>(&encoded).unwrap(),
-            value
-        );
+    fn stale_voice_results_are_rejected() {
+        let mut state = VoiceSessionState::default();
+        let old = state.start();
+        state.cancel();
+        let current = state.start();
+        assert!(state.apply(old, "旧结果").is_none());
+        assert_eq!(state.apply(current, "新结果"), Some("新结果".into()));
+        assert!(!state.is_active());
     }
 }

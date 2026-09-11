@@ -57,6 +57,7 @@ mod ffi {
     pub struct EngineSnapshot {
         pub local_mode: String,
         pub microsoft_shuangpin: bool,
+        pub shuangpin_profile: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
@@ -118,6 +119,8 @@ mod ffi {
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn select_edge(
             self: Pin<&mut EngineSession>,
             index: usize,
@@ -236,6 +239,12 @@ impl Session {
     }
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
+    }
+    pub fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().pin_candidate(index)
+    }
+    pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().remove_candidate(index)
     }
     pub fn select_edge(
         &mut self,

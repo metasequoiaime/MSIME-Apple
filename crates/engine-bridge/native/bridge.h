@@ -20,6 +20,8 @@ public:
     EngineResult character(std::uint8_t value, bool shift);
     EngineResult command(std::uint8_t value);
     EngineResult select(std::size_t index);
+    EngineResult pin_candidate(std::size_t index);
+    EngineResult remove_candidate(std::size_t index);
     EngineResult select_edge(std::size_t index, std::uint8_t edge);
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);
@@ -30,6 +32,7 @@ public:
 private:
     metasequoia::Session session_;
     bool microsoft_shuangpin_;
+    std::string shuangpin_profile_;
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
