@@ -17,6 +17,15 @@ pub enum InputScheme {
     Japanese,
 }
 
+/// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyboardLayout {
+    #[default]
+    TwentySixKey,
+    NineKey,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
@@ -87,6 +96,8 @@ pub struct Preferences {
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
     pub scheme: InputScheme,
+    #[serde(default)]
+    pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -552,6 +563,7 @@ impl Default for Preferences {
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
+            touch_keyboard_layout: TouchKeyboardLayout::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
@@ -1196,6 +1208,43 @@ mod tests {
         let bytes = serde_json::to_vec(&invalid).unwrap();
         fs::write(store.path(), &bytes).unwrap();
         assert!(store.save(3, Preferences::default()).is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("touch_keyboard_layout");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::NineKey
+        );
+        let mut invalid = serde_json::to_value(saved).unwrap();
+        invalid["preferences"]["touch_keyboard_layout"] = "future_layout".into();
+        let bytes = serde_json::to_vec(&invalid).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().is_err());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
     }
 

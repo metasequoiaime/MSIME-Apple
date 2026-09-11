@@ -5,6 +5,7 @@ use msime_client_core::dictionary_access::DictionaryAccess;
 pub mod cloud_dictionary;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
+    TouchKeyboardLayout,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
@@ -36,7 +37,7 @@ struct HostSession {
     punctuation_override: Option<bool>,
     english_mode: bool,
     page_size_override: Option<u8>,
-    nine_key_mode: bool,
+    nine_key_override: Option<bool>,
     voice: VoiceSessionState,
 }
 
@@ -84,8 +85,19 @@ impl HostSession {
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
         }
-        let retain_nine_key_mode = self.nine_key_mode && options.scheme == 0;
-        if retain_nine_key_mode {
+        let layout_changed =
+            snapshot.preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
+        let next_nine_key_override = if options.scheme == 0 && !layout_changed {
+            self.nine_key_override
+        } else {
+            None
+        };
+        let nine_key_mode = options.scheme == 0
+            && next_nine_key_override.unwrap_or(matches!(
+                snapshot.preferences.touch_keyboard_layout,
+                TouchKeyboardLayout::NineKey
+            ));
+        if nine_key_mode {
             engine
                 .set_nine_key_enabled(true)
                 .map_err(|e| e.to_string())?;
@@ -102,7 +114,7 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
-        self.nine_key_mode = retain_nine_key_mode;
+        self.nine_key_override = next_nine_key_override;
         Ok(())
     }
 
@@ -566,6 +578,13 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             msime_client_core::preferences::DefaultImeMode::English
         );
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+        let default_nine_key = matches!(applied.scheme, InputScheme::Quanpin)
+            && matches!(applied.touch_keyboard_layout, TouchKeyboardLayout::NineKey);
+        if default_nine_key {
+            engine
+                .set_nine_key_enabled(true)
+                .map_err(|e| e.to_string())?;
+        }
         engine
             .set_dedicated_english(default_english)
             .map_err(|e| e.to_string())?;
@@ -583,7 +602,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     punctuation_override: None,
                     english_mode: default_english,
                     page_size_override: None,
-                    nine_key_mode: false,
+                    nine_key_override: None,
                     voice: VoiceSessionState::default(),
                 },
             )
@@ -773,7 +792,7 @@ pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> 
                 .runtime
                 .set_nine_key_enabled(enabled)
                 .map_err(|e| e.to_string())?;
-            session.nine_key_mode = enabled;
+            session.nine_key_override = Some(enabled);
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
@@ -1456,14 +1475,11 @@ mod tests {
 
         let mut preferences = Preferences {
             candidate_page_size: 4,
+            touch_keyboard_layout: TouchKeyboardLayout::NineKey,
             ..Preferences::default()
         };
         assert_eq!(
             update(handle, 1, &preferences)["value"]["view"]["nine_key"],
-            false
-        );
-        assert_eq!(
-            read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
             true
         );
         preferences.learning = false;
@@ -1471,9 +1487,23 @@ mod tests {
             update(handle, 2, &preferences)["value"]["view"]["nine_key"],
             true
         );
-        preferences.scheme = InputScheme::Wubi;
+        preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         assert_eq!(
             update(handle, 3, &preferences)["value"]["view"]["nine_key"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
+            true
+        );
+        preferences.candidate_page_size = 3;
+        assert_eq!(
+            update(handle, 4, &preferences)["value"]["view"]["nine_key"],
+            true
+        );
+        preferences.scheme = InputScheme::Wubi;
+        assert_eq!(
+            update(handle, 5, &preferences)["value"]["view"]["nine_key"],
             false
         );
         assert_eq!(
@@ -1481,6 +1511,20 @@ mod tests {
             false
         );
         read(msime_client_destroy(handle));
+
+        let persisted_dir = tempfile::tempdir().unwrap();
+        let persisted = test_host_preferences(
+            persisted_dir.path(),
+            Preferences {
+                touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                ..Preferences::default()
+            },
+        );
+        assert_eq!(
+            read(msime_client_view(persisted))["value"]["nine_key"],
+            true
+        );
+        read(msime_client_destroy(persisted));
     }
 
     #[test]

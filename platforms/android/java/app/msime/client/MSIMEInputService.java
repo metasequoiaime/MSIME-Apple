@@ -54,6 +54,8 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout expandedCandidates;
     private TextView preedit;
     private TextView candidatePage;
+    private LinearLayout nineKeySpellings;
+    private HorizontalScrollView nineKeySpellingScroll;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private ScrollView clipboardScroll;
@@ -78,6 +80,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Vibrator vibrator;
     private LinearLayout keyRows;
     private Button layerButton;
+    private Button shiftButton;
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
@@ -128,7 +131,9 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject preferences = options.optJSONObject("preferences");
                 selectedScheme = KeyboardScheme.fromPreferences(
                     preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
-                    preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"));
+                    preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
+                    preferences == null ? "twenty_six_key"
+                        : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
                 skin = KeyboardSkin.from(preferences == null ? "fluent"
                     : preferences.optString("candidate_skin", "fluent"));
                 localModes = preferences == null ? new JSONObject()
@@ -241,7 +246,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
-            preferences.optString("shuangpin_profile", "xiaohe"));
+            preferences.optString("shuangpin_profile", "xiaohe"),
+            preferences.optString("touch_keyboard_layout", "twenty_six_key"));
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
         if (!allowLearning) sessionSnapshot.getJSONObject("preferences").put("learning", false);
@@ -252,24 +258,31 @@ public final class MSIMEInputService extends InputMethodService {
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
         clipboardHistoryEnabled = nextClipboard;
+        JSONObject nextView = result.getJSONObject("view");
+        boolean rebuildLayout = nineKeyActive(view) != nineKeyActive(nextView);
         selectedScheme = nextScheme;
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
             clipboardHistory.clear();
             closeClipboardHistory();
         }
-        view = result.getJSONObject("view");
+        view = nextView;
+        if (nineKeyActive(view)) shift = false;
+        if (rebuildLayout) rebuildKeyRows();
         preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
     }
 
     private boolean apply(String response) throws JSONException {
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
+        boolean rebuildLayout = nineKeyActive(view) != nineKeyActive(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
         if (connection != null && !bridge.apply(sink(), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
+        if (nineKeyActive(view)) shift = false;
+        if (rebuildLayout) rebuildKeyRows();
         render();
         return result.getBoolean("handled");
     }
@@ -292,6 +305,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection == null) return;
         char output = shift ? Character.toUpperCase(key) : key;
         if (!character(output)) connection.commitText(String.valueOf(output), 1);
+    }
+
+    private static boolean nineKeyActive(JSONObject value) {
+        return value != null && value.optBoolean("nine_key", false);
     }
 
     private void enter() {
@@ -346,6 +363,19 @@ public final class MSIMEInputService extends InputMethodService {
             action.run();
         });
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
+    private Button keyboardKey(String label, String description, Runnable action) {
+        Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setText(label);
+        button.setContentDescription("按键 " + description);
+        styleButton(button, false);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
         return button;
     }
 
@@ -535,6 +565,7 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.put("scheme", mapping.scheme());
             preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
             preferences.put("shuangpin_profile", mapping.shuangpinProfile());
+            preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
         } catch (JSONException | LinkageError error) {
             preferencesNotice = " · 输入方案切换失败，保留当前设置";
             closeSchemePicker();
@@ -891,23 +922,102 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildKeyRows() {
         if (keyRows == null) return;
         keyRows.removeAllViews();
+        if (nineKeyActive(view) && keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+            rebuildNineKeyRows();
+            return;
+        }
         for (java.util.List<String> keys : KeyboardLayout.rows(keyboardLayer, shift)) {
             LinearLayout row = new LinearLayout(this);
             keyRows.addView(row);
             for (String key : keys) {
                 final String input = key;
-                Button keyButton = new Button(this);
-                keyButton.setAllCaps(false);
-                keyButton.setText(key);
-                styleButton(keyButton, false);
-                keyButton.setOnClickListener(ignored -> {
-                    playFeedback(keyButton);
-                    type(input.charAt(0));
-                });
+                Button keyButton = keyboardKey(key, key, () -> type(input.charAt(0)));
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-                keyButton.setContentDescription("按键 " + key);
             }
+        }
+    }
+
+    private void addNineKey(LinearLayout parent, Button key) {
+        boolean horizontal = parent.getOrientation() == LinearLayout.HORIZONTAL;
+        parent.addView(key, new LinearLayout.LayoutParams(
+            horizontal ? 0 : LinearLayout.LayoutParams.MATCH_PARENT,
+            horizontal ? LinearLayout.LayoutParams.MATCH_PARENT : 0, 1));
+    }
+
+    private void rebuildNineKeyRows() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.HORIZONTAL);
+        keyRows.addView(container, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
+
+        LinearLayout punctuation = new LinearLayout(this);
+        punctuation.setOrientation(LinearLayout.VERTICAL);
+        for (String symbol : NineKeyLayout.punctuation()) {
+            Button key = keyboardKey(symbol, "符号 " + symbol, () -> commitNineKeyLiteral(symbol));
+            punctuation.addView(key, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        container.addView(punctuation, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
+
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
+            LinearLayout row = new LinearLayout(this);
+            for (NineKeyLayout.Key key : keys) {
+                addNineKey(row, keyboardKey(key.label(), key.description(),
+                    () -> character(key.input())));
+            }
+            grid.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        container.addView(grid, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        Button delete = keyboardKey("⌫", "删除", () -> {
+            if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
+        });
+        addNineKey(actions, delete);
+        addNineKey(actions, keyboardKey("重输", "清空当前拼音重新输入", () -> command(3)));
+        addNineKey(actions, keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")));
+        container.addView(actions, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+    }
+
+    private void commitNineKeyLiteral(String text) {
+        if (connection == null) return;
+        command(9);
+        connection.commitText(text, 1);
+    }
+
+    private void chooseNineKeySpelling(long generation, int index) {
+        if (session == 0) return;
+        try { apply(NativeClient.chooseNineKeySpelling(session, generation, index)); }
+        catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    private void renderNineKeySpellings() {
+        if (nineKeySpellings == null || nineKeySpellingScroll == null) return;
+        nineKeySpellings.removeAllViews();
+        JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
+        boolean visible = nineKeyActive(view) && spellings != null && spellings.length() > 0;
+        nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (!visible) return;
+        long generation = view.optLong("generation", -1);
+        for (int index = 0; index < spellings.length(); index++) {
+            String spelling = spellings.optString(index, "");
+            if (spelling.isEmpty()) continue;
+            final int choice = index;
+            Button key = button(nineKeySpellings, spelling,
+                () -> chooseNineKeySpelling(generation, choice));
+            key.setContentDescription("选择拼音 " + spelling);
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
+            params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+            params.weight = 0;
+            key.setLayoutParams(params);
         }
     }
 
@@ -944,6 +1054,14 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
+        nineKeySpellings = new LinearLayout(this);
+        nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
+        nineKeySpellingScroll = new HorizontalScrollView(this);
+        nineKeySpellingScroll.setHorizontalScrollBarEnabled(false);
+        nineKeySpellingScroll.setContentDescription("九键拼音选择");
+        nineKeySpellingScroll.addView(nineKeySpellings);
+        nineKeySpellingScroll.setVisibility(View.GONE);
+        candidateRegion.addView(nineKeySpellingScroll);
         candidates = new LinearLayout(this);
         candidates.setOrientation(LinearLayout.HORIZONTAL);
         horizontalCandidateScroll = new HorizontalScrollView(this);
@@ -972,15 +1090,13 @@ public final class MSIMEInputService extends InputMethodService {
         controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         keyboard.addView(controlScroll);
-        final Button[] shiftButtonRef = new Button[1];
-        Button shiftButton = button(controls, "Shift", () -> {
+        shiftButton = button(controls, "Shift", () -> {
             shift = !shift;
-            shiftButtonRef[0].setSelected(shift);
-            shiftButtonRef[0].setContentDescription(shift ? "大写已开启" : "切换大写");
+            shiftButton.setSelected(shift);
+            shiftButton.setContentDescription(shift ? "大写已开启" : "切换大写");
             rebuildKeyRows();
             render();
         });
-        shiftButtonRef[0] = shiftButton;
         shiftButton.setContentDescription("切换大写");
         layerButton = button(controls, "符号", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -1071,11 +1187,15 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? "切换符号键盘" : "切换字母键盘");
         }
+        if (shiftButton != null)
+            shiftButton.setVisibility(nineKeyActive(view)
+                && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
         if (schemeButton != null) {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
             schemeButton.setEnabled(session != 0 && preferencesSnapshot != null && !schemeSaving);
         }
+        renderNineKeySpellings();
         if (candidates == null) {
             applySkin();
             return;

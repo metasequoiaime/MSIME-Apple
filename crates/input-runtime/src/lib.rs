@@ -1081,6 +1081,10 @@ impl<E: InputEngine> Runtime<E> {
             Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
+                    // The nine-key separator is a layout action, not Chinese quote punctuation.
+                    if !result.handled && self.cached.nine_key && value == b'\'' {
+                        return Ok(result);
+                    }
                     if !result.handled && value.is_ascii_punctuation() {
                         return self.punctuation(value);
                     }
@@ -1625,9 +1629,16 @@ mod tests {
             })
             .unwrap();
         assert!(!invalid_digit.handled && invalid_digit.commit.is_none());
-        let generation = invalid_digit.view.generation;
+        let separator = runtime
+            .dispatch(Action::Character {
+                value: b'\'',
+                shift: false,
+            })
+            .unwrap();
+        assert!(!separator.handled && separator.commit.is_none());
+        let generation = separator.view.generation;
         let stale = NineKeySpellingId {
-            session: invalid_digit.view.session,
+            session: separator.view.session,
             generation: generation - 1,
             index: 0,
         };
@@ -1636,7 +1647,7 @@ mod tests {
             Err(RuntimeError::StaleNineKeySpelling)
         ));
         let invalid = NineKeySpellingId {
-            session: invalid_digit.view.session,
+            session: separator.view.session,
             generation,
             index: 2,
         };
@@ -1646,7 +1657,7 @@ mod tests {
         ));
         let selected = runtime
             .dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
-                session: invalid_digit.view.session,
+                session: separator.view.session,
                 generation,
                 index: 1,
             }))

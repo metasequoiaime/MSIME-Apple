@@ -46,6 +46,7 @@ export type Preferences = {
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  touch_keyboard_layout?: "twenty_six_key" | "nine_key";
   default_ime_mode?: "chinese" | "english";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
