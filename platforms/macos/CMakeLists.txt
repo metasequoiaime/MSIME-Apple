@@ -119,3 +119,8 @@ add_executable(input-source-registration-test tests/InputSourceRegistrationTests
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework Carbon" "-framework Foundation")
 add_test(NAME input-source-registration COMMAND input-source-registration-test)
+add_executable(candidate-selection-state-test tests/CandidateSelectionStateTests.cpp)
+target_include_directories(candidate-selection-state-test PRIVATE . ../../vendor/MSIME-Engine/include ../../vendor/MSIME-Engine tests)
+target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-selection-state-test PRIVATE apple-client)
+add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
