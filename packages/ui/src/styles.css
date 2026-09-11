@@ -1,6 +1,7 @@
 @import "./upstream/variables.css";
 @import "./upstream/sections.css";
 @import "./upstream/sidebar.css";
+@import "./skin-preview.css";
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
@@ -30,16 +31,17 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-card { display: block; overflow: hidden; padding: 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); box-shadow: var(--card-shadow); cursor: pointer; }
 .skin-card:hover { border-color: var(--border-strong); }
 .skin-card.selected { border-color: var(--accent-color); box-shadow: 0 0 0 1px var(--accent-color), var(--card-shadow); }
-.skin-card > input { position: absolute; opacity: 0; pointer-events: none; }
+.skin-card-select { display: block; cursor: pointer; }
+.skin-card-select > input { position: absolute; opacity: 0; pointer-events: none; }
+.skin-card:focus-within { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.skin-preview-switch { margin: 0 16px 16px; padding: 4px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 11px; }
+.skin-preview-switch:hover { color: var(--text-color); background: var(--button-secondary-bg); }
 .skin-card-preview { display: flex; flex-direction: column; gap: 10px; min-height: 112px; justify-content: center; padding: 18px; background: var(--skin-preview-stage-bg); }
 .skin-candidate { display: flex; align-items: center; gap: 8px; width: max-content; max-width: 100%; padding: 7px 10px; border: 1px solid var(--cand-border); border-radius: 6px; background: var(--cand-bg); color: var(--cand-text); box-shadow: var(--cand-shadow); font-size: 13px; white-space: nowrap; }
 .skin-candidate-vertical { display: none; }
 .skin-number { color: var(--cand-num); font-size: 11px; }
-.skin-wechat .skin-candidate { border-color: #32b76a; background: #e8fff0; color: #155b32; }
-.skin-wechat .skin-candidate:first-child { background: #bff2d0; }
-.skin-graphite .skin-candidate { border-color: #555; background: #2b2d31; color: #f1f1f1; border-radius: 2px; }
-.skin-willow_green .skin-candidate { border-color: #9fbf9a; background: #f0f8ed; color: #244b2b; border-radius: 12px; }
-.skin-willow_green .skin-candidate:first-child { background: #cfe8c8; }
+.skin-graphite .skin-candidate { border-radius: 2px; }
+.skin-willow_green .skin-candidate { border-radius: 9px; }
 .skin-card-body { display: flex; flex-direction: column; gap: 5px; padding: 13px 16px 16px; }
 .skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }
 .skin-card-description { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
