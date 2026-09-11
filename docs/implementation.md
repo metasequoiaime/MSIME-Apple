@@ -691,3 +691,7 @@ CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 
 React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔迹坐标归一化、撤销/重写及候选提交调用。未提供平台注入能力时只显示明确的宿主能力提示，不伪造输入或识别结果。host-api 对请求、坐标、笔迹数量、候选数量和候选文本做边界校验，并暴露捕获目标、发送按键、识别和提交的注入 trait。
 
 本地验证：client-core 27 项、host-api 25 项测试通过，Rust fmt/clippy、桌面 UI 26 项测试、TypeScript 类型检查和 Vite production build 通过。尚未实现或验证 Windows 原生 `SendInput`、Windows Ink、TSF 候选提交、焦点不抢占、安装器及逐像素系统验收；不能据此声称 Windows 面板系统接入完成，CI 保持禁用。
+
+### macOS 语音输入服务
+
+迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
