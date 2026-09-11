@@ -661,6 +661,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto candidates = s.view.is_object()
                               ? s.view.value("candidates", Json::array())
                               : Json::array();
+  const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
   size_t slot = 0;
   for (const auto &candidate : candidates) {
     if (!candidate.is_object() || !candidate.contains("id") ||
@@ -670,6 +671,12 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     if (!id.contains("session") || !id.contains("generation") || !id.contains("index") ||
         !id.at("session").is_number_unsigned() || !id.at("generation").is_number_unsigned() ||
         !id.at("index").is_number_unsigned())
+      continue;
+    // Engine only persists operations for local dictionary and English
+    // dictionary entries. Dynamic, local-mode and Japanese candidates have
+    // no user-dictionary identity to mutate.
+    const auto source = candidate.value("source", 0);
+    if (scheme == 3 || (source != 0 && source != 1 && source != 4))
       continue;
     ++slot;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
