@@ -49,6 +49,21 @@ pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Opt
     ))
 }
 
+pub fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
+    let base = match kind {
+        DictionaryKind::Pinyin => "pinyin",
+        DictionaryKind::Wubi => "wubi",
+        DictionaryKind::Quick => "quick",
+        DictionaryKind::English => "english",
+    };
+    match operation {
+        "add" | "import" | "import-hans" | "export" => {
+            Some(format!("/v1/users/me/dictionaries/{base}/{operation}"))
+        }
+        _ => None,
+    }
+}
+
 fn encode(value: &str) -> String {
     value
         .bytes()
@@ -134,5 +149,14 @@ mod tests {
             "/v1/users/me/dictionaries/pinyin?q=ni%20hao&offset=2&limit=100"
         );
         assert!(dictionary_path(DictionaryKind::Wubi, 0, "bad\n").is_none());
+    }
+
+    #[test]
+    fn builds_mutation_paths_without_credentials() {
+        assert_eq!(
+            mutation_path(DictionaryKind::Quick, "import"),
+            Some("/v1/users/me/dictionaries/quick/import".into())
+        );
+        assert!(mutation_path(DictionaryKind::Pinyin, "delete").is_none());
     }
 }
