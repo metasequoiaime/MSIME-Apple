@@ -10,6 +10,8 @@ pub struct SkinSummary {
     pub name: String,
     pub version: String,
     pub base: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +57,23 @@ fn required_string(
     Ok(value.to_owned())
 }
 
+fn optional_string(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    max: usize,
+) -> Result<Option<String>, String> {
+    let Some(value) = table.get(key) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_str()
+        .ok_or_else(|| format!("{key} must be a string"))?;
+    if value.is_empty() || value.len() > max {
+        return Err(format!("{key} has invalid length"));
+    }
+    Ok(Some(value.to_owned()))
+}
+
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     if !safe_id(folder) {
         return Err("invalid skin id".into());
@@ -82,6 +101,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     let name = required_string(table, "name", 80)?;
     let version = required_string(table, "version", 32)?;
     let base = required_string(table, "base", 32)?;
+    let author = optional_string(table, "author", 120)?;
+    let description = optional_string(table, "description", 500)?;
     if !matches!(
         base.as_str(),
         "fluent" | "wechat" | "graphite" | "willow_green"
@@ -93,6 +114,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         name,
         version,
         base,
+        author,
+        description,
     })
 }
 
@@ -129,7 +152,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let skin = dir.path().join("sample_skin");
         fs::create_dir(&skin).unwrap();
-        fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\n").unwrap();
+        fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\nauthor = 'Test'\ndescription = 'Demo'\n").unwrap();
         fs::create_dir(dir.path().join("../escape")).ok();
         let catalog = scan(dir.path());
         assert_eq!(
@@ -138,7 +161,9 @@ mod tests {
                 id: "sample_skin".into(),
                 name: "Sample".into(),
                 version: "1.0".into(),
-                base: "fluent".into()
+                base: "fluent".into(),
+                author: Some("Test".into()),
+                description: Some("Demo".into()),
             }],
             "{catalog:?}"
         );
