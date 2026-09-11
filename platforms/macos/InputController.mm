@@ -156,6 +156,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"官方网站" action:@selector(openWebsite:) keyEquivalent:@""];
     website.target = self;
     [menu addItem:website];
+    NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(toggleVoiceInput:) keyEquivalent:@""];
+    voice.target = self;
+    [menu addItem:voice];
     return menu;
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
@@ -175,6 +178,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
+- (void)toggleVoiceInput:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; NSDictionary *result = [_session startVoiceWithError:nil]; if (result) [self apply:result]; else [_session cancelVoiceWithError:nil]; }
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
 - (void)openCharacterPalette:(id)sender {
     (void)sender;
