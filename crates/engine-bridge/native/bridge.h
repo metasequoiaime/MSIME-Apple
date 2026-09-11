@@ -8,6 +8,7 @@ struct EngineOptions;
 struct EngineSnapshot;
 struct EngineResult;
 struct OnlineQuerySnapshot;
+struct EmojiCatalogItem;
 struct DictionaryEntry;
 struct DictionaryPage;
 class EngineSession {
@@ -39,4 +40,6 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
+rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
+                                          rust::Str category, std::uint8_t limit);
 }

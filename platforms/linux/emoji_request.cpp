@@ -7,19 +7,22 @@
 #include <string>
 
 int main(int argc, char **argv) {
-  if (argc != 2 || argv[1][0] != '/')
+  const bool local = argc == 3 && std::string(argv[1]) == "--local";
+  if ((!local && argc != 2) || (local ? argv[2][0] != '/' : argv[1][0] != '/'))
     return 2;
   std::array<char, 16385> buffer;
   std::cin.read(buffer.data(), buffer.size());
   const auto length = static_cast<size_t>(std::cin.gcount());
   if (std::cin.bad() || length == 0 || length > 16384)
     return 2;
-  const std::string socket_path = argv[1];
+  const std::string target = local ? argv[2] : argv[1];
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
-      msime_client_emoji_provider_request(
-          reinterpret_cast<const uint8_t *>(buffer.data()), length,
-          reinterpret_cast<const uint8_t *>(socket_path.data()),
-          socket_path.size()),
+      local ? msime_client_emoji_catalog_request(
+                  reinterpret_cast<const uint8_t *>(buffer.data()), length,
+                  reinterpret_cast<const uint8_t *>(target.data()), target.size())
+            : msime_client_emoji_provider_request(
+                  reinterpret_cast<const uint8_t *>(buffer.data()), length,
+                  reinterpret_cast<const uint8_t *>(target.data()), target.size()),
       msime_client_string_free);
   if (!result)
     return 1;

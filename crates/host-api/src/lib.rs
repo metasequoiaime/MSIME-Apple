@@ -1039,6 +1039,50 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
     })
 }
 
+/// Query the local verified `others.db` Emoji catalog without a provider socket.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_emoji_catalog_request(
+    query: *const u8,
+    query_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || resources.is_null()
+            || query_length > 16_384
+            || resources_length > 4096
+        {
+            return Err("invalid local emoji buffer".into());
+        }
+        let query = serde_json::from_slice::<EmojiPanelQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid emoji query document")?;
+        let resources = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(resources, resources_length)
+        })
+        .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        let items = msime_engine_bridge::emoji_catalog(
+            resources,
+            &query.search,
+            &query.category,
+            query.limit,
+        )
+        .map_err(|_| "local emoji catalog unavailable")?;
+        Ok(json!({
+            "items": items
+                .into_iter()
+                .map(|item| json!({"text": item.text, "annotation": item.annotation}))
+                .collect::<Vec<_>>()
+        }))
+    })
+}
+
 /// Run one bounded voice capture/ASR request through a user-owned Unix socket.
 /// The socket service owns microphone access, credentials and network policy.
 /// The query is a bounded JSON object containing `language` and `generation`.

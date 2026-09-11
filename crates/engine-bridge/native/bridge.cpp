@@ -3,6 +3,8 @@
 #include <metasequoia/personal_dictionary.h>
 #include <stdexcept>
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
+#include <sqlite3.h>
+#include <unordered_set>
 
 namespace msime {
 namespace {
@@ -176,6 +178,47 @@ bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
     const auto kind = source == 0 ? CandidateSource::CloudSuggestion
                                   : CandidateSource::AiSuggestion;
     return session_.apply_online_candidate(request, std::string(candidate), kind);
+}
+rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
+                                          rust::Str category, std::uint8_t limit) {
+    rust::Vec<EmojiCatalogItem> result;
+    if (limit == 0 || limit > 96)
+        return result;
+    const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
+    sqlite3 *database = nullptr;
+    if (sqlite3_open_v2(path.u8string().c_str(), &database,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+        if (database)
+            sqlite3_close(database);
+        return result;
+    }
+    constexpr const char *sql =
+        "SELECT emoji,category FROM emoji "
+        "WHERE (?1 = '' OR category = ?1) "
+        "AND (?2 = '' OR pinyin LIKE ?3 OR keywords LIKE ?3 OR emoji LIKE ?3) "
+        "ORDER BY sort_order LIMIT ?4";
+    sqlite3_stmt *statement = nullptr;
+    if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK) {
+        sqlite3_close(database);
+        return result;
+    }
+    const std::string category_text(category);
+    const std::string search_text(search);
+    const std::string pattern = "%" + search_text + "%";
+    sqlite3_bind_text(statement, 1, category_text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 2, search_text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 3, pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(statement, 4, limit);
+    std::unordered_set<std::string> seen;
+    while (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto *text = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
+        const auto *annotation = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
+        if (text && seen.insert(text).second)
+            result.push_back({rust::String(text), rust::String(annotation ? annotation : "")});
+    }
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return result;
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
