@@ -1,6 +1,6 @@
 #import "DictionaryWindowController.h"
 #import "MSIMEClientSession.h"
-#import "DictionaryRuntime.h"
+#import "ClientDictionaryRuntime.h"
 
 @interface MSIMEDictionaryWindowController ()
 @property(nonatomic, copy) NSDictionary *options;
