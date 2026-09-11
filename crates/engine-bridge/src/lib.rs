@@ -54,6 +54,9 @@ mod ffi {
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub scheme: u8,
+        pub answered_by_pinyin_fallback: bool,
+        pub candidate_annotations: Vec<String>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
@@ -61,6 +64,19 @@ mod ffi {
         pub has_commit: bool,
         pub commit: String,
         pub diagnostic: String,
+    }
+    #[derive(Debug)]
+    pub struct OnlineQuerySnapshot {
+        pub available: bool,
+        pub scheme: u8,
+        pub generation: u64,
+        pub identity: String,
+        pub query_text: String,
+        pub cache_key: String,
+        pub pinyin_segments: Vec<String>,
+        pub cloud_eligible: bool,
+        pub ai_eligible: bool,
+        pub session_id: u64,
     }
     unsafe extern "C++" {
         include!("bridge.h");
@@ -76,6 +92,13 @@ mod ffi {
         fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
             records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
+        fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
+        fn apply_online_candidate(
+            self: Pin<&mut EngineSession>,
+            query: &OnlineQuerySnapshot,
+            candidate: &str,
+            source: u8,
+        ) -> Result<bool>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
@@ -93,10 +116,18 @@ mod ffi {
             self: Pin<&mut EngineSession>,
             enabled: bool,
         ) -> Result<()>;
+        fn set_paired_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
+        fn set_punctuation_lock(self: Pin<&mut EngineSession>, lock: u8) -> Result<()>;
+        fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
 
-pub use ffi::{DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot};
+pub use ffi::{
+    DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
+};
 
 /// Validate a personal dictionary entry using the pinned Engine contract.
 pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
@@ -154,6 +185,19 @@ impl Session {
     pub fn snapshot(&self) -> Result<EngineSnapshot, cxx::Exception> {
         self.inner.snapshot()
     }
+    pub fn online_query(&self) -> Result<OnlineQuerySnapshot, cxx::Exception> {
+        self.inner.online_query()
+    }
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuerySnapshot,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .apply_online_candidate(query, candidate, source)
+    }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
     }
@@ -182,6 +226,17 @@ impl Session {
         self.inner
             .pin_mut()
             .set_chinese_punctuation_enabled(enabled)
+    }
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .set_paired_punctuation_enabled(enabled)
+    }
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_punctuation_lock(lock)
+    }
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_dedicated_english(enabled)
     }
 }
 

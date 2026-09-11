@@ -11,10 +11,14 @@ EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, 
 struct EngineOptions;
 struct EngineSnapshot;
 struct EngineResult;
+struct OnlineQuerySnapshot;
 class EngineSession {
 public:
     explicit EngineSession(const EngineOptions& options);
     EngineSnapshot snapshot() const;
+    OnlineQuerySnapshot online_query() const;
+    bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
+                                std::uint8_t source);
     EngineResult character(std::uint8_t value, bool shift);
     EngineResult command(std::uint8_t value);
     EngineResult select(std::size_t index);
@@ -24,6 +28,9 @@ public:
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);
     void set_chinese_punctuation_enabled(bool enabled);
+    void set_paired_punctuation_enabled(bool enabled);
+    void set_punctuation_lock(std::uint8_t lock);
+    void set_dedicated_english(bool enabled);
 private:
     metasequoia::Session session_;
     bool microsoft_shuangpin_;

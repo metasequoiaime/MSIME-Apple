@@ -102,12 +102,52 @@ EngineSnapshot EngineSession::snapshot() const {
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
+    output.scheme = static_cast<std::uint8_t>(value.scheme);
     output.shuangpin_profile = rust::String(value.shuangpin_profile);
+    output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) output.candidates.push_back(rust::String(candidate.word));
+    for (const auto& candidate : value.candidates) {
+        output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+    }
     return output;
+}
+OnlineQuerySnapshot EngineSession::online_query() const {
+    OnlineQuerySnapshot output;
+    const auto query = session_.online_query();
+    if (!query.has_value()) return output;
+    output.available = true;
+    output.scheme = static_cast<std::uint8_t>(query->scheme);
+    output.generation = query->generation;
+    output.identity = query->identity;
+    output.query_text = query->query_text;
+    output.cache_key = query->cache_key;
+    for (const auto& segment : query->pinyin_segments)
+        output.pinyin_segments.push_back(rust::String(segment));
+    output.cloud_eligible = query->cloud_eligible;
+    output.ai_eligible = query->ai_eligible;
+    output.session_id = query->session_id;
+    return output;
+}
+bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
+                                           rust::Str candidate, std::uint8_t source) {
+    if (!query.available || (source != 0 && source != 1)) return false;
+    metasequoia::OnlineQuery request;
+    request.scheme = static_cast<SchemeType>(query.scheme);
+    request.generation = query.generation;
+    request.identity = std::string(query.identity);
+    request.query_text = std::string(query.query_text);
+    request.cache_key = std::string(query.cache_key);
+    for (const auto& segment : query.pinyin_segments)
+        request.pinyin_segments.emplace_back(std::string(segment));
+    request.cloud_eligible = query.cloud_eligible;
+    request.ai_eligible = query.ai_eligible;
+    request.session_id = query.session_id;
+    const auto kind = source == 0 ? CandidateSource::CloudSuggestion
+                                  : CandidateSource::AiSuggestion;
+    return session_.apply_online_candidate(request, std::string(candidate), kind);
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
@@ -143,5 +183,15 @@ EngineResult EngineSession::punctuation(std::uint8_t value) {
 }
 void EngineSession::set_chinese_punctuation_enabled(bool enabled) {
     session_.set_chinese_punctuation_enabled(enabled);
+}
+void EngineSession::set_paired_punctuation_enabled(bool enabled) {
+    session_.set_paired_punctuation_enabled(enabled);
+}
+void EngineSession::set_punctuation_lock(std::uint8_t lock) {
+    if (lock > 2) throw std::invalid_argument("Invalid punctuation lock");
+    session_.set_punctuation_lock(static_cast<int>(lock));
+}
+void EngineSession::set_dedicated_english(bool enabled) {
+    session_.set_dedicated_english(enabled);
 }
 }
