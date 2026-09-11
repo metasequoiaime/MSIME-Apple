@@ -387,6 +387,10 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
 }
 
 /// Compare-and-swap save for a validated PreferencesSnapshot.
+///
+/// # Safety
+/// The caller must provide non-null pointers to readable UTF-8 buffers whose
+/// lengths match the supplied lengths and remain valid for the duration of the call.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_save_preferences(
     directory: *const u8,

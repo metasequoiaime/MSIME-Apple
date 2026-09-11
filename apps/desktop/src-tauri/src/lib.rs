@@ -511,8 +511,7 @@ mod tests {
     }
 }
 
-#[tauri::command]
-fn check_for_updates() -> Result<bool, HostActionError> {
+fn check_for_updates_blocking() -> Result<bool, HostActionError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .user_agent(concat!("MSIME-Client/", env!("CARGO_PKG_VERSION")))
@@ -580,6 +579,15 @@ fn check_for_updates() -> Result<bool, HostActionError> {
         return Ok(true);
     }
     Ok(false)
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<bool, HostActionError> {
+    tauri::async_runtime::spawn_blocking(check_for_updates_blocking)
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
