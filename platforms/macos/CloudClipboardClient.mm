@@ -3,4 +3,18 @@ static void ClipboardRequest(NSString *method, NSString *path, NSDictionary *pay
 void MSIMEFetchCloudClipboard(NSString *search,NSString *token,MSIMECloudClipboardCompletion c){ if(search.length>1024)return c(nil,400,nil); NSString *q=[search stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet]; ClipboardRequest(@"GET",[NSString stringWithFormat:@"/v1/users/me/clipboard?q=%@",q?:@""],nil,token,c); }
 void MSIMESetCloudClipboardEnabled(BOOL enabled,NSString *token,MSIMECloudClipboardCompletion c){ClipboardRequest(@"PUT",@"/v1/users/me/clipboard/settings",@{@"enabled":@(enabled)},token,c);}
 void MSIMEAddCloudClipboard(NSString *text,NSString *token,MSIMECloudClipboardCompletion c){if(text.length==0||text.length>4000)return c(nil,400,nil);ClipboardRequest(@"POST",@"/v1/users/me/clipboard",@{@"text":text},token,c);}
-void MSIMERemoveCloudClipboard(NSString *itemID,NSString *token,MSIMECloudClipboardCompletion c){NSString *suffix=itemID.length?[[NSString stringWithFormat:@"/%@",itemID] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]:@"";ClipboardRequest(@"DELETE",[NSString stringWithFormat:@"/v1/users/me/clipboard%@",suffix],nil,token,c);}
+void MSIMERemoveCloudClipboard(NSString *itemID, NSString *token, MSIMECloudClipboardCompletion completion) {
+    if (![itemID isKindOfClass:NSString.class] || !itemID.length ||
+        [itemID isEqualToString:@"."] || [itemID isEqualToString:@".."]) {
+        if (completion) completion(nil, 400, nil);
+        return;
+    }
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"];
+    NSString *component = [itemID stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    if (!component.length) {
+        if (completion) completion(nil, 400, nil);
+        return;
+    }
+    ClipboardRequest(@"DELETE", [@"/v1/users/me/clipboard/" stringByAppendingString:component], nil, token, completion);
+}

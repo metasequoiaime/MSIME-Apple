@@ -107,7 +107,7 @@ export type FloatingToolbarPreferences = {
   emoji: boolean;
   screen_keyboard: boolean;
   settings: boolean;
-  scale: 75 | 100 | 125 | 150;
+  scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };
 const defaultFloatingToolbar: FloatingToolbarPreferences = {
@@ -118,7 +118,7 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   emoji: true,
   screen_keyboard: false,
   settings: true,
-  scale: 100,
+  scale_percent: 100,
   font_size: 24,
 };
 const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "fullwidth" | "punctuation" | "character_set" | "emoji" | "screen_keyboard" | "settings">, string][] = [
@@ -129,7 +129,7 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "fullwidth
   ["screen_keyboard", "屏幕键盘"],
   ["settings", "设置"],
 ];
-const floatingToolbarScales: FloatingToolbarPreferences["scale"][] = [75, 100, 125, 150];
+const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
   load(): Promise<Snapshot>;
@@ -450,14 +450,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
           <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
             <div className="floating-toolbar-preview-label">预览</div>
-            <div className={`toolbar-preview${floatingToolbar.enabled ? "" : " disabled"}`} style={{ transform: `scale(${floatingToolbar.scale / 100})`, fontSize: `${floatingToolbar.font_size}px` }}>
+              <div className={`toolbar-preview${floatingToolbar.enabled ? "" : " disabled"}`} style={{ transform: `scale(${floatingToolbar.scale_percent / 100})`, fontSize: `${floatingToolbar.font_size}px` }}>
               <span className="toolbar-preview-handle">⋮</span><span className="toolbar-preview-required">中 / 英</span>
               {floatingToolbarOptions.map(([key, label]) => floatingToolbar[key] && <span className="toolbar-preview-item" key={key}>{label.split(" ")[0]}</span>)}
             </div>
           </div>
         </div>
         <div className="section floating-toolbar-appearance">
-          <label className="section-header"><span className="section-title">工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small></span><select aria-label="工具栏缩放" value={floatingToolbar.scale} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, scale: Number(event.target.value) as FloatingToolbarPreferences["scale"] } })}>{floatingToolbarScales.map(value => <option key={value} value={value}>{value}%</option>)}</select></label>
+          <label className="section-header"><span className="section-title">工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small></span><select aria-label="工具栏缩放" value={floatingToolbar.scale_percent} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, scale_percent: Number(event.target.value) as FloatingToolbarPreferences["scale_percent"] } })}>{floatingToolbarScales.map(value => <option key={value} value={value}>{value}%</option>)}</select></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">图标尺寸<small>图标基准大小（像素），再乘以上方缩放</small></span><select aria-label="图标尺寸" value={floatingToolbar.font_size} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, font_size: Number(event.target.value) as FloatingToolbarPreferences["font_size"] } })}>{floatingToolbarFontSizes.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
         </div>
