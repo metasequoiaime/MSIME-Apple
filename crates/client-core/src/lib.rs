@@ -3,6 +3,7 @@
 pub mod clipboard;
 pub mod dictionary_access;
 mod file_lock;
+pub mod panels;
 pub mod preferences;
 pub mod resources;
 pub mod voice;

@@ -16,6 +16,7 @@ use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 mod dictionary;
+pub mod panels;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
 
 thread_local! {
