@@ -154,7 +154,13 @@ pub struct OnlineQuery {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TranslationQuery {
     pub generation: u64,
+    #[serde(default = "default_translation_target_language")]
+    pub target_language: String,
     pub candidates: Vec<String>,
+}
+
+fn default_translation_target_language() -> String {
+    "en".into()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1441,6 +1447,7 @@ mod tests {
             let value: serde_json::Value = serde_json::from_str(&request).unwrap();
             assert_eq!(value["kind"], "translation");
             assert_eq!(value["query"]["generation"], 9);
+            assert_eq!(value["query"]["target_language"], "en");
             assert_eq!(value["query"]["candidates"][0], "你好");
             stream
                 .write_all(r#"{"translations":[{"text":"你好","translation":"hello"}]}"#.as_bytes())
@@ -1449,6 +1456,7 @@ mod tests {
         });
         let query = TranslationQuery {
             generation: 9,
+            target_language: "en".into(),
             candidates: vec!["你好".into()],
         };
         assert_eq!(
