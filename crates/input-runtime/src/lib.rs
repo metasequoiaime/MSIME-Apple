@@ -6,6 +6,7 @@ use msime_engine_bridge::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
@@ -95,6 +96,8 @@ pub struct Candidate {
     /// Engine-derived display suffix, never part of selection or committed text.
     pub annotation: String,
     pub highlighted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -348,6 +351,7 @@ pub struct Runtime<E: InputEngine = Session> {
     focused: bool,
     page_size: usize,
     highlighted: usize,
+    translations: HashMap<String, String>,
     cached: EngineSnapshot,
     snapshot_valid: bool,
 }
@@ -438,6 +442,7 @@ impl<E: InputEngine> Runtime<E> {
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
+            translations: HashMap::new(),
             cached,
             snapshot_valid: true,
         })
@@ -482,6 +487,7 @@ impl<E: InputEngine> Runtime<E> {
                         .cloned()
                         .unwrap_or_default(),
                     highlighted: index == self.highlighted,
+                    translation: self.translations.get(text).cloned(),
                 })
                 .collect(),
         }
@@ -492,6 +498,20 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.preedit.is_empty()
             && self.cached.editing_text.is_empty()
             && self.cached.candidates.is_empty()
+    }
+
+    /// Apply translations to the current candidate generation. Stale async
+    /// responses are ignored so a newer candidate window cannot be polluted.
+    pub fn apply_translations(
+        &mut self,
+        generation: u64,
+        translations: impl IntoIterator<Item = (String, String)>,
+    ) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        self.translations = translations.into_iter().collect();
+        true
     }
 
     /// Presentation-only resize; a live composition keeps its numeric key map.
@@ -552,6 +572,7 @@ impl<E: InputEngine> Runtime<E> {
 
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         self.snapshot_valid = false;
+        self.translations.clear();
         // Drop cached candidate identities even if fetching the replacement fails.
         let previous = std::mem::replace(
             &mut self.cached,
@@ -942,6 +963,29 @@ mod tests {
             active.replace_engine(runtime().engine, 2),
             Err(RuntimeError::CompositionActive)
         ));
+    }
+
+    #[test]
+    fn translations_are_generation_scoped_and_exposed_on_candidates() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let view = type_key(&mut runtime).view;
+        assert!(!runtime
+            .apply_translations(view.generation - 1, [("candidate-0".into(), "old".into())]));
+        assert!(runtime.apply_translations(
+            view.generation,
+            [("candidate-0".into(), "translated".into())]
+        ));
+        assert_eq!(
+            runtime.view().candidates[0].translation.as_deref(),
+            Some("translated")
+        );
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        assert!(runtime
+            .view()
+            .candidates
+            .iter()
+            .all(|candidate| candidate.translation.is_none()));
     }
 
     #[test]
