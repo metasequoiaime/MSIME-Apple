@@ -83,3 +83,13 @@ decoration rules from the same pinned settings `src/styles/modules/skin.css`
 appearance attribute; declaration bodies remain unchanged. This includes
 WeChat selected text, Graphite selected contrast and Willow full-row treatment.
 Toolbar previews and native visual validation remain outstanding.
+
+Each built-in skin card now includes a static toolbar preview. The tracked
+`src/upstream/skin-toolbar-preview.html` is extracted from
+`ui-html/webview2/ftb/default.html` at `04a8df56f86312474a069f4335a1b58da7afaa9e`,
+following upstream `skin.ts` fillToolbar: retain only `.status-bar`, remove
+`#en`, `#fullwidth`, `#puncEn`, and remove descendant IDs. No scripts or host
+handlers are included. `src/skin-toolbar-preview.css` adapts the toolbar rules
+from settings `floating-toolbar.css` and `skin.css` to card-local selectors.
+All sources are GPL-3.0. This preview is decorative and does not control the
+real toolbar; native visual parity and external skin support remain unverified.

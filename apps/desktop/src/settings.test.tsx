@@ -493,6 +493,7 @@ test("each skin card includes both six-candidate previews without duplicate IDs"
   for (const card of cards) {
     const previews = card.querySelectorAll("[data-preview-layout]");
     expect(previews).toHaveLength(2);
+    expect(card.querySelectorAll(".ftb-preview-host .status-bar")).toHaveLength(1);
     for (const layout of ["horizontal", "vertical"]) {
       const preview = card.querySelector(`[data-preview-layout="${layout}"]`)!;
       expect(preview.querySelectorAll(".row-wrapper")).toHaveLength(6);
