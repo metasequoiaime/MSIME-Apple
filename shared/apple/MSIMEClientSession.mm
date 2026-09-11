@@ -114,6 +114,7 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 - (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
 - (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
+- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding]; if (!data || data.length > 65536) { setError(error, @"语音文本无效"); return nil; } return decode(msime_client_voice_apply(_handle, generation, static_cast<const uint8_t *>(data.bytes), data.length), error); }
 - (BOOL)closeWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return NO;
     NSDictionary *result = decode(msime_client_destroy(_handle), error);

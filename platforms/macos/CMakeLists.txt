@@ -17,7 +17,7 @@ add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../s
 target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates/host-api/include)
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
-add_executable(MSIMEClientInputMethod MACOSX_BUNDLE main.mm PreferencesWindowController.mm InputController.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm DictionaryRuntime.mm)
+add_executable(MSIMEClientInputMethod MACOSX_BUNDLE main.mm PreferencesWindowController.mm VoiceInputService.mm InputController.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm DictionaryRuntime.mm)
 target_include_directories(MSIMEClientInputMethod PRIVATE ../../vendor/MSIME-Engine)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")

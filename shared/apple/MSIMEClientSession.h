@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSDictionary<NSString *, id> *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)startVoiceWithError:(NSError **)error;
 - (BOOL)cancelVoiceWithError:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
 /// Management is separate from live sessions; call only after all sessions are closed.
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
 /// Prepare isolated Engine working data; call off the main thread and before creating sessions.
