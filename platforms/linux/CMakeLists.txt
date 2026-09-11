@@ -32,6 +32,9 @@ target_link_libraries(msime-client-cloud-dictionary PRIVATE msime-ibus-host)
 add_executable(msime-client-cloud-clipboard cloud_clipboard_request.cpp)
 target_compile_options(msime-client-cloud-clipboard PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-cloud-clipboard PRIVATE msime-ibus-host)
+add_executable(msime-client-online online_request.cpp)
+target_compile_options(msime-client-online PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-online PRIVATE msime-ibus-host)
 add_executable(msime-client-clipboard clipboard_history.cpp)
 target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
 add_executable(msime-client-handwriting handwriting_request.cpp)
@@ -56,7 +59,7 @@ if(MSIME_LINUX_VOICE)
  target_include_directories(msime-voice-worker-test PRIVATE .)
 endif()
 configure_file(msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
-install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-clipboard
+install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-clipboard
                 msime-client-handwriting msime-client-voice msime-client-emoji
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
@@ -90,6 +93,6 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml DESTINATION "
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
-set_target_properties(msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-handwriting
+set_target_properties(msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-handwriting
                       msime-client-voice msime-client-emoji PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
