@@ -9,5 +9,13 @@ fi
 # daemon working directories are not stable across desktop environments.
 config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
 config="$config_dir/$(basename -- "$config")"
-launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+launcher_path=$0
+while [ -L "$launcher_path" ]; do
+  link=$(readlink "$launcher_path")
+  case "$link" in
+    /*) launcher_path=$link ;;
+    *) launcher_path=$(dirname -- "$launcher_path")/$link ;;
+  esac
+done
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 exec "$launcher_dir/msime-client-ibus" "$config"
