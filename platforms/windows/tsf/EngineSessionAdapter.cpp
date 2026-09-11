@@ -32,9 +32,10 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
           if (parsed.view.generation == 0 && raw_id.is_object())
             parsed.view.generation = raw_id.value("generation", uint64_t{0});
         }
-        parsed.view.candidates.push_back({std::move(id),
-                                          candidate.value("text", ""),
-                                          candidate.value("highlighted", false)});
+        std::size_t index = candidate.value("index", std::size_t{0});
+        if (raw_id.is_object()) index = raw_id.value("index", index);
+        parsed.view.candidates.push_back({std::move(id), candidate.value("text", ""),
+                                          candidate.value("highlighted", false), index});
       }
     }
     if (out) *out = std::move(parsed);
