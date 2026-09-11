@@ -17,6 +17,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.util.TypedValue;
 import android.widget.PopupMenu;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -44,12 +45,18 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject view;
     private FrameLayout keyboardRoot;
     private LinearLayout candidates;
+    private LinearLayout verticalCandidates;
+    private HorizontalScrollView horizontalCandidateScroll;
+    private ScrollView verticalCandidateScroll;
     private LinearLayout candidatePaging;
     private LinearLayout expandedCandidates;
     private TextView preedit;
     private TextView candidatePage;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
+    private boolean candidateHorizontal;
+    private int candidateFontSize = 16;
+    private int candidatePreeditFontSize = 16;
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
@@ -110,6 +117,7 @@ public final class MSIMEInputService extends InputMethodService {
                 localModes = preferences == null ? new JSONObject()
                     : preferences.optJSONObject("local_modes");
                 if (localModes == null) localModes = new JSONObject();
+                applyCandidateAppearance(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -141,11 +149,32 @@ public final class MSIMEInputService extends InputMethodService {
         view = null;
     }
 
+    private void applyCandidateAppearance(JSONObject preferences) {
+        if (preferences == null) {
+            candidateHorizontal = false;
+            candidateFontSize = 16;
+            candidatePreeditFontSize = 16;
+            return;
+        }
+        String layout = preferences.optString("candidate_layout",
+            preferences.optString("candidate_orientation", "vertical"));
+        candidateHorizontal = CandidateAppearance.isHorizontal(layout);
+        candidateFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        candidatePreeditFontSize = CandidateAppearance.fontSize(
+            preferences.optInt("candidate_preedit_font_size", candidateFontSize));
+    }
+
+    private String candidateAppearanceKey() {
+        return (candidateHorizontal ? "horizontal" : "vertical") + ":"
+            + candidateFontSize + ":" + candidatePreeditFontSize;
+    }
+
     private void reloadPreferences(String response) {
         if (session == 0) return;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
         String previousSkin = skin.id();
+        String previousAppearance = candidateAppearanceKey();
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
             JSONObject snapshot = value(response);
@@ -155,9 +184,19 @@ public final class MSIMEInputService extends InputMethodService {
                 .optString("candidate_skin", "fluent"));
             JSONObject nextLocalModes = snapshot.getJSONObject("preferences").optJSONObject("local_modes");
             if (nextLocalModes == null) nextLocalModes = new JSONObject();
+            JSONObject preferences = snapshot.getJSONObject("preferences");
+            String nextLayout = preferences.optString("candidate_layout",
+                preferences.optString("candidate_orientation", "vertical"));
+            boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
+            int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+            int nextPreeditFontSize = CandidateAppearance.fontSize(
+                preferences.optInt("candidate_preedit_font_size", nextFontSize));
             JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
             skin = nextSkin;
             localModes = nextLocalModes;
+            candidateHorizontal = nextHorizontal;
+            candidateFontSize = nextFontSize;
+            candidatePreeditFontSize = nextPreeditFontSize;
             view = result.getJSONObject("view");
             preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
         } catch (JSONException | LinkageError error) {
@@ -165,6 +204,7 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
         if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
+                || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
 
@@ -441,6 +481,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean highlighted = candidate.optBoolean("highlighted");
         button.setAllCaps(false);
         button.setText((slot + 1) + ". " + text);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         styleButton(button, false);
         button.setContentDescription("候选 " + (slot + 1) + "：" + text);
         button.setSelected(highlighted);
@@ -569,7 +610,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.setOrientation(LinearLayout.VERTICAL);
         LinearLayout candidateHeader = new LinearLayout(this);
         preedit = new TextView(this);
-        preedit.setTextSize(16);
+        preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
         candidateHeader.addView(preedit, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         candidatePage = new TextView(this);
@@ -588,9 +629,18 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(candidateHeader);
         candidates = new LinearLayout(this);
         candidates.setOrientation(LinearLayout.HORIZONTAL);
-        HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
-        candidateScroll.addView(candidates);
-        candidateRegion.addView(candidateScroll);
+        horizontalCandidateScroll = new HorizontalScrollView(this);
+        horizontalCandidateScroll.addView(candidates);
+        verticalCandidates = new LinearLayout(this);
+        verticalCandidates.setOrientation(LinearLayout.VERTICAL);
+        verticalCandidateScroll = new ScrollView(this);
+        verticalCandidateScroll.addView(verticalCandidates);
+        FrameLayout candidateViewport = new FrameLayout(this);
+        candidateViewport.addView(horizontalCandidateScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        candidateRegion.addView(candidateViewport);
         candidatePaging = new LinearLayout(this);
         candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
         candidateRegion.addView(candidatePaging);
@@ -672,7 +722,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (status != null) status.setText(message + preferencesNotice + localMode + page
             + (shift ? " · Shift" : ""));
-        if (preedit != null) preedit.setText(view == null ? "" : view.optString("editing_text", ""));
+        if (preedit != null) {
+            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+            preedit.setText(view == null ? "" : view.optString("editing_text", ""));
+        }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
@@ -683,7 +736,13 @@ public final class MSIMEInputService extends InputMethodService {
             applySkin();
             return;
         }
+        if (horizontalCandidateScroll != null)
+            horizontalCandidateScroll.setVisibility(candidateHorizontal ? View.VISIBLE : View.GONE);
+        if (verticalCandidateScroll != null)
+            verticalCandidateScroll.setVisibility(candidateHorizontal ? View.GONE : View.VISIBLE);
+        LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
+        if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
         if (view == null) {
@@ -697,8 +756,10 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject candidate = entries.optJSONObject(slot);
                 if (candidate == null) continue;
                 Button candidateView = candidateButton(candidate, slot);
-                candidates.addView(candidateView, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                activeCandidates.addView(candidateView, new LinearLayout.LayoutParams(
+                    candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
+                        : LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
             }
             if (entries.length() > 1 && expandCandidates != null) expandCandidates.setVisibility(View.VISIBLE);
         }

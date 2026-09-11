@@ -16,6 +16,8 @@
 
 中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
 
+候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size` 和 `candidate_preedit_font_size`；偏好热更新成功后立即调整候选排列和字号，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16。
+
 配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备；源码、打包与签名检查通过不代表设备运行通过。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0。脚本编译全部服务 Java、执行不依赖 Android 运行时的文本/敏感字段策略测试，并校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
