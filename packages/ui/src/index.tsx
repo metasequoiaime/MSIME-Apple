@@ -90,6 +90,7 @@ export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
 export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
 export type CloudDictionaryCatalog = { entries: CloudDictionaryEntry[]; offset: number; has_more: boolean; revision: number; normalized: string };
 export type CloudDictionaryChange = { revision: number; previous?: CloudDictionaryEntry; replacement?: CloudDictionaryEntry; reset?: boolean };
+export type CloudCandidate = { code: string; word: string; weight: number; canonical_pinyin?: string };
 export interface CloudDictionaryClient {
   list(kind: CloudDictionaryKind, search: string, offset: number): Promise<{ entries: CloudDictionaryEntry[]; has_more: boolean; offset: number }>;
   add(kind: CloudDictionaryKind, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
@@ -100,6 +101,8 @@ export interface CloudDictionaryClient {
   catalog(kind: CloudDictionaryKind, code: string, offset: number, scheme: string, profile: string): Promise<CloudDictionaryCatalog>;
   editCatalog(entry: CloudDictionaryEntry, revision: number, replacement: { code: string; word: string; weight: number } | null): Promise<void>;
   changes(after: number, limit: number): Promise<{ changes: CloudDictionaryChange[]; next: number; has_more: boolean }>;
+  candidates(query: { text: string; kind: string; scheme: string; profile: string; limit: number }): Promise<{ candidates: CloudCandidate[]; context: string; revision: number }>;
+  rank(candidate: CloudCandidate, query: { text: string; kind: string; scheme: string; profile: string; limit: number }, revision: number, mode: FrequencyPreferences["mode"], step: number, trigger: number, forceTop: boolean): Promise<void>;
   import(kind: CloudDictionaryKind, text: string, format: "standard" | "hans"): Promise<number>;
   export(kind: CloudDictionaryKind, format: "standard" | "hans"): Promise<string>;
 }
