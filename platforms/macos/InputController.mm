@@ -16,6 +16,7 @@
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
+#import "VoiceSettings.h"
 #include "WubiCommitPolicy.h"
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
@@ -162,6 +163,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(toggleVoiceInput:) keyEquivalent:@""];
     voice.target = self;
     [menu addItem:voice];
+    NSMenuItem *voiceSettings = [[NSMenuItem alloc] initWithTitle:@"语音输入设置…" action:@selector(showVoiceSettings:) keyEquivalent:@""];
+    voiceSettings.target = self;
+    [menu addItem:voiceSettings];
     return menu;
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
@@ -181,6 +185,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
+- (void)showVoiceSettings:(id)sender { (void)sender; [[MSIMEVoiceSettings sharedSettings] showAndActivate]; }
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
     if (!_session) [self prepareSession];
