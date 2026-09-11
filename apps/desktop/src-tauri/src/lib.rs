@@ -39,6 +39,7 @@ struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 enum PanelInputTarget {
     X11(String),
     Sway(u64),
+    Wayland,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -297,6 +298,31 @@ fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
+    let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
+    if wayland_session {
+        if let Ok(output) = std::process::Command::new("swaymsg")
+            .args(["-t", "get_tree", "-r"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(tree) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(target) = focused_sway_container(&tree).map(PanelInputTarget::Sway)
+                    {
+                        return Ok(target);
+                    }
+                }
+            }
+        }
+        if std::process::Command::new("wtype")
+            .arg("--version")
+            .output()
+            .ok()
+            .is_some_and(|output| output.status.success())
+        {
+            return Ok(PanelInputTarget::Wayland);
+        }
+    }
     if let Ok(output) = std::process::Command::new("xdotool")
         .arg("getactivewindow")
         .output()

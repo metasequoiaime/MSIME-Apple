@@ -26,7 +26,7 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-client-emoji /absolute/socket` 获取结果；没有 provider 时可用 `msime-client-emoji --local /absolute/resource-generation` 直接查询已验证的 `others.db`。点击后把文本交给桌面剪贴板或当前输入上下文；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
 
-桌面 Tauri 面板在 Linux 上也接入了屏幕键盘和手写候选提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway/Wayland 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key` 或 Wayland 的 `wtype` 发送，手写候选通过同一目标提交文本。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，服务仍负责模型和凭据；缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
+桌面 Tauri 面板在 Linux 上也接入了屏幕键盘和手写候选提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree` 后以容器重新聚焦，其他 Wayland compositor 在可用时直接使用 `wtype`；按键通过目标窗口的 `xdotool key` 或 Wayland 的 `wtype` 发送，手写候选通过同一目标提交文本。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，服务仍负责模型和凭据；缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
 
 桌面 Tauri Emoji 面板在 Linux 上直接读取 HostOptions `resources` 下 Engine 提供的 `others.db`，通过 Engine bridge 分页读取完整 Emoji、颜文字和符号目录，并按数据库分类聚合后交给共享 UI；读取失败时 UI 保留内置目录。面板只接收资源目录中的目录数据，不读取用户输入、凭据或私人资料。
 
