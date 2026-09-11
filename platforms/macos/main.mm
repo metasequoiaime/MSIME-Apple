@@ -19,8 +19,17 @@ int main(int argc, const char *argv[])
         if (MSIMEShouldShowPreferences(argc, argv))
         {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-            [[MSIMEPreferencesWindowController sharedController] showAndActivate];
+            MSIMEPreferencesWindowController *preferences = [MSIMEPreferencesWindowController sharedController];
+            id closeObserver = [NSNotificationCenter.defaultCenter
+                addObserverForName:MSIMEStandalonePreferencesDidCloseNotification
+                object:preferences queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification *notification) {
+                    (void)notification;
+                    [NSApp terminate:nil];
+                }];
+            [preferences showAndActivateForStandaloneLaunch];
             [NSApp run];
+            [NSNotificationCenter.defaultCenter removeObserver:closeObserver];
             return 0;
         }
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:@"MSIMEClientPreviewConnection" bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
