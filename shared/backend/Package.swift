@@ -9,7 +9,7 @@ let package = Package(
     .target(
       name: "MSIMEBackend",
       path: ".",
-      exclude: ["Package.swift"],
+      exclude: ["Package.swift", "Tests"],
       sources: [
         "BackendAccountClient.swift",
         "BackendAccountSession.swift",
@@ -20,6 +20,11 @@ let package = Package(
         "BackendPreferencesClient.swift",
         "BackendSnapshotClient.swift",
       ]
+    ),
+    .testTarget(
+      name: "MSIMEBackendTests",
+      dependencies: ["MSIMEBackend"],
+      path: "Tests"
     )
   ]
 )
