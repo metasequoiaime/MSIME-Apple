@@ -1,4 +1,5 @@
 #import "ShuangpinKeymapPanel.h"
+#import "ChineseTextConversion.h"
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
@@ -329,6 +330,12 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
+    if ([transition[@"commit"] isKindOfClass:NSString.class] &&
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientTraditionalChineseOutput"]) {
+        NSMutableDictionary *converted = [transition mutableCopy];
+        converted[@"commit"] = MetasequoiaChineseOutputString(transition[@"commit"], YES);
+        transition = converted;
+    }
     MSIMEApplyTransition(transition, (id<MSIMETextClient>)_activeClient);
     _view = transition[@"view"];
     [self renderCandidates];
