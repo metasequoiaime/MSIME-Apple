@@ -29,6 +29,7 @@ add_library(msime-tsf SHARED
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
   EngineSessionAdapter.cpp EngineSessionAdapter.h
+  HostOptionsPaths.cpp HostOptionsPaths.h
   IME/MetasequoiaIME.rc
 )
 
