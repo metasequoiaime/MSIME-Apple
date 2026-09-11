@@ -330,7 +330,7 @@ WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中
 
 发送在焦点锁内核对 lease 与当前连接；失效、未就绪、停机或非法模式返回 Rejected。Sent 只证明完整投递，不证明 TSF 已应用；实际中英文/标点状态经 TSF 回报再进入共享会话，不提前改变 Engine。写入失败或异常返回 WriteFailed，撤销连接焦点并关闭连接，不重发不确定命令。旧线格式不携带服务端 epoch，不能据此宣称 TSF 消费时的端到端确认已实现。模式请求与对象析构仍须由调用者管理生命周期。
 
-固定上游 TSF 的 _HandleCompositionDoubleSingleByte 在编辑会话内转换并上屏全角字符，Server 不重复转换。全半角回报目前交给外部事件回调，候选窗/工具栏显示与产品 UI 尚未接入；此入口没有注册或修改本机输入源。
+固定上游 TSF 的 _HandleCompositionDoubleSingleByte 在编辑会话内转换并上屏全角字符，Server 不重复转换。预览 Server 已接入非激活 Win32 悬浮工具栏，显示中英、标点、全半角状态，并将前三项按钮通过当前焦点 lease 路由回 TSF；位置按当前工作区定位，客户区支持拖动。启动配置可用 `floating_toolbar_enabled` 控制显示，缺省为开启。简繁输出、完整图标菜单、缩放和正式 TSF 注册仍待迁移；此入口没有注册或修改本机输入源。
 
 ### 编辑键与 TSF 预编辑回复
 
