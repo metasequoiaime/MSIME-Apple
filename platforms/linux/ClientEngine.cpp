@@ -35,6 +35,9 @@ struct State {
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
+  std::string surrounding_text;
+  guint surrounding_cursor = 0;
+  guint surrounding_anchor = 0;
   ~State() {
     voice_worker.cancel();
     close();
@@ -192,6 +195,13 @@ template <class F> void guarded(IBusEngine *engine, const char *operation, F act
     state(engine).close();
     clear(engine);
   }
+}
+void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
+  // Keep platform context available without feeding it into Engine composition.
+  auto &s = state(engine);
+  s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
+  s.surrounding_cursor = cursor;
+  s.surrounding_anchor = anchor;
 }
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
@@ -496,6 +506,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->disable = focus_out;
   engine->reset = reset;
   engine->set_content_type = content_type;
+  engine->set_surrounding_text = set_surrounding;
   engine->candidate_clicked = candidate_clicked;
   engine->property_activate = property_activate;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
