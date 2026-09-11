@@ -1,6 +1,39 @@
 //! Shared host orchestration; the Engine remains the owner of composition state.
 //! Views are cached values. UI selection carries both session and view identity.
 
+/// Character width conversion used by host-specific mode selectors.
+/// Converts printable ASCII to Unicode fullwidth forms and back.
+pub mod character_width {
+    pub fn to_fullwidth(input: &str) -> String {
+        input
+            .chars()
+            .map(|c| {
+                if c == ' ' {
+                    '\u{3000}'
+                } else if ('!'..='~').contains(&c) {
+                    char::from_u32(c as u32 + 0xfee0).unwrap()
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+    pub fn to_halfwidth(input: &str) -> String {
+        input
+            .chars()
+            .map(|c| {
+                if c == '\u{3000}' {
+                    ' '
+                } else if ('！'..='～').contains(&c) {
+                    char::from_u32(c as u32 - 0xfee0).unwrap()
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+}
+
 use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -816,5 +849,12 @@ mod tests {
             runtime.dispatch(Action::Select(id)),
             Err(RuntimeError::StaleCandidate)
         ));
+    }
+    #[test]
+    fn character_width_conversion_preserves_non_ascii_and_roundtrips_ascii() {
+        let full = crate::character_width::to_fullwidth("A 1!");
+        assert_eq!(full, "Ａ　１！");
+        assert_eq!(crate::character_width::to_halfwidth(&full), "A 1!");
+        assert_eq!(crate::character_width::to_fullwidth("中文"), "中文");
     }
 }
