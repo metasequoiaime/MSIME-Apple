@@ -56,11 +56,6 @@ impl KeyboardInputRequest {
         if self.virtual_key == 0 || self.virtual_key > 0xff {
             return Err(PanelContractError::InvalidVirtualKey);
         }
-        if !self.include_sticky_modifiers
-            && (self.modifiers.ctrl || self.modifiers.alt || self.modifiers.win)
-        {
-            return Err(PanelContractError::InvalidKeyboardInput);
-        }
         Ok(())
     }
 }
@@ -202,10 +197,7 @@ mod tests {
         request.virtual_key = 0x20;
         request.modifiers.ctrl = true;
         request.include_sticky_modifiers = false;
-        assert_eq!(
-            request.validate(),
-            Err(PanelContractError::InvalidKeyboardInput)
-        );
+        assert!(request.validate().is_ok());
     }
 
     #[test]
