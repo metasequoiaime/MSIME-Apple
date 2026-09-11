@@ -416,6 +416,7 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
+#[no_mangle]
 pub extern "C" fn msime_client_set_character_width(handle: u64, fullwidth: bool) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
