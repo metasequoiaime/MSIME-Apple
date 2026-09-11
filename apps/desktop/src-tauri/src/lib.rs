@@ -807,7 +807,24 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
 }
 
 #[cfg(target_os = "linux")]
+fn hide_linux_panels(app: &tauri::AppHandle) {
+    for label in [
+        "keyboard-panel",
+        "handwriting-panel",
+        "emoji-panel",
+        "voice-panel",
+        "cloud-clipboard-panel",
+        "cloud-dictionary-panel",
+    ] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.hide();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn send_panel_key(
+    app: &tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
@@ -877,6 +894,9 @@ fn send_panel_key(
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
+    if matches!(target, PanelInputTarget::Wayland) {
+        hide_linux_panels(app);
+    }
     let mut args = Vec::new();
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
@@ -898,6 +918,7 @@ fn send_panel_key(
 
 #[cfg(target_os = "linux")]
 fn send_panel_text(
+    app: &tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
     text: &str,
 ) -> Result<(), HostActionError> {
@@ -933,6 +954,9 @@ fn send_panel_text(
             text.to_owned(),
         ]);
     }
+    if matches!(target, PanelInputTarget::Wayland) {
+        hide_linux_panels(app);
+    }
     run_wtype(&target, &["--".to_owned(), text.to_owned()])
 }
 
@@ -949,14 +973,15 @@ fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(),
 
 #[tauri::command]
 fn send_key(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return send_panel_key(&state, request);
+    return send_panel_key(&app, &state, request);
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (state, request);
+        let _ = (app, state, request);
         Err(HostActionError {
             code: "unavailable",
         })
@@ -1123,14 +1148,15 @@ async fn recognize_voice(
 
 #[tauri::command]
 fn submit_handwriting_candidate(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     candidate: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return send_panel_text(&state, &candidate);
+    return send_panel_text(&app, &state, &candidate);
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (state, candidate);
+        let _ = (app, state, candidate);
         Err(HostActionError {
             code: "unavailable",
         })
@@ -1139,14 +1165,15 @@ fn submit_handwriting_candidate(
 
 #[tauri::command]
 fn send_text(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     text: String,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return send_panel_text(&state, &text);
+    return send_panel_text(&app, &state, &text);
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (state, text);
+        let _ = (app, state, text);
         Err(HostActionError {
             code: "unavailable",
         })
