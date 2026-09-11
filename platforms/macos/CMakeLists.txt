@@ -158,3 +158,8 @@ add_executable(candidate-display-policy-test tests/CandidateDisplayPolicyTest.cp
 target_include_directories(candidate-display-policy-test PRIVATE . ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(candidate-display-policy-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-display-policy COMMAND candidate-display-policy-test)
+
+add_executable(input-controller-key-routing-test tests/InputControllerKeyRoutingTests.mm)
+target_compile_options(input-controller-key-routing-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(input-controller-key-routing-test PRIVATE "-framework Carbon")
+add_test(NAME input-controller-key-routing COMMAND input-controller-key-routing-test)
