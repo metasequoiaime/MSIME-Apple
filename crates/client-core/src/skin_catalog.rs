@@ -325,6 +325,38 @@ pub enum ResourceError {
     UnsupportedType,
     Unavailable,
     TooLarge,
+    InvalidEncoding,
+}
+
+/// Read only the toolbar stylesheet declared by the current manifest. The
+/// caller chooses a package, not a filesystem path. None means inheritance of
+/// the built-in toolbar; an empty stylesheet is Some(""). Returned CSS is
+/// untrusted and must be parsed/scoped by the host before applying it.
+pub fn read_toolbar_stylesheet(
+    root: impl AsRef<Path>,
+    id: &str,
+) -> Result<Option<String>, ResourceError> {
+    if !safe_id(id) {
+        return Err(ResourceError::InvalidPath);
+    }
+    let root = root.as_ref();
+    let directory = root.join(id);
+    if !fs::symlink_metadata(directory)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+    {
+        return Err(ResourceError::InvalidPackage);
+    }
+    let package = load(root, id).map_err(|_| ResourceError::InvalidPackage)?;
+    let Some(relative) = package.toolbar_stylesheet else {
+        return Ok(None);
+    };
+    let resource = read_resource(root, id, &relative)?;
+    let text = String::from_utf8(resource.bytes).map_err(|_| ResourceError::InvalidEncoding)?;
+    // A UTF-8 BOM is an encoding marker, not part of the first selector.
+    Ok(Some(
+        text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned(),
+    ))
 }
 
 /// Untrusted resource data. Hosts must set the content type, disable MIME
@@ -452,6 +484,104 @@ mod tests {
         fs::create_dir_all(skin.join("images")).unwrap();
         fs::write(skin.join("skin.toml"), manifest("sample")).unwrap();
         skin
+    }
+
+    #[test]
+    fn toolbar_source_distinguishes_absent_empty_and_declared_utf8_text() {
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        fs::write(skin.join("undeclared.css"), ".other {}").unwrap();
+        assert_eq!(read_toolbar_stylesheet(root.path(), "sample"), Ok(None));
+        fs::write(skin.join("toolbar.css"), "").unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!("toolbar_stylesheet = 'toolbar.css'\n{}", manifest("sample")),
+        )
+        .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Ok(Some(String::new()))
+        );
+        fs::write(
+            skin.join("toolbar.css"),
+            "\u{feff}.status-bar { color: #123456; } /* 示例 */",
+        )
+        .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Ok(Some(".status-bar { color: #123456; } /* 示例 */".into()))
+        );
+    }
+
+    #[test]
+    fn toolbar_source_rechecks_manifest_and_rejects_invalid_encoding_and_size() {
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        fs::write(skin.join("toolbar.css"), [0xff, 0xfe]).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!("toolbar_stylesheet = 'toolbar.css'\n{}", manifest("sample")),
+        )
+        .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Err(ResourceError::InvalidEncoding)
+        );
+        fs::File::create(skin.join("toolbar.css"))
+            .unwrap()
+            .set_len(MAX_RESOURCE_BYTES as u64 + 1)
+            .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Err(ResourceError::TooLarge)
+        );
+        fs::write(skin.join("replacement.css"), ".replacement {}").unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!(
+                "toolbar_stylesheet = 'replacement.css'\n{}",
+                manifest("sample")
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Ok(Some(".replacement {}".into()))
+        );
+        fs::write(skin.join("skin.toml"), "invalid").unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Err(ResourceError::InvalidPackage)
+        );
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "../sample"),
+            Err(ResourceError::InvalidPath)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn toolbar_source_rejects_package_alias_and_escaping_stylesheet() {
+        use std::os::unix::fs::symlink;
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        let outside = tempdir().unwrap();
+        fs::write(outside.path().join("outside.css"), ".outside {}").unwrap();
+        symlink(outside.path().join("outside.css"), skin.join("toolbar.css")).unwrap();
+        fs::write(
+            skin.join("skin.toml"),
+            format!("toolbar_stylesheet = 'toolbar.css'\n{}", manifest("sample")),
+        )
+        .unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "sample"),
+            Err(ResourceError::InvalidPackage)
+        );
+        symlink(&skin, root.path().join("alias")).unwrap();
+        assert_eq!(
+            read_toolbar_stylesheet(root.path(), "alias"),
+            Err(ResourceError::InvalidPackage)
+        );
     }
 
     #[test]
