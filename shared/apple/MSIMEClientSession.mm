@@ -72,6 +72,35 @@ static NSDictionary *decode(char *response, NSError **error) {
     BOOL discarded = [self discardSnapshotHandle:[parameters[@"handle"] unsignedLongLongValue] error:&error];
     return discarded ? @{ @"discarded": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
++ (BOOL)applySnapshotHandle:(uint64_t)handle expectedVersion:(NSString *)version error:(NSError **)error {
+    if (![NSThread isMainThread] || !handle || version.length != 64) { setError(error, @"本地词库应用参数无效"); return NO; }
+    MSIMEClientSession *session = gActiveSession;
+    uint64_t old = session ? session->_handle : 0;
+    if (!session || !old) { setError(error, @"输入会话不可用"); return NO; }
+    NSDictionary *optionsCopy = [session->_hostOptions copy];
+    msime_client_string_free(msime_client_destroy(old));
+    session->_handle = 0;
+    NSData *data = [version dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *result = decode(msime_client_snapshot_activate(handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    if (!result) {
+        NSData *restore = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:nil];
+        NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
+        session->_handle = [view[@"session"] unsignedLongLongValue];
+        return NO;
+    }
+    NSData *options = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:error];
+    if (!options) return NO;
+    NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(options.bytes), options.length), error);
+    if (!view) return NO;
+    session->_handle = [view[@"session"] unsignedLongLongValue];
+    return session->_handle != 0;
+}
++ (NSDictionary *)applySnapshot:(NSDictionary<NSString *, id> *)parameters {
+    NSError *error = nil;
+    BOOL ok = [self applySnapshotHandle:[parameters[@"handle"] unsignedLongLongValue]
+                        expectedVersion:parameters[@"expectedVersion"] error:&error];
+    return ok ? @{ @"activated": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+}
 + (NSDictionary *)activeHostOptions { return gActiveSession ? [gActiveSession.hostOptions copy] : @{@"error" : [NSError errorWithDomain:MSIMEClientErrorDomain code:503 userInfo:nil]}; }
 + (NSDictionary *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
                                nextRecord:(MSIMESnapshotNextRecord)nextRecord

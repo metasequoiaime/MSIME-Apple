@@ -32,6 +32,10 @@ typedef NSDictionary *_Nullable (^MSIMESnapshotNextRecord)(NSError *_Nullable *e
 + (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error;
 /// Dynamic Swift-backend form; returns {discarded} or {error}.
 + (NSDictionary<NSString *, id> *)discardSnapshot:(NSDictionary<NSString *, id> *)parameters;
+/// Atomically publish and recreate the active session; must be called on main thread while idle.
++ (BOOL)applySnapshotHandle:(uint64_t)handle expectedVersion:(NSString *)version error:(NSError **)error;
+/// Dynamic Swift-backend form; parameters contains handle and expectedVersion.
++ (NSDictionary<NSString *, id> *)applySnapshot:(NSDictionary<NSString *, id> *)parameters;
 /// Current validated host options for the live input session, or an error dictionary.
 + (nullable NSDictionary<NSString *, id> *)activeHostOptions;
 /// Prepare a bounded, checksummed record stream synchronously; invoke off-main-thread.
