@@ -183,6 +183,55 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+#[tauri::command]
+async fn cloud_clipboard_request(
+    options: tauri::State<'_, DictionaryHostOptions>,
+    action: Value,
+) -> Result<Value, CommandError> {
+    msime_host_api::cloud_clipboard::validate_request(&action)
+        .map_err(|_| CommandError { code: "invalid" })?;
+    let options = options.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(unix)]
+        {
+            let configured = serde_json::from_str::<Value>(&options)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("cloud_clipboard_provider_socket")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                });
+            let path = configured
+                .or_else(|| {
+                    std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
+                        .and_then(|value| value.into_string().ok())
+                })
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .ok_or(CommandError {
+                    code: "unavailable",
+                })?;
+            return UnixSocketProvider::new(path)
+                .cloud_clipboard(action)
+                .ok_or(CommandError {
+                    code: "unavailable",
+                });
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (options, action);
+            Err(CommandError {
+                code: "unavailable",
+            })
+        }
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "unavailable",
+    })?
+}
+
 #[derive(serde::Serialize)]
 struct EmojiCatalogItem {
     text: String,
@@ -1213,6 +1262,41 @@ fn open_voice_panel(
 }
 
 #[tauri::command]
+fn open_cloud_clipboard_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (app, state);
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(not(target_os = "linux"))]
+        let _ = &state;
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 560.0, 560.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
+        open_panel_window(
+            &app,
+            "cloud-clipboard-panel",
+            "cloud-clipboard",
+            "水杉云剪贴板",
+            560.0,
+            560.0,
+            position,
+        )
+    }
+}
+
+#[tauri::command]
 fn close_panel(
     app: tauri::AppHandle,
     label: String,
@@ -1220,7 +1304,11 @@ fn close_panel(
 ) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
-        "keyboard-panel" | "handwriting-panel" | "emoji-panel" | "voice-panel"
+        "keyboard-panel"
+            | "handwriting-panel"
+            | "emoji-panel"
+            | "voice-panel"
+            | "cloud-clipboard-panel"
     ) {
         return Err(HostActionError {
             code: "invalid_panel",
@@ -1238,7 +1326,7 @@ fn close_panel(
     if result.is_ok()
         && matches!(
             label.as_str(),
-            "keyboard-panel" | "handwriting-panel" | "voice-panel"
+            "keyboard-panel" | "handwriting-panel" | "voice-panel" | "cloud-clipboard-panel"
         )
     {
         if let Ok(mut target) = state.0.lock() {
@@ -1593,6 +1681,13 @@ pub fn run() {
                         620.0,
                         520.0,
                     )),
+                    "cloud-clipboard" => Some((
+                        "cloud-clipboard-panel",
+                        "cloud-clipboard",
+                        "水杉云剪贴板",
+                        560.0,
+                        560.0,
+                    )),
                     _ => None,
                 };
                 if let Some((label, route, title, width, height)) = route {
@@ -1631,8 +1726,10 @@ pub fn run() {
             open_handwriting_panel,
             open_emoji_panel,
             open_voice_panel,
+            open_cloud_clipboard_panel,
             close_panel,
             dictionary_request,
+            cloud_clipboard_request,
             load_emoji_catalog
         ])
         .run(tauri::generate_context!())

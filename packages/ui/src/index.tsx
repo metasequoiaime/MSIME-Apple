@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
-export { EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
+export { CloudClipboardPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type CloudClipboardAction, type CloudClipboardPanelClient, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
@@ -142,6 +142,7 @@ export interface SettingsClient {
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
   openVoice?: () => Promise<void>;
+  openCloudClipboard?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -605,6 +606,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>
           {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}
           {client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
+          {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}
         </div>
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
