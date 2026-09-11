@@ -20,6 +20,9 @@ for arch in x86_64 i686; do
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/tests/main_frame.cpp -o "$output/main-frame.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
+    platforms/windows/KeyboardPanel.cpp -municode -mwindows -luser32 -lgdi32 \
+    -o "$output/keyboard-panel.exe"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
     platforms/windows/HandwritingPanel.cpp -municode -mwindows -luser32 -lgdi32 -lole32 \
     -o "$output/handwriting-panel.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
