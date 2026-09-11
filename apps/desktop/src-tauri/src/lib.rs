@@ -523,8 +523,17 @@ fn check_for_updates() -> Result<bool, HostActionError> {
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?
-        .json::<serde_json::Value>()
+        .bytes()
         .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    if manifest.len() > 64 * 1024 {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest).map_err(|_| HostActionError {
             code: "unavailable",
         })?;
     let version = manifest
