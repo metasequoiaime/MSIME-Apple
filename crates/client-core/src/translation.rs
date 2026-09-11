@@ -29,6 +29,28 @@ pub fn tencent_tc3_canonical_request(payload_sha256: &str) -> String {
     format!("POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\n{payload_sha256}")
 }
 
+pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
+    if source.is_empty()
+        || target.is_empty()
+        || texts.is_empty()
+        || texts.len() > 50
+        || texts
+            .iter()
+            .any(|text| text.chars().count() > MAX_SOURCE_CHARS)
+    {
+        return None;
+    }
+    Some(
+        serde_json::json!({
+            "Source": source,
+            "Target": target,
+            "ProjectId": 0,
+            "SourceTextList": texts,
+        })
+        .to_string(),
+    )
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
@@ -322,5 +344,16 @@ mod tests {
             translate_batch_cached(&config, &["字".repeat(41)], "zh", "en", &mut cache),
             vec![None]
         );
+    }
+
+    #[test]
+    fn tencent_tmt_payload_matches_batch_contract() {
+        let payload = tencent_tmt_payload("zh", "en", &["你好".into()]).unwrap();
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(value["Source"], "zh");
+        assert_eq!(value["Target"], "en");
+        assert_eq!(value["ProjectId"], 0);
+        assert_eq!(value["SourceTextList"][0], "你好");
+        assert!(tencent_tmt_payload("zh", "en", &["字".repeat(41)]).is_none());
     }
 }
