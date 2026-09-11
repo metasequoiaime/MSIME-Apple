@@ -178,6 +178,12 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    clipboard_history_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    online_provider_socket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    voice_provider_socket: Option<String>,
 }
 
 impl HostOptions {
@@ -256,8 +262,11 @@ pub fn prepare_host_configuration(
             state_root
                 .to_str()
                 .ok_or("non-UTF-8 state path")?
-                .to_owned(),
+            .to_owned(),
         ),
+        clipboard_history_path: None,
+        online_provider_socket: None,
+        voice_provider_socket: None,
     })?)
 }
 
@@ -1026,6 +1035,51 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
         Ok(UnixSocketProvider::new(path)
             .emoji(query)
             .map(|items| json!({"items": items}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Run one bounded voice capture/ASR request through a user-owned Unix socket.
+/// The socket service owns microphone access, credentials and network policy.
+/// The query is a bounded JSON object containing `language` and `generation`.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 4096
+            || socket_length > 4096
+        {
+            return Err("invalid voice provider buffer".into());
+        }
+        #[derive(Deserialize)]
+        struct VoiceQuery {
+            language: String,
+            generation: u64,
+        }
+        let query = serde_json::from_slice::<VoiceQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid voice query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .voice(&query.language, query.generation)
+            .map(|text| json!({"text": text}))
             .unwrap_or(Value::Null))
     })
 }
