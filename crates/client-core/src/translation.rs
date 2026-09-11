@@ -90,6 +90,26 @@ pub fn parse_tencent_tmt_response(response: &str, expected: usize) -> Option<Vec
     )
 }
 
+pub fn format_translation_gloss(text: &str) -> Option<String> {
+    let mut output = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for ch in text.chars() {
+        if matches!(ch, ' ' | '\t' | '\r' | '\n') {
+            pending_space = !output.is_empty();
+            continue;
+        }
+        if pending_space {
+            output.push(' ');
+            pending_space = false;
+        }
+        if ch.is_control() {
+            return None;
+        }
+        output.push(ch);
+    }
+    (!output.is_empty()).then_some(output)
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
@@ -405,5 +425,14 @@ mod tests {
         assert!(
             parse_tencent_tmt_response(r#"{"Response":{"TargetTextList":["a"]}}"#, 2).is_none()
         );
+    }
+
+    #[test]
+    fn formats_translation_gloss_like_windows_provider() {
+        assert_eq!(
+            format_translation_gloss("  hello\tworld\n"),
+            Some("hello world".into())
+        );
+        assert_eq!(format_translation_gloss("\u{0000}"), None);
     }
 }
