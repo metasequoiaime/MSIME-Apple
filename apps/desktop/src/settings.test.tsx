@@ -5,6 +5,20 @@ import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type Setting
 
 afterEach(cleanup);
 
+test("resize starts on edge press, not pointer movement", async () => {
+  const resizeWindow = vi.fn().mockResolvedValue(undefined);
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), resizeWindow }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const shell = mounted.container.querySelector(".settings-shell")!;
+  vi.spyOn(shell, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} });
+  fireEvent(shell, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 1, clientY: 1 }));
+  expect(resizeWindow).not.toHaveBeenCalled();
+  fireEvent(shell, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 799, clientY: 599 }));
+  expect(resizeWindow).toHaveBeenCalledWith("se");
+  fireEvent(shell, new MouseEvent("pointerdown", { bubbles: true, button: 2, clientX: 1, clientY: 1 }));
+  expect(resizeWindow).toHaveBeenCalledTimes(1);
+});
+
 test("window state subscription failures are handled", async () => {
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
     onWindowStateChanged: async () => { throw new Error("unavailable"); } }} />);

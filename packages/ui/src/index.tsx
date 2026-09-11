@@ -382,13 +382,17 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     if (!client.clipboard?.list) return;
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
   }, [client, page]);
-  return <div className="settings-shell" onPointerMove={event => {
-    if (!client.resizeWindow || event.buttons !== 1) return;
+  return <div className="settings-shell" onPointerDownCapture={event => {
+    if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
     const rect = event.currentTarget.getBoundingClientRect(); const edge = 8;
     const n = event.clientY - rect.top < edge, s = rect.bottom - event.clientY < edge;
     const w = event.clientX - rect.left < edge, e = rect.right - event.clientX < edge;
     const value = n && e ? "ne" : n && w ? "nw" : s && e ? "se" : s && w ? "sw" : n ? "n" : s ? "s" : e ? "e" : w ? "w" : null;
-    if (value) void client.resizeWindow(value);
+    if (value) {
+      event.preventDefault();
+      event.stopPropagation();
+      void client.resizeWindow(value).catch(() => setError("无法调整窗口大小，请重试。"));
+    }
   }}>
     {(client.windowControl || client.beginWindowDrag) && <header className="window-titlebar" aria-label="窗口控制"
       onDoubleClick={() => client.windowControl ? void client.windowControl(windowMaximized ? "restore" : "maximize") : undefined}
