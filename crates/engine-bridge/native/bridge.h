@@ -14,6 +14,8 @@ public:
     EngineResult character(std::uint8_t value, bool shift);
     EngineResult command(std::uint8_t value);
     EngineResult select(std::size_t index);
+    EngineResult pin_candidate(std::size_t index);
+    EngineResult remove_candidate(std::size_t index);
     EngineResult select_edge(std::size_t index, std::uint8_t edge);
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);

@@ -64,6 +64,8 @@ mod ffi {
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn select_edge(
             self: Pin<&mut EngineSession>,
             index: usize,
