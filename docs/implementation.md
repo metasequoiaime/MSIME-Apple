@@ -645,3 +645,9 @@ macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，Sh
 候选面板补齐 Apple 风格的 `‹` / `›` 鼠标翻页按钮：多页时显示，首页和末页禁用越界方向，按钮命令复用共享运行时分页状态。横排候选改为按字体实际测量各项宽度，并在屏幕可用宽度不足时按比例压缩，避免按字符数估算造成重叠；竖排保留屏宽约束和候选截断。
 
 macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖上一页/下一页边界按钮、横排项不重叠、完整 tooltip 和失效光标隐藏。Home/End 页内导航、可配置翻页快捷键、候选皮肤和字号设置仍待迁移；未执行系统输入源安装后的真实编辑器验收。
+
+### macOS 中英输入模式
+
+按固定 Apple `InputModeRouting.h` / `InputMenu.h` 接入 Shift + Space 中英切换。快捷键默认开启，重复事件只消费，Command、Control、Option 竞争修饰键不触发；当前模式保存于 `MSIMEClientEnglishMode`，英文模式旁路普通按键，切回中文时恢复共享会话焦点。菜单以中文/英文单选项反映当前状态，`MSIMEClientInputModeShortcut` 可关闭快捷键。
+
+macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖无会话切换、英文旁路、菜单状态和切回后的 Engine 通路。仍未执行系统输入源安装后的真实编辑器验收；完整设置窗口及其他 Apple 功能继续迁移。

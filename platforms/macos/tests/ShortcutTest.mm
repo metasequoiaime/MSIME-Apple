@@ -8,8 +8,26 @@
 @property(nonatomic, copy) NSString *editingText;
 @property(nonatomic) BOOL finishFails;
 @property(nonatomic) NSUInteger finishCount;
+@property(nonatomic) BOOL englishMode;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error {
+    (void)error;
+    self.englishMode = enabled;
+    return @{
+        @"handled": @NO,
+        @"commit": NSNull.null,
+        @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]},
+    };
+}
+- (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
+    (void)error;
+    return @{
+        @"handled": @NO,
+        @"commit": NSNull.null,
+        @"view": @{@"focused": @(focused), @"editing_text": @"", @"caret_position": @0, @"candidates": @[]},
+    };
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
@@ -173,7 +191,34 @@ int main() {
         client.commits = [NSMutableArray array];
         assert(![controller handleEvent:modifiedCharacter client:client]);
         assert(client.commits.count == 1 && [client.commits[0] isEqualToString:@"测试"]);
+        [controller setValue:@YES forKey:@"inputModeShortcutEnabled"];
+        NSEvent *inputModeToggle = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                                     location:NSZeroPoint
+                                                modifierFlags:NSEventModifierFlagShift
+                                                    timestamp:0
+                                                 windowNumber:0
+                                                      context:nil
+                                                   characters:@" "
+                                  charactersIgnoringModifiers:@" "
+                                                    isARepeat:NO
+                                                      keyCode:kVK_Space];
+        assert([controller handleEvent:inputModeToggle client:client]);
+        assert([[controller valueForKey:@"englishMode"] boolValue] && session.englishMode);
+        NSMenu *menu = [controller menu];
+        assert(menu.numberOfItems == 2);
+        NSMenuItem *chineseItem = [menu itemAtIndex:0];
+        NSMenuItem *englishItem = [menu itemAtIndex:1];
+        assert([chineseItem.title isEqualToString:@"中文输入"] && chineseItem.state == NSControlStateValueOff);
+        assert([englishItem.title isEqualToString:@"英文输入"] && englishItem.state == NSControlStateValueOn);
+        session.lastCharacter = 0;
+        assert(![controller handleEvent:directCharacter client:client]);
+        assert(session.lastCharacter == 0);
+        assert([controller handleEvent:inputModeToggle client:client]);
+        assert(![[controller valueForKey:@"englishMode"] boolValue] && !session.englishMode);
+        menu = [controller menu];
+        assert([menu itemAtIndex:0].state == NSControlStateValueOn && [menu itemAtIndex:1].state == NSControlStateValueOff);
         [controller setValue:@NO forKey:@"fullWidthInput"];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"MSIMEClientEnglishMode"];
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"MSIMEClientFullWidthInput"];
         for (NSNumber *flags in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             session.lastCommand = UINT32_MAX;

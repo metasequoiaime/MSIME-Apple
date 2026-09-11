@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
 - (instancetype)init NS_UNAVAILABLE;
 - (nullable NSDictionary<NSString *, id> *)setFocused:(BOOL)focused error:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)setEnglishMode:(BOOL)enabled error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)command:(uint32_t)command error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;

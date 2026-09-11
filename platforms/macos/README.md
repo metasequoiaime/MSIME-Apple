@@ -23,6 +23,8 @@ ctest --test-dir target/macos-isolated --output-on-failure
 
 全角输入按固定 Apple `FullWidthInput.h` 路由迁移：Option + Shift + H 切换并持久化 `MSIMEClientFullWidthInput`，按键重复只消费不重复切换。普通 ASCII 先交给 Engine；Engine 未处理且组合已完成时，空格和可打印 ASCII 才转换为对应全角字符。Command、Control、Option 修饰键、非 ASCII、Engine 已处理、组合完成失败均不走全角回退。原生 ShortcutTest 覆盖切换、重复、Engine 优先、组合完成和修饰键边界；未安装输入源或验证真实编辑器行为。
 
+中英输入模式按固定 Apple `InputModeRouting.h` 和 `InputMenu.h` 接入：Shift + Space 默认切换，重复事件只消费，Command/Control/Option 竞争修饰键不触发；模式保存在 `MSIMEClientEnglishMode`，英文模式不向 Engine 发送普通按键，切回中文后恢复会话焦点。InputMethodKit 菜单显示中文/英文单选状态；快捷键可由 `MSIMEClientInputModeShortcut` 关闭。原生 ShortcutTest 覆盖无会话切换、英文旁路、菜单状态和切回后的 Engine 通路。
+
 先下载锁定词库，然后在隔离的开发状态目录中准备工作词库；该步骤要求相关会话已停止，不用于对现有输入法在线升级：
 
 ```sh

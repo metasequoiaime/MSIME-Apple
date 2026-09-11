@@ -5,6 +5,7 @@
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "FullWidthInput.h"
+#import "InputModeRouting.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -34,12 +35,60 @@
     BOOL _preferencesLoading;
     BOOL _verticalCandidates;
     BOOL _fullWidthInput;
+    BOOL _englishMode;
+    BOOL _inputModeShortcutEnabled;
+}
+
+- (void)setEnglishInputMode:(BOOL)enabled {
+    if (enabled == _englishMode) return;
+    if (!_session) {
+        _englishMode = enabled;
+        [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"MSIMEClientEnglishMode"];
+        return;
+    }
+    if (enabled && _activeClient && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+        [(NSString *)_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    NSDictionary *transition = [_session setEnglishMode:enabled error:nil];
+    if (!transition) return;
+    _englishMode = enabled;
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"MSIMEClientEnglishMode"];
+    [self apply:transition];
+    if (!enabled && _activeClient) [self apply:[_session setFocused:YES error:nil]];
+    if (enabled) [_panel orderOut:nil];
+}
+
+- (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
+- (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
+
+- (NSMenu *)menu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    menu.autoenablesItems = NO;
+    NSMenuItem *chinese = [[NSMenuItem alloc] initWithTitle:@"中文输入"
+                                                       action:@selector(selectChineseMode:)
+                                                keyEquivalent:@""];
+    chinese.target = self;
+    chinese.state = _englishMode ? NSControlStateValueOff : NSControlStateValueOn;
+    [menu addItem:chinese];
+    NSMenuItem *english = [[NSMenuItem alloc] initWithTitle:@"英文输入"
+                                                       action:@selector(selectEnglishMode:)
+                                                keyEquivalent:@""];
+    english.target = self;
+    english.state = _englishMode ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:english];
+    return menu;
 }
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
     _activeClient = sender;
     _fullWidthInput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientFullWidthInput"];
+    _englishMode = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientEnglishMode"];
+    _inputModeShortcutEnabled = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientInputModeShortcut"] == nil ||
+                                [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientInputModeShortcut"];
     _verticalCandidates = YES;
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
@@ -56,7 +105,10 @@
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
     }
-    if (_session) [self apply:[_session setFocused:YES error:nil]];
+    if (_session) {
+        if (_englishMode) [self apply:[_session setEnglishMode:YES error:nil]];
+        else [self apply:[_session setFocused:YES error:nil]];
+    }
     if (_session && _preferencesDirectory) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
@@ -102,6 +154,10 @@
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     if (event.type != NSEventTypeKeyDown) return NO;
+    if (_inputModeShortcutEnabled && msime::mac::IsInputModeToggle(event.keyCode, event.modifierFlags)) {
+        if (!event.isARepeat) [self setEnglishInputMode:!_englishMode];
+        return YES;
+    }
     if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
         if (!event.isARepeat) {
             _fullWidthInput = !_fullWidthInput;
@@ -110,6 +166,7 @@
         return YES;
     }
     if (!_session) return NO;
+    if (_englishMode) return NO;
     if (sender != _activeClient) {
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
