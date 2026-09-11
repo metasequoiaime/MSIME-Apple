@@ -46,7 +46,11 @@ bool ClipboardMonitor::start() {
   window_ = CreateWindowExW(0, name, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
   if (!window_) return false;
   sequence_ = GetClipboardSequenceNumber();
-  return AddClipboardFormatListener(static_cast<HWND>(window_)) != FALSE;
+  if (AddClipboardFormatListener(static_cast<HWND>(window_)) != FALSE)
+    return true;
+  DestroyWindow(static_cast<HWND>(window_));
+  window_ = nullptr;
+  return false;
 }
 void ClipboardMonitor::stop() {
   if (!window_) return;
