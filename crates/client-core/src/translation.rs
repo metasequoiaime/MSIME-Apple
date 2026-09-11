@@ -196,14 +196,18 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
             let mut reader = BufReader::new(&mut stream);
             let mut request = String::new();
             let mut content_length = None;
             loop {
                 let mut line = String::new();
                 assert_ne!(reader.read_line(&mut line).unwrap(), 0);
-                if line == "\r\n" { break; }
+                if line == "\r\n" {
+                    break;
+                }
                 if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
                     content_length = Some(value.trim().parse::<usize>().unwrap());
                 }
