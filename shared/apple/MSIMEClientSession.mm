@@ -43,6 +43,13 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data || data.length > 16384) { setError(error, @"词库准备请求过大"); return nil; }
     return decode(msime_client_prepare_host(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
++ (NSDictionary *)savePreferencesInDirectory:(NSString *)directory expectedRevision:(uint64_t)revision snapshot:(NSDictionary *)snapshot error:(NSError **)error {
+    if (![directory isAbsolutePath] || ![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好保存参数无效"); return nil; }
+    NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"偏好快照过大"); return nil; }
+    return decode(msime_client_save_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length, revision, static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
 - (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);

@@ -386,6 +386,42 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
     })
 }
 
+/// Compare-and-swap save for a validated PreferencesSnapshot.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_save_preferences(
+    directory: *const u8,
+    directory_length: usize,
+    expected_revision: u64,
+    snapshot: *const u8,
+    snapshot_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null()
+            || snapshot.is_null()
+            || directory_length > 16384
+            || snapshot_length > 16384
+        {
+            return Err("invalid preferences save buffer".into());
+        }
+        let directory_bytes = unsafe { std::slice::from_raw_parts(directory, directory_length) };
+        let directory = std::str::from_utf8(directory_bytes)
+            .map_err(|_| "invalid preferences directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("preferences directory must be absolute".into());
+        }
+        let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
+        let snapshot: PreferencesSnapshot =
+            serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;
+        if snapshot.format_version != 1 {
+            return Err("unsupported preferences format".into());
+        }
+        let saved = PreferencesStore::new(directory)
+            .save(expected_revision, snapshot.preferences)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(saved).map_err(|e| e.to_string())
+    })
+}
+
 /// # Safety
 /// `options` must point to `length` readable bytes for this call. Null is rejected.
 #[no_mangle]
