@@ -163,6 +163,22 @@ pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
     msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
 }
 
+/// Convert a host-fetched Google response into a bounded online result.
+pub fn cloud_candidate_from_response(
+    query: OnlineQuery,
+    response: &[u8],
+) -> Option<OnlineCandidate> {
+    if !query.cloud_eligible {
+        return None;
+    }
+    let text = msime_client_core::cloud::parse_google_response(response)?;
+    Some(OnlineCandidate {
+        query,
+        text,
+        source: 0,
+    })
+}
+
 /// Linux adapter for a user-owned provider over a local Unix socket.
 /// Credentials and network policy remain in the socket service; only a
 /// copied, bounded query crosses this boundary.
@@ -837,6 +853,10 @@ mod tests {
         assert!(cloud_request_url(&query)
             .unwrap()
             .contains("inputtools.google.com"));
+        let response = serde_json::json!(["SUCCESS", [["ni", ["你"]]]]).to_string();
+        let result = cloud_candidate_from_response(query, response.as_bytes()).unwrap();
+        assert_eq!(result.text, "你");
+        assert_eq!(result.source, 0);
     }
 
     #[test]
