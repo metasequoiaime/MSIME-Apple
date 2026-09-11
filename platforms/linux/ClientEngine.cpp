@@ -47,6 +47,9 @@ struct State {
       msime_client_string_free(msime_client_destroy(session));
     session = 0;
     view = nullptr;
+    surrounding_text.clear();
+    surrounding_cursor = 0;
+    surrounding_anchor = 0;
   }
   void open() {
     if (session || blocked || !focused)
@@ -221,6 +224,9 @@ void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     s.focused = false;
+    s.surrounding_text.clear();
+    s.surrounding_cursor = 0;
+    s.surrounding_anchor = 0;
     if (s.session)
       apply(engine, msime_client_focus(s.session, false));
     clear(engine);
