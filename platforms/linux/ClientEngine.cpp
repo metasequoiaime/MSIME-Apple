@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 
 using Json = nlohmann::json;
@@ -27,6 +28,7 @@ struct State {
   bool blocked = false;
   bool private_input = false;
   bool input_enabled = true;
+  std::optional<bool> english_override;
   ~State() {
     voice_worker.cancel();
     close();
@@ -41,6 +43,8 @@ struct State {
     if (session || blocked || !focused)
       return;
     auto options = configured;
+    if (s.english_override)
+      options["preferences"]["mixed_input"]["english"] = *s.english_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -317,11 +321,24 @@ void page(IBusEngine *engine, uint32_t command) {
   });
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
-  if (std::string(name) != "InputEnabled" ||
+  if ((std::string(name) != "InputEnabled" &&
+       std::string(name) != "EnglishCandidates") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
     auto &s = state(engine);
+    if (std::string(name) == "EnglishCandidates") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.english_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      clear(engine);
+      return;
+    }
     s.input_enabled = value == PROP_STATE_CHECKED;
     if (s.session)
       apply(engine, msime_client_focus(s.session, s.input_enabled));
@@ -337,6 +354,16 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
       TRUE, PROP_STATE_CHECKED, nullptr);
   ibus_prop_list_append(properties, property);
+  auto english = ibus_property_new(
+      "EnglishCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("英文候选"), "",
+      ibus_text_new_from_static_string("在中文方案中补充英文候选"), TRUE, TRUE,
+      configured.at("preferences").at("mixed_input").value("english", true)
+          ? PROP_STATE_CHECKED
+          : PROP_STATE_UNCHECKED,
+      nullptr);
+  ibus_prop_list_append(properties, english);
+  g_object_unref(english);
   ibus_engine_register_properties(engine, properties);
   g_object_unref(property);
   g_object_unref(properties);
