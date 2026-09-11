@@ -114,9 +114,15 @@ pub struct Candidate {
     pub highlighted: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum CharacterWidth {
+    Fullwidth,
+    Halfwidth,
+}
+
 pub struct View {
     /// Applied Engine configuration, not a newer deferred preference snapshot.
+    pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
@@ -165,6 +171,7 @@ pub struct Runtime<E: InputEngine = Session> {
     highlighted: usize,
     cached: EngineSnapshot,
     snapshot_valid: bool,
+    character_width: CharacterWidth,
 }
 
 impl Runtime<Session> {
@@ -194,13 +201,19 @@ impl<E: InputEngine> Runtime<E> {
             highlighted: 0,
             cached,
             snapshot_valid: true,
+            character_width: CharacterWidth::Halfwidth,
         })
+    }
+
+    pub fn set_character_width(&mut self, width: CharacterWidth) {
+        self.character_width = width;
     }
 
     pub fn view(&self) -> View {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
