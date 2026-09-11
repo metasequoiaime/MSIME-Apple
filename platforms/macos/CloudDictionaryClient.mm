@@ -91,3 +91,14 @@ void MSIMEMutateCloudFixedPosition(NSString *method, NSData *body, NSString *bea
     [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
 }
+
+void MSIMEFetchCloudDictionarySnapshot(NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.msime.app/v1/users/me/dictionary/snapshot"]];
+    [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) {
+        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        if (d.length > 512 * 1024 * 1024) { d = nil; status = 413; }
+        dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, status, e); });
+    }] resume];
+}
