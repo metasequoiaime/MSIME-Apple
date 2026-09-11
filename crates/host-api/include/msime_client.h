@@ -88,7 +88,9 @@ char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
 /* Engine-owned quanpin nine-key mode. Call only after finishing composition.
  * View.nine_key and View.nine_key_spellings are authoritative. Enabling for
- * another scheme or changing mode during composition is rejected. */
+ * another scheme or changing mode during composition is rejected.
+ * View.touch_keyboard_layout is the applied host presentation preference; a
+ * Japanese nine-key host uses it without enabling Engine quanpin nine-key. */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);

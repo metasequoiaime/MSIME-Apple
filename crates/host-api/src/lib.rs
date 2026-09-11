@@ -107,10 +107,11 @@ impl HostSession {
             .set_dedicated_english(self.english_mode)
             .map_err(|e| e.to_string())?;
         self.runtime
-            .replace_engine(
+            .replace_engine_with_touch_layout(
                 engine,
                 self.page_size_override
                     .unwrap_or(snapshot.preferences.candidate_page_size),
+                snapshot.preferences.touch_keyboard_layout,
             )
             .map_err(|e| e.to_string())?;
         self.options = options;
@@ -589,7 +590,9 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         engine
             .set_dedicated_english(default_english)
             .map_err(|e| e.to_string())?;
-        let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
+        let runtime =
+            Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
+                .map_err(|e| e.to_string())?;
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
         SESSIONS.with(|sessions| {
@@ -1490,21 +1493,44 @@ mod tests {
         read(msime_client_character(handle, b';', false));
         let japanese = Preferences {
             scheme: InputScheme::Japanese,
+            touch_keyboard_layout: TouchKeyboardLayout::NineKey,
             ..chinese.clone()
         };
-        assert_eq!(update(handle, 1, &japanese)["value"]["deferred"], true);
+        let queued = update(handle, 1, &japanese);
+        assert_eq!(queued["value"]["deferred"], true);
+        assert_eq!(
+            queued["value"]["view"]["touch_keyboard_layout"],
+            "twenty_six_key"
+        );
         let committed = read(msime_client_command(handle, 2));
         assert_eq!(committed["value"]["commit"], "b;");
         assert_eq!(committed["value"]["commit_context"]["scheme"], 1);
         assert_eq!(committed["value"]["view"]["scheme"], 3);
+        assert_eq!(committed["value"]["view"]["nine_key"], false);
+        assert_eq!(
+            committed["value"]["view"]["touch_keyboard_layout"],
+            "nine_key"
+        );
         let kana = read(msime_client_character(handle, b'a', false));
         assert_eq!(kana["ok"], true);
         assert_eq!(kana["value"]["view"]["preedit"], "a");
         assert_eq!(kana["value"]["view"]["scheme"], 3);
         assert_eq!(kana["value"]["view"]["candidates"][0]["text"], "あ");
         assert_eq!(kana["value"]["view"]["candidates"][1]["text"], "ア");
+        read(msime_client_command(handle, 3));
+        read(msime_client_character(handle, b'n', false));
+        let syllable_separator = read(msime_client_character(handle, b'\'', false));
+        assert_eq!(syllable_separator["ok"], true);
+        assert_eq!(
+            syllable_separator["value"]["view"]["candidates"][0]["text"],
+            "ん"
+        );
         assert_eq!(update(handle, 2, &chinese)["value"]["deferred"], true);
         read(msime_client_command(handle, 3));
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["touch_keyboard_layout"],
+            "twenty_six_key"
+        );
         read(msime_client_character(handle, b'b', false));
         assert_eq!(
             read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],

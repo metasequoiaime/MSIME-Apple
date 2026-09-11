@@ -9,7 +9,8 @@ public enum KeyboardScheme {
     MICROSOFT("shuangpin", "microsoft", "twenty_six_key", "微软双拼", "微", "双"),
     SHOUDAO("shuangpin", "shoudao", "twenty_six_key", "首道双拼", "S", "双"),
     WUBI("wubi", null, "twenty_six_key", "86 五笔", "五", "86"),
-    JAPANESE("japanese", null, "twenty_six_key", "日语 26 键", "あ", "26");
+    JAPANESE("japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
+    JAPANESE_NINE_KEY("japanese", null, "nine_key", "日语 9 键", "あ", "9");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -42,6 +43,7 @@ public enum KeyboardScheme {
 
     public static KeyboardScheme fromPreferences(String scheme, String profile, String touchLayout) {
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
+        if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
         if ("shuangpin".equals(scheme)) {
             for (KeyboardScheme candidate : values()) {
                 if (profile != null && profile.equals(candidate.shuangpinProfile)) return candidate;
