@@ -76,16 +76,7 @@ struct Panel {
     std::array<INPUT, 16> inputs{}; size_t count = 0; const ULONG_PTR extra = GetMessageExtraInfo();
     const auto push = [&](WORD virtual_key, DWORD event_flags) { if (count >= inputs.size()) return; INPUT &input = inputs[count++]; input = {}; input.type = INPUT_KEYBOARD; input.ki.wVk = virtual_key; input.ki.wScan = static_cast<WORD>(MapVirtualKeyW(virtual_key, MAPVK_VK_TO_VSC)); input.ki.dwFlags = event_flags; input.ki.dwExtraInfo = extra; };
     const auto flags = [&](WORD virtual_key, bool up) { return (up ? KEYEVENTF_KEYUP : 0) | (extended(virtual_key) ? KEYEVENTF_EXTENDEDKEY : 0); };
-    if (use_sticky && ctrl) push(VK_CONTROL, 0);
-    if (use_sticky && alt) push(VK_MENU, 0);
-    if (use_sticky && win) push(VK_LWIN, 0);
-    if (with_shift) push(VK_SHIFT, 0);
-    push(key, flags(key, false));
-    push(key, flags(key, true));
-    if (with_shift) push(VK_SHIFT, KEYEVENTF_KEYUP);
-    if (use_sticky && win) push(VK_LWIN, KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY);
-    if (use_sticky && alt) push(VK_MENU, KEYEVENTF_KEYUP);
-    if (use_sticky && ctrl) push(VK_CONTROL, KEYEVENTF_KEYUP);
+    if (use_sticky && ctrl) push(VK_CONTROL, 0); if (use_sticky && alt) push(VK_MENU, 0); if (use_sticky && win) push(VK_LWIN, 0); if (with_shift) push(VK_SHIFT, 0); push(key, flags(key, false)); push(key, flags(key, true)); if (with_shift) push(VK_SHIFT, KEYEVENTF_KEYUP); if (use_sticky && win) push(VK_LWIN, KEYEVENTF_KEYUP | KEYEVENTF_EXTENDEDKEY); if (use_sticky && alt) push(VK_MENU, KEYEVENTF_KEYUP); if (use_sticky && ctrl) push(VK_CONTROL, KEYEVENTF_KEYUP);
     if (count) SendInput(static_cast<UINT>(count), inputs.data(), sizeof(INPUT));
   }
   void activate(size_t index) { if (index >= flat.size() || !can_send()) return; Key &key = *flat[index]; if (key.modifier) { toggle(key); return; } const bool use_sticky = sticky(key); send(key.vk, shifted(key) && use_sticky, use_sticky); if (shift) shift = false; }
@@ -116,7 +107,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_command) {
   if (command_line && std::wstring(command_line) == L"--help") return 0;
   HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\MSIMEClientKeyboardPanel.SingleInstance"); if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) { if (mutex) CloseHandle(mutex); return 0; }
-  WNDCLASSEXW window_class{}; window_class.cbSize = sizeof(window_class); window_class.hInstance = instance; window_class.lpfnWndProc = window_proc; window_class.lpszClassName = kClassName; window_class.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); if (!RegisterClassExW(&window_class)) { CloseHandle(mutex); return 1; }
-  RECT work_area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0); constexpr LONG width = 1100, height = 400; const LONG x = work_area.left + std::max<LONG>(0, (work_area.right - work_area.left - width) / 2); const LONG y = std::max<LONG>(work_area.top, work_area.bottom - height - 12); Panel state; HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kClassName, kTitle, WS_POPUP, x, y, width, height, nullptr, nullptr, instance, &state); if (!window) { UnregisterClassW(kClassName, instance); CloseHandle(mutex); return 1; }
+  WNDCLASSEXW window_class{}; window_class.cbSize = sizeof(window_class); window_class.hInstance = instance; window_class.lpfnWndProc = window_proc; window_class.lpszClassName = kClassName; window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW); if (!RegisterClassExW(&window_class)) { CloseHandle(mutex); return 1; }
+  RECT work_area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0); constexpr int width = 1100, height = 400; const int x = work_area.left + std::max(0, (work_area.right - work_area.left - width) / 2); const int y = std::max(work_area.top, work_area.bottom - height - 12); Panel state; HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kClassName, kTitle, WS_POPUP, x, y, width, height, nullptr, nullptr, instance, &state); if (!window) { UnregisterClassW(kClassName, instance); CloseHandle(mutex); return 1; }
   ShowWindow(window, show_command == SW_HIDE ? SW_SHOWNOACTIVATE : SW_SHOWNOACTIVATE); UpdateWindow(window); MSG message{}; while (GetMessageW(&message, nullptr, 0, 0) > 0) { TranslateMessage(&message); DispatchMessageW(&message); } UnregisterClassW(kClassName, instance); CloseHandle(mutex); return static_cast<int>(message.wParam);
 }
