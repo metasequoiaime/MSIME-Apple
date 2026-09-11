@@ -34,11 +34,13 @@ pub mod character_width {
     }
 }
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
+use msime_engine_bridge::{
+    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -232,6 +234,45 @@ pub struct TranslationResult {
     pub translation: String,
 }
 
+/// A bounded stroke payload sent by a Linux handwriting panel to its
+/// user-owned recognizer service. Coordinates are normalized panel pixels;
+/// the recognizer decides how to map them to a platform model.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingQuery {
+    #[serde(default)]
+    pub language: String,
+    pub strokes: Vec<Vec<HandwritingPoint>>,
+}
+
+/// Search request for a standalone Linux emoji panel. The panel owns its
+/// category/search UI while the provider supplies the catalog and annotations.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelQuery {
+    #[serde(default)]
+    pub search: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default = "default_emoji_panel_limit")]
+    pub limit: u8,
+}
+
+fn default_emoji_panel_limit() -> u8 {
+    48
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelItem {
+    pub text: String,
+    #[serde(default)]
+    pub annotation: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineCandidate {
     pub query: OnlineQuery,
@@ -344,6 +385,124 @@ impl UnixSocketProvider {
             return None;
         }
         Some(reply.translations)
+    }
+
+    /// Ask the user-owned handwriting recognizer for up to twelve candidates.
+    /// The Linux panel owns ink capture and presentation; this service owns
+    /// model selection and any platform-specific recognizer integration.
+    pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
+        if query.language.len() > 64
+            || query.strokes.is_empty()
+            || query.strokes.len() > 32
+            || query
+                .strokes
+                .iter()
+                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "handwriting", "query": query}).to_string();
+        if request.len() > 262_144
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            candidates: Vec<String>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.candidates.len() > 12
+            || reply
+                .candidates
+                .iter()
+                .any(|candidate| candidate.is_empty() || candidate.len() > 4096)
+        {
+            return None;
+        }
+        Some(reply.candidates)
+    }
+
+    /// Search the user-owned emoji catalog. Results stay outside the IBus
+    /// session and can be rendered by any desktop panel toolkit.
+    pub fn emoji(&self, query: EmojiPanelQuery) -> Option<Vec<EmojiPanelItem>> {
+        if query.search.len() > 256
+            || query.category.len() > 128
+            || !(1..=96).contains(&query.limit)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "emoji", "query": query}).to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            items: Vec<EmojiPanelItem>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.items.len() > 96
+            || reply.items.iter().any(|item| {
+                item.text.is_empty()
+                    || item.text.len() > 64
+                    || item.annotation.len() > 256
+            })
+        {
+            return None;
+        }
+        Some(reply.items)
+    }
+
+    /// Run one bounded voice capture/ASR request through the user-owned
+    /// service. The service owns PipeWire/ALSA access, credentials and the
+    /// recognizer; the input host only receives bounded UTF-8 text.
+    pub fn voice(&self, language: &str, generation: u64) -> Option<String> {
+        if language.len() > 64 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        let request = json!({
+            "version": 1,
+            "kind": "voice",
+            "query": {"language": language, "generation": generation}
+        })
+        .to_string();
+        if request.len() > 4096
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.text.is_empty() || reply.text.len() > 4096 {
+            return None;
+        }
+        Some(reply.text)
     }
 }
 
@@ -589,6 +748,7 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            scheme: self.cached.scheme,
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),

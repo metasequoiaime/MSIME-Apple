@@ -6,6 +6,8 @@
 
 可选的 `online_provider_socket` 顶层启动配置指定用户管理的绝对 Unix socket。宿主复制在线查询后在 GLib worker 中请求该服务，再通过 Host API 的代次校验回填候选；未配置时不发起在线请求。socket 服务负责凭据、网络和 provider 策略。
 
+语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入。IBus 属性中的“语音输入”只负责启动和取消 Host API 语音代次；用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1}}` 后负责 PipeWire/ALSA 录音、ASR 凭据和网络，并返回 `{"text":"识别结果"}`。结果回到 GLib 主线程后再次校验会话和代次，再提交文本；空结果、过期结果和取消结果都不会上屏。响应文本最多 4096 字节，服务调用最长等待 30 秒。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。
+
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
 ```json
@@ -13,6 +15,16 @@
 ```
 
 服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。宿主只接受最多 9 个候选、每项最多 4096 字节、每次响应最多 500ms，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。
+
+Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、Wayland 或某个桌面环境绑定进 IBus Engine。面板采集归一化坐标笔画后，按一行 JSON 请求发送：
+
+```json
+{"version":1,"kind":"handwriting","query":{"language":"zh-CN","strokes":[[{"x":0.2,"y":0.3},{"x":0.7,"y":0.8}]]}}
+```
+
+识别服务返回 `{"candidates":["你","好"]}`，最多 12 个候选，每项最多 4096 字节；请求和响应各自限时 500ms。模型、凭据和平台识别器由该服务负责，面板可以用 `msime-client-handwriting /absolute/socket` 复用 Host API 契约。服务不可用或响应过期时面板保留笔画，不向 IBus 会话伪造提交；候选点击应由面板在当前手写请求代次内完成。
+
+独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-client-emoji /absolute/socket` 获取结果，点击后把文本交给桌面剪贴板或当前输入上下文；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
 
 IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCandidates` 三个混输开关。切换属性会结束当前组合并重建本会话的 Engine，避免把新旧混输候选规则混在同一代视图中；覆盖只作用于当前 IBus 会话，不改写共享偏好文件。Windows 的设置窗口仍负责持久化配置，Linux 桌面 panel 只负责会话级快速切换。
 
@@ -46,7 +58,7 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 
 准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client-preview`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
-安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-dictionary` 个人词典请求入口和 `msime-client-clipboard` 剪贴板历史工具；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
+安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-dictionary` 个人词典请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
 
 ## 隔离验证
 

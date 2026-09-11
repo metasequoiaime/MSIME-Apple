@@ -2,16 +2,44 @@
 #include <metasequoia/personal_dictionary.h>
 #include <metasequoia/dictionary_state.h>
 #include "msime-engine-bridge/src/lib.rs.h"
+#include <metasequoia/personal_dictionary.h>
 #include <stdexcept>
 
 namespace msime {
 namespace {
+metasequoia::RuntimePaths paths_for(const EngineOptions& value) {
+    return {std::filesystem::u8path(std::string(value.resources)),
+            std::filesystem::u8path(std::string(value.user_data)),
+            std::filesystem::u8path(std::string(value.cache)),
+            std::filesystem::u8path(std::string(value.dictionaries))};
+}
+metasequoia::PersonalDictionaryEntry entry_for(const DictionaryEntry& value) {
+    using Kind = metasequoia::PersonalDictionaryKind;
+    Kind kind;
+    switch (value.kind) {
+        case DictionaryKind::Pinyin: kind = Kind::Pinyin; break;
+        case DictionaryKind::Wubi: kind = Kind::Wubi; break;
+        case DictionaryKind::QuickPhrase: kind = Kind::QuickPhrase; break;
+        case DictionaryKind::English: kind = Kind::English; break;
+        default: throw std::invalid_argument("Unsupported dictionary kind");
+    }
+    return {kind, std::string(value.key), std::string(value.value), value.weight};
+}
+DictionaryEntry entry_for(const metasequoia::PersonalDictionaryEntry& value) {
+    using Kind = metasequoia::PersonalDictionaryKind;
+    DictionaryKind kind;
+    switch (value.kind) {
+        case Kind::Pinyin: kind = DictionaryKind::Pinyin; break;
+        case Kind::Wubi: kind = DictionaryKind::Wubi; break;
+        case Kind::QuickPhrase: kind = DictionaryKind::QuickPhrase; break;
+        case Kind::English: kind = DictionaryKind::English; break;
+        default: throw std::invalid_argument("Unsupported dictionary kind");
+    }
+    return {kind, value.key, value.value, value.weight};
+}
 metasequoia::SessionOptions options_for(const EngineOptions& value) {
     metasequoia::SessionOptions options;
-    options.paths = {std::filesystem::u8path(std::string(value.resources)),
-                     std::filesystem::u8path(std::string(value.user_data)),
-                     std::filesystem::u8path(std::string(value.cache)),
-                     std::filesystem::u8path(std::string(value.dictionaries))};
+    options.paths = paths_for(value);
     switch (value.scheme) {
         case 0: options.scheme = SchemeType::Quanpin; break;
         case 1: options.scheme = SchemeType::Shuangpin; break;
@@ -29,6 +57,8 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.learning = value.learning;
     options.autocorrect_types = value.autocorrect ? (1u << 0) | (1u << 1) : 0u;
     options.chinese_punctuation = value.chinese_punctuation;
+    options.paired_punctuation = value.paired_punctuation;
+    options.punctuation_lock = value.punctuation_lock;
     options.helpcode = value.helpcode;
     options.helpcode_schema = std::string(value.helpcode_schema);
     const std::string frequency(value.frequency_mode);
@@ -45,6 +75,38 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.expressive = {value.mixed_emoji, value.mixed_kaomoji};
     options.local_modes = {value.local_unicode, value.local_date_time, value.local_quick_phrase, value.local_emoji, value.local_kaomoji, value.local_super_jianpin, value.local_temporary_english, value.local_temporary_japanese};
     return options;
+}
+EngineOptions prepared_options(const metasequoia::RuntimePaths& paths) {
+    EngineOptions result;
+    result.resources = paths.resources.u8string();
+    result.user_data = paths.user_data.u8string();
+    result.cache = paths.cache.u8string();
+    result.dictionaries = paths.dictionaries.u8string();
+    result.scheme = 0;
+    result.shuangpin_profile = 0;
+    result.learning = false;
+    result.autocorrect = true;
+    result.helpcode = true;
+    result.helpcode_schema = "ziranma";
+    result.chinese_punctuation = true;
+    result.paired_punctuation = true;
+    result.punctuation_lock = 0;
+    result.frequency_mode = "promote";
+    result.frequency_trigger_count = 1;
+    result.frequency_linear_step = 1;
+    result.mixed_english = true;
+    result.english_minimum_prefix = 2;
+    result.mixed_emoji = false;
+    result.mixed_kaomoji = false;
+    result.local_unicode = true;
+    result.local_date_time = true;
+    result.local_quick_phrase = true;
+    result.local_emoji = true;
+    result.local_kaomoji = true;
+    result.local_super_jianpin = true;
+    result.local_temporary_english = true;
+    result.local_temporary_japanese = true;
+    return result;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {
     return {value.handled, value.commit.has_value(), value.commit.value_or(""), value.diagnostic.value_or("")};
@@ -70,10 +132,28 @@ EngineSession::EngineSession(const EngineOptions& options) : session_(options_fo
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
+DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit) {
+    auto page = metasequoia::personal_dictionary_entries(paths_for(options), offset, limit);
+    if (!page.error.empty()) throw std::runtime_error(page.error);
+    DictionaryPage result;
+    result.has_more = page.has_more;
+    for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
+    return result;
+}
+void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
+                     rust::Slice<const DictionaryEntry> replacement, rust::Str request_id) {
+    if (previous.size() > 1 || replacement.size() > 1)
+        throw std::invalid_argument("Expected at most one dictionary entry");
+    std::optional<metasequoia::PersonalDictionaryEntry> before, after;
+    if (!previous.empty()) before = entry_for(previous[0]);
+    if (!replacement.empty()) after = entry_for(replacement[0]);
+    auto result = metasequoia::edit_personal_dictionary(paths_for(options), before, after, std::string(request_id));
+    if (!result.success) throw std::runtime_error(result.error);
+}
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true};
+    return prepared_options(paths);
 }
 EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, rust::Str content_id,
                                      const rust::Vec<DictionaryStateRecord>& records) {
@@ -87,7 +167,7 @@ EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, 
         return true;
     };
     auto paths = metasequoia::stage_dictionary_state(std::filesystem::u8path(std::string(resources)), std::filesystem::u8path(std::string(generation)), std::string(content_id), next);
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true};
+    return prepared_options(paths);
 }
 rust::String validate_personal_dictionary(std::uint8_t kind, rust::Str key, rust::Str value) {
     metasequoia::PersonalDictionaryEntry entry;
@@ -102,12 +182,52 @@ EngineSnapshot EngineSession::snapshot() const {
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
+    output.scheme = static_cast<std::uint8_t>(value.scheme);
     output.shuangpin_profile = rust::String(value.shuangpin_profile);
+    output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) output.candidates.push_back(rust::String(candidate.word));
+    for (const auto& candidate : value.candidates) {
+        output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+    }
     return output;
+}
+OnlineQuerySnapshot EngineSession::online_query() const {
+    OnlineQuerySnapshot output;
+    const auto query = session_.online_query();
+    if (!query.has_value()) return output;
+    output.available = true;
+    output.scheme = static_cast<std::uint8_t>(query->scheme);
+    output.generation = query->generation;
+    output.identity = query->identity;
+    output.query_text = query->query_text;
+    output.cache_key = query->cache_key;
+    for (const auto& segment : query->pinyin_segments)
+        output.pinyin_segments.push_back(rust::String(segment));
+    output.cloud_eligible = query->cloud_eligible;
+    output.ai_eligible = query->ai_eligible;
+    output.session_id = query->session_id;
+    return output;
+}
+bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
+                                           rust::Str candidate, std::uint8_t source) {
+    if (!query.available || (source != 0 && source != 1)) return false;
+    metasequoia::OnlineQuery request;
+    request.scheme = static_cast<SchemeType>(query.scheme);
+    request.generation = query.generation;
+    request.identity = std::string(query.identity);
+    request.query_text = std::string(query.query_text);
+    request.cache_key = std::string(query.cache_key);
+    for (const auto& segment : query.pinyin_segments)
+        request.pinyin_segments.emplace_back(std::string(segment));
+    request.cloud_eligible = query.cloud_eligible;
+    request.ai_eligible = query.ai_eligible;
+    request.session_id = query.session_id;
+    const auto kind = source == 0 ? CandidateSource::CloudSuggestion
+                                  : CandidateSource::AiSuggestion;
+    return session_.apply_online_candidate(request, std::string(candidate), kind);
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
@@ -143,5 +263,15 @@ EngineResult EngineSession::punctuation(std::uint8_t value) {
 }
 void EngineSession::set_chinese_punctuation_enabled(bool enabled) {
     session_.set_chinese_punctuation_enabled(enabled);
+}
+void EngineSession::set_paired_punctuation_enabled(bool enabled) {
+    session_.set_paired_punctuation_enabled(enabled);
+}
+void EngineSession::set_punctuation_lock(std::uint8_t lock) {
+    if (lock > 2) throw std::invalid_argument("Invalid punctuation lock");
+    session_.set_punctuation_lock(static_cast<int>(lock));
+}
+void EngineSession::set_dedicated_english(bool enabled) {
+    session_.set_dedicated_english(enabled);
 }
 }

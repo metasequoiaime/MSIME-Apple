@@ -3,6 +3,25 @@
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DictionaryKind {
+        Pinyin,
+        Wubi,
+        QuickPhrase,
+        English,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryEntry {
+        kind: DictionaryKind,
+        key: String,
+        value: String,
+        weight: i64,
+    }
+    #[derive(Debug)]
+    struct DictionaryPage {
+        entries: Vec<DictionaryEntry>,
+        has_more: bool,
+    }
     #[derive(Clone)]
     pub struct DictionaryStateRecord {
         pub kind: u8,
@@ -29,6 +48,8 @@ mod ffi {
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub paired_punctuation: bool,
+        pub punctuation_lock: u8,
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
@@ -54,6 +75,9 @@ mod ffi {
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub scheme: u8,
+        pub answered_by_pinyin_fallback: bool,
+        pub candidate_annotations: Vec<String>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
@@ -62,11 +86,35 @@ mod ffi {
         pub commit: String,
         pub diagnostic: String,
     }
+    #[derive(Debug)]
+    pub struct OnlineQuerySnapshot {
+        pub available: bool,
+        pub scheme: u8,
+        pub generation: u64,
+        pub identity: String,
+        pub query_text: String,
+        pub cache_key: String,
+        pub pinyin_segments: Vec<String>,
+        pub cloud_eligible: bool,
+        pub ai_eligible: bool,
+        pub session_id: u64,
+    }
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
         fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String;
+        fn dictionary_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_edit(
+            options: &EngineOptions,
+            previous: &[DictionaryEntry],
+            replacement: &[DictionaryEntry],
+            request_id: &str,
+        ) -> Result<()>;
         fn prepare_options(
             resources: &str,
             user_data: &str,
@@ -76,6 +124,13 @@ mod ffi {
         fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
             records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
+        fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
+        fn apply_online_candidate(
+            self: Pin<&mut EngineSession>,
+            query: &OnlineQuerySnapshot,
+            candidate: &str,
+            source: u8,
+        ) -> Result<bool>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
@@ -93,14 +148,48 @@ mod ffi {
             self: Pin<&mut EngineSession>,
             enabled: bool,
         ) -> Result<()>;
+        fn set_paired_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
+        fn set_punctuation_lock(self: Pin<&mut EngineSession>, lock: u8) -> Result<()>;
+        fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
 
-pub use ffi::{DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot};
+pub use ffi::{
+    DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateRecord, EngineOptions,
+    EngineResult, EngineSnapshot, OnlineQuerySnapshot,
+};
 
 /// Validate a personal dictionary entry using the pinned Engine contract.
 pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
     ffi::validate_personal_dictionary(kind, key, value)
+}
+
+/// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
+pub fn dictionary_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Atomically add, replace, or remove one personal-dictionary entry.
+/// The caller must quiesce sessions sharing these paths before editing.
+pub fn dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&DictionaryEntry>,
+    replacement: Option<&DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit(
+        options,
+        previous.map_or(&[], std::slice::from_ref),
+        replacement.map_or(&[], std::slice::from_ref),
+        request_id,
+    )
 }
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
@@ -154,6 +243,19 @@ impl Session {
     pub fn snapshot(&self) -> Result<EngineSnapshot, cxx::Exception> {
         self.inner.snapshot()
     }
+    pub fn online_query(&self) -> Result<OnlineQuerySnapshot, cxx::Exception> {
+        self.inner.online_query()
+    }
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuerySnapshot,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .apply_online_candidate(query, candidate, source)
+    }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
     }
@@ -183,11 +285,23 @@ impl Session {
             .pin_mut()
             .set_chinese_punctuation_enabled(enabled)
     }
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .set_paired_punctuation_enabled(enabled)
+    }
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_punctuation_lock(lock)
+    }
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_dedicated_english(enabled)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
@@ -206,6 +320,8 @@ mod tests {
             helpcode: false,
             helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: 0,
             frequency_mode: "promote".into(),
             frequency_trigger_count: 1,
             frequency_linear_step: 1,

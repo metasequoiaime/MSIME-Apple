@@ -9,7 +9,12 @@ use msime_client_core::preferences::{
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, CharacterWidth, Runtime, Transition};
+use msime_input_runtime::{
+    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, OnlineQuery,
+    Runtime, Transition, TranslationQuery,
+};
+#[cfg(unix)]
+use msime_input_runtime::UnixSocketProvider;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -30,6 +35,8 @@ struct HostSession {
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
     english_mode: bool,
+    page_size_override: Option<u8>,
+    voice: VoiceSessionState,
 }
 
 impl HostSession {
@@ -171,6 +178,12 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    clipboard_history_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    online_provider_socket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    voice_provider_socket: Option<String>,
 }
 
 impl HostOptions {
@@ -203,6 +216,12 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: self.preferences.chinese_punctuation,
+            paired_punctuation: self.preferences.paired_punctuation,
+            punctuation_lock: match self.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
         }
     }
 }
@@ -243,8 +262,11 @@ pub fn prepare_host_configuration(
             state_root
                 .to_str()
                 .ok_or("non-UTF-8 state path")?
-                .to_owned(),
+            .to_owned(),
         ),
+        clipboard_history_path: None,
+        online_provider_socket: None,
+        voice_provider_socket: None,
     })?)
 }
 
@@ -476,6 +498,14 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
             mixed_emoji: options.preferences.mixed_input.emoji,
             mixed_kaomoji: options.preferences.mixed_input.kaomoji,
+            local_unicode: options.preferences.local_modes.unicode,
+            local_date_time: options.preferences.local_modes.date_time,
+            local_quick_phrase: options.preferences.local_modes.quick_phrase,
+            local_emoji: options.preferences.local_modes.emoji,
+            local_kaomoji: options.preferences.local_modes.kaomoji,
+            local_super_jianpin: options.preferences.local_modes.super_jianpin,
+            local_temporary_english: options.preferences.local_modes.temporary_english,
+            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
@@ -507,6 +537,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     requested: None,
                     punctuation_override: None,
                     english_mode: default_english,
+                    page_size_override: None,
+                    voice: VoiceSessionState::default(),
                 },
             )
         });
@@ -924,6 +956,130 @@ pub unsafe extern "C" fn msime_client_translation_provider_request(
         Ok(UnixSocketProvider::new(path)
             .translate(query)
             .map(|items| json!({"translations": items}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Linux handwriting recognizer over a Unix socket.
+/// The request is a bounded JSON HandwritingQuery; the response is
+/// `{candidates:[...]}` or null when the recognizer is unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_handwriting_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 262_144
+            || socket_length > 4096
+        {
+            return Err("invalid handwriting provider buffer".into());
+        }
+        let query = serde_json::from_slice::<HandwritingQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid handwriting query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .handwriting(query)
+            .map(|candidates| json!({"candidates": candidates}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Linux emoji catalog over a Unix socket.
+/// The response is `{items:[{text,annotation}]}` or null when unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_emoji_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 16_384
+            || socket_length > 4096
+        {
+            return Err("invalid emoji provider buffer".into());
+        }
+        let query = serde_json::from_slice::<EmojiPanelQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid emoji query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .emoji(query)
+            .map(|items| json!({"items": items}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Run one bounded voice capture/ASR request through a user-owned Unix socket.
+/// The socket service owns microphone access, credentials and network policy.
+/// The query is a bounded JSON object containing `language` and `generation`.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 4096
+            || socket_length > 4096
+        {
+            return Err("invalid voice provider buffer".into());
+        }
+        #[derive(Deserialize)]
+        struct VoiceQuery {
+            language: String,
+            generation: u64,
+        }
+        let query = serde_json::from_slice::<VoiceQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid voice query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .voice(&query.language, query.generation)
+            .map(|text| json!({"text": text}))
             .unwrap_or(Value::Null))
     })
 }

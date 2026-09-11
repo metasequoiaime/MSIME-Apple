@@ -13,8 +13,11 @@ public:
   bool try_current(const PipeTicket &) override { return open; }
   std::optional<FanyImeNamedpipeData>
   read(const PipeTicket &) override { return std::nullopt; }
-  bool send(const PipeTicket &, uint32_t,
-            const std::vector<uint8_t> &) override { return open; }
+  KeyEventSendResult send(const PipeTicket &, uint32_t,
+                          const std::vector<uint8_t> &) override {
+    return open ? KeyEventSendResult::Sent
+                : KeyEventSendResult::DefinitelyNotSent;
+  }
   void close(const PipeTicket &) noexcept override { open = false; }
   bool open = true;
 };

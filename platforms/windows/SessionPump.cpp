@@ -87,13 +87,13 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           sent = focus_.acknowledge(*route.route, [&] {
             attempted = true;
             return transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread,
-                                   *bytes);
+                                   *bytes) == KeyEventSendResult::Sent;
           });
         } else {
           focus_.with_active(*route.route, [&] {
             attempted = true;
             sent = transport_.send(ticket, FanyImePipeRole::ToTsfWorkerThread,
-                                   *bytes);
+                                   *bytes) == KeyEventSendResult::Sent;
           });
         }
         if (!attempted)
@@ -164,8 +164,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
         bool sent = false;
         const bool eligible = focus_.with_active(*route.route, [&] {
           sent = transport_.send(
-              ticket, FanyImePipeRole::ToTsf,
-              std::vector<uint8_t>(bytes->begin(), bytes->end()));
+                     ticket, FanyImePipeRole::ToTsf,
+                     std::vector<uint8_t>(bytes->begin(), bytes->end())) ==
+                 KeyEventSendResult::Sent;
         });
         if (!eligible)
           continue;
