@@ -9,6 +9,17 @@ pub enum VoiceProvider {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VoicePreferences {
+    pub enabled: bool,
+    pub provider: VoiceProvider,
+    pub language: String,
+}
+
+impl Default for VoicePreferences {
+    fn default() -> Self { Self { enabled: true, provider: VoiceProvider::LocalWhisper, language: "zh-CN".into() } }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VoiceRecognitionRequest {
     pub provider: VoiceProvider,
     pub language: String,
