@@ -25,7 +25,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         default: throw std::invalid_argument("Unsupported shuangpin profile");
     }
     options.learning = value.learning;
-    options.autocorrect = value.autocorrect;
+    options.autocorrect_types = value.autocorrect ? (1u << 0) | (1u << 1) : 0u;
     options.chinese_punctuation = value.chinese_punctuation;
     options.helpcode = value.helpcode;
     options.helpcode_schema = std::string(value.helpcode_schema);
