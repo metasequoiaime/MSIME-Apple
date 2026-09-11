@@ -10,6 +10,7 @@
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
+#include "PreferenceSaveState.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -60,7 +61,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
-    BOOL _preferencesSaving;
+    MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
@@ -86,8 +87,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self persistAppearancePreferences];
 }
 - (void)persistAppearancePreferences {
-    if (_preferencesSaving || !_preferencesDirectory || !_session) return;
-    _preferencesSaving = YES;
+    if (!_preferencesDirectory || !_session) return;
+    if (!_preferenceSaveState.request()) return;
     NSString *directory = [_preferencesDirectory copy];
     MSIMEAppearancePreferences *appearance = _appearance;
     __weak MSIMEInputController *weakSelf = self;
@@ -113,8 +114,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller) return;
-            controller->_preferencesSaving = NO;
+            const bool again = controller->_preferenceSaveState.finish();
             if (saved && !saveError) [controller reloadPreferences];
+            if (again) [controller persistAppearancePreferences];
         });
     });
 }
