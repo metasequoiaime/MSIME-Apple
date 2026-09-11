@@ -50,6 +50,8 @@ struct State {
   std::optional<bool> kaomoji_override;
   std::optional<bool> punctuation_override, autocorrect_override, helpcode_override;
   std::optional<bool> word_character_override;
+  std::optional<bool> smart_punctuation_override, smart_repeat_override, paired_punctuation_override;
+  std::optional<std::string> punctuation_lock_override;
   std::optional<uint8_t> candidate_page_size_override;
   std::optional<std::string> frequency_mode_override, helpcode_schema_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
@@ -93,6 +95,8 @@ struct State {
       return;
     auto options = configured;
     auto &preferences = options["preferences"];
+    if (paired_punctuation_override) preferences["paired_punctuation"] = *paired_punctuation_override;
+    if (punctuation_lock_override) preferences["punctuation_lock"] = *punctuation_lock_override;
     if (scheme_override) preferences["scheme"] = *scheme_override;
     if (shuangpin_profile_override) preferences["shuangpin_profile"] = *shuangpin_profile_override;
     if (candidate_page_size_override) preferences["candidate_page_size"] = *candidate_page_size_override;
@@ -129,10 +133,10 @@ struct State {
       view = response(msime_client_set_english_mode(session, true));
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
-    smart_punctuation = options.at("preferences").value("smart_punctuation", true);
-    smart_punctuation_repeat = options.at("preferences").value("smart_punctuation_repeat", true);
+    smart_punctuation = smart_punctuation_override.value_or(preferences.value("smart_punctuation", true));
+    smart_punctuation_repeat = smart_repeat_override.value_or(preferences.value("smart_punctuation_repeat", true));
     paired_punctuation = options.at("preferences").value("paired_punctuation", true);
-    punctuation_lock = configured.value("punctuation_lock", "follow");
+    punctuation_lock = preferences.value("punctuation_lock", "follow");
     if (punctuation_lock == "chinese")
       chinese_punctuation = true;
     else if (punctuation_lock == "english")
@@ -411,7 +415,9 @@ std::string candidate_action_name(const char *action, const Json &id) {
 IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
-  const auto candidates = s.view.value("candidates", Json::array());
+  const auto candidates = s.view.is_object()
+                              ? s.view.value("candidates", Json::array())
+                              : Json::array();
   size_t slot = 0;
   for (const auto &candidate : candidates) {
     ++slot;
@@ -487,6 +493,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled, TRUE,
       s.smart_punctuation_repeat ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto paired = ibus_property_new(
+      "PairedPunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("成对标点"), "",
+      ibus_text_new_from_static_string("输入成对引号和括号"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.paired_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto punctuation_lock = ibus_property_new(
       "PunctuationLock", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("标点锁定"), "",
@@ -780,6 +792,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, smart_repeat);
+    ibus_prop_list_append(properties, paired);
     ibus_prop_list_append(properties, punctuation_lock);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, english);
@@ -805,6 +818,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
+    ibus_engine_update_property(engine, paired);
     ibus_engine_update_property(engine, punctuation_lock);
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, english);
@@ -1065,6 +1079,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "SmartPunctuationRepeat" &&
+       std::string(name) != "PairedPunctuation" &&
        std::string(name) != "PunctuationLock/follow" &&
        std::string(name) != "PunctuationLock/chinese" &&
        std::string(name) != "PunctuationLock/english" &&
@@ -1210,8 +1225,19 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       } catch (...) {}
       return;
     }
+    if (property_name == "PairedPunctuation") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session)
+        apply(engine, msime_client_set_paired_punctuation(s.session, enabled));
+      s.paired_punctuation_override = enabled;
+      s.paired_punctuation = enabled;
+      s.last_smart_punctuation = 0;
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "SmartPunctuation") {
       s.smart_punctuation = value == PROP_STATE_CHECKED;
+      s.smart_punctuation_override = s.smart_punctuation;
       if (!s.smart_punctuation)
         s.last_smart_punctuation = 0;
       publish_mode(engine);
@@ -1219,6 +1245,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "SmartPunctuationRepeat") {
       s.smart_punctuation_repeat = value == PROP_STATE_CHECKED;
+      s.smart_repeat_override = s.smart_punctuation_repeat;
       if (!s.smart_punctuation_repeat)
         s.last_smart_punctuation = 0;
       publish_mode(engine);
@@ -1395,10 +1422,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     const bool enabled = value == PROP_STATE_CHECKED;
     if (std::string(name).rfind("PunctuationLock/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("PunctuationLock/").size());
+      if (s.session)
+        apply(engine, msime_client_set_punctuation_lock(
+            s.session, selected == "chinese" ? 1 : selected == "english" ? 2 : 0));
+      s.punctuation_lock_override = selected;
       s.punctuation_lock = selected;
       {
         const bool chinese = selected == "follow"
-                                  ? configured.at("preferences").value("chinese_punctuation", true)
+                                  ? s.punctuation_override.value_or(configured.at("preferences").value("chinese_punctuation", true))
                                   : selected == "chinese";
         if (s.session) {
           s.view = response(msime_client_set_chinese_punctuation(s.session, chinese));
@@ -1538,7 +1569,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return;
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
-    if (s.chinese_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
+    if (s.chinese_punctuation && s.paired_punctuation &&
+        !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
+        s.view.at("editing_text").get<std::string>().empty() &&
         (key == IBUS_quotedbl || key == IBUS_apostrophe)) {
       const char *pair = key == IBUS_quotedbl ? "“”" : "‘’";
       ibus_engine_commit_text(engine, ibus_text_new_from_string(pair));
@@ -1547,6 +1580,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     }
     if ((flags & IBUS_CONTROL_MASK) && key == IBUS_period) {
       s.chinese_punctuation = !s.chinese_punctuation;
+      s.punctuation_override = s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
           s.session, s.chinese_punctuation));
       render(engine, s.view);
