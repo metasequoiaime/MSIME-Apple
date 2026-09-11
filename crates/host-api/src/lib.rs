@@ -24,6 +24,7 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
+    english_mode: bool,
 }
 
 impl HostSession {
@@ -57,6 +58,9 @@ impl HostSession {
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
         }
+        engine
+            .set_dedicated_english(self.english_mode)
+            .map_err(|e| e.to_string())?;
         self.runtime
             .replace_engine(engine, snapshot.preferences.candidate_page_size)
             .map_err(|e| e.to_string())?;
@@ -370,6 +374,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
+                    english_mode: false,
                 },
             )
         });
