@@ -115,6 +115,12 @@ target_compile_options(preferences-lifecycle-test PRIVATE -fobjc-arc -Wall -Wext
 target_link_libraries(preferences-lifecycle-test PRIVATE "-framework AppKit")
 add_test(NAME preferences-lifecycle COMMAND preferences-lifecycle-test)
 
+add_executable(floating-toolbar-test tests/FloatingToolbarPanelTest.mm FloatingToolbarPanel.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm)
+target_include_directories(floating-toolbar-test PRIVATE .)
+target_compile_options(floating-toolbar-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(floating-toolbar-test PRIVATE "-framework AppKit")
+add_test(NAME floating-toolbar COMMAND floating-toolbar-test)
+
 add_executable(input-source-registration-test tests/InputSourceRegistrationTests.mm InputSourceRegistration.mm)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework Carbon" "-framework Foundation")

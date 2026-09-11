@@ -131,6 +131,7 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
     NSButton *_settingsButton;
+    BOOL _ready;
 }
 
 + (instancetype)sharedPanel {
@@ -183,10 +184,11 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
         [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0],
         [actions.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
     ]];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applySkin)
-                                                 name:MSIMEAppearanceDidChangeNotification object:nil];
+    _ready = YES;
     [self applySkin];
     [self updateEnglishInputMode:NO chinesePunctuationEnabled:YES fullWidthEnabled:NO traditionalChineseOutputEnabled:NO];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applySkin)
+                                                 name:MSIMEAppearanceDidChangeNotification object:nil];
     return self;
 }
 
@@ -194,7 +196,7 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
 - (BOOL)canBecomeKeyWindow { return NO; }
 
 - (void)applySkin {
-    if (!_inputModeButton) return;
+    if (!_ready || !_inputModeButton) return;
     const msime::mac::ResolvedSkin skin = [[MSIMEAppearancePreferences sharedPreferences] resolvedSkinForDark:IsDarkAppearance(_chrome.effectiveAppearance)];
     _chrome.fillColor = SkinColor(skin.tokens.surface);
     _chrome.strokeColor = SkinColor(skin.tokens.border);

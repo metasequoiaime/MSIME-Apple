@@ -18,7 +18,7 @@
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-后续实施优先级由用户明确为 **Windows → macOS → iOS → Linux**。已合并的 Android/Linux 增量保留，Linux 自动重读已接入预览宿主，后续仍暂停新增产品面；接下来先推进 Windows 的共享运行时接入，保留 TSF DLL / Server 边界，再按上述顺序推进其他端，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
+后续实施优先级由用户最新明确为 **macOS → iOS**；Windows、Android/Linux 暂停新增实施，已合并的功能保留。macOS 先完成 Apple 端功能，再推进 iOS；Windows 继续保留 TSF DLL / Server 的既有进程和协议边界，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
@@ -713,3 +713,9 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 ### macOS 语音输入服务
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
+
+### macOS 悬浮输入工具栏
+
+新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
+
+macOS 原生完整构建及 CTest 24/24 通过，新增测试覆盖默认/恢复几何、非激活窗口、按钮状态、委托动作、工具菜单和代理生命周期；此前发现的 AppKit 外观通知初始化重入已由初始化保护修复。未执行系统输入源安装、真实编辑器、逐像素、多显示器拖动和无障碍实机验收；缩放、组件细分、屏幕键盘等 Windows 工具栏细节尚未接入 macOS，CI 保持禁用。
