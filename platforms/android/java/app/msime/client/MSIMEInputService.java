@@ -1,6 +1,7 @@
 package app.msime.client;
 
 import android.inputmethodservice.InputMethodService;
+import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -25,6 +26,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
+import android.widget.Toast;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -384,6 +386,54 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
+    private boolean candidateManagementEnabled() {
+        if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
+        int scheme = view.optInt("scheme", 0);
+        return scheme != 2 && scheme != 3;
+    }
+
+    private void editCandidate(JSONObject id, boolean remove) {
+        if (session == 0 || id == null || id.optLong("session") != session) return;
+        try {
+            String result = remove
+                ? NativeClient.removeCandidate(session, id.getLong("generation"), id.getLong("index"))
+                : NativeClient.pinCandidate(session, id.getLong("generation"), id.getLong("index"));
+            if (!apply(result)) Toast.makeText(this, "当前候选不支持此操作", Toast.LENGTH_SHORT).show();
+        } catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    private void confirmCandidateRemoval(JSONObject id, String text) {
+        new AlertDialog.Builder(this)
+            .setTitle("删除词条")
+            .setMessage("确认删除“" + text + "”？")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("删除", (dialog, which) -> {
+                playFeedback(moreButton);
+                editCandidate(id, true);
+            })
+            .show();
+    }
+
+    private void showCandidateMenu(Button button, JSONObject id, String text) {
+        if (!candidateManagementEnabled()) return;
+        PopupMenu popup = new PopupMenu(this, button);
+        MenuItem promote = popup.getMenu().add("优先显示");
+        MenuItem remove = popup.getMenu().add("删除词条…");
+        popup.setOnMenuItemClickListener(item -> {
+            playFeedback(button);
+            if (item == promote) {
+                editCandidate(id, false);
+                return true;
+            }
+            if (item == remove) {
+                confirmCandidateRemoval(id, text);
+                return true;
+            }
+            return false;
+        });
+        popup.show();
+    }
+
     private Button candidateButton(JSONObject candidate, int slot) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = new Button(this);
@@ -396,6 +446,13 @@ public final class MSIMEInputService extends InputMethodService {
         button.setSelected(highlighted);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
+        if (id != null && candidateManagementEnabled()) {
+            button.setContentDescription("候选 " + (slot + 1) + "：" + text + "；长按管理");
+            button.setOnLongClickListener(ignored -> {
+                showCandidateMenu(button, id, text);
+                return true;
+            });
+        }
         if (id == null) {
             button.setEnabled(false);
         } else {
