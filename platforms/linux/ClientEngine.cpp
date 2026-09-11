@@ -1831,9 +1831,13 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     auto id = entry.at("id");
     if (id.at("session").get<uint64_t>() != s.session)
       return;
-    apply(engine,
-          msime_client_select(s.session, id.at("generation").get<uint64_t>(),
-                              id.at("index").get<size_t>()));
+    const auto generation = id.at("generation").get<uint64_t>();
+    const auto global_index = id.at("index").get<size_t>();
+    if (button == 2) {
+      apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
+      return;
+    }
+    apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }
 void page(IBusEngine *engine, uint32_t command) {
