@@ -5,5 +5,9 @@ if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
 fi
+# Resolve both the launcher and options path before handing control to IBus;
+# daemon working directories are not stable across desktop environments.
+config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
+config="$config_dir/$(basename -- "$config")"
 launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec "$launcher_dir/msime-client-ibus" "$config"
