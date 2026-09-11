@@ -5,6 +5,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <tuple>
 #include <stdexcept>
 
 using Json = nlohmann::json;
@@ -29,6 +30,8 @@ struct State {
   bool private_input = false;
   bool input_enabled = true;
   std::optional<bool> english_override;
+  std::optional<bool> emoji_override;
+  std::optional<bool> kaomoji_override;
   ~State() {
     voice_worker.cancel();
     close();
@@ -45,6 +48,10 @@ struct State {
     auto options = configured;
     if (s.english_override)
       options["preferences"]["mixed_input"]["english"] = *s.english_override;
+    if (s.emoji_override)
+      options["preferences"]["mixed_input"]["emoji"] = *s.emoji_override;
+    if (s.kaomoji_override)
+      options["preferences"]["mixed_input"]["kaomoji"] = *s.kaomoji_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -322,17 +329,26 @@ void page(IBusEngine *engine, uint32_t command) {
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if ((std::string(name) != "InputEnabled" &&
-       std::string(name) != "EnglishCandidates") ||
+       std::string(name) != "EnglishCandidates" &&
+       std::string(name) != "EmojiCandidates" &&
+       std::string(name) != "KaomojiCandidates") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
     auto &s = state(engine);
-    if (std::string(name) == "EnglishCandidates") {
+    if (std::string(name) == "EnglishCandidates" ||
+        std::string(name) == "EmojiCandidates" ||
+        std::string(name) == "KaomojiCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
-      s.english_override = enabled;
+      if (std::string(name) == "EnglishCandidates")
+        s.english_override = enabled;
+      else if (std::string(name) == "EmojiCandidates")
+        s.emoji_override = enabled;
+      else
+        s.kaomoji_override = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
@@ -364,6 +380,19 @@ void register_properties(IBusEngine *engine) {
       nullptr);
   ibus_prop_list_append(properties, english);
   g_object_unref(english);
+  for (const auto &[name, label, key] : {
+           std::tuple<const char *, const char *, const char *>{"EmojiCandidates", "Emoji候选", "emoji"},
+           {"KaomojiCandidates", "颜文字候选", "kaomoji"}}) {
+    auto item = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
+        configured.at("preferences").at("mixed_input").value(key, false)
+            ? PROP_STATE_CHECKED
+            : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(properties, item);
+    g_object_unref(item);
+  }
   ibus_engine_register_properties(engine, properties);
   g_object_unref(property);
   g_object_unref(properties);
