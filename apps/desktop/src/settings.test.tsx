@@ -466,8 +466,11 @@ test("touch keyboard spacing mirrors Apple defaults and persists tenths", async 
   expect(rows.value).toBe("70");
   expect(screen.getByText("6.0 dp")).toBeDefined();
   expect(screen.getByText("7.0 dp")).toBeDefined();
+  const voice = screen.getByRole("checkbox", { name: "顶部语音入口" }) as HTMLInputElement;
+  expect(voice.checked).toBe(false);
   fireEvent.change(keys, { target: { value: "35" } });
   fireEvent.change(rows, { target: { value: "95" } });
+  fireEvent.click(voice);
   expect(screen.getByText("3.5 dp")).toBeDefined();
   expect(screen.getByText("9.5 dp")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -476,6 +479,7 @@ test("touch keyboard spacing mirrors Apple defaults and persists tenths", async 
     ...initial.preferences,
     touch_key_spacing_tenths: 35,
     touch_row_spacing_tenths: 95,
+    touch_voice_shortcut: true,
   });
 });
 

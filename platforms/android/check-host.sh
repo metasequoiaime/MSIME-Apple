@@ -16,9 +16,11 @@ trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$outpu
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root"/platforms/android/java/app/msime/client/*.java \
   "$repo_root/platforms/android/tests/EditorSmoke.java" \
+  "$repo_root/platforms/android/tests/EditorContextSnapshotSmoke.java" \
   "$repo_root/platforms/android/tests/PreferencesSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardGeometrySmoke.java" \
+  "$repo_root/platforms/android/tests/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardFeedbackSmoke.java" \
   "$repo_root/platforms/android/tests/LocalInputModeSmoke.java" \
@@ -29,9 +31,11 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/CandidateAppearanceSmoke.java" \
   "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java"
 java -cp "$output_dir" EditorSmoke
+java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
+java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir" LocalInputModeSmoke
