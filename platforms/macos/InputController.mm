@@ -7,20 +7,14 @@
 #import "FullWidthInput.h"
 #import "InputModeRouting.h"
 #import "CandidateAppearance.h"
+#import "CandidateChrome.h"
+#include "CandidateSkin.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
 @implementation MSIMECandidatePanel
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
-@end
-
-@interface MSIMECandidateButton : NSButton
-@property(nonatomic, copy) NSDictionary *candidateID;
-@end
-@implementation MSIMECandidateButton
-- (BOOL)acceptsFirstResponder { return NO; }
-- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
 @end
 
 @interface MSIMEInputController : IMKInputController
@@ -36,9 +30,21 @@
     BOOL _preferencesLoading;
     BOOL _verticalCandidates;
     NSUInteger _candidateFontSize;
+    NSString *_candidateSkin;
     BOOL _fullWidthInput;
     BOOL _englishMode;
     BOOL _inputModeShortcutEnabled;
+}
+
+static NSColor *MSIMESkinColor(msime::mac::Rgba color)
+{
+    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
+}
+
+static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
+{
+    NSAppearanceName match = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    return [match isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 - (void)setEnglishInputMode:(BOOL)enabled {
@@ -93,6 +99,7 @@
                                 [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientInputModeShortcut"];
     _verticalCandidates = YES;
     _candidateFontSize = 18;
+    _candidateSkin = @"fluent";
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
@@ -112,6 +119,11 @@
                 id fontSize = preferences[@"candidate_font_size"];
                 if ([fontSize isKindOfClass:NSNumber.class]) {
                     _candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
+                }
+                id skin = preferences[@"candidate_skin"];
+                if ([skin isKindOfClass:NSString.class]) {
+                    std::string_view normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
+                    _candidateSkin = [NSString stringWithUTF8String:normalized.data()];
                 }
             }
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
@@ -153,6 +165,11 @@
                 id fontSize = presentation[@"candidate_font_size"];
                 if ([fontSize isKindOfClass:NSNumber.class]) {
                     controller->_candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
+                }
+                id skin = presentation[@"candidate_skin"];
+                if ([skin isKindOfClass:NSString.class]) {
+                    std::string_view normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
+                    controller->_candidateSkin = [NSString stringWithUTF8String:normalized.data()];
                 }
             }
             controller->_view = result[@"view"];
@@ -272,6 +289,8 @@
     if (!screen) { [_panel orderOut:nil]; return; }
     NSRect visible = screen.visibleFrame;
     NSFont *font = [NSFont systemFontOfSize:(CGFloat)metasequoia::mac::NormalizeCandidateFontSize(_candidateFontSize)];
+    const BOOL dark = MSIMEIsDarkAppearance(_panel.effectiveAppearance ?: NSApp.effectiveAppearance);
+    const msime::mac::SkinTokens tokens = msime::mac::BuiltInSkinTokens([_candidateSkin UTF8String] ?: "", dark);
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const BOOL vertical = _verticalCandidates;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
@@ -309,7 +328,7 @@
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
-        _panel.backgroundColor = [NSColor colorWithCalibratedWhite:0.12 alpha:0.96];
+        _panel.backgroundColor = NSColor.clearColor;
         _panel.opaque = NO;
         _panel.contentView.wantsLayer = YES;
         _panel.contentView.layer.cornerRadius = 8.0;
@@ -318,7 +337,11 @@
     const CGFloat navigationHeight = paging && vertical ? 26 : 0;
     const CGFloat height = vertical ? candidates.count * rowHeight + navigationHeight + 12 : rowHeight + 12;
     [_panel setContentSize:NSMakeSize(panelWidth, height)];
-    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, height)];
+    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, height)];
+    content.fillColor = MSIMESkinColor(tokens.surface);
+    content.strokeColor = MSIMESkinColor(tokens.border);
+    content.cornerRadius = tokens.radius;
+    content.lineWidth = tokens.borderWidth;
     NSUInteger slot = 0;
     const CGFloat contentTop = height - 6 - navigationHeight;
     for (NSDictionary *candidate in candidates) {
@@ -334,16 +357,15 @@
             ++slot;
         }
         button.font = font;
-        button.contentTintColor = [NSColor whiteColor];
-        button.bezelStyle = NSBezelStyleTexturedRounded;
-        button.wantsLayer = YES;
-        button.layer.cornerRadius = 4.0;
-        if ([candidate[@"highlighted"] boolValue]) {
-            button.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.18 green:0.42 blue:0.78 alpha:1.0].CGColor;
-        }
+        button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
+        button.fillColor = MSIMESkinColor(tokens.selected);
+        button.titleColor = MSIMESkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);
+        button.numberColor = MSIMESkinColor(tokens.number);
+        button.barColor = MSIMESkinColor(tokens.accent);
+        button.showSelectedBar = tokens.showSelectedBar;
+        button.bordered = NO;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = candidate[@"text"];
-        button.bordered = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
@@ -355,7 +377,8 @@
             button.frame = vertical ? NSMakeRect(6 + index * 28, 6, 28, 26)
                                     : NSMakeRect(candidateWidth + 6 + index * 28, 6, 28, rowHeight);
             button.bordered = NO;
-            button.contentTintColor = [NSColor whiteColor];
+            button.contentTintColor = MSIMESkinColor(tokens.text);
+            button.font = font;
             button.tag = index == 0 ? -1 : -2;
             button.enabled = index == 0 ? hasPreviousPage : hasNextPage;
             button.accessibilityLabel = index == 0 ? @"上一页候选" : @"下一页候选";

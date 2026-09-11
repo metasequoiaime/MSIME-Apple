@@ -142,11 +142,13 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   render(<SettingsPage client={client} />);
   expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
   expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  expect((screen.getByLabelText("候选皮肤") as HTMLSelectElement).value).toBe("fluent");
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("候选皮肤"), { target: { value: "wechat" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20 });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {

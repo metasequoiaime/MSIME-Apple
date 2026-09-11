@@ -313,6 +313,13 @@ int main() {
         NSButton *secondHorizontal = (NSButton *)layoutPanel.contentView.subviews[1];
         assert(NSMaxX(firstHorizontal.frame) <= NSMinX(secondHorizontal.frame));
         assert([secondHorizontal.toolTip isEqualToString:@"一个更长的候选"]);
+        [controller setValue:@"wechat" forKey:@"candidateSkin"];
+        [controller renderCandidates];
+        assert([layoutPanel.contentView isKindOfClass:MSIMECandidateChromeView.class]);
+        MSIMECandidateButton *skinButton = (MSIMECandidateButton *)layoutPanel.contentView.subviews.firstObject;
+        assert(!skinButton.showSelectedBar);
+        assert(skinButton.candidateHighlighted);
+        assert(skinButton.fillColor.greenComponent > skinButton.fillColor.redComponent);
         [controller setValue:@YES forKey:@"verticalCandidates"];
         client.caret = NSZeroRect;
         [controller renderCandidates];

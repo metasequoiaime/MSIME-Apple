@@ -22,6 +22,7 @@ export type Preferences = {
   candidate_page_size: number;
   candidate_font_size?: 16 | 18 | 20;
   candidate_orientation?: "horizontal" | "vertical";
+  candidate_skin?: "fluent" | "wechat" | "graphite" | "willow_green";
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -118,6 +119,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
           <option value="16">小</option><option value="18">标准</option><option value="20">大</option>
+        </select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选皮肤</span><select aria-label="候选皮肤" value={draft.candidate_skin ?? "fluent"} onChange={event => setDraft({ ...draft, candidate_skin: event.target.value as Preferences["candidate_skin"] })}>
+          <option value="fluent">Fluent</option><option value="wechat">微信绿</option><option value="graphite">Graphite</option><option value="willow_green">柳绿</option>
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}

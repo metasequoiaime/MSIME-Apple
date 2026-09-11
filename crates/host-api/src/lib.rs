@@ -32,6 +32,7 @@ impl HostSession {
         let mut current = self.applied.clone();
         current.candidate_font_size = next.candidate_font_size;
         current.candidate_orientation = next.candidate_orientation;
+        current.candidate_skin = next.candidate_skin.clone();
         current == *next
     }
 
@@ -140,6 +141,7 @@ impl HostSession {
             "presentation": {
                 "candidate_font_size": snapshot.preferences.candidate_font_size,
                 "candidate_orientation": snapshot.preferences.candidate_orientation,
+                "candidate_skin": snapshot.preferences.candidate_skin,
             },
             "view": self.runtime.view()
         }))
@@ -669,6 +671,7 @@ mod tests {
         let preferences = Preferences {
             candidate_font_size: 20,
             candidate_orientation: CandidateOrientation::Horizontal,
+            candidate_skin: "wechat".to_owned(),
             ..Preferences::default()
         };
         let result = update(handle, 1, &preferences);
@@ -678,6 +681,7 @@ mod tests {
             result["value"]["presentation"]["candidate_orientation"],
             "horizontal"
         );
+        assert_eq!(result["value"]["presentation"]["candidate_skin"], "wechat");
         SESSIONS.with(|sessions| {
             assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
         });

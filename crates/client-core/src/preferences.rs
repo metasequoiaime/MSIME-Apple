@@ -55,6 +55,8 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default)]
     pub candidate_orientation: CandidateOrientation,
+    #[serde(default = "default_candidate_skin")]
+    pub candidate_skin: String,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -185,6 +187,10 @@ fn default_candidate_font_size() -> u8 {
     18
 }
 
+fn default_candidate_skin() -> String {
+    "fluent".to_owned()
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -194,6 +200,7 @@ impl Default for Preferences {
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
             candidate_orientation: CandidateOrientation::default(),
+            candidate_skin: default_candidate_skin(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -286,6 +293,21 @@ impl Preferences {
         if !matches!(self.candidate_font_size, 16 | 18 | 20) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
+        if self.candidate_skin.is_empty()
+            || self.candidate_skin.len() > 64
+            || !self.candidate_skin.is_ascii()
+            || !self
+                .candidate_skin
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+            || !self
+                .candidate_skin
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        {
+            return Err(PreferencesError::InvalidCandidateSkin);
+        }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
             WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
@@ -321,6 +343,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("candidate font size must be 16, 18, or 20")]
     InvalidCandidateFontSize,
+    #[error("candidate skin identifier is invalid")]
+    InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
@@ -736,6 +760,7 @@ mod tests {
             ShuangpinProfile::Xiaohe
         );
         assert_eq!(store.load().unwrap().preferences.candidate_font_size, 18);
+        assert_eq!(store.load().unwrap().preferences.candidate_skin, "fluent");
         assert_eq!(
             store.load().unwrap().preferences.candidate_orientation,
             CandidateOrientation::Vertical
@@ -834,6 +859,18 @@ mod tests {
                     }
                 ),
                 Err(PreferencesError::InvalidCandidateFontSize)
+            ));
+        }
+        for skin in ["", "../escape", "-unsafe", "含中文"] {
+            assert!(matches!(
+                store.save(
+                    1,
+                    Preferences {
+                        candidate_skin: skin.to_owned(),
+                        ..Preferences::default()
+                    }
+                ),
+                Err(PreferencesError::InvalidCandidateSkin)
             ));
         }
         assert_eq!(store.load().unwrap(), initial);

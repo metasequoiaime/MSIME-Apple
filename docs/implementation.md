@@ -657,3 +657,9 @@ macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，Sh
 共享 Preferences 新增候选字号（16/18/20）和横/竖布局，旧配置缺失时分别使用 18 点和竖排默认值；设置页与 macOS 候选面板消费同一份快照，每页数量继续由共享运行时控制。仅展示字段变化不会重建 Engine；需要重建的输入配置仍在组合期间延迟，读取失败保留旧显示和输入配置。
 
 client-core、host-api、设置页测试以及 macOS 原生 CMake/CTest、全 workspace fmt/clippy 均通过。未执行系统输入源安装后的真实编辑器或逐像素验收，候选皮肤、完整设置窗口和其他 Apple 功能仍待迁移。
+
+### macOS 内置候选皮肤
+
+新增 Fluent、微信绿、Graphite、柳绿四种内置候选皮肤。共享偏好只保存受限皮肤 ID，旧配置默认为 Fluent；macOS 原生候选面板将皮肤 token 应用于面板背景、边框、候选文字、数字、选中背景和选中条，设置页保存后由后台快照驱动刷新。皮肤策略和颜色选择不进入 Engine，也不改变组合状态。
+
+CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 测试与 clippy、设置页测试和构建通过。外部皮肤包、皮肤预览卡片及正式输入源安装后的视觉验收仍待后续切片。
