@@ -1163,7 +1163,10 @@ mod tests {
         }
         let first = read(msime_client_command(handle, 104));
         assert_eq!(first["value"]["handled"], false);
-        assert!(first["value"]["view"]["candidates"].as_array().unwrap().is_empty());
+        assert!(first["value"]["view"]["candidates"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         let last = read(msime_client_command(handle, 105));
         assert_eq!(last["value"]["handled"], false);
         assert_eq!(read(msime_client_destroy(handle))["ok"], true);

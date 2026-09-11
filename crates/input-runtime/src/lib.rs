@@ -573,27 +573,42 @@ mod tests {
         let mut runtime = runtime();
         runtime.focus(true).unwrap();
         type_key(&mut runtime);
-        let first = runtime
-            .dispatch(Action::FirstCandidateOnPage)
-            .unwrap()
-            .view;
-        assert_eq!(first.candidates.iter().find(|c| c.highlighted).unwrap().text, "candidate-0");
-        let last = runtime
-            .dispatch(Action::LastCandidateOnPage)
-            .unwrap()
-            .view;
-        assert_eq!(last.candidates.iter().find(|c| c.highlighted).unwrap().text, "candidate-4");
+        let first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
+        assert_eq!(
+            first
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-0"
+        );
+        let last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+        assert_eq!(
+            last.candidates.iter().find(|c| c.highlighted).unwrap().text,
+            "candidate-4"
+        );
         runtime.dispatch(Action::NextPage).unwrap();
-        let page_last = runtime
-            .dispatch(Action::LastCandidateOnPage)
-            .unwrap()
-            .view;
-        assert_eq!(page_last.candidates.iter().find(|c| c.highlighted).unwrap().text, "candidate-9");
-        let page_first = runtime
-            .dispatch(Action::FirstCandidateOnPage)
-            .unwrap()
-            .view;
-        assert_eq!(page_first.candidates.iter().find(|c| c.highlighted).unwrap().text, "candidate-5");
+        let page_last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+        assert_eq!(
+            page_last
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-9"
+        );
+        let page_first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
+        assert_eq!(
+            page_first
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-5"
+        );
     }
 
     #[test]
