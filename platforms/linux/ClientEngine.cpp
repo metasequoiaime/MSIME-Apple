@@ -95,6 +95,7 @@ struct State {
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
   guint voice_hotkey_consumed_key = 0;
+  bool voice_space_consumed = false;
   bool voice_active = false;
   uint64_t voice_generation = 0;
   std::shared_ptr<std::atomic_bool> alive =
@@ -122,6 +123,7 @@ struct State {
     voice_active = false;
     voice_generation = 0;
     voice_hotkey_consumed_key = 0;
+    voice_space_consumed = false;
     voice_worker.cancel();
     invalidate_providers();
     ++clipboard_generation;
@@ -2151,6 +2153,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     return FALSE;
   }
   if (flags & IBUS_RELEASE_MASK) {
+    if (key == IBUS_space && s.voice_space_consumed) {
+      s.voice_space_consumed = false;
+      return TRUE;
+    }
     if (s.voice_hotkey_consumed_key == key) {
       s.voice_hotkey_consumed_key = 0;
       return TRUE;
@@ -2175,6 +2181,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;
+  // Windows locks an active hold-to-record shortcut when Space is pressed.
+  // IBus exposes the same interaction as key events; consume both halves of
+  // the Space stroke so it cannot leak into the focused editor while voice
+  // recognition is active. With the option disabled, Space follows the
+  // regular editor/Engine path.
+  if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
+      modifiers == 0) {
+    s.voice_space_consumed = true;
+    return TRUE;
+  }
   if (fullwidth_toggle) {
     s.fullwidth = !s.fullwidth;
     guarded(engine, "toggle_character_width", [&] {

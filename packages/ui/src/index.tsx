@@ -90,6 +90,7 @@ export type VoiceInputPreferences = {
   hotkey_ctrl_f9?: boolean;
   hotkey_ctrl_win?: boolean;
   hotkey_rctrl_ralt?: boolean;
+  hotkey_hold_space_lock?: boolean;
   [key: string]: unknown;
 };
 const defaultAiAssistant = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
@@ -768,6 +769,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             "hotkey_rctrl_ralt", "Ctrl+右 Alt 切换语音",
           ], [
             "hotkey_ctrl_win", "Ctrl+Win 切换语音",
+          ], [
+            "hotkey_hold_space_lock", "空格锁定语音",
           ]] as const).map(([key, label]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={draft.voice_input?.[key] !== false} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
         </div>
       </fieldset>
