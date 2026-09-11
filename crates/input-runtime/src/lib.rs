@@ -373,7 +373,7 @@ impl UnixSocketProvider {
         stream
             .set_read_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
-        let request = json!({"version": 1, "query": query}).to_string();
+        let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
         if request.len() > 16384
             || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()

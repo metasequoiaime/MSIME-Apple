@@ -32,6 +32,9 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * Creation acquires cooperative shared access to user_data and dictionaries until
  * destroy. It fails immediately while a participating maintenance writer holds
  * exclusive access. Existing sessions are never cancelled for maintenance.
+ * Linux hosts may provide absolute online_provider_socket and
+ * translation_provider_socket paths for user-managed Unix-socket services;
+ * translation may reuse the online socket when omitted.
  * Do not delete .msime-dictionary-access.lock files. Legacy/external writers do
  * not participate; preparation/upgrades still require stopped sessions.
  */
