@@ -4,6 +4,7 @@
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
+#import "FullWidthInput.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -32,11 +33,13 @@
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
     BOOL _verticalCandidates;
+    BOOL _fullWidthInput;
 }
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
     _activeClient = sender;
+    _fullWidthInput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientFullWidthInput"];
     _verticalCandidates = YES;
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
@@ -98,7 +101,15 @@
 }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
-    if (!_session || event.type != NSEventTypeKeyDown) return NO;
+    if (event.type != NSEventTypeKeyDown) return NO;
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
+        if (!event.isARepeat) {
+            _fullWidthInput = !_fullWidthInput;
+            [[NSUserDefaults standardUserDefaults] setBool:_fullWidthInput forKey:@"MSIMEClientFullWidthInput"];
+        }
+        return YES;
+    }
+    if (!_session) return NO;
     if (sender != _activeClient) {
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
@@ -131,11 +142,26 @@
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
-        transition = [_session typeASCII:(uint8_t)[event.characters characterAtIndex:0] shift:(event.modifierFlags & NSEventModifierFlagShift) != 0 error:nil];
+        const unichar character = [event.characters characterAtIndex:0];
+        transition = [_session typeASCII:(uint8_t)character shift:(event.modifierFlags & NSEventModifierFlagShift) != 0 error:nil];
     }
     if (!transition) return NO;
     [self apply:transition];
-    return [transition[@"handled"] boolValue];
+    if ([transition[@"handled"] boolValue]) return YES;
+    if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return NO;
+        [self apply:finished];
+    }
+    if (_fullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+        ![_view[@"editing_text"] length] && event.characters.length == 1 &&
+        msime::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], event.modifierFlags)) {
+        const unichar converted = msime::mac::FullWidthCharacter([event.characters characterAtIndex:0]);
+        [(id<IMKTextInput>)_activeClient insertText:[NSString stringWithCharacters:&converted length:1]
+                                   replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        return YES;
+    }
+    return NO;
 }
 
 - (void)commitComposition:(id)sender {

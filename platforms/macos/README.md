@@ -21,6 +21,8 @@ ctest --test-dir target/macos-isolated --output-on-failure
 
 当前预览支持 ASCII 输入、退格、移动编辑光标、空格选择、回车原文、Esc 取消、候选上下移动和翻页、鼠标选词，以及由共享运行时处理的当前页数字选词与标点结束组词。候选面板显示对应数字；Engine 优先接收字符，保留 Unicode 等输入模式与拼音分隔符。未被 Engine 接收的 ASCII 标点先按当前高亮完成组词，再复用 Engine 中文标点转换；关闭中文标点时保留 ASCII。设置后台重读已接入，菜单与正式安装尚待完成。原始 ASCII 编辑串用于内联预编辑，光标单位与 Engine 一致；日语等美化预编辑另行处理。
 
+全角输入按固定 Apple `FullWidthInput.h` 路由迁移：Option + Shift + H 切换并持久化 `MSIMEClientFullWidthInput`，按键重复只消费不重复切换。普通 ASCII 先交给 Engine；Engine 未处理且组合已完成时，空格和可打印 ASCII 才转换为对应全角字符。Command、Control、Option 修饰键、非 ASCII、Engine 已处理、组合完成失败均不走全角回退。原生 ShortcutTest 覆盖切换、重复、Engine 优先、组合完成和修饰键边界；未安装输入源或验证真实编辑器行为。
+
 先下载锁定词库，然后在隔离的开发状态目录中准备工作词库；该步骤要求相关会话已停止，不用于对现有输入法在线升级：
 
 ```sh

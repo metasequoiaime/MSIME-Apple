@@ -3,21 +3,46 @@
 
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
+@property(nonatomic) uint8_t lastCharacter;
+@property(nonatomic) BOOL characterHandled;
+@property(nonatomic, copy) NSString *editingText;
+@property(nonatomic) BOOL finishFails;
+@property(nonatomic) NSUInteger finishCount;
 @end
 @implementation ShortcutSession
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
+    if (command == MSIME_FINISH_COMPOSITION) {
+        self.finishCount += 1;
+        if (self.finishFails) return nil;
+    }
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
+}
+- (NSDictionary *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error {
+    (void)shift;
+    (void)error;
+    self.lastCharacter = character;
+    return @{
+        @"handled": @(self.characterHandled),
+        @"commit": self.characterHandled ? @"引擎" : NSNull.null,
+        @"view": @{@"editing_text": self.editingText ?: @"", @"caret_position": @0, @"candidates": @[]},
+    };
 }
 @end
 
 @interface ShortcutClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
 @property(nonatomic, copy) NSString *marked;
+@property(nonatomic, strong) NSMutableArray<NSString *> *commits;
 @property(nonatomic) NSRect caret;
 @end
 @implementation ShortcutClient
+- (instancetype)init {
+    self = [super init];
+    if (self) self.commits = [NSMutableArray array];
+    return self;
+}
 - (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
     (void)index;
     *rect = self.caret;
@@ -26,6 +51,7 @@
 - (void)insertText:(id)text replacementRange:(NSRange)range {
     (void)range;
     self.committed = text;
+    if ([text isKindOfClass:NSString.class]) [self.commits addObject:text];
 }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     (void)selection;
@@ -76,6 +102,79 @@ int main() {
         ShortcutClient *client = [ShortcutClient new];
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@NO forKey:@"fullWidthInput"];
+        NSEvent *fullWidthToggle = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                                    location:NSZeroPoint
+                                               modifierFlags:NSEventModifierFlagOption | NSEventModifierFlagShift
+                                                   timestamp:0
+                                                windowNumber:0
+                                                     context:nil
+                                                  characters:@"H"
+                                 charactersIgnoringModifiers:@"h"
+                                                     isARepeat:NO
+                                                     keyCode:kVK_ANSI_H];
+        MSIMEInputController *unpreparedController = [MSIMEInputController alloc];
+        [unpreparedController setValue:@NO forKey:@"fullWidthInput"];
+        assert([unpreparedController handleEvent:fullWidthToggle client:nil]);
+        assert([[unpreparedController valueForKey:@"fullWidthInput"] boolValue]);
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"MSIMEClientFullWidthInput"];
+        assert([controller handleEvent:fullWidthToggle client:client]);
+        assert([[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientFullWidthInput"]);
+        assert([controller valueForKey:@"fullWidthInput"] != nil && [[controller valueForKey:@"fullWidthInput"] boolValue]);
+        NSEvent *repeatToggle = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                                 location:NSZeroPoint
+                                            modifierFlags:NSEventModifierFlagOption | NSEventModifierFlagShift
+                                                timestamp:0
+                                             windowNumber:0
+                                                  context:nil
+                                               characters:@"H"
+                              charactersIgnoringModifiers:@"h"
+                                                isARepeat:YES
+                                                  keyCode:kVK_ANSI_H];
+        assert([controller handleEvent:repeatToggle client:client]);
+        assert([[controller valueForKey:@"fullWidthInput"] boolValue]);
+        session.characterHandled = NO;
+        session.editingText = @"";
+        client.commits = [NSMutableArray array];
+        NSEvent *directCharacter = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                                     location:NSZeroPoint
+                                                modifierFlags:0
+                                                    timestamp:0
+                                                 windowNumber:0
+                                                      context:nil
+                                                   characters:@"a"
+                                  charactersIgnoringModifiers:@"a"
+                                                    isARepeat:NO
+                                                      keyCode:0];
+        assert([controller handleEvent:directCharacter client:client]);
+        assert(session.lastCharacter == 'a');
+        assert([client.commits.lastObject isEqualToString:@"ａ"]);
+        session.characterHandled = YES;
+        client.commits = [NSMutableArray array];
+        assert([controller handleEvent:directCharacter client:client]);
+        assert([client.commits.lastObject isEqualToString:@"引擎"]);
+        session.characterHandled = NO;
+        session.editingText = @"ni";
+        client.commits = [NSMutableArray array];
+        assert([controller handleEvent:directCharacter client:client]);
+        assert(session.finishCount > 0);
+        assert(client.commits.count == 2);
+        assert([client.commits[0] isEqualToString:@"测试"] && [client.commits[1] isEqualToString:@"ａ"]);
+        NSEvent *modifiedCharacter = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                                        location:NSZeroPoint
+                                                   modifierFlags:NSEventModifierFlagCommand
+                                                       timestamp:0
+                                                    windowNumber:0
+                                                         context:nil
+                                                      characters:@"a"
+                                     charactersIgnoringModifiers:@"a"
+                                                       isARepeat:NO
+                                                         keyCode:0];
+        client.commits = [NSMutableArray array];
+        assert(![controller handleEvent:modifiedCharacter client:client]);
+        assert(client.commits.count == 1 && [client.commits[0] isEqualToString:@"测试"]);
+        [controller setValue:@NO forKey:@"fullWidthInput"];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"MSIMEClientFullWidthInput"];
         for (NSNumber *flags in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagControl), @(NSEventModifierFlagOption)]) {
             session.lastCommand = UINT32_MAX;
             client.committed = nil;
