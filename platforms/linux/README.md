@@ -67,3 +67,5 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 The Windows mode panel exposes fullwidth/halfwidth character output. Linux now carries a session-scoped `CharacterWidth` through `input-runtime` and `msime-host-api`; the IBus panel exposes `CharacterWidth` and commit text applies fullwidth conversion for printable ASCII. The mode is ephemeral and does not rewrite preferences. The IBus smoke fixture covers fullwidth and halfwidth ASCII commits; native GTK/Qt editor validation remains environment-specific.
 
 Container acceptance also requires the locked Engine dictionary source `googlepinyinime-rev/src/share/dictbuilder.cpp`; without it, full daemon compilation cannot be validated.
+
+IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS`、用户的 `$XDG_CONFIG_HOME/msime-client/runtime-options.json`（默认 `~/.config`）、安装时配置的系统 runtime-options。显式覆盖或已存在但不可读的用户配置会报错，不会悄悄改用系统配置。直接运行 launcher 时可用第一个参数指定系统配置回退路径。
