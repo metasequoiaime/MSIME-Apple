@@ -1,55 +1,111 @@
 #import "../FloatingToolbarPanel.h"
-#import <AppKit/AppKit.h>
+
 #include <cassert>
-#include <cmath>
 
-@interface ToolbarDelegate : NSObject <MetasequoiaFloatingToolbarDelegate>
-@property(nonatomic) NSUInteger calls;
-@end
-@implementation ToolbarDelegate
-- (void)floatingToolbarDidRequestToggleInputMode:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestTogglePunctuation:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestToggleFullWidth:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestToggleTraditionalOutput:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestOpenCharacterPalette:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestOpenSettings:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestCheckForUpdates:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestOpenWebsite:(id)x { (void)x; _calls++; }
-- (void)floatingToolbarDidRequestHide:(id)x { (void)x; _calls++; }
+@interface FloatingToolbarTestDelegate : NSObject <MSIMEFloatingToolbarDelegate>
+@property(nonatomic) NSUInteger inputModeToggles;
+@property(nonatomic) NSUInteger punctuationToggles;
+@property(nonatomic) NSUInteger fullWidthToggles;
+@property(nonatomic) NSUInteger traditionalToggles;
+@property(nonatomic) NSUInteger characterPaletteRequests;
+@property(nonatomic) NSUInteger settingsRequests;
+@property(nonatomic) NSUInteger updateRequests;
+@property(nonatomic) NSUInteger websiteRequests;
+@property(nonatomic) NSUInteger hideRequests;
 @end
 
-static NSButton *Button(NSView *view, NSString *identifier)
-{
-    if ([view isKindOfClass:NSButton.class] && [view.accessibilityIdentifier isEqual:identifier]) return (NSButton *)view;
-    for (NSView *child in view.subviews) if (NSButton *found = Button(child, identifier)) return found;
+@implementation FloatingToolbarTestDelegate
+- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_inputModeToggles; }
+- (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_punctuationToggles; }
+- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_fullWidthToggles; }
+- (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_traditionalToggles; }
+- (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_characterPaletteRequests; }
+- (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_settingsRequests; }
+- (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
+- (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
+- (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_hideRequests; }
+@end
+
+static NSButton *FindButton(NSView *view, NSString *identifier) {
+    if ([view isKindOfClass:NSButton.class] && [view.accessibilityIdentifier isEqualToString:identifier]) {
+        return (NSButton *)view;
+    }
+    for (NSView *subview in view.subviews) {
+        NSButton *button = FindButton(subview, identifier);
+        if (button) return button;
+    }
     return nil;
 }
 
-int main()
-{
+static void SendButton(NSButton *button) {
+    assert(button != nil && button.target != nil && button.action != nullptr);
+    [NSApp sendAction:button.action to:button.target from:button];
+}
+
+int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        NSRect visible = NSMakeRect(100, 80, 1200, 800);
-        NSRect frame = MetasequoiaFloatingToolbarFrame(NSMakeRect(0, 0, 272, 44), visible, NO);
-        assert(std::abs(NSMaxX(frame) - NSMaxX(visible) + 20) < .01);
-        assert(std::abs(NSMinY(frame) - NSMinY(visible) - 20) < .01);
-        NSRect clamped = MetasequoiaFloatingToolbarFrame(NSMakeRect(-300, 2000, 272, 44), visible, YES);
-        assert(NSMinX(clamped) >= NSMinX(visible) + 12 && NSMaxX(clamped) <= NSMaxX(visible) - 12);
-        MetasequoiaFloatingToolbarPanel *panel = [MetasequoiaFloatingToolbarPanel new];
-        assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0);
-        ToolbarDelegate *delegate = [ToolbarDelegate new]; panel.toolbarDelegate = delegate;
-        [panel updateEnglishInputMode:NO chinesePunctuationEnabled:YES fullWidthEnabled:NO traditionalChineseOutputEnabled:NO];
-        NSButton *input = Button(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
-        NSButton *punctuation = Button(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");
-        NSButton *full = Button(panel.contentView, @"MetasequoiaFloatingToolbarFullWidth");
-        NSButton *traditional = Button(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
-        assert(input && punctuation && full && traditional);
-        assert([input.title isEqual:@"中"] && [punctuation.title isEqual:@"。"] && [full.title isEqual:@"半"] && [traditional.title isEqual:@"简"]);
-        [input performClick:nil]; [punctuation performClick:nil]; [full performClick:nil]; [traditional performClick:nil];
-        assert(delegate.calls == 4);
-        NSMenu *menu = CreateMetasequoiaFloatingToolbarUtilityMenu(panel);
-        assert(menu.numberOfItems == 7 && menu.itemArray[3].separatorItem && menu.itemArray[5].separatorItem);
+
+        NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
+        NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
+        assert(defaultFrame.size.width == 272.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 292.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
+        assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
+
+        MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
+        assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
+
+        NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
+        NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");
+        NSButton *fullWidth = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarFullWidth");
+        NSButton *traditional = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
+        NSButton *settings = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarSettings");
+        assert(inputMode && punctuation && fullWidth && traditional && settings);
+
+        [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
+        assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
+               [fullWidth.title isEqualToString:@"全"] && [traditional.title isEqualToString:@"繁"]);
+        assert([inputMode.toolTip isEqualToString:inputMode.accessibilityLabel]);
+        assert([punctuation.toolTip isEqualToString:punctuation.accessibilityLabel]);
+        assert([fullWidth.toolTip isEqualToString:fullWidth.accessibilityLabel]);
+        assert([traditional.toolTip isEqualToString:traditional.accessibilityLabel]);
+
+        FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
+        panel.toolbarDelegate = delegate;
+        SendButton(inputMode);
+        SendButton(punctuation);
+        SendButton(fullWidth);
+        SendButton(traditional);
+        for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:",
+                                         @"openWebsite:", @"dismissFloatingToolbar:"]) {
+            [NSApp sendAction:NSSelectorFromString(selectorName) to:panel from:nil];
+        }
+        assert(delegate.inputModeToggles == 1 && delegate.punctuationToggles == 1 &&
+               delegate.fullWidthToggles == 1 && delegate.traditionalToggles == 1 &&
+               delegate.characterPaletteRequests == 1 && delegate.settingsRequests == 1 &&
+               delegate.updateRequests == 1 && delegate.websiteRequests == 1 && delegate.hideRequests == 1);
+
+        NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(panel);
+        [menu update];
+        assert(menu.numberOfItems == 7);
+        assert([menu itemAtIndex:0].action == @selector(openCharacterPalette:) &&
+               [menu itemAtIndex:1].action == @selector(openSettings:) &&
+               [menu itemAtIndex:2].action == @selector(checkForUpdates:) &&
+               [menu itemAtIndex:4].action == @selector(openWebsite:) &&
+               [menu itemAtIndex:6].action == @selector(dismissFloatingToolbar:));
+        for (NSMenuItem *item in menu.itemArray) {
+            if (!item.isSeparatorItem) assert(item.enabled && item.target == panel);
+        }
+
+        [panel setVisible:NO forDelegate:delegate];
+        assert(!panel.visible && panel.toolbarDelegate == delegate);
+        [panel setVisible:YES forDelegate:[FloatingToolbarTestDelegate new]];
+        assert(!panel.visible);
+        [panel deactivateForDelegate:[FloatingToolbarTestDelegate new]];
+        assert(panel.toolbarDelegate == delegate);
         [panel deactivateForDelegate:delegate];
+        assert(!panel.visible && panel.toolbarDelegate == nil);
     }
-    return 0;
 }
