@@ -14,6 +14,7 @@ struct EngineView {
   std::string editing_text;
   std::vector<EngineCandidate> candidates;
   uint64_t generation = 0;
+  std::size_t caret = 0;
 };
 struct EngineResult {
   bool handled = false;
