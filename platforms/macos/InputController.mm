@@ -34,6 +34,10 @@
     BOOL _fullWidthInput;
     BOOL _englishMode;
     BOOL _inputModeShortcutEnabled;
+    NSString *_resolvedSkinID;
+    msime::mac::ResolvedSkin _lightSkin;
+    msime::mac::ResolvedSkin _darkSkin;
+    NSImage *_skinDecoration;
 }
 
 static NSColor *MSIMESkinColor(msime::mac::Rgba color)
@@ -45,6 +49,19 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 {
     NSAppearanceName match = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     return [match isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+- (void)refreshResolvedSkins
+{
+    const std::filesystem::path root = msime::mac::DefaultSkinsRoot();
+    const std::string skinID = _candidateSkin.UTF8String ?: "fluent";
+    _lightSkin = msime::mac::ResolveSkin(skinID, false, root);
+    _darkSkin = msime::mac::ResolveSkin(skinID, true, root);
+    _resolvedSkinID = [_candidateSkin copy];
+    _skinDecoration = nil;
+    if (_lightSkin.decorationTopDip > 0.0 && !_lightSkin.decorationPath.empty()) {
+        _skinDecoration = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
+    }
 }
 
 - (void)setEnglishInputMode:(BOOL)enabled {
@@ -122,10 +139,11 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
                 }
                 id skin = preferences[@"candidate_skin"];
                 if ([skin isKindOfClass:NSString.class]) {
-                    std::string_view normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
-                    _candidateSkin = [NSString stringWithUTF8String:normalized.data()];
+                    const std::string normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
+                    _candidateSkin = [NSString stringWithUTF8String:normalized.c_str()];
                 }
             }
+            [self refreshResolvedSkins];
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -168,10 +186,11 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
                 }
                 id skin = presentation[@"candidate_skin"];
                 if ([skin isKindOfClass:NSString.class]) {
-                    std::string_view normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
-                    controller->_candidateSkin = [NSString stringWithUTF8String:normalized.data()];
+                    const std::string normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
+                    controller->_candidateSkin = [NSString stringWithUTF8String:normalized.c_str()];
                 }
             }
+            [controller refreshResolvedSkins];
             controller->_view = result[@"view"];
             [controller renderCandidates];
         }
@@ -288,9 +307,12 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     screen = screen ?: NSScreen.mainScreen;
     if (!screen) { [_panel orderOut:nil]; return; }
     NSRect visible = screen.visibleFrame;
+    if (![_resolvedSkinID isEqualToString:_candidateSkin]) [self refreshResolvedSkins];
     NSFont *font = [NSFont systemFontOfSize:(CGFloat)metasequoia::mac::NormalizeCandidateFontSize(_candidateFontSize)];
     const BOOL dark = MSIMEIsDarkAppearance(_panel.effectiveAppearance ?: NSApp.effectiveAppearance);
-    const msime::mac::SkinTokens tokens = msime::mac::BuiltInSkinTokens([_candidateSkin UTF8String] ?: "", dark);
+    const msime::mac::ResolvedSkin &skin = dark ? _darkSkin : _lightSkin;
+    const msime::mac::SkinTokens &tokens = skin.tokens;
+    const CGFloat inset = MAX(2.0, static_cast<CGFloat>(tokens.pad));
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const BOOL vertical = _verticalCandidates;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
@@ -308,7 +330,8 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         [itemWidths addObject:@(itemWidth)];
         candidateWidth = vertical ? MAX(candidateWidth, itemWidth) : candidateWidth + itemWidth;
     }
-    const CGFloat availableWidth = MAX(80, visible.size.width - 20 - (!vertical && paging ? 56 : 0));
+    const CGFloat navigationWidth = !vertical && paging ? 56 : 0;
+    const CGFloat availableWidth = MAX(80, visible.size.width - 20 - navigationWidth - 2 * inset);
     if (vertical) {
         candidateWidth = MIN(candidateWidth, availableWidth);
     } else if (candidateWidth > availableWidth && candidateWidth > 0) {
@@ -320,7 +343,9 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
             candidateWidth += scaled;
         }
     }
-    const CGFloat panelWidth = paging ? (vertical ? MAX(candidateWidth, 64) : candidateWidth + 56) : candidateWidth;
+    CGFloat panelWidth = vertical ? (paging ? MAX(candidateWidth, 64) : candidateWidth)
+                                  : candidateWidth + navigationWidth + 2 * inset;
+    panelWidth = MAX(panelWidth, MAX(static_cast<CGFloat>(skin.minWidthDip), static_cast<CGFloat>(skin.decorationWidthDip)));
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
@@ -335,7 +360,9 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         _panel.contentView.layer.masksToBounds = YES;
     }
     const CGFloat navigationHeight = paging && vertical ? 26 : 0;
-    const CGFloat height = vertical ? candidates.count * rowHeight + navigationHeight + 12 : rowHeight + 12;
+    const CGFloat decorationHeight = static_cast<CGFloat>(skin.decorationTopDip);
+    const CGFloat height = vertical ? candidates.count * rowHeight + navigationHeight + 2 * inset + decorationHeight
+                                    : rowHeight + 2 * inset + decorationHeight;
     [_panel setContentSize:NSMakeSize(panelWidth, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, height)];
     content.fillColor = MSIMESkinColor(tokens.surface);
@@ -343,17 +370,17 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
     NSUInteger slot = 0;
-    const CGFloat contentTop = height - 6 - navigationHeight;
+    const CGFloat contentTop = height - inset - decorationHeight - navigationHeight;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         if (vertical) {
-            button.frame = NSMakeRect(6, contentTop - (++slot * rowHeight), candidateWidth - 12, rowHeight);
+            button.frame = NSMakeRect(inset, contentTop - (++slot * rowHeight), panelWidth - 2 * inset, rowHeight);
         } else {
-            CGFloat x = 6;
+            CGFloat x = inset;
             for (NSUInteger index = 0; index < slot; ++index) x += itemWidths[index].doubleValue;
-            button.frame = NSMakeRect(x, 6, itemWidths[slot].doubleValue, rowHeight);
+            button.frame = NSMakeRect(x, inset, itemWidths[slot].doubleValue, rowHeight);
             ++slot;
         }
         button.font = font;
@@ -374,8 +401,8 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
             NSButton *button = [NSButton buttonWithTitle:index == 0 ? @"‹" : @"›"
                                                     target:self
                                                     action:@selector(changeCandidatePage:)];
-            button.frame = vertical ? NSMakeRect(6 + index * 28, 6, 28, 26)
-                                    : NSMakeRect(candidateWidth + 6 + index * 28, 6, 28, rowHeight);
+            button.frame = vertical ? NSMakeRect(inset + index * 28, inset, 28, 26)
+                                    : NSMakeRect(candidateWidth + inset + index * 28, inset, 28, rowHeight);
             button.bordered = NO;
             button.contentTintColor = MSIMESkinColor(tokens.text);
             button.font = font;
@@ -384,6 +411,15 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
             button.accessibilityLabel = index == 0 ? @"上一页候选" : @"下一页候选";
             [content addSubview:button];
         }
+    }
+    if (decorationHeight > 0.0 && _skinDecoration && skin.decorationWidthDip > 0.0) {
+        NSImageView *decoration = [[NSImageView alloc]
+            initWithFrame:NSMakeRect(panelWidth - skin.decorationWidthDip, height - decorationHeight,
+                                     skin.decorationWidthDip, decorationHeight)];
+        decoration.image = _skinDecoration;
+        decoration.imageScaling = NSImageScaleProportionallyUpOrDown;
+        decoration.imageAlignment = NSImageAlignTopRight;
+        [content addSubview:decoration];
     }
     _panel.contentView = content;
     [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];

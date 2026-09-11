@@ -9,7 +9,8 @@ int main()
     assert(msime::mac::IsBuiltInSkinId("fluent"));
     assert(msime::mac::IsBuiltInSkinId("willow_green"));
     assert(!msime::mac::IsBuiltInSkinId("../escape"));
-    assert(msime::mac::NormalizeSkinId("unknown") == "fluent");
+    assert(msime::mac::NormalizeSkinId("external-demo") == "external-demo");
+    assert(msime::mac::NormalizeSkinId("../escape") == "fluent");
 
     const auto fluent = msime::mac::BuiltInSkinTokens("fluent", false);
     const auto wechat = msime::mac::BuiltInSkinTokens("wechat", false);
