@@ -129,6 +129,9 @@ export interface SettingsClient {
   copyText?: (text: string) => Promise<void>;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
+  windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
+  beginWindowDrag?: () => Promise<void>;
+  onWindowStateChanged?: (listener: (maximized: boolean) => void) => () => void;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -168,6 +171,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseError, setPhraseError] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
+  const [windowMaximized, setWindowMaximized] = useState(false);
+  useEffect(() => client.onWindowStateChanged?.(setWindowMaximized), [client]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 
@@ -344,6 +349,15 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
   }, [client, page]);
   return <div className="settings-shell">
+    {(client.windowControl || client.beginWindowDrag) && <header className="window-titlebar" aria-label="窗口控制"
+      onDoubleClick={() => client.windowControl ? void client.windowControl("maximize") : undefined}
+      onPointerDown={event => { if (event.button === 0 && client.beginWindowDrag) void client.beginWindowDrag(); }}>
+      <span>水杉 IME</span><span className="window-controls">
+        <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>−</button>
+        <button type="button" aria-label={windowMaximized ? "还原" : "最大化"} onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}>{windowMaximized ? "❐" : "□"}</button>
+        <button type="button" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
+      </span>
+    </header>}
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {pages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}

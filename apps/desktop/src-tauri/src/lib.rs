@@ -41,6 +41,7 @@ struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 enum PanelInputTarget {
     X11(String),
     Sway(u64),
+    Ydotool,
     Wayland,
 }
 
@@ -402,6 +403,14 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
                 }
             }
         }
+        let ydotool_ready = std::process::Command::new("ydotool")
+            .args(["type", "--key-delay", "0", ""])
+            .output()
+            .ok()
+            .is_some_and(|output| output.status.success());
+        if ydotool_ready {
+            return Ok(PanelInputTarget::Ydotool);
+        }
         if std::process::Command::new("wtype")
             .arg("--version")
             .output()
@@ -459,6 +468,82 @@ fn remember_panel_input_target(
 }
 
 #[cfg(target_os = "linux")]
+fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
+    let code = match virtual_key {
+        0x08 => 14,
+        0x09 => 15,
+        0x0d => 28,
+        0x20 => 57,
+        0x2e => 111,
+        0x14 => 58,
+        0xc0 => 41,
+        0xbd => 12,
+        0xbb => 13,
+        0xdb => 26,
+        0xdd => 27,
+        0xdc => 43,
+        0xba => 39,
+        0xde => 40,
+        0xbc => 51,
+        0xbe => 52,
+        0xbf => 53,
+        0x30 => 11,
+        0x31 => 2,
+        0x32 => 3,
+        0x33 => 4,
+        0x34 => 5,
+        0x35 => 6,
+        0x36 => 7,
+        0x37 => 8,
+        0x38 => 9,
+        0x39 => 10,
+        0x41 => 30,
+        0x42 => 48,
+        0x43 => 46,
+        0x44 => 32,
+        0x45 => 18,
+        0x46 => 33,
+        0x47 => 34,
+        0x48 => 35,
+        0x49 => 23,
+        0x4a => 36,
+        0x4b => 37,
+        0x4c => 38,
+        0x4d => 50,
+        0x4e => 49,
+        0x4f => 24,
+        0x50 => 25,
+        0x51 => 16,
+        0x52 => 19,
+        0x53 => 31,
+        0x54 => 20,
+        0x55 => 22,
+        0x56 => 47,
+        0x57 => 17,
+        0x58 => 45,
+        0x59 => 21,
+        0x5a => 44,
+        _ => return None,
+    };
+    Some(code)
+}
+
+#[cfg(target_os = "linux")]
+fn run_ydotool(args: &[String]) -> Result<(), HostActionError> {
+    std::process::Command::new("ydotool")
+        .args(args)
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .success()
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "linux")]
 fn xdotool_key_name(virtual_key: u16) -> Option<String> {
     let name = match virtual_key {
         0x08 => "BackSpace",
@@ -512,6 +597,9 @@ fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
+    if matches!(target, PanelInputTarget::Ydotool) {
+        return run_ydotool(args);
+    }
     if let PanelInputTarget::Sway(id) = target {
         let id = id.to_string();
         let status = std::process::Command::new("swaymsg")
@@ -571,6 +659,42 @@ fn send_panel_key(
             code: "unavailable",
         });
     }
+    if let PanelInputTarget::Ydotool = target {
+        let code = ydotool_key_code(request.virtual_key).ok_or(HostActionError {
+            code: "invalid_key",
+        })?;
+        let mut args = Vec::new();
+        let mut modifiers = Vec::new();
+        if request.include_sticky_modifiers {
+            if request.modifiers.ctrl {
+                modifiers.push(29u16);
+            }
+            if request.modifiers.alt {
+                modifiers.push(56u16);
+            }
+            if request.modifiers.win {
+                modifiers.push(125u16);
+            }
+        }
+        for modifier in &modifiers {
+            args.push(format!("{modifier}:1"));
+        }
+        if request.shift {
+            args.push("42:1".to_owned());
+        }
+        args.push(format!("{code}:1"));
+        args.push(format!("{code}:0"));
+        if request.shift {
+            args.push("42:0".to_owned());
+        }
+        for modifier in modifiers.iter().rev() {
+            args.push(format!("{modifier}:0"));
+        }
+        let mut command_args = Vec::with_capacity(args.len() + 1);
+        command_args.push("key".to_owned());
+        command_args.extend(args);
+        return run_ydotool(&command_args);
+    }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
@@ -621,6 +745,14 @@ fn send_panel_text(
         return status.success().then_some(()).ok_or(HostActionError {
             code: "unavailable",
         });
+    }
+    if let PanelInputTarget::Ydotool = target {
+        return run_ydotool(&[
+            "type".to_owned(),
+            "--key-delay".to_owned(),
+            "0".to_owned(),
+            text.to_owned(),
+        ]);
     }
     run_wtype(&target, &["--".to_owned(), text.to_owned()])
 }

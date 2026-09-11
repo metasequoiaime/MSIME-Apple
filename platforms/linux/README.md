@@ -28,13 +28,11 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-client-emoji /absolute/socket` 获取结果；没有 provider 时可用 `msime-client-emoji --local /absolute/resource-generation` 直接查询已验证的 `others.db`。Linux 桌面打开面板时保存当前输入目标，点击项目优先用 `xdotool type` 或 `wtype` 回填当前编辑器，目标已失效时回退到剪贴板；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
 
-桌面 Tauri 面板在 Linux 上也接入了屏幕键盘和手写候选提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree` 后以容器重新聚焦，其他 Wayland compositor 在可用时直接使用 `wtype`；按键通过目标窗口的 `xdotool key` 或 Wayland 的 `wtype` 发送，手写候选通过同一目标提交文本。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，服务仍负责模型和凭据；缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
-
 桌面 Tauri Emoji 面板在 Linux 上直接读取 HostOptions `resources` 下 Engine 提供的 `others.db`，通过 Engine bridge 分页读取完整 Emoji、颜文字和符号目录，并按数据库分类聚合后交给共享 UI；读取失败时 UI 保留内置目录。面板只接收资源目录中的目录数据，不读取用户输入、凭据或私人资料。
 
 桌面 Tauri 面板的系统剪贴板按 Linux 会话能力选择后端：优先使用 Wayland 的 `wl-paste` / `wl-copy`，不可用时回退到 X11 的 `xclip`；剪贴板历史仍只在用户开启设置后写入本地受限存储。桌面宿主运行期间以低频轮询捕获新的文本剪贴板内容，设置关闭后立即停止记录并清除本轮监视状态，读取失败不会伪造同步结果。
 
-桌面 Tauri 面板在 Linux 上也接入了屏幕键盘和手写候选提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway/Wayland 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key` 或 Wayland 的 `wtype` 发送，手写候选通过同一目标提交文本。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，服务仍负责模型和凭据；缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
+桌面 Tauri 面板在 Linux 上也接入了屏幕键盘和手写候选提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key`、Sway 的 `wtype` 或通用 Wayland 的 `ydotool` 发送。`ydotool` 仅在其 daemon 可用时启用，以 `/dev/uinput` 注入，不依赖面板重新夺取焦点；没有全局注入能力时回退到 `wtype`。手写候选通过同一目标提交文本。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，服务仍负责模型和凭据；缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
 
 屏幕键盘和手写面板在 X11 上读取活动窗口矩形，在 Sway 上读取 focused container 的 `rect`，首次创建时定位到输入窗口下方并水平居中；窗口矩形不可用时回退到屏幕默认位置。通用 Wayland 的 `wtype` 注入不提供窗口几何查询，因此保留 compositor 默认位置，不伪造坐标。
 
@@ -60,7 +58,7 @@ IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，�
 
 共享 `word_character` 支持方括号或减号/等号选择高亮候选的首/末汉字，默认关闭；与同组翻页配置互斥，由共享配置校验拒绝冲突。启动及实时设置发布均更新绑定，活动组合保留；宿主将当前候选代次和全局索引传给 Engine，不自行切分汉字。无汉字候选走共享组合完成与标点路径，关闭功能后恢复通常的标点输入；Shift 符号不触发以词定字。
 
-需要 Linux、Rust 1.97.1、CMake 3.25+、C++17 编译器、IBus 1.5.20+ 开发包、nlohmann-json 3.11+、Boost/fmt/spdlog/SQLite 开发包。原生构建：
+需要 Linux、Rust 1.97.1、CMake 3.25+、C++17 编译器、IBus 1.5.20+ 开发包、nlohmann-json 3.11+、Boost/fmt/spdlog/SQLite 开发包。通用 Wayland 的全局面板注入可选安装 `ydotool` 并运行 `ydotoold`；没有它时仍尝试 `wtype`。原生构建：
 
 ```sh
 cargo build -p msime-host-api --locked
