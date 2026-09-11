@@ -45,7 +45,7 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readToo
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   const theme = override ?? (skin.themes.includes("dark") ? "dark" : "light");
   const scope = `external-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const toolbarState = useToolbarCss(readToolbarCss, skin.id, skin.toolbarStylesheet, revision, scope);
+  const toolbarState = useToolbarCss(readToolbarCss, skin.id, skin.toolbarStylesheet, revision, scope, readImage);
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
     try {

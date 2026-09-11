@@ -1,6 +1,6 @@
-"""Read-only browser regression for compiled skin-palette/skin-toolbar-css.
+"""Read-only browser regression for skin-palette/skin-toolbar-css/toolbar-images.
 
-Compile both modules to a temporary directory, serve it on loopback, then pass
+Compile these modules to a temporary directory, serve it on loopback, then pass
 --url, the desktop --csp, and optionally --executable for installed Chromium.
 Requires Python Playwright. Does not launch the input method or touch user data.
 """
@@ -62,7 +62,24 @@ with sync_playwright() as playwright:
       if (serialized.includes('unsafe-nested') || serialized.includes('invalid.example')) throw Error('nested unsupported rules retained');
       filtered.remove();
       if (document.adoptedStyleSheets.length || getComputedStyle(first).color !== baseline) throw Error('nested cleanup failed');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, resourceRulesDeferred:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true};
+      const {prepareToolbarImages} = await import('/toolbar-images.js');
+      const imageData = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="red"/></svg>');
+      const requested = [];
+      const prepared = await prepareToolbarImages('.sample { background-image: url(images/a.svg); &::before { content: ""; background-image: url(images/a.svg); } @media screen { border-image-source: url(images/a.svg); } }', async name => { requested.push(name); return imageData; });
+      if (prepared.partial || requested.length !== 1 || requested[0] !== 'images/a.svg') throw Error('image resolution/deduplication failed');
+      const images = installToolbarCss('card1', prepared.css);
+      if (images.partial || !getComputedStyle(first).backgroundImage.includes('data:image/svg+xml;base64,')) throw Error('resolved background missing');
+      if (getComputedStyle(second).backgroundImage !== 'none') throw Error('background escaped card');
+      const decoded = new Image(); decoded.src = imageData; await decoded.decode();
+      if (decoded.naturalWidth !== 1) throw Error('image decoding failed under CSP');
+      images.remove();
+      const failedImages = await prepareToolbarImages('.sample { color: rgb(3, 2, 1); background-image: url(../escape.png); }', async () => { throw Error('must not read'); });
+      if (!failedImages.partial || failedImages.css.includes('escape.png') || !failedImages.css.includes('rgb(3, 2, 1)')) throw Error('resource failure lost valid styles');
+      let resourceCount = 0;
+      const manyImages = await prepareToolbarImages('.sample {' + Array.from({length:33}, (_, index) => '--image-' + index + ':url(images/' + index + '.svg);').join('') + '}', async () => { resourceCount++; return imageData; });
+      if (!manyImages.partial || resourceCount !== 32 || manyImages.css.includes('--image-32')) throw Error('resource count cap failed');
+      if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true};
     }""")
     print(result)
     browser.close()

@@ -1,3 +1,4 @@
+import { hasUnresolvedCssResource } from "./css-image-value.js";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
 export function installToolbarCss(scope: string, css: string): { remove: () => void; partial: boolean } {
@@ -20,7 +21,7 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
         // Resource rewriting is a separate migration step. Do not resolve skin
         // URLs relative to the settings page or permit escaped resource syntax.
         for (const name of Array.from(styleRule.style)) {
-          if (/url\s*\(|image-set\s*\(|src\s*\(|\\/i.test(styleRule.style.getPropertyValue(name))) {
+          if (hasUnresolvedCssResource(styleRule.style.getPropertyValue(name))) {
             styleRule.style.removeProperty(name); partial = true;
           }
         }
