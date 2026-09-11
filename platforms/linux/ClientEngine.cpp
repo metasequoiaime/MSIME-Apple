@@ -1723,8 +1723,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
-    if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 && key >= IBUS_0 && key <= IBUS_9) {
-      const size_t index = key == IBUS_0 ? 9 : static_cast<size_t>(key - IBUS_1);
+    if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 &&
+        ((key >= IBUS_0 && key <= IBUS_9) || (key >= IBUS_KP_0 && key <= IBUS_KP_9))) {
+      const bool keypad = key >= IBUS_KP_0 && key <= IBUS_KP_9;
+      const size_t index = keypad ? (key == IBUS_KP_0 ? 9 : key - IBUS_KP_1)
+                                  : (key == IBUS_0 ? 9 : key - IBUS_1);
       if (index >= s.view.at("candidates").size()) return;
       const auto &candidate = s.view.at("candidates").at(index);
       handled = apply(engine, msime_client_select(
