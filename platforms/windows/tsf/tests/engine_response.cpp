@@ -20,9 +20,9 @@ int main() {
           R"({"ok":false,"error":"redacted"})", &result, &error))
     return EXIT_FAILURE;
   if (!EngineSessionAdapter::parse_result(
-        R"({"ok":true,"value":{"preedit":"test","editing_text":"test","caret_position":3,"generation":9,"candidates":[]}})",
+        R"({"ok":true,"value":{"session":17,"preedit":"test","editing_text":"test","caret_position":3,"generation":9,"candidates":[]}})",
         &result, &error) || result.view.caret != 3 || result.view.generation != 9 ||
-      result.view.preedit != "test" || result.has_commit) return EXIT_FAILURE;
+      result.view.preedit != "test" || result.view.session != 17 || result.has_commit) return EXIT_FAILURE;
   if (!EngineSessionAdapter::parse_result(
         R"({"ok":true,"value":{"handled":true,"commit":null,"diagnostic":null,"view":{"preedit":"","candidates":[]}}})",
         &result, &error) || result.has_commit || !result.diagnostic.empty()) return EXIT_FAILURE;

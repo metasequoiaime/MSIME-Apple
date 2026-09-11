@@ -11,6 +11,7 @@ static CCandidateListItem MakeCandidate(std::size_t index)
     item._ItemString.Set(text.c_str(), text.size());
     item._FindKeyCode.Set(code.c_str(), code.size());
     item._EngineGeneration = 73;
+    item._EngineSession = 19;
     item._EngineIndex = static_cast<uint32_t>(index);
     item._EngineHighlighted = index == 11;
     return item;
@@ -26,7 +27,7 @@ int main()
         if (item._ItemString.ToWString() != (i % 2 ? std::wstring(256, L'x') : L"sample") ||
             item._ItemString.Get()[item._ItemString.GetLength()] != L'\0' ||
             item._FindKeyCode.ToWString() != L"synthetic-code" ||
-            item._EngineGeneration != 73 || item._EngineIndex != i ||
+            item._EngineSession != 19 || item._EngineGeneration != 73 || item._EngineIndex != i ||
             item._EngineHighlighted != (i == 11)) return EXIT_FAILURE;
     }
     auto copied = candidates;
@@ -37,6 +38,9 @@ int main()
     if (assigned._ItemString.ToWString() != std::wstring(256, L'x') ||
         assigned._EngineIndex != 11 || !assigned._EngineHighlighted) return EXIT_FAILURE;
     auto moved = std::move(assigned);
+    if (!moved.MatchesEngineView(19, 73) || moved.MatchesEngineView(19, 74) ||
+        moved.MatchesEngineView(20, 73) || CCandidateListItem{}.MatchesEngineView(19, 73) ||
+        CCandidateListItem{}.MatchesEngineView(0, 0)) return EXIT_FAILURE;
     moved._FindKeyCode.Clear();
     if (moved._ItemString.GetLength() != 256 || moved._FindKeyCode.GetLength() != 0 ||
         copied[10]._FindKeyCode.ToWString() != L"synthetic-code") return EXIT_FAILURE;

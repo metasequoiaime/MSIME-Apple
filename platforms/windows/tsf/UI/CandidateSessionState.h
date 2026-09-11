@@ -14,6 +14,7 @@ class CCandidateSessionState
 
     UINT GetCount() const;
     UINT GetSelection() const;
+    bool GetSelectedCandidate(CCandidateListItem *item) const;
     void SetScrollInfo(_In_ int nMax, _In_ int nPage);
 
     DWORD GetCandidateString(_In_ int iIndex, _Outptr_result_maybenull_z_ const WCHAR **ppwchCandidateString);
