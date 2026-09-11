@@ -191,11 +191,11 @@ template <class F> void guarded(IBusEngine *engine, F action) noexcept {
 void focus_in(IBusEngine *engine) {
   guarded(engine, [&] {
     auto &s = state(engine);
-    register_properties(engine);
     s.focused = true;
     s.open();
     if (s.session)
       apply(engine, msime_client_focus(s.session, true));
+    register_properties(engine);
   });
 }
 void focus_out(IBusEngine *engine) {
