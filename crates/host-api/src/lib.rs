@@ -366,6 +366,12 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
+            paired_punctuation: options.preferences.paired_punctuation,
+            punctuation_lock: match options.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
         };
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
