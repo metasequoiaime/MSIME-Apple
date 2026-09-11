@@ -6,7 +6,7 @@ use msime_client_core::preferences::{
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, Runtime, Transition};
+use msime_input_runtime::{Action, CandidateId, CharacterWidth, Runtime, Transition};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -382,6 +382,20 @@ pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: boo
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
             session.punctuation_override = Some(enabled);
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_set_character_width(handle: u64, fullwidth: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.runtime.set_character_width(if fullwidth {
+                CharacterWidth::Fullwidth
+            } else {
+                CharacterWidth::Halfwidth
+            });
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
