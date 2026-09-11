@@ -1,14 +1,22 @@
 package app.msime.client;
 
 import android.inputmethodservice.InputMethodService;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.view.View;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.widget.PopupMenu;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
@@ -41,6 +49,13 @@ public final class MSIMEInputService extends InputMethodService {
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
+    private Button moreButton;
+    private SharedPreferences feedbackPreferences;
+    private boolean soundEnabled = true;
+    private boolean hapticsEnabled;
+    private KeyboardFeedbackPreferences.HapticStrength hapticStrength =
+        KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
+    private Vibrator vibrator;
     private LinearLayout keyRows;
     private Button layerButton;
     private TextView status;
@@ -222,7 +237,10 @@ public final class MSIMEInputService extends InputMethodService {
         button.setAllCaps(false);
         button.setText(label);
         styleButton(button, true);
-        button.setOnClickListener(ignored -> action.run());
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         return button;
     }
@@ -270,6 +288,65 @@ public final class MSIMEInputService extends InputMethodService {
         applySkinToView(keyboardRoot);
     }
 
+    private void loadFeedbackPreferences() {
+        feedbackPreferences = getSharedPreferences("keyboard-feedback", MODE_PRIVATE);
+        soundEnabled = feedbackPreferences.getBoolean(KeyboardFeedbackPreferences.SOUND_KEY, true);
+        hapticsEnabled = feedbackPreferences.getBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, false);
+        hapticStrength = KeyboardFeedbackPreferences.strength(feedbackPreferences.getString(
+            KeyboardFeedbackPreferences.STRENGTH_KEY, "medium"));
+        vibrator = getSystemService(Vibrator.class);
+    }
+
+    private void saveFeedbackPreferences() {
+        if (feedbackPreferences == null) return;
+        feedbackPreferences.edit()
+            .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, soundEnabled)
+            .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, hapticsEnabled)
+            .putString(KeyboardFeedbackPreferences.STRENGTH_KEY, hapticStrength.id())
+            .apply();
+    }
+
+    private void playFeedback(View source) {
+        if (soundEnabled) {
+            AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (audio != null) audio.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD);
+        }
+        if (!hapticsEnabled) return;
+        if (Build.VERSION.SDK_INT >= 26 && vibrator != null && vibrator.hasVibrator()) {
+            vibrator.vibrate(VibrationEffect.createOneShot(10, hapticStrength.amplitude()));
+        } else {
+            source.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        }
+    }
+
+    private void showFeedbackMenu() {
+        if (moreButton == null) return;
+        PopupMenu popup = new PopupMenu(this, moreButton);
+        Menu menu = popup.getMenu();
+        MenuItem sound = menu.add("按键音");
+        sound.setCheckable(true).setChecked(soundEnabled);
+        MenuItem haptics = menu.add("按键振动");
+        haptics.setCheckable(true).setChecked(hapticsEnabled);
+        menu.setGroupCheckable(1, true, true);
+        MenuItem light = menu.add(1, 1, Menu.NONE, "振动强度：轻");
+        MenuItem medium = menu.add(1, 2, Menu.NONE, "振动强度：中");
+        MenuItem strong = menu.add(1, 3, Menu.NONE, "振动强度：强");
+        light.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.LIGHT);
+        medium.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.MEDIUM);
+        strong.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.STRONG);
+        popup.setOnMenuItemClickListener(item -> {
+            if (item == sound) soundEnabled = !soundEnabled;
+            else if (item == haptics) hapticsEnabled = !hapticsEnabled;
+            else if (item == light) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.LIGHT;
+            else if (item == medium) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
+            else if (item == strong) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.STRONG;
+            else return false;
+            saveFeedbackPreferences();
+            return true;
+        });
+        popup.show();
+    }
+
     private Button candidateButton(JSONObject candidate, int slot) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = new Button(this);
@@ -286,6 +363,7 @@ public final class MSIMEInputService extends InputMethodService {
             button.setEnabled(false);
         } else {
             button.setOnClickListener(ignored -> {
+                playFeedback(button);
                 if (session == 0 || id.optLong("session") != session) return;
                 candidatePanelOpen = false;
                 try { apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index"))); }
@@ -324,7 +402,10 @@ public final class MSIMEInputService extends InputMethodService {
         close.setAllCaps(false);
         close.setText("收起");
         close.setContentDescription("收起候选面板");
-        close.setOnClickListener(ignored -> closeCandidatePanel());
+        close.setOnClickListener(ignored -> {
+            playFeedback(close);
+            closeCandidatePanel();
+        });
         header.addView(close, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT));
         expandedCandidates.addView(header);
@@ -369,7 +450,10 @@ public final class MSIMEInputService extends InputMethodService {
                 keyButton.setAllCaps(false);
                 keyButton.setText(key);
                 styleButton(keyButton, false);
-                keyButton.setOnClickListener(ignored -> type(input.charAt(0)));
+                keyButton.setOnClickListener(ignored -> {
+                    playFeedback(keyButton);
+                    type(input.charAt(0));
+                });
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1));
                 keyButton.setContentDescription("按键 " + key);
@@ -378,6 +462,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        loadFeedbackPreferences();
         keyboardRoot = new FrameLayout(this);
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
@@ -400,7 +485,10 @@ public final class MSIMEInputService extends InputMethodService {
         expandCandidates.setAllCaps(false);
         expandCandidates.setText("展开");
         expandCandidates.setContentDescription("展开候选面板");
-        expandCandidates.setOnClickListener(ignored -> openCandidatePanel());
+        expandCandidates.setOnClickListener(ignored -> {
+            playFeedback(expandCandidates);
+            openCandidatePanel();
+        });
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(candidateHeader);
@@ -451,6 +539,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
         button(controls, "回车", this::enter);
         button(controls, "切换", () -> switchToNextInputMethod(false));
+        moreButton = button(controls, "更多", this::showFeedbackMenu);
+        moreButton.setContentDescription("更多快捷设置");
         for (int index = 0; index < controls.getChildCount(); index++) {
             View child = controls.getChildAt(index);
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();

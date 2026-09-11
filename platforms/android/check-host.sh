@@ -18,11 +18,13 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/EditorSmoke.java" \
   "$repo_root/platforms/android/tests/PreferencesSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java"
+  "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java" \
+  "$repo_root/platforms/android/tests/KeyboardFeedbackSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PreferencesSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" KeyboardSkinSmoke
+java -cp "$output_dir" KeyboardFeedbackSmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
   --manifest "$repo_root/platforms/android/AndroidManifest.xml" \
