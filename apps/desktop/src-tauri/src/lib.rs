@@ -1484,6 +1484,12 @@ pub fn run() {
                     _ => None,
                 };
                 if let Some((label, route, title, width, height)) = route {
+                    // The property-menu process is the panel launcher in this
+                    // path, so capture the foreground editor before the new
+                    // window can take focus. This is the same handoff used by
+                    // the settings-page panel commands.
+                    let panel_input = app.state::<PanelInputState>();
+                    let _ = remember_panel_input_target(panel_input.inner(), true);
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
