@@ -518,6 +518,11 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", kind: "pinyin", code: "hao", word: "好", weight: 100000 }));
   fireEvent.click(screen.getByRole("button", { name: "导出" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "standard" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "文件格式" }), { target: { value: "windows" } });
+  fireEvent.click(screen.getByRole("button", { name: "导出" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "windows" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "文件格式" }), { target: { value: "hans" } });
+  expect((screen.getByRole("button", { name: "导出" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
