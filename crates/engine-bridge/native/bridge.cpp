@@ -122,6 +122,8 @@ void EngineSession::set_punctuation_lock(std::uint8_t lock) {
     session_.set_punctuation_lock(lock);
 }
 
+void EngineSession::set_paired_punctuation_enabled(bool enabled) { session_.set_paired_punctuation_enabled(enabled); }
+
 void EngineSession::set_dedicated_english(bool enabled) {
     session_.set_dedicated_english(enabled);
 }
