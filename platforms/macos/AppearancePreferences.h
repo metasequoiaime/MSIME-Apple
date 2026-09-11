@@ -17,6 +17,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
+@property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
