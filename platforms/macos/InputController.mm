@@ -15,6 +15,7 @@
 #import "CandidateChrome.h"
 #import "PreferencesWindowController.h"
 #include "CandidateSkin.h"
+#include "WubiCommitPolicy.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -392,7 +393,15 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     }
     if (!transition) return NO;
     [self apply:transition];
-    if ([transition[@"handled"] boolValue]) return YES;
+    if ([transition[@"handled"] boolValue]) {
+        NSString *scheme = _appearance.inputScheme;
+        NSString *editing = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
+        NSArray *candidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+        if ([scheme isEqualToString:@"wubi"] && [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientWubiAutoCommitUnique"] && editing.length == 4 && candidates.count == 1) {
+            [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+        }
+        return YES;
+    }
     if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return NO;

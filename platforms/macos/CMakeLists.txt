@@ -21,6 +21,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE main.mm InputSourceRegistration.mm PreferencesWindowController.mm InputController.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+target_include_directories(MSIMEClientInputMethod PRIVATE ../../vendor/MSIME-Engine/include)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")
 set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
