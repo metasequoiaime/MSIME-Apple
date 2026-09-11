@@ -75,6 +75,22 @@ impl HostSession {
             );
         }
         // A replacement changes the view generation, never the completed commit.
+        if result.view.character_width == CharacterWidth::Fullwidth {
+            if let Some(c) = result.commit.as_mut() {
+                *c = c
+                    .chars()
+                    .map(|x| {
+                        if x == ' ' {
+                            '\u{3000}'
+                        } else if ('!'..='~').contains(&x) {
+                            char::from_u32(x as u32 + 0xfee0).unwrap()
+                        } else {
+                            x
+                        }
+                    })
+                    .collect();
+            }
+        }
         result.view = self.runtime.view();
         result
     }
