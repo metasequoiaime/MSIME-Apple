@@ -79,3 +79,7 @@ add_executable(apple-stored-preferences-test tests/AppleStoredPreferencesTest.mm
 target_compile_options(apple-stored-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(apple-stored-preferences-test PRIVATE "-framework Foundation")
 add_test(NAME apple-stored-preferences COMMAND apple-stored-preferences-test)
+add_executable(frequency-adjustment-preference-test tests/FrequencyAdjustmentPreferenceTests.cpp)
+target_include_directories(frequency-adjustment-preference-test PRIVATE ../../vendor/MSIME-Engine/include)
+target_compile_options(frequency-adjustment-preference-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME frequency-adjustment-preference COMMAND frequency-adjustment-preference-test)
