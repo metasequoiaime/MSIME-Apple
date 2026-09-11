@@ -148,7 +148,12 @@ char *msime_client_view(uint64_t session);
  * is not eligible for an online provider. The caller may perform provider work
  * off-thread and pass the unchanged document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
-/* Return null or {generation,candidates:[{text}]} for visible candidate translations. */
+/* Return null or {generation,target_language,candidates:[{text}],
+ * custom_translation:{enabled,endpoint,api_key}|null} for visible candidate
+ * translations. The optional custom provider fields are present only when
+ * enabled in validated preferences and are intended for the user-owned Linux
+ * translation service.
+ */
 char *msime_client_translation_query(uint64_t session);
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
  * host performs network I/O and applies the copied result separately. */
