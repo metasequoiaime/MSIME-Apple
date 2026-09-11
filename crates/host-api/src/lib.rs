@@ -16,7 +16,7 @@ use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 mod dictionary;
-pub use dictionary::msime_client_dictionary;
+pub use dictionary::{dictionary_request_json, msime_client_dictionary};
 
 thread_local! {
     static SESSIONS: RefCell<HashMap<u64, HostSession>> = RefCell::new(HashMap::new());

@@ -2034,7 +2034,9 @@ name = "msime-desktop"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "msime-host-api",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

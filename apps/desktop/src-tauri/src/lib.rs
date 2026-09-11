@@ -2,9 +2,11 @@ use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+use std::sync::Arc;
 use tauri::Manager;
 
 struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
+struct DictionaryHostOptions(Arc<String>);
 
 #[derive(serde::Serialize)]
 struct CommandError {
@@ -48,6 +50,24 @@ async fn save_preferences(
         store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn dictionary_request(
+    state: tauri::State<'_, DictionaryHostOptions>,
+    action: serde_json::Value,
+) -> Result<serde_json::Value, CommandError> {
+    let options = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let options: serde_json::Value =
+            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let request = serde_json::json!({ "options": options, "action": action });
+        let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
+        msime_host_api::dictionary_request_json(&bytes)
+            .map_err(|_| CommandError { code: "storage" })
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -276,6 +296,15 @@ pub fn run() {
             let _ = clipboard.load();
             app.manage(std::sync::Arc::new(PreferencesStore::new(&directory)));
             app.manage(ClipboardHistoryState(std::sync::Mutex::new(clipboard)));
+            // Native packaging/installer supplies this verified HostOptions JSON.
+            // Webview input never controls resource or state paths.
+            let host_options = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+                .and_then(|value| std::fs::read_to_string(value).ok())
+                .ok_or_else(|| {
+                    "MSIME_CLIENT_HOST_OPTIONS must point to a prepared HostOptions JSON"
+                        .to_string()
+                })?;
+            app.manage(DictionaryHostOptions(Arc::new(host_options)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -284,7 +313,8 @@ pub fn run() {
             list_clipboard_history,
             clear_clipboard_history,
             sync_clipboard_history,
-            copy_text
+            copy_text,
+            dictionary_request
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
