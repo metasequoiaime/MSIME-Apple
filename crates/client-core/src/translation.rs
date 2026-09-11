@@ -24,6 +24,10 @@ pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: 
     hex::encode(sign(&signing_key, message))
 }
 
+pub fn tencent_tc3_canonical_request(payload_sha256: &str) -> String {
+    format!("POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\n{payload_sha256}")
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
