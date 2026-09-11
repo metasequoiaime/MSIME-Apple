@@ -85,6 +85,18 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_focus(_handle, focused), error);
 }
+- (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_english_mode(_handle, enabled), error);
+}
+- (nullable NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
+}
+- (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_character_width(_handle, fullwidth), error);
+}
 - (nullable NSDictionary *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_character(_handle, character, shift), error);

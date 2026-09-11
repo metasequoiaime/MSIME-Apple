@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { SettingsPage, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type ExternalSkinSummary } from "@msime/ui";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type EmojiPanelClient, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 const dictionary: DictionaryClient = {
@@ -14,24 +14,30 @@ const client: SettingsClient = {
     return invoke<Snapshot>("load_preferences");
   },
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
+  openExternalUrl: url => invoke("open_external_url", { url }),
+  copyText: text => invoke("copy_text", { text }),
+  openScreenKeyboard: () => invoke("open_keyboard_panel"),
+  openHandwriting: () => invoke("open_handwriting_panel"),
+  clipboard: {
+    clear: () => invoke("clear_clipboard_history"),
+    list: () => invoke<string[]>("list_clipboard_history"),
+    sync: () => invoke<string[]>("sync_clipboard_history"),
+    copy: text => invoke("copy_text", { text }),
+  },
   dictionary,
-  about: { openExternalUrl: url => invoke("open_external_url", { url }) },
-  feedback: { openExternalUrl: url => invoke("open_external_url", { url }) },
-  update: { check: () => invoke<{ found: boolean; version?: string; installer_name?: string; installer_sha256?: string; signed?: boolean }>("check_for_updates") },
-  diagnostics: {
-    server: enabled => invoke("set_diagnostic_log", { scope: "server", enabled }),
-    tsf: enabled => invoke("set_diagnostic_log", { scope: "tsf", enabled }),
-    state: scope => invoke<boolean>("get_diagnostic_log", { scope }),
-  },
-  clipboard: { clear: () => invoke("clear_clipboard_history"), list: () => invoke<string[]>("list_clipboard_history"), sync: () => invoke<string[]>("sync_clipboard_history"), copy: text => invoke("copy_text", { text }) },
-  screen_keyboard: { open: () => invoke("open_screen_keyboard") },
-  handwriting: { open: () => invoke("open_handwriting") },
-  skin: {
-    openDirectory: () => invoke("open_skin_directory"),
-    refresh: () => invoke("refresh_skin_catalog"),
-    list: () => invoke<ExternalSkinSummary[]>("list_external_skins"),
-    selected: () => invoke<string | null>("selected_skin"),
-    select: id => invoke("select_skin", { id }),
-  },
 };
-createRoot(document.getElementById("root")!).render(<StrictMode><SettingsPage client={client} /></StrictMode>);
+const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: EmojiPanelClient } = {
+  keyboard: { close: () => invoke("close_panel", { label: "keyboard-panel" }) },
+  handwriting: { close: () => invoke("close_panel", { label: "handwriting-panel" }) },
+  emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), copyText: text => invoke("copy_text", { text }), clipboard: {
+    list: () => invoke<string[]>("list_clipboard_history"),
+    sync: () => invoke<string[]>("sync_clipboard_history"),
+    copy: text => invoke("copy_text", { text }),
+  } },
+};
+const panel = new URLSearchParams(window.location.search).get("panel");
+const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
+  : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
+  : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />
+  : <SettingsPage client={client} />;
+createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);

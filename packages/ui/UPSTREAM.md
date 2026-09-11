@@ -34,3 +34,16 @@ same pinned Windows commit. Persisted defaults follow `config.toml`: English
 enabled with a two-character threshold, emoji and kaomoji disabled. The English
 threshold has eight choices and is disabled (but retained) when English mixing
 is off. Candidate generation and ordering remain owned by Engine.
+
+The utilities category and eight local-mode toggles follow
+`src/partials/tools-settings.html`; `src/assets/utilities.svg` is copied from
+`public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0). Descriptions
+are condensed for the shared cards. Clipboard history now uses the shared
+bounded store and desktop host actions; system clipboard observation remains a
+host responsibility. The quick-phrase CRUD/import/export manager is not
+migrated in this increment.
+
+The dedicated skin category follows `src/partials/skin.html` at the same pinned
+commit. The four built-in theme cards retain the shared `candidate_skin` values;
+the compact candidate previews are CSS adaptations for the React settings page.
+External skin directory scanning and live preview asset loading remain pending.

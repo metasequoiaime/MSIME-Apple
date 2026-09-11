@@ -26,7 +26,7 @@ impl ClipboardHistoryStore {
                 let values: Vec<String> = serde_json::from_slice(&bytes).unwrap_or_default();
                 self.entries = values
                     .into_iter()
-                    .filter(|v| valid(v))
+                    .filter(|value| valid(value))
                     .take(MAX_ENTRIES)
                     .collect();
                 Ok(())
@@ -61,10 +61,22 @@ impl ClipboardHistoryStore {
     }
 
     fn persist(&self) -> std::io::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let bytes = serde_json::to_vec(&self.entries).expect("clipboard entries are serializable");
         let temp = self.path.with_extension("json.tmp");
         fs::write(&temp, bytes)?;
-        fs::rename(temp, &self.path)
+        match fs::rename(&temp, &self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Windows does not replace an existing destination with rename(). The history
+                // is disposable state, so replace it only after the complete temp file exists.
+                fs::remove_file(&self.path)?;
+                fs::rename(temp, &self.path)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -75,10 +87,11 @@ fn valid(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn persists_deduplicates_and_clears() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("clipboard_history.json");
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("clipboard_history.json");
         let mut store = ClipboardHistoryStore::open(&path);
         assert!(store.push("second".into()).unwrap());
         assert!(store.push("first".into()).unwrap());
@@ -87,6 +100,17 @@ mod tests {
         loaded.load().unwrap();
         assert_eq!(loaded.entries(), &["second", "first"]);
         loaded.clear().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn rejects_control_and_oversized_text_without_writing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("clipboard_history.json");
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert!(!store.push("line\nfeed".into()).unwrap());
+        assert!(!store.push("x".repeat(MAX_TEXT_BYTES + 1)).unwrap());
+        assert!(store.entries().is_empty());
         assert!(!path.exists());
     }
 }

@@ -1,0 +1,47 @@
+import Foundation
+
+/// OpenAI-compatible AI candidate transport. The caller owns token storage and
+/// injects it for one request; this client never persists or logs credentials.
+struct BackendAiClient: Sendable {
+  struct Candidate: Decodable, Sendable { let text: String }
+  struct Result: Sendable { let candidates: [Candidate] }
+  private let session: URLSession
+
+  init(configuration: URLSessionConfiguration = .ephemeral) {
+    let configuration = configuration.copy() as! URLSessionConfiguration
+    configuration.httpCookieStorage = nil
+    configuration.urlCache = nil
+    session = URLSession(configuration: configuration)
+  }
+
+  func suggest(endpoint: URL, model: String, token: String,
+               segmentedPinyin: [String], context: String,
+               candidateLimit: Int) async throws -> Result {
+    guard endpoint.scheme == "https", endpoint.user == nil, endpoint.password == nil,
+          endpoint.fragment == nil, !model.isEmpty, model.utf8.count <= 256,
+          !token.isEmpty, !token.contains(where: { $0.isWhitespace }),
+          !segmentedPinyin.isEmpty, segmentedPinyin.count <= 128,
+          context.utf8.count <= 16 * 1024, (1...10).contains(candidateLimit)
+    else { throw URLError(.badURL) }
+    let prompt = "Return only JSON: {\"candidates\":[{\"text\":\"...\"}]}. Input pinyin: " + segmentedPinyin.joined(separator: " ") + " Context: " + context
+    let body: [String: Any] = ["model": model, "temperature": 0, "max_tokens": 256,
+                                "messages": [["role": "user", "content": prompt]]]
+    var request = URLRequest(url: endpoint)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 30
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 1024 * 1024 else { throw URLError(.badServerResponse) }
+    let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+    guard let content = envelope.choices.first?.message.content.data(using: .utf8) else { throw URLError(.cannotParseResponse) }
+    let result = try JSONDecoder().decode(ResultPayload.self, from: content)
+    guard result.candidates.count <= candidateLimit,
+          result.candidates.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 4096 }) else { throw URLError(.cannotParseResponse) }
+    return Result(candidates: result.candidates)
+  }
+
+  private struct Envelope: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message }; let choices: [Choice] }
+  private struct ResultPayload: Decodable { let candidates: [Candidate] }
+}

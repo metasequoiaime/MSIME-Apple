@@ -2027,7 +2027,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.20",
- "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -2036,12 +2035,10 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-host-api",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
- "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -2071,10 +2068,8 @@ dependencies = [
 name = "msime-input-runtime"
 version = "0.1.0"
 dependencies = [
- "msime-client-core",
  "msime-engine-bridge",
  "serde",
- "serde_json",
  "tempfile",
  "thiserror 2.0.20",
 ]

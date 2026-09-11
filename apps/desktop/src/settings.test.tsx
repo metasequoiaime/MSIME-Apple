@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -27,6 +27,18 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, mixed_input: { english: false, minimum_prefix: 8, emoji: true, kaomoji: true } });
+});
+
+test("traditional Chinese output toggle persists", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const toggle = await screen.findByRole("checkbox", { name: "繁体中文输出" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, traditional_chinese_output: true });
 });
 
 test("frequency values above the upstream dropdown range remain visible", async () => {
@@ -138,7 +150,214 @@ test("helpcode schemes save independently and retain disabled selections", async
     quanpin_helpcode: { enabled: false, schema: "xiaohe" },
     shuangpin_helpcode: { enabled: true, schema: "shouyou2_0" } });
 });
+
+test("shortcut page reflects enabled navigation shortcuts", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("候选操作")).toBeDefined();
+  expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
+  expect(screen.getByText("↑ / ↓")).toBeDefined();
+  expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
+});
+
+test("utility mode switches preserve defaults and drafts across pages", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  const unicode = await screen.findByRole("checkbox", { name: /^Unicode 便捷录入/ }) as HTMLInputElement;
+  expect(unicode.checked).toBe(true);
+  fireEvent.click(unicode);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(unicode.checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: { unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true } });
+});
+
+test("clipboard history defaults off, clears when disabled, and saves independently", async () => {
+  const clear = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })), clipboard: { clear } };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  const clipboard = await screen.findByRole("checkbox", { name: "剪贴板管理" }) as HTMLInputElement;
+  expect(clipboard.checked).toBe(false);
+  fireEvent.click(clipboard);
+  expect(clipboard.checked).toBe(true);
+  fireEvent.click(clipboard);
+  expect(clear).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, clipboard_history: false });
+});
+
+test("quick phrase manager queries, edits and removes Engine entries", async () => {
+  const quick = { kind: "quick_phrase" as const, key: "x", value: "fixture", weight: 100000 };
+  const list = vi.fn().mockResolvedValue({
+    entries: [quick, { kind: "pinyin" as const, key: "ni", value: "你好", weight: 100 }],
+    has_more: false,
+  });
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查询" }));
+  expect(await screen.findByText("fixture")).toBeDefined();
+  expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
+  expect(list).toHaveBeenCalledWith(0, 100);
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, { ...quick, value: "updated" }, expect.stringMatching(/^ui-edit-/)));
+  fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)));
+});
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
+
+test("candidate appearance settings persist and use legacy defaults", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
+  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
+  fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  expect((screen.getByRole("radio", { name: /Fluent/ }) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: /微信绿/ }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
+});
+
+test("floating toolbar settings use Windows defaults and persist independently", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const enabled = await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(true);
+  expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
+  expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
+  expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
+  fireEvent.change(screen.getByLabelText("图标尺寸"), { target: { value: "28" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "在桌面显示悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, floating_toolbar: {
+    enabled: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
+    screen_keyboard: true, settings: true, scale: 125, font_size: 28,
+  } });
+});
+
+test("help, about and feedback pages expose their Windows content and actions", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText("快速上手")).toBeDefined();
+  expect(screen.getByText(/Win \+ Space/)).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("Metasequoia IME")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE"));
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  expect(await screen.findByText("GitHub Issues")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
+  fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues"));
+});
+
+test("about page validates a newer release before offering its URL", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ version: "v1.2.0", releaseUrl: "https://github.com/metasequoiaime/MSIME-Windows/releases", signed: true }),
+  }));
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/releases"));
+  vi.unstubAllGlobals();
+});
+
+test("screen keyboard and handwriting pages expose the native panel actions", async () => {
+  const openScreenKeyboard = vi.fn().mockResolvedValue(undefined);
+  const openHandwriting = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openScreenKeyboard, openHandwriting };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(await screen.findByText("打开屏幕键盘")).toBeDefined();
+  expect(screen.getByLabelText("屏幕键盘预览")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(openScreenKeyboard).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
+  expect(await screen.findByText("打开手写识别板")).toBeDefined();
+  expect(screen.getByLabelText("手写识别板预览")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
+});
+
+test("native panel views support close, modifier, drawing and undo interactions", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const keyboard = render(<KeyboardPanel client={{ close }} />);
+  const shifts = screen.getAllByRole("button", { name: "Shift" });
+  fireEvent.click(shifts[0]);
+  expect(shifts[0].getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "A" }));
+  expect(screen.getByRole("status").textContent).toContain("Shift+A");
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  keyboard.unmount();
+
+  const panel = render(<HandwritingPanel client={{ close }} />);
+  const canvas = screen.getByLabelText("手写画布");
+  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+  fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+  expect(screen.getByRole("status").textContent).toContain("识别结果");
+  fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+  expect(screen.getByText("请在左侧书写，松开鼠标后自动识别")).toBeDefined();
+  panel.unmount();
+});
+
+test("emoji panel searches, copies items, tracks recent use and reads clipboard history", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const list = vi.fn().mockResolvedValue(["fixture clipboard entry"]);
+  const panel = render(<EmojiPanel client={{ close, copyText, clipboard: { list } }} />);
+
+  expect(screen.getByRole("heading", { name: "Emoji" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "😀" }));
+  fireEvent.click(screen.getByRole("button", { name: "😂" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith("😂"));
+  expect(screen.getByRole("status").textContent).toContain("已复制：😂");
+
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "laugh" } });
+  expect(screen.getByRole("button", { name: "😂" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(await screen.findByText("fixture clipboard entry")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "fixture clipboard entry" }));
+  await waitFor(() => expect(copyText).toHaveBeenLastCalledWith("fixture clipboard entry"));
+  expect(list).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  panel.unmount();
+});
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };

@@ -14,13 +14,15 @@ struct PreviewConfig {
   TsfPreeditStyle style;
   NavigationBindings navigation{};
   bool explicit_key_bindings = false;
+  bool floating_toolbar_enabled = true;
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
     const auto value = nlohmann::json::parse(document);
     if (!value.is_object() ||
-        value.size() != (value.contains("key_bindings") ? 6u : 5u) ||
+        value.size() != ((value.contains("key_bindings") ? 6u : 5u) +
+                         (value.contains("floating_toolbar_enabled") ? 1u : 0u)) ||
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
       throw std::invalid_argument("Invalid preview configuration");
@@ -64,6 +66,8 @@ struct PreviewConfig {
       else if (word != "disabled")
         throw std::invalid_argument("Invalid preview word binding");
     }
+    if (value.contains("floating_toolbar_enabled"))
+      result.floating_toolbar_enabled = value.at("floating_toolbar_enabled").get<bool>();
     return result;
   }
   std::array<std::wstring, 3> pipe_names() const {
