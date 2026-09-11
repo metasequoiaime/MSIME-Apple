@@ -41,10 +41,10 @@ use msime_engine_bridge::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -596,13 +596,30 @@ impl UnixSocketProvider {
         generation: u64,
         options: &Value,
     ) -> Option<String> {
+        self.voice_with_options_cancelled(language, generation, options, None)
+    }
+
+    /// Cancellable variant used by the IBus worker. The provider may still
+    /// take up to the socket read timeout to answer, but cancellation never
+    /// waits for the full thirty-second voice request deadline.
+    pub fn voice_with_options_cancelled(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+    ) -> Option<String> {
         if language.len() > 64 {
             return None;
         }
+        if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+            return None;
+        }
         let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-            .ok()?;
+        stream.set_read_timeout(Some(match cancelled {
+            Some(_) => std::time::Duration::from_millis(100),
+            None => std::time::Duration::from_secs(30),
+        })).ok()?;
         let mut request = json!({
             "version": 1,
             "kind": "voice",
@@ -621,8 +638,36 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        let mut line = Vec::new();
+        let mut reader = BufReader::new(stream);
+        loop {
+            if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+                return None;
+            }
+            let mut byte = [0u8; 512];
+            match reader.read(&mut byte) {
+                Ok(0) => break,
+                Ok(length) => {
+                    line.extend_from_slice(&byte[..length]);
+                    if line.contains(&b'\n') {
+                        if let Some(end) = line.iter().position(|value| *value == b'\n') {
+                            line.truncate(end);
+                        }
+                        break;
+                    }
+                    if line.len() > 8192 {
+                        return None;
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => continue,
+                Err(_) => return None,
+            }
+        }
+        let line = String::from_utf8(line).ok()?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,

@@ -124,7 +124,7 @@ struct State {
     voice_generation = 0;
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
-    voice_worker.cancel();
+    voice_worker.cancel_async();
     invalidate_providers();
     ++clipboard_generation;
     clipboard_loading = false;
@@ -1460,7 +1460,7 @@ void voice_cancel(IBusEngine *engine) {
     msime_client_string_free(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_generation = 0;
-  s.voice_worker.cancel();
+  s.voice_worker.cancel_async();
   publish_mode(engine);
 }
 void voice_start(IBusEngine *engine) {
