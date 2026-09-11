@@ -48,6 +48,8 @@ mod ffi {
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub paired_punctuation: bool,
+        pub punctuation_lock: u8,
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
