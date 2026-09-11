@@ -20,6 +20,7 @@ const pages = [
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "dictionary", title: "词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "cloud_dictionary", title: "云词库", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
@@ -70,6 +71,7 @@ export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   dictionary?: DictionaryClient;
+  cloudDictionary?: CloudDictionaryClient;
   screen_keyboard?: { open(): Promise<void> };
   handwriting?: { open(): Promise<void> };
   clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void>; list?(): Promise<string[]>; sync?(): Promise<string[]> };
@@ -186,6 +188,18 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }, [selectedSkin]);
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [phraseSearch, setPhraseSearch] = useState("");
+  const [cloudKind, setCloudKind] = useState<CloudDictionaryKind>("pinyin");
+  const [cloudSearch, setCloudSearch] = useState("");
+  const [cloudEntries, setCloudEntries] = useState<CloudDictionaryEntry[]>([]);
+  const [cloudOffset, setCloudOffset] = useState(0);
+  const [cloudHasMore, setCloudHasMore] = useState(false);
+  const [cloudError, setCloudError] = useState("");
+  async function loadCloud(offset = 0) {
+    if (!client.cloudDictionary) return;
+    setCloudError("");
+    try { const page = await client.cloudDictionary.list(cloudKind, cloudSearch, offset); setCloudEntries(page.entries); setCloudOffset(page.offset); setCloudHasMore(page.has_more); }
+    catch (reason) { setCloudError(message(reason)); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -528,6 +542,16 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>短语 <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
           {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
         </div> : <div className="section"><div className="section-title">用户词库</div><p className="notice">当前宿主未提供词库管理接口。</p></div>}
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "cloud_dictionary"} aria-label="云词库">
+        {client.cloudDictionary ? <div className="section" role="region" aria-label="云词库管理">
+          <div className="section-header"><span className="section-title">云词库<small>管理当前账户的云端词条。</small></span><button type="button" className="secondary" onClick={() => void loadCloud(0)}>查询</button></div>
+          <label>词库 <select value={cloudKind} onChange={event => setCloudKind(event.target.value as CloudDictionaryKind)}><option value="pinyin">拼音</option><option value="wubi">五笔</option><option value="quick">快捷短语</option><option value="english">英文</option></select></label>
+          <label>搜索 <input value={cloudSearch} onChange={event => setCloudSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void loadCloud(0); }} /></label>
+          {cloudError && <p role="alert" className="error">{cloudError}</p>}
+          <ul className="quick-phrase-list">{cloudEntries.map(entry => <li key={entry.id}><span><code>{entry.code}</code>　{entry.word}　<small>{entry.weight}</small></span></li>)}</ul>
+          <div><button type="button" className="secondary" disabled={cloudOffset === 0} onClick={() => void loadCloud(Math.max(0, cloudOffset - 100))}>上一页</button> <button type="button" className="secondary" disabled={!cloudHasMore} onClick={() => void loadCloud(cloudOffset + 100)}>下一页</button></div>
+        </div> : <div className="section"><p className="notice">当前宿主未提供云词库接口。</p></div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>{client.clipboard?.sync && <button type="button" className="secondary" onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}{client.clipboard?.list && <div className="help-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}</div>
