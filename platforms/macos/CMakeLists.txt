@@ -149,3 +149,8 @@ add_executable(helpcode-schema-preference-test tests/HelpcodeSchemaPreferenceTes
 target_include_directories(helpcode-schema-preference-test PRIVATE .)
 target_compile_options(helpcode-schema-preference-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME helpcode-schema-preference COMMAND helpcode-schema-preference-test)
+add_executable(candidate-panel-style-test tests/CandidatePanelStyleTest.mm)
+target_include_directories(candidate-panel-style-test PRIVATE .)
+target_compile_options(candidate-panel-style-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-panel-style-test PRIVATE "-framework AppKit" "-framework InputMethodKit")
+add_test(NAME candidate-panel-style COMMAND candidate-panel-style-test)
