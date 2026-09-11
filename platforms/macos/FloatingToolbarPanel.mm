@@ -1,16 +1,13 @@
 #import "FloatingToolbarPanel.h"
-#import "AppearancePreferences.h"
+#import "CandidateSkinAppearance.h"
 
 #include <algorithm>
 
 namespace
 {
-NSColor *MSIMEColorFromRgba(msime::mac::Rgba color) { return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a]; }
-BOOL MSIMEAppearanceIsDark(NSAppearance *appearance) { return [[appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]; }
-msime::mac::ResolvedSkin MSIMEResolveStoredCandidateSkin(BOOL dark) { return [[MSIMEAppearancePreferences sharedPreferences] resolvedSkinForDark:dark]; }
 constexpr CGFloat kToolbarWidth = 272.0;
 constexpr CGFloat kToolbarHeight = 44.0;
-NSString *const kToolbarFrameAutosaveName = @"MSIMEFloatingToolbarFrame";
+NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
 NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL action)
 {
@@ -55,7 +52,7 @@ NSScreen *ScreenContainingMouse()
 }
 } // namespace
 
-NSRect MSIMEFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
+NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
 {
     constexpr CGFloat kDefaultMargin = 20.0;
     constexpr CGFloat kRestoredMargin = 12.0;
@@ -76,7 +73,7 @@ NSRect MSIMEFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL
     return proposedFrame;
 }
 
-NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
+NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     // Every item targets the panel, an NSWindow subclass, and NSMenu's automatic enabling asks
@@ -113,13 +110,13 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     return menu;
 }
 
-@interface MSIMEFloatingToolbarChromeView : NSView
+@interface MetasequoiaFloatingToolbarChromeView : NSView
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *strokeColor;
 @end
-@implementation MSIMEFloatingToolbarChromeView
+@implementation MetasequoiaFloatingToolbarChromeView
 - (void)viewDidChangeEffectiveAppearance
 {
     [super viewDidChangeEffectiveAppearance];
@@ -146,9 +143,9 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
 }
 @end
 
-@implementation MSIMEFloatingToolbarPanel
+@implementation MetasequoiaFloatingToolbarPanel
 {
-    MSIMEFloatingToolbarChromeView *_chrome;
+    MetasequoiaFloatingToolbarChromeView *_chrome;
     NSButton *_inputModeButton;
     NSButton *_punctuationButton;
     NSButton *_fullWidthButton;
@@ -158,10 +155,10 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
 
 + (instancetype)sharedPanel
 {
-    static MSIMEFloatingToolbarPanel *panel = nil;
+    static MetasequoiaFloatingToolbarPanel *panel = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-      panel = [[MSIMEFloatingToolbarPanel alloc] init];
+      panel = [[MetasequoiaFloatingToolbarPanel alloc] init];
     });
     return panel;
 }
@@ -191,7 +188,7 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     // force: is required because this panel is borderless and therefore not resizable.
     [self setFrameUsingName:kToolbarFrameAutosaveName force:YES];
 
-    _chrome = [[MSIMEFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
+    _chrome = [[MetasequoiaFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
     _chrome.appearanceTarget = self;
     _chrome.appearanceAction = @selector(applySkin);
     _chrome.wantsLayer = YES;
@@ -199,13 +196,13 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     _chrome.layer.masksToBounds = YES;
     self.contentView = _chrome;
 
-    _inputModeButton = ToolbarButton(@"中", @"MSIMEFloatingToolbarInputMode", self, @selector(toggleInputMode:));
+    _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
     _punctuationButton =
-        ToolbarButton(@"。", @"MSIMEFloatingToolbarPunctuation", self, @selector(togglePunctuation:));
-    _fullWidthButton = ToolbarButton(@"半", @"MSIMEFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
+        ToolbarButton(@"。", @"MetasequoiaFloatingToolbarPunctuation", self, @selector(togglePunctuation:));
+    _fullWidthButton = ToolbarButton(@"半", @"MetasequoiaFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
     _traditionalOutputButton =
-        ToolbarButton(@"简", @"MSIMEFloatingToolbarTraditionalOutput", self, @selector(toggleTraditionalOutput:));
-    _settingsButton = ToolbarButton(@"", @"MSIMEFloatingToolbarSettings", self, @selector(showUtilityMenu:));
+        ToolbarButton(@"简", @"MetasequoiaFloatingToolbarTraditionalOutput", self, @selector(toggleTraditionalOutput:));
+    _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
     _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
@@ -227,7 +224,7 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     ]];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(applySkin)
-                                                 name:MSIMEAppearanceDidChangeNotification
+                                                 name:MetasequoiaCandidateSkinDidChangeNotification
                                                object:nil];
     [self applySkin];
     [self updateEnglishInputMode:NO
@@ -248,11 +245,11 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     {
         return;
     }
-    const msime::mac::ResolvedSkin skin =
-        MSIMEResolveStoredCandidateSkin(MSIMEAppearanceIsDark(_chrome.effectiveAppearance));
-    _chrome.fillColor = MSIMEColorFromRgba(skin.tokens.surface);
-    _chrome.strokeColor = MSIMEColorFromRgba(skin.tokens.border);
-    NSColor *text = MSIMEColorFromRgba(skin.tokens.text);
+    const metasequoia::mac::ResolvedSkin skin =
+        MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
+    _chrome.fillColor = MetasequoiaColorFromRgba(skin.tokens.surface);
+    _chrome.strokeColor = MetasequoiaColorFromRgba(skin.tokens.border);
+    NSColor *text = MetasequoiaColorFromRgba(skin.tokens.text);
     for (NSButton *button in
          @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton ])
     {
@@ -295,13 +292,13 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     [self applySkin];
 }
 
-- (void)activateForDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate visible:(BOOL)visible
+- (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
     self.toolbarDelegate = delegate;
     [self setVisible:visible forDelegate:delegate];
 }
 
-- (void)setVisible:(BOOL)visible forDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate
+- (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
 {
     if (self.toolbarDelegate != delegate)
     {
@@ -330,16 +327,16 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
     }
     if (screen != nil)
     {
-        [self setFrame:MSIMEFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
+        [self setFrame:MetasequoiaFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
     }
     [self orderFrontRegardless];
 }
 
-- (void)deactivateForDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate
+- (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
 {
     // A deallocating owner reads back as nil through the weak property, so a nil owner is treated as released by the
     // caller rather than as a mismatch.
-    id<MSIMEFloatingToolbarDelegate> owner = self.toolbarDelegate;
+    id<MetasequoiaFloatingToolbarDelegate> owner = self.toolbarDelegate;
     if (owner != nil && owner != delegate)
     {
         return;
@@ -404,7 +401,7 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target)
 
 - (void)showUtilityMenu:(NSButton *)sender
 {
-    NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(self);
+    NSMenu *menu = CreateMetasequoiaFloatingToolbarUtilityMenu(self);
     [menu popUpMenuPositioningItem:nil
                         atLocation:NSMakePoint(NSMinX(sender.bounds), NSMaxY(sender.bounds) + 4.0)
                             inView:sender];
