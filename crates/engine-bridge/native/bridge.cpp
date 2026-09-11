@@ -2,16 +2,44 @@
 #include <metasequoia/personal_dictionary.h>
 #include <metasequoia/dictionary_state.h>
 #include "msime-engine-bridge/src/lib.rs.h"
+#include <metasequoia/personal_dictionary.h>
 #include <stdexcept>
 
 namespace msime {
 namespace {
+metasequoia::RuntimePaths paths_for(const EngineOptions& value) {
+    return {std::filesystem::u8path(std::string(value.resources)),
+            std::filesystem::u8path(std::string(value.user_data)),
+            std::filesystem::u8path(std::string(value.cache)),
+            std::filesystem::u8path(std::string(value.dictionaries))};
+}
+metasequoia::PersonalDictionaryEntry entry_for(const DictionaryEntry& value) {
+    using Kind = metasequoia::PersonalDictionaryKind;
+    Kind kind;
+    switch (value.kind) {
+        case DictionaryKind::Pinyin: kind = Kind::Pinyin; break;
+        case DictionaryKind::Wubi: kind = Kind::Wubi; break;
+        case DictionaryKind::QuickPhrase: kind = Kind::QuickPhrase; break;
+        case DictionaryKind::English: kind = Kind::English; break;
+        default: throw std::invalid_argument("Unsupported dictionary kind");
+    }
+    return {kind, std::string(value.key), std::string(value.value), value.weight};
+}
+DictionaryEntry entry_for(const metasequoia::PersonalDictionaryEntry& value) {
+    using Kind = metasequoia::PersonalDictionaryKind;
+    DictionaryKind kind;
+    switch (value.kind) {
+        case Kind::Pinyin: kind = DictionaryKind::Pinyin; break;
+        case Kind::Wubi: kind = DictionaryKind::Wubi; break;
+        case Kind::QuickPhrase: kind = DictionaryKind::QuickPhrase; break;
+        case Kind::English: kind = DictionaryKind::English; break;
+        default: throw std::invalid_argument("Unsupported dictionary kind");
+    }
+    return {kind, value.key, value.value, value.weight};
+}
 metasequoia::SessionOptions options_for(const EngineOptions& value) {
     metasequoia::SessionOptions options;
-    options.paths = {std::filesystem::u8path(std::string(value.resources)),
-                     std::filesystem::u8path(std::string(value.user_data)),
-                     std::filesystem::u8path(std::string(value.cache)),
-                     std::filesystem::u8path(std::string(value.dictionaries))};
+    options.paths = paths_for(value);
     switch (value.scheme) {
         case 0: options.scheme = SchemeType::Quanpin; break;
         case 1: options.scheme = SchemeType::Shuangpin; break;
@@ -69,6 +97,24 @@ EngineSession::EngineSession(const EngineOptions& options) : session_(options_fo
     microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
+}
+DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit) {
+    auto page = metasequoia::personal_dictionary_entries(paths_for(options), offset, limit);
+    if (!page.error.empty()) throw std::runtime_error(page.error);
+    DictionaryPage result;
+    result.has_more = page.has_more;
+    for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
+    return result;
+}
+void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
+                     rust::Slice<const DictionaryEntry> replacement, rust::Str request_id) {
+    if (previous.size() > 1 || replacement.size() > 1)
+        throw std::invalid_argument("Expected at most one dictionary entry");
+    std::optional<metasequoia::PersonalDictionaryEntry> before, after;
+    if (!previous.empty()) before = entry_for(previous[0]);
+    if (!replacement.empty()) after = entry_for(replacement[0]);
+    auto result = metasequoia::edit_personal_dictionary(paths_for(options), before, after, std::string(request_id));
+    if (!result.success) throw std::runtime_error(result.error);
 }
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
