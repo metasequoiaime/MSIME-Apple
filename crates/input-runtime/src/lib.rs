@@ -239,6 +239,17 @@ impl OnlineProviderWorker {
     where
         F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
     {
+        Self::spawn_with_debounce(capacity, std::time::Duration::ZERO, provider)
+    }
+
+    pub fn spawn_with_debounce<F>(
+        capacity: usize,
+        debounce: std::time::Duration,
+        provider: F,
+    ) -> Result<Self, &'static str>
+    where
+        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+    {
         if capacity == 0 {
             return Err("provider queue capacity must be positive");
         }
@@ -252,6 +263,21 @@ impl OnlineProviderWorker {
                     // input to settle instead of querying every intermediate text.
                     while let Ok(newest) = incoming.try_recv() {
                         query = newest;
+                    }
+                    if !debounce.is_zero() {
+                        let deadline = std::time::Instant::now() + debounce;
+                        loop {
+                            let remaining =
+                                deadline.saturating_duration_since(std::time::Instant::now());
+                            if remaining.is_zero() {
+                                break;
+                            }
+                            match incoming.recv_timeout(remaining) {
+                                Ok(newest) => query = newest,
+                                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                            }
+                        }
                     }
                     if let Some((text, source)) = provider(query.clone()) {
                         if text.is_empty() || source > 1 {
