@@ -1066,7 +1066,12 @@ pub fn run() {
                 }
                 None => app.path().app_data_dir()?,
             };
-            app.manage(std::sync::Arc::new(PreferencesStore::new(&directory)));
+            let preferences_store = PreferencesStore::new(&directory);
+            let clipboard_enabled = preferences_store
+                .load()
+                .map(|snapshot| snapshot.preferences.clipboard_history)
+                .unwrap_or(true);
+            app.manage(std::sync::Arc::new(preferences_store));
             // Native packaging/installer supplies this verified JSON after resource
             // generation; never let a webview choose resource or state paths.
             let host_options = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -1082,7 +1087,7 @@ pub fn run() {
             let _ = clipboard.load();
             app.manage(ClipboardHistoryState {
                 store: std::sync::Mutex::new(clipboard),
-                enabled: std::sync::Mutex::new(true),
+                enabled: std::sync::Mutex::new(clipboard_enabled),
             });
             let selected_skin = app
                 .path()
