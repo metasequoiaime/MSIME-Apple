@@ -25,6 +25,19 @@ pub enum ChineseScheme {
     Wubi,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslationTargetLanguage {
+    #[default]
+    En,
+    Fr,
+    Ja,
+    Es,
+    Ru,
+    De,
+    Ko,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -94,6 +107,8 @@ pub struct Preferences {
     pub cloud_candidates: bool,
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
+    #[serde(default)]
+    pub translation_target_language: TranslationTargetLanguage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -523,6 +538,7 @@ impl Default for Preferences {
             clipboard_history: true,
             cloud_candidates: true,
             candidate_translations: true,
+            translation_target_language: TranslationTargetLanguage::default(),
         }
     }
 }
