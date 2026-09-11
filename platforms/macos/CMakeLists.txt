@@ -163,3 +163,7 @@ add_executable(input-controller-key-routing-test tests/InputControllerKeyRouting
 target_compile_options(input-controller-key-routing-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-controller-key-routing-test PRIVATE "-framework Carbon")
 add_test(NAME input-controller-key-routing COMMAND input-controller-key-routing-test)
+add_executable(input-mode-routing-test tests/InputModeRoutingTest.mm)
+target_compile_options(input-mode-routing-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(input-mode-routing-test PRIVATE "-framework AppKit" "-framework Carbon")
+add_test(NAME input-mode-routing COMMAND input-mode-routing-test)

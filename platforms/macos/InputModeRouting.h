@@ -1,14 +1,8 @@
 #pragma once
-
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
-
-namespace msime::mac
-{
-inline bool IsInputModeToggle(unsigned short keyCode, NSEventModifierFlags modifiers)
-{
-    const NSEventModifierFlags competingModifiers =
-        modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption);
-    return keyCode == kVK_Space && (modifiers & NSEventModifierFlagShift) != 0 && competingModifiers == 0;
+namespace msime::mac {
+inline bool IsInputModeToggle(unsigned short keyCode, NSEventModifierFlags modifiers) { const auto competing = modifiers & (NSEventModifierFlagCommand|NSEventModifierFlagControl|NSEventModifierFlagOption); return keyCode == kVK_Space && (modifiers & NSEventModifierFlagShift) && competing == 0; }
+inline bool ShouldToggleInputMode(bool enabled, unsigned short keyCode, NSEventModifierFlags modifiers) { return enabled && IsInputModeToggle(keyCode, modifiers); }
+inline bool ShouldPrepareInputSession(bool englishMode) { return !englishMode; }
 }
-} // namespace msime::mac
