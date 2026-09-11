@@ -6,6 +6,7 @@ use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
+use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -29,6 +30,7 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
+    voice: VoiceSessionState,
     page_size_override: Option<u8>,
     // Declared last so the Engine/runtime is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
@@ -464,6 +466,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
+                    voice: VoiceSessionState::default(),
                     page_size_override: None,
                     _dictionary_access: dictionary_access,
                 },
@@ -480,6 +483,49 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
             let result = session.runtime.focus(focused).map_err(|e| e.to_string())?;
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_voice_start(handle: u64) -> *mut c_char {
+    response(|| with_session(handle, |session| Ok(json!(session.voice.start()))))
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_voice_cancel(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.voice.cancel();
+            Ok(Value::Null)
+        })
+    })
+}
+
+/// Apply asynchronous ASR text only for the active voice token.
+///
+/// # Safety
+/// `text` must point to a readable UTF-8 buffer of `length` bytes and must not
+/// be null. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_apply(
+    handle: u64,
+    generation: u64,
+    text: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if text.is_null() || length > 65536 {
+            return Err("invalid voice text buffer".into());
+        }
+        let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, length) })
+            .map_err(|_| "voice text is not UTF-8")?;
+        with_session(handle, |session| {
+            Ok(session
+                .voice
+                .apply(generation, text)
+                .map(Value::String)
+                .unwrap_or(Value::Null))
         })
     })
 }
