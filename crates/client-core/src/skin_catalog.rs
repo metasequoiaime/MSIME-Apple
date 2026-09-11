@@ -1,10 +1,71 @@
 //! Safe discovery and validation of external candidate-skin manifests.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use toml::Value;
+
+/// Manifest values, not trusted CSS. Renderers must validate color syntax before
+/// inserting these strings into styles; scanning does not authorize CSS execution.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CandidatePalette {
+    pub accent: Option<String>,
+    pub selected: Option<String>,
+    pub hover: Option<String>,
+    pub surface: Option<String>,
+    pub border: Option<String>,
+    pub text: Option<String>,
+    pub number: Option<String>,
+    #[serde(rename(serialize = "showSelectedBar", deserialize = "show_selected_bar"))]
+    pub show_selected_bar: Option<bool>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CandidateColors {
+    pub dark: CandidatePalette,
+    pub light: CandidatePalette,
+}
+
+fn read_colors(table: &toml::map::Map<String, Value>) -> Result<CandidateColors, String> {
+    let Some(value) = table.get("candidate") else {
+        return Ok(CandidateColors::default());
+    };
+    let candidate = value.as_table().ok_or("invalid candidate colors")?;
+    for theme in ["dark", "light"] {
+        if candidate
+            .get(theme)
+            .is_some_and(|palette| !palette.is_table())
+        {
+            return Err("invalid candidate colors".into());
+        }
+    }
+    let colors: CandidateColors = value
+        .clone()
+        .try_into()
+        .map_err(|_| "invalid candidate colors")?;
+    for palette in [&colors.dark, &colors.light] {
+        for color in [
+            &palette.accent,
+            &palette.selected,
+            &palette.hover,
+            &palette.surface,
+            &palette.border,
+            &palette.text,
+            &palette.number,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if color.len() > 80 {
+                return Err("candidate color exceeds 80 bytes".into());
+            }
+        }
+    }
+    Ok(colors)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +83,7 @@ pub struct SkinSummary {
     pub decoration_width_dip: f64,
     pub toolbar_stylesheet: Option<String>,
     pub preview: Option<String>,
+    pub candidate: CandidateColors,
 }
 
 impl SkinSummary {
@@ -229,6 +291,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             return Err("invalid preview".into());
         }
     }
+    let candidate = read_colors(table)?;
     Ok(SkinSummary {
         id,
         name,
@@ -243,6 +306,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         decoration_width_dip: width,
         toolbar_stylesheet,
         preview,
+        candidate,
     })
 }
 
@@ -284,6 +348,78 @@ mod tests {
         fs::create_dir(&skin).unwrap();
         fs::write(skin.join("skin.toml"), body).unwrap();
         scan(root.path())
+    }
+
+    #[test]
+    fn candidate_palettes_preserve_both_themes_and_serialize_host_names() {
+        let body = format!("{}\n[candidate.dark]\naccent = '#123456'\nselected = '#234567'\nhover = '#345678'\nsurface = '#456789'\nborder = '#56789a'\ntext = '#6789ab'\nnumber = '#789abc'\nshow_selected_bar = false\n[candidate.light]\ntext = '#123'\nshow_selected_bar = true\n", manifest("sample"));
+        let catalog = scan_manifest(&body);
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        let json = serde_json::to_value(&catalog.packages[0]).unwrap();
+        assert_eq!(
+            json["candidate"]["dark"],
+            serde_json::json!({
+                "accent": "#123456", "selected": "#234567", "hover": "#345678",
+                "surface": "#456789", "border": "#56789a", "text": "#6789ab",
+                "number": "#789abc", "showSelectedBar": false,
+            })
+        );
+        assert_eq!(json["candidate"]["light"]["text"], "#123");
+        assert_eq!(json["candidate"]["light"]["showSelectedBar"], true);
+        assert!(json["candidate"]["light"]["accent"].is_null());
+        assert_eq!(
+            scan_manifest(&manifest("sample")).packages[0].candidate,
+            CandidateColors::default()
+        );
+    }
+
+    #[test]
+    fn candidate_color_fields_enforce_types_and_utf8_byte_limits() {
+        for theme in ["dark", "light"] {
+            for key in [
+                "accent", "selected", "hover", "surface", "border", "text", "number",
+            ] {
+                for value in [
+                    "false".to_owned(),
+                    "7".to_owned(),
+                    "[]".to_owned(),
+                    "{}".to_owned(),
+                    format!("'{}'", "a".repeat(81)),
+                    format!("'{}'", "色".repeat(27)),
+                ] {
+                    let body = format!(
+                        "{}\n[candidate.{theme}]\n{key} = {value}\n",
+                        manifest("sample")
+                    );
+                    let catalog = scan_manifest(&body);
+                    assert!(catalog.packages.is_empty(), "accepted {theme}.{key}");
+                    assert_eq!(catalog.issues.len(), 1);
+                }
+                for value in [String::new(), "a".repeat(80)] {
+                    let body = format!(
+                        "{}\n[candidate.{theme}]\n{key} = '{value}'\n",
+                        manifest("sample")
+                    );
+                    assert_eq!(scan_manifest(&body).packages.len(), 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn candidate_tables_and_selected_bar_reject_wrong_types() {
+        for suffix in [
+            "[candidate]\ndark = false",
+            "[candidate]\nlight = []",
+            "[candidate.dark]\nshow_selected_bar = 'false'",
+            "[candidate.light]\nshow_selected_bar = 1",
+        ] {
+            let catalog = scan_manifest(&format!("{}\n{suffix}\n", manifest("sample")));
+            assert!(catalog.packages.is_empty());
+            assert_eq!(catalog.issues[0].reason, "invalid candidate colors");
+        }
+        let body = format!("candidate = false\n{}", manifest("sample"));
+        assert!(scan_manifest(&body).packages.is_empty());
     }
 
     #[test]
@@ -432,6 +568,7 @@ mod tests {
                 decoration_width_dip: 0.0,
                 toolbar_stylesheet: None,
                 preview: None,
+                candidate: CandidateColors::default(),
             }],
             "{catalog:?}"
         );
