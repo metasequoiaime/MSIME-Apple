@@ -355,7 +355,7 @@ test("floating toolbar settings use Windows defaults and persist independently",
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, floating_toolbar: {
     enabled: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
-    screen_keyboard: true, settings: true, scale: 125, font_size: 28,
+    screen_keyboard: true, settings: true, scale_percent: 125, font_size: 28,
   } });
 });
 
