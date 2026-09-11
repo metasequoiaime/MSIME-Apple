@@ -91,11 +91,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     auto table = IBUS_LOOKUP_TABLE(object);
     seen.cursor = ibus_lookup_table_get_cursor_pos(table);
     for (guint i = 0; i < ibus_lookup_table_get_number_of_candidates(table);
-         ++i)
+         ++i) {
       seen.candidates.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_candidate(table, i)));
       seen.labels.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_label(table, i)));
+    }
     if (ibus_lookup_table_get_number_of_candidates(table) != 0) {
       auto text = ibus_lookup_table_get_candidate(table, 0);
       auto attributes = ibus_text_get_attributes(text);

@@ -97,7 +97,8 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
 }
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
-    microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3) {}
+    microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3),
+    shuangpin_profile_(options_for(options).shuangpin_profile.name) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
@@ -129,11 +130,52 @@ EngineSnapshot EngineSession::snapshot() const {
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
+    output.scheme = static_cast<std::uint8_t>(value.scheme);
+    output.shuangpin_profile = rust::String(shuangpin_profile_);
+    output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) output.candidates.push_back(rust::String(candidate.word));
+    for (const auto& candidate : value.candidates) {
+        output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+    }
     return output;
+}
+OnlineQuerySnapshot EngineSession::online_query() const {
+    OnlineQuerySnapshot output;
+    const auto query = session_.online_query();
+    if (!query.has_value()) return output;
+    output.available = true;
+    output.scheme = static_cast<std::uint8_t>(query->scheme);
+    output.generation = query->generation;
+    output.identity = query->identity;
+    output.query_text = query->query_text;
+    output.cache_key = query->cache_key;
+    for (const auto& segment : query->pinyin_segments)
+        output.pinyin_segments.push_back(rust::String(segment));
+    output.cloud_eligible = query->cloud_eligible;
+    output.ai_eligible = query->ai_eligible;
+    output.session_id = query->session_id;
+    return output;
+}
+bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
+                                           rust::Str candidate, std::uint8_t source) {
+    if (!query.available || (source != 0 && source != 1)) return false;
+    metasequoia::OnlineQuery request;
+    request.scheme = static_cast<SchemeType>(query.scheme);
+    request.generation = query.generation;
+    request.identity = std::string(query.identity);
+    request.query_text = std::string(query.query_text);
+    request.cache_key = std::string(query.cache_key);
+    for (const auto& segment : query.pinyin_segments)
+        request.pinyin_segments.emplace_back(std::string(segment));
+    request.cloud_eligible = query.cloud_eligible;
+    request.ai_eligible = query.ai_eligible;
+    request.session_id = query.session_id;
+    const auto kind = source == 0 ? CandidateSource::CloudSuggestion
+                                  : CandidateSource::AiSuggestion;
+    return session_.apply_online_candidate(request, std::string(candidate), kind);
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
@@ -155,6 +197,8 @@ EngineResult EngineSession::command(std::uint8_t value) {
     }
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
+EngineResult EngineSession::pin_candidate(std::size_t index) { return result_for(session_.pin(index)); }
+EngineResult EngineSession::remove_candidate(std::size_t index) { return result_for(session_.remove(index)); }
 EngineResult EngineSession::select_edge(std::size_t index, std::uint8_t edge) {
     if (edge > 1) throw std::invalid_argument("Invalid candidate edge");
     return result_for(session_.select_edge(index, edge == 0 ? metasequoia::CandidateEdge::FirstHan

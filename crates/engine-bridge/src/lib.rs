@@ -57,10 +57,14 @@ mod ffi {
     pub struct EngineSnapshot {
         pub local_mode: String,
         pub microsoft_shuangpin: bool,
+        pub shuangpin_profile: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub scheme: u8,
+        pub answered_by_pinyin_fallback: bool,
+        pub candidate_annotations: Vec<String>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
@@ -68,6 +72,19 @@ mod ffi {
         pub has_commit: bool,
         pub commit: String,
         pub diagnostic: String,
+    }
+    #[derive(Debug)]
+    pub struct OnlineQuerySnapshot {
+        pub available: bool,
+        pub scheme: u8,
+        pub generation: u64,
+        pub identity: String,
+        pub query_text: String,
+        pub cache_key: String,
+        pub pinyin_segments: Vec<String>,
+        pub cloud_eligible: bool,
+        pub ai_eligible: bool,
+        pub session_id: u64,
     }
     unsafe extern "C++" {
         include!("bridge.h");
@@ -91,10 +108,19 @@ mod ffi {
             content_id: &str,
         ) -> Result<EngineOptions>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
+        fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
+        fn apply_online_candidate(
+            self: Pin<&mut EngineSession>,
+            query: &OnlineQuerySnapshot,
+            candidate: &str,
+            source: u8,
+        ) -> Result<bool>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn select_edge(
             self: Pin<&mut EngineSession>,
             index: usize,
@@ -115,8 +141,10 @@ mod ffi {
     }
 }
 
-pub use ffi::{DictionaryEntry, DictionaryKind, DictionaryPage};
-pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
+pub use ffi::{
+    DictionaryEntry, DictionaryKind, DictionaryPage, EngineOptions, EngineResult,
+    EngineSnapshot, OnlineQuerySnapshot,
+};
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
 pub fn dictionary_entries(
@@ -190,6 +218,19 @@ impl Session {
     pub fn snapshot(&self) -> Result<EngineSnapshot, cxx::Exception> {
         self.inner.snapshot()
     }
+    pub fn online_query(&self) -> Result<OnlineQuerySnapshot, cxx::Exception> {
+        self.inner.online_query()
+    }
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuerySnapshot,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .apply_online_candidate(query, candidate, source)
+    }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
     }
@@ -198,6 +239,12 @@ impl Session {
     }
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
+    }
+    pub fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().pin_candidate(index)
+    }
+    pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().remove_candidate(index)
     }
     pub fn select_edge(
         &mut self,

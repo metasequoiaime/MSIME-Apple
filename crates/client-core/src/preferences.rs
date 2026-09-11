@@ -1,8 +1,8 @@
 //! Versioned local preferences. Hosts supply a private application data directory.
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
-use crate::voice::VoicePreferences;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +15,14 @@ pub enum InputScheme {
     Shuangpin,
     Wubi,
     Japanese,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultImeMode {
+    #[default]
+    Chinese,
+    English,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,15 +44,48 @@ pub enum PunctuationLock {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CandidateOrientation {
-    Horizontal,
+pub enum TranslationTargetLanguage {
     #[default]
-    Vertical,
+    En,
+    Fr,
+    Ja,
+    Es,
+    Ru,
+    De,
+    Ko,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
+    #[serde(default)]
+    pub default_ime_mode: DefaultImeMode,
+    #[serde(default)]
+    pub voice_input: VoiceInputPreferences,
+    #[serde(default)]
+    pub ai_assistant: AiAssistantPreferences,
+    #[serde(default)]
+    pub custom_translation: CustomTranslationPreferences,
+    #[serde(default)]
+    pub floating_toolbar: FloatingToolbarPreferences,
+    #[serde(default)]
+    pub theme: ThemeMode,
+    #[serde(default)]
+    pub settings_theme: SettingsTheme,
+    #[serde(default)]
+    pub candidate_theme: SettingsTheme,
+    #[serde(default = "default_candidate_skin")]
+    pub candidate_skin: String,
+    #[serde(default)]
+    pub candidate_layout: CandidateLayout,
+    #[serde(default)]
+    pub candidate_preedit_style: CandidatePreeditStyle,
+    #[serde(default)]
+    pub tsf_preedit_style: PreeditStyle,
+    #[serde(default)]
+    pub ui_backend: UiBackend,
+    #[serde(default = "enabled_by_default")]
+    pub candidate_follow_cursor: bool,
     pub scheme: InputScheme,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,10 +95,14 @@ pub struct Preferences {
     pub candidate_page_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
+    #[serde(default = "default_candidate_font_size")]
+    pub candidate_preedit_font_size: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_text_color: Option<String>,
+    #[serde(default = "default_candidate_font_family")]
+    pub candidate_font_family: String,
     #[serde(default)]
-    pub candidate_orientation: CandidateOrientation,
-    #[serde(default = "default_candidate_skin")]
-    pub candidate_skin: String,
+    pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -66,8 +111,10 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
-    #[serde(default)]
-    pub traditional_chinese_output: bool,
+    #[serde(default = "enabled_by_default")]
+    pub smart_punctuation: bool,
+    #[serde(default = "enabled_by_default")]
+    pub smart_punctuation_repeat: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
     #[serde(default)]
@@ -82,28 +129,152 @@ pub struct Preferences {
     pub mixed_input: MixedInputPreferences,
     #[serde(default)]
     pub local_modes: LocalModePreferences,
-    /// Records copied text only when the host explicitly observes clipboard events.
-    #[serde(default)]
+    #[serde(default = "enabled_by_default")]
     pub clipboard_history: bool,
+    /// Fetch one additional candidate from the configured cloud provider.
+    #[serde(default = "enabled_by_default")]
+    pub cloud_candidates: bool,
+    #[serde(default = "enabled_by_default")]
+    pub candidate_translations: bool,
     #[serde(default)]
-    pub floating_toolbar: FloatingToolbarPreferences,
-    #[serde(default)]
-    pub voice: VoicePreferences,
-    #[serde(default)]
-    pub ai_assistant: AiAssistantPreferences,
+    pub translation_target_language: TranslationTargetLanguage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AiAssistantPreferences {
+pub struct VoiceInputPreferences {
+    #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub sound_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub start_sound: bool,
+    #[serde(default = "enabled_by_default")]
+    pub end_sound: bool,
+    #[serde(default)]
+    pub mute_system_audio: bool,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub commit_mode: String,
+    #[serde(default)]
+    pub asr_provider: String,
+    #[serde(default)]
+    pub asr_app_key: String,
+    #[serde(default)]
+    pub asr_token: String,
+    #[serde(default)]
+    pub asr_endpoint: String,
+    #[serde(default)]
+    pub asr_model: String,
+    #[serde(default)]
+    pub polish_enabled: bool,
+    #[serde(default)]
+    pub polish_provider: String,
+    #[serde(default)]
+    pub polish_token: String,
+    #[serde(default)]
+    pub polish_endpoint: String,
+    #[serde(default)]
+    pub polish_model: String,
+    #[serde(default)]
+    pub polish_prompt_id: String,
+    #[serde(default)]
+    pub polish_prompt: String,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_ralt: bool,
+    #[serde(default)]
+    pub hotkey_ctrl_win: bool,
+    #[serde(default)]
+    pub hotkey_rctrl_ralt: bool,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_hold_space_lock: bool,
+    #[serde(default = "enabled_by_default")]
+    pub hotkey_ctrl_f9: bool,
+    #[serde(default = "enabled_by_default")]
+    pub doubao_enable_itn: bool,
+    #[serde(default = "enabled_by_default")]
+    pub doubao_enable_punc: bool,
+    #[serde(default)]
+    pub doubao_enable_ddc: bool,
+    #[serde(default)]
+    pub doubao_boosting_table_id: String,
+}
+
+impl Default for VoiceInputPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sound_enabled: true,
+            start_sound: true,
+            end_sound: true,
+            mute_system_audio: false,
+            language: "zh-cn".into(),
+            commit_mode: "tsf".into(),
+            asr_provider: "doubao".into(),
+            asr_app_key: String::new(),
+            asr_token: String::new(),
+            asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
+            asr_model: String::new(),
+            polish_enabled: false,
+            polish_provider: "siliconflow".into(),
+            polish_token: String::new(),
+            polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
+            polish_model: "Qwen/Qwen3-8B".into(),
+            polish_prompt_id: "cleanup".into(),
+            polish_prompt: String::new(),
+            hotkey_ralt: true,
+            hotkey_ctrl_win: false,
+            hotkey_rctrl_ralt: false,
+            hotkey_hold_space_lock: true,
+            hotkey_ctrl_f9: true,
+            doubao_enable_itn: true,
+            doubao_enable_punc: true,
+            doubao_enable_ddc: false,
+            doubao_boosting_table_id: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiAssistantPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
     pub provider: String,
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub tokens: BTreeMap<String, String>,
+    #[serde(default)]
     pub endpoint: String,
+    #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
+    #[serde(default)]
+    pub prompt_id: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
     pub prompt_custom_1: String,
+    #[serde(default)]
     pub prompt_custom_2: String,
+    #[serde(default)]
     pub prompt_custom_3: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CustomTranslationPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
+}
+
+fn default_ai_candidate_limit() -> u8 {
+    3
 }
 
 impl Default for AiAssistantPreferences {
@@ -111,9 +282,13 @@ impl Default for AiAssistantPreferences {
         Self {
             enabled: false,
             provider: "deepseek".into(),
-            model: "deepseek-v4-flash".into(),
-            endpoint: "https://api.deepseek.com/chat/completions".into(),
+            model: String::new(),
+            token: String::new(),
+            tokens: BTreeMap::new(),
+            endpoint: String::new(),
             candidate_limit: 3,
+            prompt_id: "custom_1".into(),
+            prompt: String::new(),
             prompt_custom_1: String::new(),
             prompt_custom_2: String::new(),
             prompt_custom_3: String::new(),
@@ -121,38 +296,100 @@ impl Default for AiAssistantPreferences {
     }
 }
 
-/// Settings for the optional host-provided floating toolbar.
-///
-/// `scale` is stored as a percentage so the preferences remain exactly
-/// comparable and portable across hosts. A value of 100 means 100%.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FloatingToolbarPreferences {
+    #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default = "default_toolbar_scale")]
+    pub scale_percent: u16,
+    #[serde(default = "default_toolbar_font_size")]
+    pub font_size: u16,
+    #[serde(default = "enabled_by_default")]
     pub fullwidth: bool,
+    #[serde(default = "enabled_by_default")]
     pub punctuation: bool,
+    #[serde(default = "enabled_by_default")]
     pub character_set: bool,
+    #[serde(default = "enabled_by_default")]
     pub emoji: bool,
+    #[serde(default)]
     pub screen_keyboard: bool,
+    #[serde(default = "enabled_by_default")]
     pub settings: bool,
-    pub scale: u16,
-    pub font_size: u8,
+}
+
+fn default_toolbar_scale() -> u16 {
+    100
+}
+fn default_toolbar_font_size() -> u16 {
+    24
 }
 
 impl Default for FloatingToolbarPreferences {
     fn default() -> Self {
         Self {
             enabled: true,
+            scale_percent: 100,
+            font_size: 24,
             fullwidth: true,
             punctuation: true,
             character_set: true,
             emoji: true,
             screen_keyboard: false,
             settings: true,
-            scale: 100,
-            font_size: 24,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingsTheme {
+    #[default]
+    Follow,
+    Dark,
+    Light,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateLayout {
+    Horizontal,
+    #[default]
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidatePreeditStyle {
+    #[default]
+    Pinyin,
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PreeditStyle {
+    #[default]
+    Raw,
+    Pinyin,
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiBackend {
+    #[default]
+    Direct2d,
+    Webview2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,31 +523,50 @@ impl Default for NavigationPreferences {
 fn enabled_by_default() -> bool {
     true
 }
-
 fn default_candidate_font_size() -> u8 {
-    18
+    16
 }
 
 fn default_candidate_skin() -> String {
     "fluent".to_owned()
 }
+fn default_candidate_font_family() -> String {
+    "Segoe UI".to_owned()
+}
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            default_ime_mode: DefaultImeMode::default(),
+            ai_assistant: AiAssistantPreferences::default(),
+            custom_translation: CustomTranslationPreferences::default(),
+            voice_input: VoiceInputPreferences::default(),
+            floating_toolbar: FloatingToolbarPreferences::default(),
+            theme: ThemeMode::default(),
+            settings_theme: SettingsTheme::default(),
+            candidate_theme: SettingsTheme::default(),
+            candidate_skin: default_candidate_skin(),
+            candidate_layout: CandidateLayout::default(),
+            candidate_preedit_style: CandidatePreeditStyle::default(),
+            tsf_preedit_style: PreeditStyle::default(),
+            ui_backend: UiBackend::default(),
+            candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
-            candidate_orientation: CandidateOrientation::default(),
-            candidate_skin: default_candidate_skin(),
+            candidate_preedit_font_size: default_candidate_font_size(),
+            candidate_text_color: None,
+            candidate_font_family: default_candidate_font_family(),
+            candidate_fallback_fonts: Vec::new(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
-            traditional_chinese_output: false,
+            smart_punctuation: true,
+            smart_punctuation_repeat: true,
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
@@ -318,10 +574,10 @@ impl Default for Preferences {
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
-            clipboard_history: false,
-            floating_toolbar: FloatingToolbarPreferences::default(),
-            voice: VoicePreferences::default(),
-            ai_assistant: AiAssistantPreferences::default(),
+            clipboard_history: true,
+            cloud_candidates: true,
+            candidate_translations: true,
+            translation_target_language: TranslationTargetLanguage::default(),
         }
     }
 }
@@ -389,6 +645,28 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        let translation = &self.custom_translation;
+        if translation.endpoint.len() > 2048
+            || translation.api_key.len() > 4096
+            || translation.endpoint.chars().any(char::is_control)
+            || translation.api_key.chars().any(char::is_control)
+            || (!translation.endpoint.is_empty() && !translation.endpoint.starts_with("https://"))
+        {
+            return Err(PreferencesError::InvalidCustomTranslation);
+        }
+        if !(1..=10).contains(&self.ai_assistant.candidate_limit)
+            || !matches!(
+                self.ai_assistant.provider.as_str(),
+                "deepseek" | "openai" | "siliconflow" | "groq"
+            )
+        {
+            return Err(PreferencesError::InvalidAiAssistant);
+        }
+        if !(50..=200).contains(&self.floating_toolbar.scale_percent)
+            || !(12..=48).contains(&self.floating_toolbar.font_size)
+        {
+            return Err(PreferencesError::InvalidFloatingToolbar);
+        }
         if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
             return Err(PreferencesError::InvalidMixedInput);
         }
@@ -397,46 +675,50 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFrequency);
         }
-        if !(1..=10).contains(&self.ai_assistant.candidate_limit)
-            || !matches!(
-                self.ai_assistant.provider.as_str(),
-                "deepseek" | "openai" | "siliconflow" | "groq"
-            )
-            || self.ai_assistant.model.is_empty()
-            || self.ai_assistant.model.len() > 256
-            || self.ai_assistant.endpoint.len() > 2048
-            || !self.ai_assistant.endpoint.starts_with("https://")
-        {
-            return Err(PreferencesError::InvalidAiAssistant);
-        }
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
-        if !matches!(self.candidate_font_size, 16 | 18 | 20) {
+        if !(12..=32).contains(&self.candidate_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
-        if !matches!(self.floating_toolbar.scale, 75 | 100 | 125 | 150)
-            || !matches!(
-                self.floating_toolbar.font_size,
-                16 | 18 | 20 | 22 | 24 | 26 | 28
-            )
+        if !(12..=32).contains(&self.candidate_preedit_font_size) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
+        if let Some(color) = &self.candidate_text_color {
+            if color.len() != 7
+                || color.as_bytes()[0] != b'#'
+                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(PreferencesError::InvalidCandidateTextColor);
+            }
+        }
+        if self.candidate_font_family.is_empty()
+            || self.candidate_font_family.len() > 128
+            || !self.candidate_font_family.is_ascii()
         {
-            return Err(PreferencesError::InvalidFloatingToolbar);
+            return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()
             || self.candidate_skin.len() > 64
             || !self.candidate_skin.is_ascii()
-            || !self
-                .candidate_skin
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-            || !self
-                .candidate_skin
-                .as_bytes()
-                .first()
-                .is_some_and(|byte| byte.is_ascii_alphanumeric())
+            || !self.candidate_skin.as_bytes()[0].is_ascii_alphanumeric()
+            || !self.candidate_skin.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || byte == b'.'
+                    || byte == b'_'
+                    || byte == b'-'
+            })
         {
             return Err(PreferencesError::InvalidCandidateSkin);
+        }
+        if self.candidate_fallback_fonts.len() > 8
+            || self
+                .candidate_fallback_fonts
+                .iter()
+                .any(|font| font.is_empty() || font.len() > 128 || !font.is_ascii())
+        {
+            return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
@@ -469,12 +751,20 @@ impl Default for PreferencesSnapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
+    #[error("floating toolbar settings are invalid")]
+    InvalidFloatingToolbar,
+    #[error("AI assistant provider or candidate limit is invalid")]
+    InvalidAiAssistant,
+    #[error("custom translation endpoint or API key is invalid")]
+    InvalidCustomTranslation,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
-    #[error("candidate font size must be 16, 18, or 20")]
+    #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
-    #[error("floating toolbar scale or font size is invalid")]
-    InvalidFloatingToolbar,
+    #[error("candidate text color must be #RRGGBB or omitted")]
+    InvalidCandidateTextColor,
+    #[error("candidate font family must be non-empty ASCII and at most 128 bytes")]
+    InvalidCandidateFontFamily,
     #[error("candidate skin identifier is invalid")]
     InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
@@ -483,8 +773,6 @@ pub enum PreferencesError {
     InvalidFrequency,
     #[error("mixed English minimum prefix must be between 1 and 8")]
     InvalidMixedInput,
-    #[error("AI assistant configuration is invalid")]
-    InvalidAiAssistant,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -603,6 +891,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_ime_mode_legacy_defaults_and_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("default_ime_mode");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.default_ime_mode,
+            DefaultImeMode::Chinese
+        );
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["default_ime_mode"] = "english".into();
+        let saved = store
+            .save(0, serde_json::from_value(value).unwrap())
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.default_ime_mode,
+            DefaultImeMode::English
+        );
+        assert_eq!(saved.preferences.default_ime_mode, DefaultImeMode::English);
+    }
+
+    #[test]
     fn local_mode_defaults_and_each_switch_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
@@ -641,100 +956,31 @@ mod tests {
     }
 
     #[test]
-    fn floating_toolbar_legacy_defaults_and_values_roundtrip() {
+    fn appearance_preferences_legacy_defaults_and_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
         let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        legacy["preferences"]
-            .as_object_mut()
-            .unwrap()
-            .remove("floating_toolbar");
+        for key in [
+            "theme",
+            "settings_theme",
+            "ui_backend",
+            "candidate_follow_cursor",
+        ] {
+            legacy["preferences"].as_object_mut().unwrap().remove(key);
+        }
         let bytes = serde_json::to_vec(&legacy).unwrap();
         fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(
-            store.load().unwrap().preferences.floating_toolbar,
-            FloatingToolbarPreferences::default()
-        );
+        assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
-
         let preferences = Preferences {
-            floating_toolbar: FloatingToolbarPreferences {
-                enabled: false,
-                fullwidth: false,
-                punctuation: true,
-                character_set: false,
-                emoji: false,
-                screen_keyboard: true,
-                settings: false,
-                scale: 125,
-                font_size: 28,
-            },
+            theme: ThemeMode::Light,
+            settings_theme: SettingsTheme::Dark,
+            ui_backend: UiBackend::Webview2,
+            candidate_follow_cursor: false,
             ..Preferences::default()
         };
         let saved = store.save(0, preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
-
-        for (scale, font_size) in [(74, 24), (151, 24), (100, 15), (100, 29)] {
-            let mut invalid = saved.preferences.clone();
-            invalid.floating_toolbar.scale = scale;
-            invalid.floating_toolbar.font_size = font_size;
-            assert!(matches!(
-                store.save(saved.revision, invalid),
-                Err(PreferencesError::InvalidFloatingToolbar)
-            ));
-            assert_eq!(store.load().unwrap(), saved);
-        }
-    }
-
-    #[test]
-    fn ai_assistant_legacy_defaults_and_candidate_limit_bounds() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PreferencesStore::new(dir.path());
-        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        legacy["preferences"]
-            .as_object_mut()
-            .unwrap()
-            .remove("ai_assistant");
-        let bytes = serde_json::to_vec(&legacy).unwrap();
-        fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(
-            store.load().unwrap().preferences.ai_assistant,
-            AiAssistantPreferences::default()
-        );
-        assert_eq!(fs::read(store.path()).unwrap(), bytes);
-        let saved = store
-            .save(
-                0,
-                Preferences {
-                    ai_assistant: AiAssistantPreferences {
-                        candidate_limit: 10,
-                        ..AiAssistantPreferences::default()
-                    },
-                    ..Preferences::default()
-                },
-            )
-            .unwrap();
-        assert_eq!(store.load().unwrap(), saved);
-        for limit in [0, 11] {
-            let mut invalid = saved.preferences.clone();
-            invalid.ai_assistant.candidate_limit = limit;
-            assert!(matches!(
-                store.save(saved.revision, invalid),
-                Err(PreferencesError::InvalidAiAssistant)
-            ));
-        }
-        for (provider, endpoint) in [
-            ("unknown", "https://ai.example"),
-            ("openai", "http://ai.example"),
-        ] {
-            let mut invalid = saved.preferences.clone();
-            invalid.ai_assistant.provider = provider.into();
-            invalid.ai_assistant.endpoint = endpoint.into();
-            assert!(matches!(
-                store.save(saved.revision, invalid),
-                Err(PreferencesError::InvalidAiAssistant)
-            ));
-        }
     }
 
     #[test]
@@ -1028,12 +1274,6 @@ mod tests {
             store.load().unwrap().preferences.shuangpin_profile,
             ShuangpinProfile::Xiaohe
         );
-        assert_eq!(store.load().unwrap().preferences.candidate_font_size, 18);
-        assert_eq!(store.load().unwrap().preferences.candidate_skin, "fluent");
-        assert_eq!(
-            store.load().unwrap().preferences.candidate_orientation,
-            CandidateOrientation::Vertical
-        );
         assert_eq!(fs::read_to_string(store.path()).unwrap(), legacy);
         let mut revision = 7;
         for profile in [
@@ -1118,7 +1358,31 @@ mod tests {
                 Err(PreferencesError::InvalidPageSize)
             ));
         }
-        for size in [0, 15, 21, 255] {
+        assert_eq!(store.load().unwrap(), initial);
+    }
+
+    #[test]
+    fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
+        let mut preferences = Preferences::default();
+        preferences.ai_assistant.provider = "unknown".into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAiAssistant)
+        ));
+        preferences.ai_assistant.provider = "openai".into();
+        preferences.ai_assistant.candidate_limit = 11;
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidAiAssistant)
+        ));
+    }
+
+    #[test]
+    fn candidate_font_size_bounds_are_strict() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let initial = store.save(0, Preferences::default()).unwrap();
+        for size in [11, 33, 255] {
             assert!(matches!(
                 store.save(
                     1,
@@ -1130,19 +1394,85 @@ mod tests {
                 Err(PreferencesError::InvalidCandidateFontSize)
             ));
         }
-        for skin in ["", "../escape", "-unsafe", "含中文"] {
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    candidate_font_size: 12,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.candidate_font_size, 12);
+        let other_dir = tempfile::tempdir().unwrap();
+        let other = PreferencesStore::new(other_dir.path());
+        other.save(0, Preferences::default()).unwrap();
+        let saved = other
+            .save(
+                1,
+                Preferences {
+                    candidate_font_size: 32,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.candidate_font_size, 32);
+        assert!(initial.preferences.candidate_font_size == 16);
+    }
+
+    #[test]
+    fn candidate_skin_ids_are_safe_and_bounded() {
+        let mut preferences = Preferences::default();
+        for skin in ["fluent", "willow_green", "external.skin-1"] {
+            preferences.candidate_skin = skin.to_owned();
+            assert!(preferences.validate().is_ok(), "{skin}");
+        }
+        for skin in ["", "-unsafe", "Upper", "../escape", &"a".repeat(65)] {
+            preferences.candidate_skin = skin.to_owned();
+            assert!(
+                matches!(
+                    preferences.validate(),
+                    Err(PreferencesError::InvalidCandidateSkin)
+                ),
+                "{skin}"
+            );
+        }
+    }
+
+    #[test]
+    fn candidate_fallback_fonts_reject_invalid_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let initial = store.save(0, Preferences::default()).unwrap();
+        for fonts in [
+            vec!["".to_owned()],
+            vec!["字体".to_owned()],
+            (0..9).map(|index| format!("Font{index}")).collect(),
+        ] {
             assert!(matches!(
                 store.save(
                     1,
                     Preferences {
-                        candidate_skin: skin.to_owned(),
+                        candidate_fallback_fonts: fonts,
                         ..Preferences::default()
                     }
                 ),
-                Err(PreferencesError::InvalidCandidateSkin)
+                Err(PreferencesError::InvalidCandidateFontFamily)
             ));
         }
-        assert_eq!(store.load().unwrap(), initial);
+        let valid = vec!["Noto Sans CJK SC".to_owned(); 8];
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    candidate_fallback_fonts: valid.clone(),
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.candidate_fallback_fonts, valid);
+        assert_eq!(store.load().unwrap().revision, 2);
+        assert_eq!(initial.revision, 1);
     }
 
     #[test]
@@ -1180,5 +1510,63 @@ mod tests {
                 .count(),
             7
         );
+    }
+
+    #[test]
+    fn floating_toolbar_component_defaults_and_roundtrip() {
+        let defaults = Preferences::default().floating_toolbar;
+        assert!(defaults.enabled && defaults.fullwidth && defaults.punctuation);
+        assert!(defaults.character_set && defaults.emoji && defaults.settings);
+        assert!(!defaults.screen_keyboard);
+        let json = serde_json::to_string(&Preferences::default()).unwrap();
+        let restored: Preferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.floating_toolbar, defaults);
+    }
+
+    #[test]
+    fn legacy_preferences_without_toolbar_use_component_defaults() {
+        let mut value = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        value["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("floating_toolbar");
+        let restored: PreferencesSnapshot = serde_json::from_value(value).unwrap();
+        assert!(restored.preferences.floating_toolbar.enabled);
+        assert!(restored.preferences.floating_toolbar.fullwidth);
+        assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    }
+
+    #[test]
+    fn custom_translation_defaults_and_validation_are_stable() {
+        let defaults = Preferences::default();
+        assert!(!defaults.custom_translation.enabled);
+        assert!(defaults.custom_translation.endpoint.is_empty());
+        let json = serde_json::to_string(&defaults).unwrap();
+        let restored: Preferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.custom_translation, defaults.custom_translation);
+
+        let mut valid = defaults.clone();
+        valid.custom_translation.endpoint = "https://translate.example/api".into();
+        valid.custom_translation.api_key = "masked-test-key".into();
+        assert!(valid.validate().is_ok());
+
+        for endpoint in [
+            "http://translate.example/api",
+            "ftp://translate.example/api",
+            "https://translate.example/\napi",
+        ] {
+            let mut invalid = defaults.clone();
+            invalid.custom_translation.endpoint = endpoint.into();
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidCustomTranslation)
+            ));
+        }
+        let mut oversized = defaults;
+        oversized.custom_translation.api_key = "x".repeat(4097);
+        assert!(matches!(
+            oversized.validate(),
+            Err(PreferencesError::InvalidCustomTranslation)
+        ));
     }
 }
