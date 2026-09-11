@@ -217,6 +217,8 @@ pub struct Candidate {
     pub annotation: String,
     /// Engine candidate source, stable for the lifetime of this view.
     pub source: u8,
+    /// Engine fixed-position slot, or zero when dynamically ranked.
+    pub fixed_position: u8,
     pub highlighted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
@@ -988,6 +990,12 @@ impl<E: InputEngine> Runtime<E> {
                         .get(index)
                         .copied()
                         .unwrap_or_default(),
+                    fixed_position: self
+                        .cached
+                        .candidate_positions
+                        .get(index)
+                        .copied()
+                        .unwrap_or_default(),
                     highlighted: index == self.highlighted,
                     translation: self.translations.get(text).cloned(),
                 })
@@ -1094,6 +1102,7 @@ impl<E: InputEngine> Runtime<E> {
                 nine_key_spellings: Vec::new(),
                 candidate_annotations: Vec::new(),
                 candidate_sources: Vec::new(),
+                candidate_positions: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
@@ -1114,6 +1123,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.candidates == previous.candidates
             && self.cached.candidate_annotations == previous.candidate_annotations
             && self.cached.candidate_sources == previous.candidate_sources
+            && self.cached.candidate_positions == previous.candidate_positions
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -1391,6 +1401,7 @@ mod tests {
                     .map(|(index, _)| format!("({index})"))
                     .collect(),
                 candidate_sources: vec![0; self.words.len()],
+                candidate_positions: vec![0; self.words.len()],
                 microsoft_shuangpin: false,
                 shuangpin_profile: "xiaohe".into(),
                 answered_by_pinyin_fallback: false,
