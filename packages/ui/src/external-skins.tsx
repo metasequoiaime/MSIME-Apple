@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
+import { useSkinImage, type SkinImageReader } from "./skin-image";
 
 type Palette = Partial<Record<"accent" | "selected" | "hover" | "surface" | "border" | "text" | "number", string | null>> & { showSelectedBar?: boolean | null };
 export type ExternalSkin = {
@@ -35,8 +36,8 @@ function paletteCss(scope: string, palette: Palette): string {
   return css + (palette.showSelectedBar === false ? `.${scope} .first::before{display:none !important}` : "");
 }
 
-function ExternalSkinCard({ skin, selected, layout, onSelect }: {
-  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void;
+function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revision }: {
+  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; revision: number;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   const theme = override ?? (skin.themes.includes("dark") ? "dark" : "light");
@@ -48,6 +49,9 @@ function ExternalSkinCard({ skin, selected, layout, onSelect }: {
   const top = dimension(skin.decorationTopDip, 500);
   const width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
+  const image = useSkinImage(readImage, skin.id, decorated ? skin.preview : null, revision);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  useEffect(() => setDecodeFailed(false), [image]);
   const geometry = {
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
@@ -67,18 +71,21 @@ function ExternalSkinCard({ skin, selected, layout, onSelect }: {
     </div>
     <div className={`skin-card-preview skin-${base} ${scope}`} style={geometry} data-preview-theme={theme} aria-hidden="true">
       <style>{paletteCss(scope, skin.candidate.dark) + (theme === "light" ? paletteCss(scope, skin.candidate.light) : "")}</style>
-      <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" decorated={decorated} /></div>
-      <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" decorated={decorated} /></div>
+      <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
+      <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
       <div className="skin-preview-stage"><SkinToolbarPreview /></div>
     </div>
-    {(skin.preview || skin.toolbarStylesheet) && <p className="skin-card-description external-skin-resource-note">当前预览包含基础样式与候选配色；外部图片和工具栏样式尚未接入。</p>}
+    {(image?.failed || decodeFailed) && <p role="status" className="skin-card-description external-skin-resource-note">皮肤图片加载失败，保留基础预览。可刷新皮肤重试。</p>}
+    {skin.preview && decorated && !readImage && <p className="skin-card-description external-skin-resource-note">当前宿主不支持皮肤图片预览。</p>}
+    {skin.toolbarStylesheet && <p className="skin-card-description external-skin-resource-note">外部工具栏样式尚未接入。</p>}
   </article>;
 }
 
-export function ExternalSkins({ scan, openDirectory, selected, layout, onSelect }: {
-  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; selected: string; layout: string; onSelect: (id: string) => void;
+export function ExternalSkins({ scan, openDirectory, readImage, selected, layout, onSelect }: {
+  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; readImage?: SkinImageReader; selected: string; layout: string; onSelect: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
+  const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const generation = useRef(0);
@@ -117,7 +124,7 @@ export function ExternalSkins({ scan, openDirectory, selected, layout, onSelect 
     setBusy(true); setFailed(false);
     try {
       const result = await scan();
-      if (current === generation.current) setCatalog(result);
+      if (current === generation.current) { setCatalog(result); setRevision(value => value + 1); }
     } catch {
       if (current === generation.current) setFailed(true);
     } finally {
@@ -135,7 +142,7 @@ export function ExternalSkins({ scan, openDirectory, selected, layout, onSelect 
     {openFailed && <p role="alert">无法打开皮肤目录，请重试。</p>}
     {failed && <p role="alert">读取皮肤目录失败，请重试。{catalog && "仍显示上次扫描结果。"}</p>}
     <div role="status">{!scan ? "当前宿主不支持扫描外部皮肤。" : busy ? "正在读取皮肤目录。" : !catalog ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。" : !catalog.packages.length ? "没有发现外部皮肤。" : ""}</div>
-    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} />)}</div>
+    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} readImage={readImage} revision={revision} />)}</div>
     {!!catalog?.issues.length && <details className="external-skin-diagnostics"><summary>已忽略 {catalog.issues.length} 个无效皮肤目录</summary><ul>{catalog.issues.map((issue, index) => <li key={index}>{issue.folder}：{issue.reason}</li>)}</ul></details>}
   </section>;
 }

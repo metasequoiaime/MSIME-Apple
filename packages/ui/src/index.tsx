@@ -3,6 +3,8 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
+import type { SkinImageReader } from "./skin-image";
+export type { SkinImage, SkinImageReader } from "./skin-image";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
@@ -159,6 +161,7 @@ const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
   scanSkinCatalog?: () => Promise<SkinCatalog>;
+  readSkinImage?: SkinImageReader;
   openSkinDirectory?: () => Promise<void>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
@@ -530,7 +533,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>
           </article>)}
         </div>
-        <ExternalSkins scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
+        <ExternalSkins scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} readImage={client.readSkinImage} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
         <div className="section floating-toolbar-card">
