@@ -290,7 +290,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
     {
         std::string viewRaw, error;
         msime::tsf::EngineResult view;
-        const UINT index = _pCandidateListUIPresenter->_GetSelectedCandidateIndex();
+        const UINT index = _pCandidateListUIPresenter->_GetSelectedEngineIndex();
         if (host->view(&viewRaw, &error) &&
             msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) &&
             view.view.generation != 0)
@@ -969,6 +969,15 @@ void CCandidateListUIPresenter::_SetText(_In_ CMetasequoiaImeArray<CCandidateLis
                                          BOOL isAddFindKeyCode)
 {
     PerfTimer timer;
+    _engineIndices.clear();
+    if (pCandidateList)
+    {
+        for (UINT i = 0; i < pCandidateList->Count(); ++i)
+        {
+            const auto *item = pCandidateList->GetAt(i);
+            _engineIndices.push_back(item ? item->_EngineIndex : i);
+        }
+    }
     if (!_isShowMode)
     {
         // Prefer the synchronous UiLessComposition pipe payload (already applied
