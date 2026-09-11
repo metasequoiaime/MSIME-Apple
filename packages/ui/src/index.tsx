@@ -496,18 +496,20 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。</div>
         <div className="skin-grid">
           {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
-            <label className="skin-card-select">
-            <input type="radio" name="candidate-skin" value={id} checked={(draft.candidate_skin ?? "fluent") === id} onChange={() => setDraft({ ...draft, candidate_skin: id })} />
-            <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
-              <SkinCandidatePreview orientation="horizontal" />
-              <SkinCandidatePreview orientation="vertical" />
-              <SkinToolbarPreview />
+            <div className="skin-card-header">
+              <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
+              <div className="skin-card-actions">
+                <button type="button" role="switch" aria-label={title} aria-checked={(draft.candidate_skin ?? "fluent") === id} className="skin-selection-switch" onClick={() => setDraft({ ...draft, candidate_skin: id })}><span /></button>
+                <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? "dark") === "dark" ? "light" : "dark" }))}>
+                  {(skinPreviewThemes[id] ?? "dark") === "dark" ? "预览浅色" : "预览深色"}
+                </button>
+              </div>
             </div>
-            <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
-            </label>
-            <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? "dark") === "dark" ? "light" : "dark" }))}>
-              {(skinPreviewThemes[id] ?? "dark") === "dark" ? "预览浅色" : "预览深色"}
-            </button>
+            <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
+              <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" /></div>
+              <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" /></div>
+              <div className="skin-preview-stage"><SkinToolbarPreview /></div>
+            </div>
           </article>)}
         </div>
       </fieldset>
