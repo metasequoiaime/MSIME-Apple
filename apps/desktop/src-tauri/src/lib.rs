@@ -12,7 +12,10 @@ use tauri::Manager;
 
 struct DictionaryHostOptions(Arc<String>);
 struct DiagnosticState(std::sync::Mutex<(bool, bool)>);
-struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
+struct ClipboardHistoryState {
+    store: std::sync::Mutex<ClipboardHistoryStore>,
+    enabled: std::sync::Mutex<bool>,
+}
 struct SkinState(std::sync::Mutex<Option<String>>);
 
 #[derive(Debug, serde::Serialize)]
@@ -370,7 +373,7 @@ fn clear_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
 ) -> Result<(), HostActionError> {
     state
-        .0
+        .store
         .lock()
         .map_err(|_| HostActionError {
             code: "unavailable",
@@ -385,7 +388,7 @@ fn clear_clipboard_history(
 fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
 ) -> Result<Vec<String>, HostActionError> {
-    let history = state.0.lock().map_err(|_| HostActionError {
+    let history = state.store.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
     Ok(history.entries().to_vec())
@@ -419,7 +422,12 @@ fn sync_clipboard_history(
     let text = String::from_utf8(output.stdout).map_err(|_| HostActionError {
         code: "unavailable",
     })?;
-    let mut history = state.0.lock().map_err(|_| HostActionError {
+    if !*state.enabled.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })? {
+        return Ok(Vec::new());
+    }
+    let mut history = state.store.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
     history
@@ -802,7 +810,7 @@ fn copy_text(
 ) -> Result<(), HostActionError> {
     let record = || {
         state
-            .0
+            .store
             .lock()
             .map_err(|_| HostActionError {
                 code: "unavailable",
@@ -1000,17 +1008,23 @@ async fn load_preferences(
 #[tauri::command]
 async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    clipboard: tauri::State<'_, ClipboardHistoryState>,
     expected_revision: u64,
     preferences: Preferences,
 ) -> Result<PreferencesSnapshot, CommandError> {
     let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)
     })
     .await
-    .map_err(|_| CommandError { code: "storage" })?
+    .map_err(|_| CommandError { code: "storage" })??;
+    *clipboard
+        .enabled
+        .lock()
+        .map_err(|_| CommandError { code: "storage" })? = result.preferences.clipboard_history;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1066,7 +1080,10 @@ pub fn run() {
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
-            app.manage(ClipboardHistoryState(std::sync::Mutex::new(clipboard)));
+            app.manage(ClipboardHistoryState {
+                store: std::sync::Mutex::new(clipboard),
+                enabled: std::sync::Mutex::new(true),
+            });
             let selected_skin = app
                 .path()
                 .app_data_dir()
