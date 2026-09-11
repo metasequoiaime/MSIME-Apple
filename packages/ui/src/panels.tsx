@@ -26,6 +26,16 @@ export interface VoicePanelClient extends PanelClient {
   recognizeVoice?(language: string): Promise<{ text: string }>;
 }
 
+export type CloudClipboardAction =
+  | { operation: "list"; search: string }
+  | { operation: "add"; text: string }
+  | { operation: "delete"; id: string }
+  | { operation: "set_enabled"; enabled: boolean };
+export type CloudClipboardItem = { id: string; text: string };
+export interface CloudClipboardPanelClient extends PanelClient {
+  request(action: CloudClipboardAction): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
+}
+
 export interface EmojiPanelClient extends PanelClient {
   copyText?(text: string): Promise<void>;
   clipboard?: {
@@ -208,6 +218,79 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <textarea aria-label="识别结果" value={text} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
       <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !client.sendText || busy}>提交到当前窗口</button>
       <p className="voice-panel-notice" role="status">{notice}</p>
+    </div>
+  </main>;
+}
+
+function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
+  return Array.isArray(value.items)
+    ? value.items.filter(item => item && typeof item.id === "string" && typeof item.text === "string")
+    : [];
+}
+
+export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
+  const [search, setSearch] = useState("");
+  const [items, setItems] = useState<CloudClipboardItem[]>([]);
+  const [draft, setDraft] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("只上传你明确选择的内容");
+
+  async function refresh(nextSearch = search) {
+    setBusy(true);
+    try {
+      const result = await client.request({ operation: "list", search: nextSearch });
+      setItems(cloudClipboardItems(result));
+      if (typeof result.enabled === "boolean") setEnabled(result.enabled);
+      setNotice("云剪贴板已刷新");
+    } catch { setNotice("无法访问云剪贴板服务"); }
+    finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+    void refresh("");
+  }, [client]);
+
+  async function add() {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      await client.request({ operation: "add", text: draft });
+      setDraft("");
+      await refresh(search);
+    } catch { setNotice("上传失败，请确认账户 provider 已连接"); setBusy(false); }
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    try { await client.request({ operation: "delete", id }); await refresh(search); }
+    catch { setNotice("删除失败"); setBusy(false); }
+  }
+
+  async function toggle() {
+    const next = !enabled;
+    setBusy(true);
+    try { const result = await client.request({ operation: "set_enabled", enabled: next }); setEnabled(typeof result.enabled === "boolean" ? result.enabled : next); setNotice(next ? "云剪贴板已开启" : "云剪贴板已关闭"); }
+    catch { setNotice("更新云剪贴板设置失败"); }
+    finally { setBusy(false); }
+  }
+
+  async function choose(item: CloudClipboardItem) {
+    if (!client.sendText) { setNotice("当前宿主未提供目标窗口提交能力"); return; }
+    try { await client.sendText(item.text); setNotice(`已输入：${item.text}`); }
+    catch { setNotice("提交失败，前台输入窗口可能已关闭"); }
+  }
+
+  return <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
+    <header className="native-panel-header"><span>水杉云剪贴板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <div className="cloud-clipboard-body">
+      <p className="cloud-clipboard-description">只上传你明确选择的文本，不自动读取本地剪贴板。</p>
+      <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy} /></label>
+      <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
+      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => setDraft(event.target.value)} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
+      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" onClick={() => void choose(item)}>{item.text}</button><button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
+      <p className="cloud-clipboard-notice" role="status">{notice}</p>
     </div>
   </main>;
 }

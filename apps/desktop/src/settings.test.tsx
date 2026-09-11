@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { CloudClipboardPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -476,6 +476,28 @@ test("voice panel requests recognition and submits the bounded result", async ()
   await waitFor(() => expect(sendText).toHaveBeenCalledWith("你好"));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+});
+
+test("cloud clipboard panel lists, uploads, deletes and submits entries", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const sendText = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "list") return { items: [{ id: "entry-1", text: "云端内容" }], enabled: true };
+    if (action.operation === "set_enabled") return { enabled: true };
+    return { items: [{ id: "entry-1", text: "云端内容" }], enabled: true };
+  });
+  const panel = render(<CloudClipboardPanel client={{ close, sendText, request }} />);
+  expect(await screen.findByText("云端内容")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "云端内容" }));
+  await waitFor(() => expect(sendText).toHaveBeenCalledWith("云端内容"));
+  fireEvent.change(screen.getByRole("textbox", { name: "待上传文本" }), { target: { value: "新的云端内容" } });
+  fireEvent.click(screen.getByRole("button", { name: "上传明确选择的文本" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", text: "新的云端内容" }));
+  fireEvent.click(screen.getByRole("button", { name: "删除 云端内容" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "delete", id: "entry-1" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  panel.unmount();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
