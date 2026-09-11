@@ -187,13 +187,27 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (!_session) return;
     if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
     if (_voiceService.active) { [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; return; }
-    NSError *error = nil;
-    if (![_voiceService startWithSession:_session generation:&_voiceGeneration error:&error]) return;
-    if (![_voiceService startTranscriptionWithLanguage:@"zh-CN" textHandler:^(NSString *text, BOOL final) {
-        (void)final;
-        [_voiceService applyText:text generation:_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [self apply:result]; }];
-    } error:&error]) { [_voiceService cancelWithError:nil]; return; }
-    if (![_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) { (void)buffer; } error:&error]) { [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; }
+    __weak MSIMEInputController *weakSelf = self;
+    void (^start)(void) = ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || !controller->_session) return;
+        NSError *error = nil;
+        if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
+        if (![controller->_voiceService startTranscriptionWithLanguage:@"zh-CN" textHandler:^(NSString *text, BOOL final) {
+            (void)final;
+            [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
+        } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
+        if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) { (void)buffer; } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; }
+    };
+    if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
+        [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
+        return;
+    }
+    if (_voiceService.microphoneAuthorizationStatus != AVAuthorizationStatusAuthorized) {
+        [_voiceService requestMicrophonePermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
+        return;
+    }
+    start();
 }
 - (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
 - (void)openCharacterPalette:(id)sender {
