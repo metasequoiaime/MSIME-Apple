@@ -354,7 +354,7 @@ void page(IBusEngine *engine, uint32_t command) {
   });
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
-  if ((std::string(name) != "InputEnabled" &&
+  if (!name || (std::string(name) != "InputEnabled" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates") ||
