@@ -1640,6 +1640,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     return FALSE;
   if (fullwidth_toggle) {
     s.fullwidth = !s.fullwidth;
+    guarded(engine, "toggle_character_width", [&] {
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_set_character_width(s.session, s.fullwidth));
+      publish_mode(engine);
+    });
     return TRUE;
   }
   if (modifier(key))
