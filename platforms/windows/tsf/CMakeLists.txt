@@ -28,6 +28,7 @@ add_library(msime-tsf SHARED
   UI/CandidateSessionState.cpp UI/CandidateListUIPresenter.cpp
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
+  EngineSessionAdapter.cpp EngineSessionAdapter.h
   IME/MetasequoiaIME.rc
 )
 
@@ -39,10 +40,15 @@ target_include_directories(msime-tsf PRIVATE
   Header IME IPC Key LanguageBar Register Tf Thread UI Utils
   ../../../vendor/MSIME-Engine/contracts
   ${UTF8CPP_INCLUDE_DIR}
+  ../../../../crates/host-api/include
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
 target_link_libraries(msime-tsf PRIVATE fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf)
+set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built msime-host library for the TSF DLL")
+if(MSIME_HOST_LIBRARY)
+  target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
+endif()
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
