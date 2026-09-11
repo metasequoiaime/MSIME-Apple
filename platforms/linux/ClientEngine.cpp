@@ -29,6 +29,7 @@ struct State {
   bool blocked = false;
   bool private_input = false;
   bool input_enabled = true;
+  bool chinese_punctuation = true;
   std::optional<bool> english_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
@@ -88,6 +89,15 @@ void publish_input_enabled(IBusEngine *engine, bool enabled) {
       ibus_text_new_from_static_string("输入启用"), "",
       ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
       TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+  g_object_unref(property);
+}
+void publish_punctuation(IBusEngine *engine, bool enabled) {
+  auto property = ibus_property_new(
+      "ChinesePunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
+      enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
   g_object_unref(property);
 }
@@ -241,7 +251,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
       clear(engine);
-      publish_input_enabled(engine, s.input_enabled);
+      publish_punctuation(engine, s.chinese_punctuation);
       handled = true;
       return;
     }
@@ -357,11 +367,20 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (!name || (std::string(name) != "InputEnabled" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
-       std::string(name) != "KaomojiCandidates") ||
+       std::string(name) != "KaomojiCandidates" &&
+       std::string(name) != "ChinesePunctuation") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
     auto &s = state(engine);
+    if (std::string(name) == "ChinesePunctuation") {
+      s.chinese_punctuation = value == PROP_STATE_CHECKED;
+      if (s.session)
+        apply(engine, msime_client_set_chinese_punctuation(
+                         s.session, s.chinese_punctuation));
+      publish_punctuation(engine, s.chinese_punctuation);
+      return;
+    }
     if (std::string(name) == "EnglishCandidates" ||
         std::string(name) == "EmojiCandidates" ||
         std::string(name) == "KaomojiCandidates") {
@@ -397,6 +416,13 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
       TRUE, PROP_STATE_CHECKED, nullptr);
   ibus_prop_list_append(properties, property);
+  auto punctuation = ibus_property_new(
+      "ChinesePunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
+      PROP_STATE_CHECKED, nullptr);
+  ibus_prop_list_append(properties, punctuation);
+  g_object_unref(punctuation);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
