@@ -29,6 +29,7 @@ import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
@@ -70,15 +71,24 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout clipboardPanel;
     private ScrollView schemeScroll;
     private LinearLayout schemePanel;
+    private ScrollView layoutSettingsScroll;
+    private LinearLayout layoutSettingsPanel;
+    private SeekBar keySpacingSlider;
+    private SeekBar rowSpacingSlider;
+    private TextView keySpacingValue;
+    private TextView rowSpacingValue;
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
+    private int touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
+    private int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
+    private Button layoutSettingsButton;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
@@ -109,6 +119,7 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject preferencesSnapshot;
     private long preferenceSaveGeneration;
     private boolean schemeSaving;
+    private boolean touchGeometrySaving;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
@@ -158,6 +169,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : preferences.optJSONObject("local_modes");
                 if (localModes == null) localModes = new JSONObject();
                 applyCandidateAppearance(preferences);
+                applyTouchGeometry(preferences);
                 applyClipboardPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
@@ -189,6 +201,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesDirectory = "";
         preferencesSnapshot = null;
         schemeSaving = false;
+        touchGeometrySaving = false;
         if (session != 0) {
             try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
@@ -200,6 +213,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
+        closeLayoutSettings();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -217,6 +231,13 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optInt("candidate_preedit_font_size", candidateFontSize));
     }
 
+    private void applyTouchGeometry(JSONObject preferences) {
+        touchKeySpacingTenths = KeyboardGeometry.keySpacing(preferences == null ? -1
+            : preferences.optInt("touch_key_spacing_tenths", -1));
+        touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
+            : preferences.optInt("touch_row_spacing_tenths", -1));
+    }
+
     private void applyClipboardPreference(JSONObject preferences) {
         clipboardHistoryEnabled = preferences != null
             && preferences.optBoolean("clipboard_history", false);
@@ -228,12 +249,17 @@ public final class MSIMEInputService extends InputMethodService {
             + candidateFontSize + ":" + candidatePreeditFontSize;
     }
 
+    private String touchGeometryKey() {
+        return touchKeySpacingTenths + ":" + touchRowSpacingTenths;
+    }
+
     private void reloadPreferences(String response) {
         if (session == 0) return;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
         String previousSkin = skin.id();
         String previousAppearance = candidateAppearanceKey();
+        String previousGeometry = touchGeometryKey();
         boolean previousClipboard = clipboardHistoryEnabled;
         KeyboardScheme previousScheme = selectedScheme;
         try {
@@ -246,6 +272,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
                 || !previousAppearance.equals(candidateAppearanceKey())
+                || !previousGeometry.equals(touchGeometryKey())
                 || previousClipboard != clipboardHistoryEnabled
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
@@ -263,6 +290,10 @@ public final class MSIMEInputService extends InputMethodService {
         int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
             preferences.optInt("candidate_preedit_font_size", nextFontSize));
+        int nextKeySpacing = KeyboardGeometry.keySpacing(
+            preferences.optInt("touch_key_spacing_tenths", -1));
+        int nextRowSpacing = KeyboardGeometry.rowSpacing(
+            preferences.optInt("touch_row_spacing_tenths", -1));
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
@@ -272,11 +303,15 @@ public final class MSIMEInputService extends InputMethodService {
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
         if (!allowLearning) sessionSnapshot.getJSONObject("preferences").put("learning", false);
         JSONObject result = value(NativeClient.updatePreferences(session, sessionSnapshot.toString()));
+        boolean geometryChanged = touchKeySpacingTenths != nextKeySpacing
+            || touchRowSpacingTenths != nextRowSpacing;
         skin = nextSkin;
         localModes = nextLocalModes;
         candidateHorizontal = nextHorizontal;
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
+        touchKeySpacingTenths = nextKeySpacing;
+        touchRowSpacingTenths = nextRowSpacing;
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
@@ -289,6 +324,8 @@ public final class MSIMEInputService extends InputMethodService {
         view = nextView;
         if (touchLayout(view) != STANDARD_TOUCH_LAYOUT) shift = false;
         if (rebuildLayout) rebuildKeyRows();
+        else if (geometryChanged) applyKeyboardGeometry();
+        renderLayoutSettingsState();
         preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
     }
 
@@ -412,6 +449,36 @@ public final class MSIMEInputService extends InputMethodService {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private int halfSpacingPixels(int tenths) {
+        return KeyboardGeometry.halfGapPixels(tenths,
+            getResources().getDisplayMetrics().density);
+    }
+
+    private void applyKeyboardGeometry(View node) {
+        CharSequence description = node.getContentDescription();
+        if (node instanceof Button && description != null
+                && description.toString().startsWith("按键 ")
+                && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
+            android.view.ViewGroup.MarginLayoutParams params =
+                (android.view.ViewGroup.MarginLayoutParams) node.getLayoutParams();
+            int horizontal = halfSpacingPixels(touchKeySpacingTenths);
+            int vertical = halfSpacingPixels(touchRowSpacingTenths);
+            params.setMargins(horizontal, vertical, horizontal, vertical);
+            node.setLayoutParams(params);
+        }
+        if (node instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) node;
+            for (int index = 0; index < group.getChildCount(); index++)
+                applyKeyboardGeometry(group.getChildAt(index));
+        }
+    }
+
+    private void applyKeyboardGeometry() {
+        if (keyRows == null) return;
+        applyKeyboardGeometry(keyRows);
+        keyRows.requestLayout();
+    }
+
     private void styleButton(Button button, boolean action) {
         boolean selected = button.isSelected();
         String background = selected ? skin.accent() : action ? skin.actionBackground() : skin.keyBackground();
@@ -451,6 +518,8 @@ public final class MSIMEInputService extends InputMethodService {
             expandedCandidates.setBackgroundColor(Color.parseColor(skin.background()));
         if (schemePanel != null)
             schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (layoutSettingsPanel != null)
+            layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
     }
@@ -513,13 +582,148 @@ public final class MSIMEInputService extends InputMethodService {
         if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
     }
 
+    private void closeLayoutSettings() {
+        if (layoutSettingsScroll != null) layoutSettingsScroll.setVisibility(View.GONE);
+    }
+
+    private void renderLayoutSettingsState() {
+        if (keySpacingSlider == null || rowSpacingSlider == null
+                || keySpacingValue == null || rowSpacingValue == null) return;
+        keySpacingSlider.setProgress(touchKeySpacingTenths);
+        rowSpacingSlider.setProgress(touchRowSpacingTenths);
+        keySpacingSlider.setEnabled(!touchGeometrySaving);
+        rowSpacingSlider.setEnabled(!touchGeometrySaving);
+        keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
+        rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
+    }
+
+    private void previewTouchGeometry(boolean keySpacing, int value) {
+        if (touchGeometrySaving) return;
+        if (keySpacing) touchKeySpacingTenths = KeyboardGeometry.keySpacing(value);
+        else touchRowSpacingTenths = KeyboardGeometry.rowSpacing(value);
+        renderLayoutSettingsState();
+        applyKeyboardGeometry();
+    }
+
+    private void configureSpacingSlider(SeekBar slider, boolean keySpacing) {
+        slider.setMin(keySpacing ? KeyboardGeometry.MIN_KEY_SPACING_TENTHS
+            : KeyboardGeometry.MIN_ROW_SPACING_TENTHS);
+        slider.setMax(keySpacing ? KeyboardGeometry.MAX_KEY_SPACING_TENTHS
+            : KeyboardGeometry.MAX_ROW_SPACING_TENTHS);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar source, int progress, boolean fromUser) {
+                if (fromUser) previewTouchGeometry(keySpacing, progress);
+            }
+            @Override public void onStartTrackingTouch(SeekBar source) { }
+            @Override public void onStopTrackingTouch(SeekBar source) { saveTouchGeometry(); }
+        });
+    }
+
+    private void showLayoutSettings() {
+        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+                || preferencesDirectory.isEmpty()) {
+            Toast.makeText(this, "键盘设置尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        renderLayoutSettingsState();
+        layoutSettingsScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void saveTouchGeometry() {
+        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+                || preferencesDirectory.isEmpty()) return;
+        JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
+        if (acceptedPreferences != null
+                && KeyboardGeometry.keySpacing(acceptedPreferences.optInt(
+                    "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
+                && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
+                    "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths) return;
+        final long targetSession = session;
+        final String targetDirectory = preferencesDirectory;
+        final JSONObject pending;
+        final long expectedRevision;
+        try {
+            pending = new JSONObject(preferencesSnapshot.toString());
+            expectedRevision = pending.getLong("revision");
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+            JSONObject preferences = pending.getJSONObject("preferences");
+            preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
+            preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+        } catch (JSONException error) {
+            preferencesNotice = " · 键盘间距保存失败，保留原设置";
+            render();
+            return;
+        }
+        touchGeometrySaving = true;
+        preferencesNotice = " · 正在保存键盘间距";
+        final long operation = ++preferenceSaveGeneration;
+        renderLayoutSettingsState();
+        render();
+        Runnable save = () -> {
+            String response;
+            try {
+                response = NativeClient.savePreferences(targetDirectory, expectedRevision,
+                    pending.toString());
+            } catch (Exception | LinkageError error) {
+                response = null;
+            }
+            final String savedResponse = response;
+            main.post(() -> finishTouchGeometrySave(operation, targetSession, targetDirectory,
+                savedResponse));
+        };
+        try {
+            preferencesWorker.execute(save);
+        } catch (RuntimeException error) {
+            if (operation == preferenceSaveGeneration) {
+                touchGeometrySaving = false;
+                preferencesNotice = " · 键盘间距保存失败，保留原设置";
+                renderLayoutSettingsState();
+                render();
+            }
+        }
+    }
+
+    private void finishTouchGeometrySave(long operation, long targetSession,
+                                         String targetDirectory, String response) {
+        if (operation != preferenceSaveGeneration || session != targetSession
+                || !targetDirectory.equals(preferencesDirectory)) return;
+        touchGeometrySaving = false;
+        try {
+            if (response == null) throw new JSONException("Preferences save unavailable");
+            JSONObject saved = value(response);
+            long savedRevision = saved.getLong("revision");
+            if (preferencesSnapshot != null
+                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+                applyKeyboardGeometry();
+                preferencesNotice = "";
+            } else {
+                applyPreferencesSnapshot(saved);
+                preferencesNotice = " · 键盘间距已保存";
+            }
+        } catch (JSONException | LinkageError error) {
+            if (preferencesSnapshot != null)
+                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+            applyKeyboardGeometry();
+            preferencesNotice = " · 键盘间距保存失败，已恢复原设置";
+            Toast.makeText(this, "键盘间距未能保存", Toast.LENGTH_SHORT).show();
+        }
+        renderLayoutSettingsState();
+        render();
+    }
+
     private void showSchemePicker() {
-        if (session == 0 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) {
+        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+                || preferencesDirectory.isEmpty()) {
             Toast.makeText(this, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
         closeCandidatePanel();
         closeClipboardHistory();
+        closeLayoutSettings();
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -569,7 +773,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void selectKeyboardScheme(KeyboardScheme scheme) {
-        if (schemeSaving || session == 0 || preferencesSnapshot == null
+        if (schemeSaving || touchGeometrySaving || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         if (scheme == selectedScheme) {
             closeSchemePicker();
@@ -714,6 +918,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!clipboardHistoryEnabled || clipboardScroll == null) return;
         closeCandidatePanel();
         closeSchemePicker();
+        closeLayoutSettings();
         renderClipboardHistory();
         clipboardScroll.setVisibility(View.VISIBLE);
     }
@@ -1248,14 +1453,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
             if (touchLayout(view) == HANDWRITING_LAYOUT) {
                 rebuildHandwritingRows();
+                applyKeyboardGeometry();
                 return;
             }
             if (touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
                 rebuildNineKeyRows();
+                applyKeyboardGeometry();
                 return;
             }
             if (touchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
                 rebuildJapaneseNineKeyRows();
+                applyKeyboardGeometry();
                 return;
             }
         }
@@ -1269,6 +1477,7 @@ public final class MSIMEInputService extends InputMethodService {
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1));
             }
         }
+        applyKeyboardGeometry();
     }
 
     private void addNineKey(LinearLayout parent, Button key) {
@@ -1602,6 +1811,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "切换", () -> switchToNextInputMethod(false));
         schemeButton = button(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
+        layoutSettingsButton = button(controls, "设置", this::showLayoutSettings);
+        layoutSettingsButton.setContentDescription("键盘设置");
         moreButton = button(controls, "更多", this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
         for (int index = 0; index < controls.getChildCount(); index++) {
@@ -1641,6 +1852,53 @@ public final class MSIMEInputService extends InputMethodService {
         schemeScroll.setVisibility(View.GONE);
         keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        layoutSettingsPanel = new LinearLayout(this);
+        layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
+        layoutSettingsPanel.setPadding(24, 16, 24, 16);
+        layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        layoutSettingsPanel.setContentDescription("键盘设置");
+        LinearLayout layoutHeader = new LinearLayout(this);
+        TextView layoutTitle = new TextView(this);
+        layoutTitle.setText("键盘设置");
+        layoutTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        layoutHeader.addView(layoutTitle, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button closeLayout = button(layoutHeader, "返回键盘", this::closeLayoutSettings);
+        closeLayout.setContentDescription("返回键盘");
+        layoutSettingsPanel.addView(layoutHeader);
+        LinearLayout keySpacingHeader = new LinearLayout(this);
+        TextView keySpacingLabel = new TextView(this);
+        keySpacingLabel.setText("按键间距");
+        keySpacingHeader.addView(keySpacingLabel, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        keySpacingValue = new TextView(this);
+        keySpacingHeader.addView(keySpacingValue);
+        layoutSettingsPanel.addView(keySpacingHeader);
+        keySpacingSlider = new SeekBar(this);
+        keySpacingSlider.setContentDescription("按键间距");
+        configureSpacingSlider(keySpacingSlider, true);
+        layoutSettingsPanel.addView(keySpacingSlider);
+        LinearLayout rowSpacingHeader = new LinearLayout(this);
+        TextView rowSpacingLabel = new TextView(this);
+        rowSpacingLabel.setText("行间距");
+        rowSpacingHeader.addView(rowSpacingLabel, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        rowSpacingValue = new TextView(this);
+        rowSpacingHeader.addView(rowSpacingValue);
+        layoutSettingsPanel.addView(rowSpacingHeader);
+        rowSpacingSlider = new SeekBar(this);
+        rowSpacingSlider.setContentDescription("行间距");
+        configureSpacingSlider(rowSpacingSlider, false);
+        layoutSettingsPanel.addView(rowSpacingSlider);
+        TextView layoutHint = new TextView(this);
+        layoutHint.setText("间距只改变键位外观，不改变输入方案；松手后自动保存。");
+        layoutSettingsPanel.addView(layoutHint);
+        layoutSettingsScroll = new ScrollView(this);
+        layoutSettingsScroll.addView(layoutSettingsPanel);
+        layoutSettingsScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        renderLayoutSettingsState();
         render();
         return keyboardRoot;
     }
@@ -1677,8 +1935,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (schemeButton != null) {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
-            schemeButton.setEnabled(session != 0 && preferencesSnapshot != null && !schemeSaving);
+            schemeButton.setEnabled(session != 0 && preferencesSnapshot != null
+                && !schemeSaving && !touchGeometrySaving);
         }
+        if (layoutSettingsButton != null)
+            layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
+                && !schemeSaving && !touchGeometrySaving);
         renderNineKeySpellings();
         if (candidates == null) {
             applySkin();
