@@ -29,6 +29,10 @@ const client: SettingsClient = {
     return window.maximize();
   },
   beginWindowDrag: () => getCurrentWindow().startDragging(),
+  resizeWindow: edge => getCurrentWindow().startResizeDragging({
+    n: "North", s: "South", e: "East", w: "West",
+    ne: "NorthEast", nw: "NorthWest", se: "SouthEast", sw: "SouthWest",
+  }[edge] as Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0]),
   onWindowStateChanged: async listener => {
     const window = getCurrentWindow();
     listener(await window.isMaximized());

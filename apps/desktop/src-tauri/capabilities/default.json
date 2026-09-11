@@ -1,1 +1,1 @@
-{ "identifier": "settings", "description": "Local settings window", "windows": ["main"], "permissions": ["core:default"] }
+{ "identifier": "settings", "description": "Local settings window", "windows": ["main"], "permissions": ["core:default", "core:window:allow-start-resize-dragging", "core:window:allow-start-dragging", "core:window:allow-minimize", "core:window:allow-maximize", "core:window:allow-unmaximize", "core:window:allow-close"] }
