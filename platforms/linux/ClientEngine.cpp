@@ -376,6 +376,16 @@ void online_schedule(IBusEngine *engine) {
     s.online_loading = false;
   }
 }
+void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
+  auto &s = state(IBUS_ENGINE(source));
+  s.translation_loading = false;
+  g_task_propagate_pointer(G_TASK(result), nullptr);
+}
+void online_complete(GObject *source, GAsyncResult *result, gpointer) {
+  auto &s = state(IBUS_ENGINE(source));
+  s.online_loading = false;
+  g_task_propagate_pointer(G_TASK(result), nullptr);
+}
 } // namespace
 
 struct MsimePreviewEngine {
