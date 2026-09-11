@@ -1817,27 +1817,23 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
 }
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
-  if ((button != 1 && button != 2 && button != 3) || flags || !state(engine).focused || state(engine).blocked ||
-      !state(engine).input_enabled)
+  if ((button != 1 && button != 2 && button != 3) || flags || !state(engine).focused ||
+      state(engine).blocked || !state(engine).input_enabled)
     return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
     const auto candidates = s.view.value("candidates", Json::array());
-    if (!s.session || !candidates.is_array() || index >= candidates.size())
-      return;
+    if (!s.session || !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
-    if (!entry.is_object() || !entry.contains("id") || !entry.at("id").is_object())
-      return;
-    auto id = entry.at("id");
-    if (id.at("session").get<uint64_t>() != s.session)
-      return;
+    if (!entry.is_object() || !entry.contains("id")) return;
+    const auto &id = entry.at("id");
+    if (!id.is_object() || id.at("session").get<uint64_t>() != s.session) return;
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
-    if (button == 3) {
+    if (button == 3)
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
-      return;
-    }
-    apply(engine, msime_client_select(s.session, generation, global_index));
+    else
+      apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }
 void page(IBusEngine *engine, uint32_t command) {
