@@ -3,6 +3,7 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { installSkinPalette } from "./skin-palette";
+import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 
 type Palette = Partial<Record<"accent" | "selected" | "hover" | "surface" | "border" | "text" | "number", string | null>> & { showSelectedBar?: boolean | null };
 export type ExternalSkin = {
@@ -38,12 +39,13 @@ function paletteCss(scope: string, palette: Palette): string[] {
   return css;
 }
 
-function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revision }: {
-  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; revision: number;
+function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readToolbarCss, revision }: {
+  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; readToolbarCss?: ToolbarCssReader; revision: number;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   const theme = override ?? (skin.themes.includes("dark") ? "dark" : "light");
   const scope = `external-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const toolbarState = useToolbarCss(readToolbarCss, skin.id, skin.toolbarStylesheet, revision, scope);
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
     try {
@@ -79,7 +81,7 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revisio
         <button type="button" className="skin-preview-switch" onClick={() => setOverride(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "预览浅色" : "预览深色"}</button>
       </div>
     </div>
-    <div className={`skin-card-preview skin-${base} ${scope}`} style={geometry} data-preview-theme={theme} aria-hidden="true">
+    <div className={`skin-card-preview skin-${base} ${scope}${theme === "light" ? " theme-light" : ""}`} style={geometry} data-preview-theme={theme} aria-hidden="true">
       <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
       <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
       <div className="skin-preview-stage"><SkinToolbarPreview /></div>
@@ -87,12 +89,14 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revisio
     {paletteFailed && <p role="status" className="skin-card-description external-skin-resource-note">当前浏览器无法应用皮肤配色，保留基础预览。</p>}
     {(image?.failed || decodeFailed) && <p role="status" className="skin-card-description external-skin-resource-note">皮肤图片加载失败，保留基础预览。可刷新皮肤重试。</p>}
     {skin.preview && decorated && !readImage && <p className="skin-card-description external-skin-resource-note">当前宿主不支持皮肤图片预览。</p>}
-    {skin.toolbarStylesheet && <p className="skin-card-description external-skin-resource-note">外部工具栏样式尚未接入。</p>}
+    {skin.toolbarStylesheet && !readToolbarCss && <p className="skin-card-description external-skin-resource-note">当前宿主不支持外部工具栏样式。</p>}
+    {toolbarState === "failed" && <p role="status">工具栏样式加载失败，保留基础预览。可刷新皮肤重试。</p>}
+    {toolbarState === "partial" && <p role="status">已应用工具栏基础样式；关联资源及部分规则尚未支持。</p>}
   </article>;
 }
 
-export function ExternalSkins({ scan, openDirectory, readImage, selected, layout, onSelect }: {
-  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; readImage?: SkinImageReader; selected: string; layout: string; onSelect: (id: string) => void;
+export function ExternalSkins({ scan, openDirectory, readImage, readToolbarCss, selected, layout, onSelect }: {
+  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; readImage?: SkinImageReader; readToolbarCss?: ToolbarCssReader; selected: string; layout: string; onSelect: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [revision, setRevision] = useState(0);
@@ -152,7 +156,7 @@ export function ExternalSkins({ scan, openDirectory, readImage, selected, layout
     {openFailed && <p role="alert">无法打开皮肤目录，请重试。</p>}
     {failed && <p role="alert">读取皮肤目录失败，请重试。{catalog && "仍显示上次扫描结果。"}</p>}
     <div role="status">{!scan ? "当前宿主不支持扫描外部皮肤。" : busy ? "正在读取皮肤目录。" : !catalog ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。" : !catalog.packages.length ? "没有发现外部皮肤。" : ""}</div>
-    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} readImage={readImage} revision={revision} />)}</div>
+    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} readImage={readImage} readToolbarCss={readToolbarCss} revision={revision} />)}</div>
     {!!catalog?.issues.length && <details className="external-skin-diagnostics"><summary>已忽略 {catalog.issues.length} 个无效皮肤目录</summary><ul>{catalog.issues.map((issue, index) => <li key={index}>{issue.folder}：{issue.reason}</li>)}</ul></details>}
   </section>;
 }

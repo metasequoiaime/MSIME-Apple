@@ -13,6 +13,7 @@ const dictionary: DictionaryClient = {
 };
 const client: SettingsClient = {
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
+  readSkinToolbarCss: id => invoke("read_skin_toolbar_stylesheet", { id }),
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
   load: () => {
