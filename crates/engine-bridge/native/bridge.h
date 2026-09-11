@@ -28,6 +28,9 @@ public:
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);
     void set_chinese_punctuation_enabled(bool enabled);
+    void set_paired_punctuation_enabled(bool enabled);
+    void set_punctuation_lock(std::uint8_t lock);
+    void set_dedicated_english(bool enabled);
 private:
     metasequoia::Session session_;
     bool microsoft_shuangpin_;

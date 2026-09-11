@@ -34,11 +34,13 @@ pub mod character_width {
     }
 }
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
+use msime_engine_bridge::{
+    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::{BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -710,6 +712,7 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            scheme: self.cached.scheme,
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),

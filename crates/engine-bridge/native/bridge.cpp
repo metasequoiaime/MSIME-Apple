@@ -103,7 +103,7 @@ EngineSnapshot EngineSession::snapshot() const {
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
     output.scheme = static_cast<std::uint8_t>(value.scheme);
-    output.shuangpin_profile = value.shuangpin_profile.name;
+    output.shuangpin_profile = rust::String(value.shuangpin_profile);
     output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
@@ -183,5 +183,15 @@ EngineResult EngineSession::punctuation(std::uint8_t value) {
 }
 void EngineSession::set_chinese_punctuation_enabled(bool enabled) {
     session_.set_chinese_punctuation_enabled(enabled);
+}
+void EngineSession::set_paired_punctuation_enabled(bool enabled) {
+    session_.set_paired_punctuation_enabled(enabled);
+}
+void EngineSession::set_punctuation_lock(std::uint8_t lock) {
+    if (lock > 2) throw std::invalid_argument("Invalid punctuation lock");
+    session_.set_punctuation_lock(static_cast<int>(lock));
+}
+void EngineSession::set_dedicated_english(bool enabled) {
+    session_.set_dedicated_english(enabled);
 }
 }
