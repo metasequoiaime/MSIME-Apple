@@ -1,6 +1,6 @@
-"""Read-only browser regression for the compiled skin-palette.ts module.
+"""Read-only browser regression for compiled skin-palette/skin-toolbar-css.
 
-Compile that module to a temporary directory, serve it on loopback, then pass
+Compile both modules to a temporary directory, serve it on loopback, then pass
 --url, the desktop --csp, and optionally --executable for installed Chromium.
 Requires Python Playwright. Does not launch the input method or touch user data.
 """
@@ -40,7 +40,15 @@ with sync_playwright() as playwright:
       if (getComputedStyle(first).color !== 'rgb(7, 8, 9)') throw Error('light override lost');
       removeLight(); removeLight(); removeSecond();
       if (document.adoptedStyleSheets.length !== 0 || getComputedStyle(first).color !== baseline) throw Error('stylesheet leak');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true};
+      const {installToolbarCss} = await import('/skin-toolbar-css.js');
+      const toolbar = installToolbarCss('card1', ':root { --skin-test: 7; } .sample { color: rgb(9, 8, 7); background-image: url(https://invalid.example/image.png); } @media screen { .sample { border-top: 3px solid rgb(1, 2, 3); } } @supports (display: block) { .sample { padding-left: 4px; } } @keyframes unsafe-global { from { opacity: 0; } to { opacity: 1; } } } body { display:none }');
+      if (!toolbar.partial || getComputedStyle(first).color !== 'rgb(9, 8, 7)' || getComputedStyle(second).color !== baseline) throw Error('toolbar scope failed');
+      if (getComputedStyle(first).borderTopWidth !== '3px' || getComputedStyle(first).paddingLeft !== '4px') throw Error('conditional toolbar rules lost');
+      if (getComputedStyle(document.querySelector('.card1')).getPropertyValue('--skin-test').trim() !== '7') throw Error('root mapping failed');
+      if (getComputedStyle(document.body).display === 'none' || getComputedStyle(first).backgroundImage !== 'none') throw Error('toolbar escape or resource rule retained');
+      toolbar.remove();
+      if (document.adoptedStyleSheets.length || getComputedStyle(first).color !== baseline) throw Error('toolbar cleanup failed');
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, resourceRulesDeferred:true};
     }""")
     print(result)
     browser.close()

@@ -28,12 +28,21 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
 
+test("settings forwards the declared toolbar reader using only package id", async () => {
+  const readSkinToolbarCss = vi.fn().mockResolvedValue(null);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), readSkinToolbarCss,
+    scanSkinCatalog: async () => ({ ...catalog, packages: [{ ...catalog.packages[0], toolbarStylesheet: "toolbar.css" }] }) }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  refresh();
+  await waitFor(() => expect(readSkinToolbarCss).toHaveBeenCalledExactlyOnceWith("sample"));
+});
+
 test("palette sheets replace on theme change and disappear when cards unmount", async () => {
   const mounted = render(<ExternalSkins {...props} scan={async () => catalog} />);
   refresh();
   const card = await screen.findByRole("article");
   expect(card.querySelector("style")).toBeNull();
-  expect(document.adoptedStyleSheets).toHaveLength(1);
+  await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
   const previous = document.adoptedStyleSheets[0];
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(document.adoptedStyleSheets).toHaveLength(1);

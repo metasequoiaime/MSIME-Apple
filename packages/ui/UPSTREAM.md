@@ -168,3 +168,17 @@ with `--url http://127.0.0.1:<port>`, `--csp` from the desktop Tauri config and
 optionally `--executable <installed-chromium>`. Python Playwright is required.
 Stop the temporary server afterward. The fixture is synthetic and does not
 launch the native input method or access user input data.
+
+External toolbar styles now connect the manifest-owned host reader to a
+constructed `@scope` around the external preview, following the fixed Windows
+`skin.ts` parse-then-insert approach. Ordinary rules, media/supports groups,
+`:root` mapping and light-theme selectors are wired; refresh/unmount remove
+owned sheets and late reads cannot install stale rules. Browser capability or
+parse/read failure retains the base preview. CSP is unchanged.
+
+This is partial stylesheet support, not full parity: resource-valued/escaped
+declarations, imports, nested style rules and global font/keyframe/other at-rules
+are deferred with a visible partial-support notice. Resource URL rewriting and
+global name isolation remain follow-ups. Compile both `skin-palette.ts` and
+`skin-toolbar-css.ts` for the manual Chromium regression above; it verifies
+computed styles, conditional rules, root mapping, scope containment and cleanup.
