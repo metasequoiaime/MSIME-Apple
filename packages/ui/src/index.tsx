@@ -51,7 +51,7 @@ export type Preferences = {
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
   candidate_font_size?: 16 | 18 | 20;
-  candidate_orientation?: "horizontal" | "vertical";
+  candidate_layout?: "horizontal" | "vertical";
   candidate_skin?: "fluent" | "wechat" | "graphite" | "willow_green";
   learning: boolean;
   autocorrect?: boolean;
@@ -422,7 +422,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
-        <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_orientation ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_orientation: event.target.value as Preferences["candidate_orientation"] })}>
+        <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
