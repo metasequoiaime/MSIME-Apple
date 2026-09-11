@@ -186,6 +186,9 @@ if(WIN32)
   endif()
   add_test(NAME windows-emoji-panel-help COMMAND msime-client-emoji-panel --help)
   set_tests_properties(windows-emoji-panel-help PROPERTIES TIMEOUT 5)
+  install(TARGETS msime-client-server msime-client-keyboard-panel
+                  msime-client-handwriting-panel msime-client-emoji-panel
+          RUNTIME DESTINATION bin)
 endif()
 add_test(NAME windows-session COMMAND windows-session-smoke)
 add_executable(windows-runner-probe tests/runner_probe.cpp)
