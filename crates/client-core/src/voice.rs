@@ -16,7 +16,13 @@ pub struct VoicePreferences {
 }
 
 impl Default for VoicePreferences {
-    fn default() -> Self { Self { enabled: true, provider: VoiceProvider::LocalWhisper, language: "zh-CN".into() } }
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: VoiceProvider::LocalWhisper,
+            language: "zh-CN".into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
