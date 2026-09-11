@@ -54,3 +54,9 @@ and `close.svg`) come from the upstream settings `public/assets/` directory at
 a final newline added. Dimensions and light-theme filters follow that commit's
 `src/styles/components/titlebar.css`. Maximize/restore icons follow the injected
 host state subscription; native behavior and full visual parity remain unverified.
+
+Titlebar drag initiation follows `src/main.ts` at `04a8df56`: primary press,
+two-pixel Manhattan movement threshold, no second double-click press, and no
+drag/maximize on resize edges. The shared React host uses pointer cancellation,
+leave and window blur to discard pending gestures. Native drag delivery and
+maximized-window restore-on-drag still require actual platform verification.
