@@ -348,6 +348,15 @@ struct HostActionError {
     code: &'static str,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct UpdateSummary {
+    found: bool,
+    version: Option<String>,
+    installer_name: Option<String>,
+    installer_sha256: Option<String>,
+    signed: Option<bool>,
+}
+
 #[tauri::command]
 fn clear_clipboard_history(
     app: tauri::AppHandle,
@@ -536,7 +545,7 @@ mod tests {
     }
 }
 
-fn check_for_updates_blocking() -> Result<bool, HostActionError> {
+fn check_for_updates_blocking() -> Result<UpdateSummary, HostActionError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .user_agent(concat!("MSIME-Client/", env!("CARGO_PKG_VERSION")))
@@ -599,9 +608,27 @@ fn check_for_updates_blocking() -> Result<bool, HostActionError> {
             });
         }
         open_external_url(url.to_owned())?;
-        return Ok(true);
+        return Ok(UpdateSummary {
+            found: true,
+            version: Some(version.to_owned()),
+            installer_name: manifest
+                .get("installerName")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            installer_sha256: manifest
+                .get("installerSha256")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            signed: manifest.get("signed").and_then(serde_json::Value::as_bool),
+        });
     }
-    Ok(false)
+    Ok(UpdateSummary {
+        found: false,
+        version: None,
+        installer_name: None,
+        installer_sha256: None,
+        signed: None,
+    })
 }
 
 fn validate_update_metadata(manifest: &serde_json::Value) -> Result<(), HostActionError> {
@@ -641,7 +668,7 @@ fn validate_update_metadata(manifest: &serde_json::Value) -> Result<(), HostActi
 }
 
 #[tauri::command]
-async fn check_for_updates() -> Result<bool, HostActionError> {
+async fn check_for_updates() -> Result<UpdateSummary, HostActionError> {
     tauri::async_runtime::spawn_blocking(check_for_updates_blocking)
         .await
         .map_err(|_| HostActionError {
