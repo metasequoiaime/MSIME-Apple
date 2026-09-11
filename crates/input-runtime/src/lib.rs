@@ -1420,4 +1420,45 @@ mod tests {
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_translation_provider_round_trips_generation_and_glosses() {
+        use std::io::{BufRead, Write};
+        use std::os::unix::net::UnixListener;
+        use std::thread;
+
+        let path =
+            std::env::temp_dir().join(format!("msime-translation-provider-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufReader::new(&mut stream)
+                .read_line(&mut request)
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(value["kind"], "translation");
+            assert_eq!(value["query"]["generation"], 9);
+            assert_eq!(value["query"]["candidates"][0], "你好");
+            stream
+                .write_all(r#"{"translations":[{"text":"你好","translation":"hello"}]}"#.as_bytes())
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+        let query = TranslationQuery {
+            generation: 9,
+            candidates: vec!["你好".into()],
+        };
+        assert_eq!(
+            UnixSocketProvider::new(&path).translate(query),
+            Some(vec![TranslationResult {
+                text: "你好".into(),
+                translation: "hello".into()
+            }])
+        );
+        server.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
 }
