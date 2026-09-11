@@ -33,6 +33,8 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        NSDictionary *initialPreferences = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(initialPreferences && !error && [initialPreferences[@"revision"] isEqual:@0]);
         error = nil;
         assert(![MSIMEClientSession prepareHostWithResourcesDirectory:@"relative/resources" stateRoot:root error:&error] && error);
         error = nil;
