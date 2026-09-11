@@ -1066,6 +1066,19 @@ HRESULT CMetasequoiaIME::_HandleCompositionDelete(TfEditCookie ec, _In_ ITfConte
     if (isCovered)
     {
         CCompositionProcessorEngine *pCompositionProcessorEngine = _pCompositionProcessorEngine;
+        if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            if (host->command(MSIME_DELETE_FORWARD, &raw, &error))
+            {
+                msime::tsf::EngineResult result;
+                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
+                {
+                    tfSelection.range->Release();
+                    return S_OK;
+                }
+            }
+        }
         const DWORD_PTR caret = pCompositionProcessorEngine->GetCaretPosition();
         const BOOL removed = pCompositionProcessorEngine->RemoveVirtualKeyAtCaret();
 
