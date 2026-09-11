@@ -1,8 +1,17 @@
 //! Owning CXX bridge to the pinned C++ Session. No Tauri or native UI dependency.
 //! Sessions remain thread-confined; no unsafe Send/Sync implementation is provided.
 
+mod dictionary_revision;
+pub use dictionary_revision::dictionary_state_revision;
+use dictionary_revision::DictionaryRevision;
+
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    extern "Rust" {
+        type DictionaryRevision;
+        fn text(self: &mut DictionaryRevision, value: &str);
+        fn integer(self: &mut DictionaryRevision, value: u64);
+    }
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum DictionaryKind {
         Pinyin,
@@ -98,6 +107,10 @@ mod ffi {
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
+        fn hash_dictionary_state(
+            options: &EngineOptions,
+            sink: &mut DictionaryRevision,
+        ) -> Result<()>;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
         fn dictionary_entries(
             options: &EngineOptions,
@@ -334,7 +347,7 @@ impl Session {
 mod tests {
     use super::*;
 
-    fn options(root: &std::path::Path) -> EngineOptions {
+    pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
             std::fs::create_dir_all(&path).unwrap();
@@ -371,6 +384,23 @@ mod tests {
             local_temporary_japanese: true,
         }
     }
+    #[test]
+    fn dictionary_revision_uses_real_journal_and_rejects_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let before = super::dictionary_state_revision(&value).unwrap();
+        assert_eq!(before.len(), 64);
+        assert_eq!(before, super::dictionary_state_revision(&value).unwrap());
+        let journal = std::path::Path::new(&value.user_data).join("msime_user.db");
+        assert!(!journal.exists());
+        std::fs::write(&journal, b"synthetic invalid database").unwrap();
+        assert!(super::dictionary_state_revision(&value).is_err());
+        assert_eq!(
+            std::fs::read(&journal).unwrap(),
+            b"synthetic invalid database"
+        );
+    }
+
     #[test]
     fn helpcode_settings_reach_the_real_engine() {
         let dir = tempfile::tempdir().unwrap();
