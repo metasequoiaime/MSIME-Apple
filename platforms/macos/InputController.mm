@@ -8,6 +8,7 @@
 #import "InputModeRouting.h"
 #import "CandidateAppearance.h"
 #import "CandidateChrome.h"
+#import "AppearancePreferences.h"
 #include "CandidateSkin.h"
 
 @interface MSIMECandidatePanel : NSPanel
@@ -38,6 +39,7 @@
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     NSImage *_skinDecoration;
+    MSIMEAppearancePreferences *_previewPreferences;
 }
 
 static NSColor *MSIMESkinColor(msime::mac::Rgba color)
@@ -88,6 +90,11 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 
 - (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
+- (void)showCandidatePreview:(id)sender {
+    if (!_previewPreferences) _previewPreferences = [MSIMEAppearancePreferences sharedPreferences];
+    [_previewPreferences showWindow:sender];
+    [NSApp activateIgnoringOtherApps:YES];
+}
 
 - (NSMenu *)menu {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
@@ -104,6 +111,12 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     english.target = self;
     english.state = _englishMode ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:english];
+    [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *preview = [[NSMenuItem alloc] initWithTitle:@"候选预览…"
+                                                        action:@selector(showCandidatePreview:)
+                                                 keyEquivalent:@""];
+    preview.target = self;
+    [menu addItem:preview];
     return menu;
 }
 

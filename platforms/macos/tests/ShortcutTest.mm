@@ -210,7 +210,7 @@ int main() {
         assert([controller handleEvent:inputModeToggle client:client]);
         assert([[controller valueForKey:@"englishMode"] boolValue] && session.englishMode);
         NSMenu *menu = [controller menu];
-        assert(menu.numberOfItems == 2);
+        assert(menu.numberOfItems == 4);
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
         NSMenuItem *englishItem = [menu itemAtIndex:1];
         assert([chineseItem.title isEqualToString:@"中文输入"] && chineseItem.state == NSControlStateValueOff);
@@ -220,6 +220,8 @@ int main() {
         assert(session.lastCharacter == 0);
         assert([controller handleEvent:inputModeToggle client:client]);
         assert(![[controller valueForKey:@"englishMode"] boolValue] && !session.englishMode);
+        assert([menu itemAtIndex:2].isSeparatorItem);
+        assert([[menu itemAtIndex:3].title isEqualToString:@"候选预览…"]);
         menu = [controller menu];
         assert([menu itemAtIndex:0].state == NSControlStateValueOn && [menu itemAtIndex:1].state == NSControlStateValueOff);
         [controller setValue:@NO forKey:@"fullWidthInput"];
