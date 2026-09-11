@@ -176,6 +176,11 @@
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+        _panel.backgroundColor = [NSColor colorWithCalibratedWhite:0.12 alpha:0.96];
+        _panel.opaque = NO;
+        _panel.contentView.wantsLayer = YES;
+        _panel.contentView.layer.cornerRadius = 8.0;
+        _panel.contentView.layer.masksToBounds = YES;
     }
     CGFloat height = candidates.count * rowHeight + 12;
     [_panel setContentSize:NSMakeSize(width, height)];
@@ -187,6 +192,13 @@
         button.candidateID = candidate[@"id"];
         button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
         button.font = font;
+        button.contentTintColor = [NSColor whiteColor];
+        button.bezelStyle = NSBezelStyleTexturedRounded;
+        button.wantsLayer = YES;
+        button.layer.cornerRadius = 4.0;
+        if ([candidate[@"highlighted"] boolValue]) {
+            button.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.18 green:0.42 blue:0.78 alpha:1.0].CGColor;
+        }
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = candidate[@"text"];
         button.bordered = [candidate[@"highlighted"] boolValue];
