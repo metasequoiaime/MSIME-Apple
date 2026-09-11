@@ -36,12 +36,16 @@ export type Preferences = {
   voice?: { enabled: boolean; provider: "local_whisper" | "cloud"; language: string };
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  cloud_candidates?: boolean;
+  candidate_translations?: boolean;
+  translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  default_ime_mode?: "chinese" | "english";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
@@ -53,6 +57,10 @@ export type Preferences = {
   quanpin_helpcode?: HelpcodePreferences;
   shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
+  smart_punctuation?: boolean;
+  smart_punctuation_repeat?: boolean;
+  paired_punctuation?: boolean;
+  punctuation_lock?: "follow" | "chinese" | "english";
   traditional_chinese_output?: boolean;
 };
 const defaultAiAssistant = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
@@ -80,6 +88,7 @@ export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linea
 const defaultFrequency: FrequencyPreferences = { mode: "promote", trigger_count: 1, linear_step: 1 };
 export type NavigationPreferences = { minus_equal: boolean; comma_period: boolean; brackets: boolean; tab: boolean; page_up_down: boolean; arrows: boolean };
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
+const translationLanguages: [NonNullable<Preferences["translation_target_language"]>, string][] = [["en", "英语"], ["fr", "法语"], ["ja", "日语"], ["es", "西班牙语"], ["ru", "俄语"], ["de", "德语"], ["ko", "韩语"]];
 const defaultWordCharacter = { enabled: false, keys: "brackets" as const };
 const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equal", "- / ="], ["comma_period", ", / ."], ["brackets", "[ / ]"], ["tab", "Shift+Tab / Tab"], ["page_up_down", "PageUp / PageDown"], ["arrows", "上 / 下（移动候选项）"]];
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
@@ -341,6 +350,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const clipboardHistory = draft?.clipboard_history ?? false;
+  const cloudCandidates = draft?.cloud_candidates ?? true;
+  const candidateTranslations = draft?.candidate_translations ?? true;
+  const translationTargetLanguage = draft?.translation_target_language ?? "en";
+  const smartPunctuation = draft?.smart_punctuation ?? true;
+  const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
+  const pairedPunctuation = draft?.paired_punctuation ?? true;
+  const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = draft?.floating_toolbar ?? defaultFloatingToolbar;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
@@ -423,6 +439,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
+        <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
         <div className="section" role="group" aria-labelledby="input-mode-title">
           <div className="section-title" id="input-mode-title">输入模式</div>
           <div className="input-setting-description">切换中文或日文输入，并保留各模式上次选择的方案</div>
@@ -478,7 +495,16 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">重复标点转中文<small>短时间重复输入 ASCII 标点时转换为中文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationRepeat} onChange={event => setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">成对标点<small>自动补全成对引号和括号</small></span><input className="toggle" type="checkbox" checked={pairedPunctuation} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">标点锁定</span><select aria-label="标点锁定" value={punctuationLock} onChange={event => setDraft({ ...draft, punctuation_lock: event.target.value as Preferences["punctuation_lock"] })}><option value="follow">跟随输入模式</option><option value="chinese">固定中文标点</option><option value="english">固定英文标点</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">云联想<small>通过已配置的 Linux provider socket 请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        </div>
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
           <div className="input-option-divider" />
