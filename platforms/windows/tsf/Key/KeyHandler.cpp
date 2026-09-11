@@ -1074,8 +1074,17 @@ HRESULT CMetasequoiaIME::_HandleCompositionDelete(TfEditCookie ec, _In_ ITfConte
                 msime::tsf::EngineResult result;
                 if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
                 {
+                    const auto &value = result.view.preedit;
+                    const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                                                          value.data(), static_cast<int>(value.size()), nullptr, 0);
+                    std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+                    if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                   static_cast<int>(value.size()), preedit.data(), n);
                     tfSelection.range->Release();
-                    return S_OK;
+                    if (preedit.empty()) return _HandleCancel(ec, pContext);
+                    CStringRange rendered;
+                    rendered.Set(preedit.c_str(), preedit.size());
+                    return _AddComposingAndChar(ec, pContext, &rendered);
                 }
             }
         }
