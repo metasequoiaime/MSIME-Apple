@@ -1,5 +1,12 @@
 # TSF development host configuration
 
+The Windows DLL requires `MSIME_HOST_LIBRARY` at CMake configure time. Supply an
+absolute path to the Cargo-built host static library or DLL import library for
+the same architecture; runtime legacy fallback does not remove this link-time
+dependency. Missing paths and directories are rejected before native dependency
+discovery. The linker remains responsible for format, architecture and symbols.
+Portable component tests and the standalone export fixture do not require it.
+
 The TIP reads `%LOCALAPPDATA%\MSIME-Client\runtime-options.json`, not legacy
 product state or guessed paths relative to the embedding application.
 

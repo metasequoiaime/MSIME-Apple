@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 enable_testing()
+add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
+  "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+  "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
+  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/host_library_config.cmake")
 add_executable(msime-tsf-character-result-test tests/character_result.cpp)
 target_compile_features(msime-tsf-character-result-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-character-result-test PRIVATE ../../../crates/host-api/include)
@@ -38,6 +42,8 @@ add_test(NAME msime-tsf-engine-response COMMAND msime-tsf-engine-response-test)
 if(NOT WIN32)
   return()
 endif()
+set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import library matching the TSF architecture")
+include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
 enable_language(RC)
 
 add_library(msime-tsf SHARED
@@ -81,10 +87,7 @@ target_include_directories(msime-tsf PRIVATE
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
 target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf shell32 uuid)
-set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built msime-host library for the TSF DLL")
-if(MSIME_HOST_LIBRARY)
-  target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
-endif()
+target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
 install(TARGETS msime-tsf
   RUNTIME DESTINATION bin
