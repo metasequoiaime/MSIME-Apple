@@ -2145,6 +2145,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         return;
       }
     }
+    if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
+        std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
+            std::string::npos) {
+      char raw[2] = {static_cast<char>(key), '\0'};
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
+      handled = true;
+      return;
+    }
     const bool has_composition =
         !s.view.at("editing_text").get<std::string>().empty();
     const char ascii = static_cast<char>(key);
@@ -2153,14 +2161,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         (ascii != '\'' || !has_composition)) {
       handled = apply(engine, msime_client_punctuation(
           s.session, static_cast<uint8_t>(ascii)));
-      return;
-    }
-    if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
-        std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
-            std::string::npos) {
-      char raw[2] = {static_cast<char>(key), '\0'};
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
-      handled = true;
       return;
     }
     if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 &&
