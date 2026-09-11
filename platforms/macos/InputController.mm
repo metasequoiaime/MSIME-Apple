@@ -313,10 +313,17 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _activeClient = sender;
     [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handwritingCandidateSelected:) name:@"MSIMEHandwritingCandidateSelected" object:nil];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
+}
+
+- (void)handwritingCandidateSelected:(NSNotification *)notification {
+    NSString *text = notification.userInfo[@"text"];
+    if (![text isKindOfClass:NSString.class] || text.length == 0 || !_activeClient) return;
+    [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
 }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
