@@ -5,6 +5,29 @@ import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type Setting
 
 afterEach(cleanup);
 
+test("drag-only hosts do not expose unavailable window controls", async () => {
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag: vi.fn() }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "最大化" })).toBeNull();
+});
+
+test("window buttons do not bubble drag or double-click maximize", async () => {
+  const windowControl = vi.fn().mockResolvedValue(undefined);
+  const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl, beginWindowDrag,
+    onWindowStateChanged: listener => { listener(true); return () => {}; } }} />);
+  const restore = await screen.findByRole("button", { name: "还原" });
+  fireEvent.pointerDown(restore, { button: 0 });
+  fireEvent.doubleClick(restore);
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  expect(windowControl).not.toHaveBeenCalled();
+  fireEvent.click(restore);
+  expect(windowControl).toHaveBeenLastCalledWith("restore");
+  fireEvent.doubleClick(screen.getByRole("banner", { name: "窗口控制" }));
+  expect(windowControl).toHaveBeenLastCalledWith("restore");
+});
+
 test("mixed candidate defaults, independent switches and threshold persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
