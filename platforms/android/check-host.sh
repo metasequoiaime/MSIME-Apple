@@ -16,9 +16,11 @@ trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$outpu
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root"/platforms/android/java/app/msime/client/*.java \
   "$repo_root/platforms/android/tests/EditorSmoke.java" \
-  "$repo_root/platforms/android/tests/PreferencesSmoke.java"
+  "$repo_root/platforms/android/tests/PreferencesSmoke.java" \
+  "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PreferencesSmoke
+java -cp "$output_dir" KeyboardLayoutSmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
   --manifest "$repo_root/platforms/android/AndroidManifest.xml" \

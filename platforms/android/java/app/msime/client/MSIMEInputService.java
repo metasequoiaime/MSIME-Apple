@@ -28,9 +28,12 @@ public final class MSIMEInputService extends InputMethodService {
     private EditorBridge bridge = new EditorBridge();
     private JSONObject view;
     private LinearLayout candidates;
+    private LinearLayout keyRows;
+    private Button layerButton;
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
+    private KeyboardLayout.Layer keyboardLayer = KeyboardLayout.Layer.LETTERS;
     private boolean allowLearning;
     private String preferencesNotice = "";
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -61,6 +64,7 @@ public final class MSIMEInputService extends InputMethodService {
         connection = getCurrentInputConnection();
         bridge = new EditorBridge();
         shift = false;
+        keyboardLayer = KeyboardLayout.Layer.LETTERS;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         preferencesNotice = "";
         message = "直接输入";
@@ -202,6 +206,20 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private void rebuildKeyRows() {
+        if (keyRows == null) return;
+        keyRows.removeAllViews();
+        for (java.util.List<String> keys : KeyboardLayout.rows(keyboardLayer, shift)) {
+            LinearLayout row = new LinearLayout(this);
+            keyRows.addView(row);
+            for (String key : keys) {
+                final String input = key;
+                Button keyButton = button(row, key, () -> type(input.charAt(0)));
+                keyButton.setContentDescription("按键 " + key);
+            }
+        }
+    }
+
     @Override public View onCreateInputView() {
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
@@ -212,11 +230,10 @@ public final class MSIMEInputService extends InputMethodService {
         HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
         candidateScroll.addView(candidates);
         keyboard.addView(candidateScroll);
-        for (String letters : new String[] {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", ",.'!?"}) {
-            LinearLayout row = new LinearLayout(this);
-            keyboard.addView(row);
-            for (char key : letters.toCharArray()) button(row, String.valueOf(key), () -> type(key));
-        }
+        keyRows = new LinearLayout(this);
+        keyRows.setOrientation(LinearLayout.VERTICAL);
+        keyboard.addView(keyRows);
+        rebuildKeyRows();
         LinearLayout controls = new LinearLayout(this);
         HorizontalScrollView controlScroll = new HorizontalScrollView(this);
         controlScroll.setHorizontalScrollBarEnabled(false);
@@ -228,10 +245,19 @@ public final class MSIMEInputService extends InputMethodService {
             shift = !shift;
             shiftButtonRef[0].setSelected(shift);
             shiftButtonRef[0].setContentDescription(shift ? "大写已开启" : "切换大写");
+            rebuildKeyRows();
             render();
         });
         shiftButtonRef[0] = shiftButton;
         shiftButton.setContentDescription("切换大写");
+        layerButton = button(controls, "符号", () -> {
+            keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
+                ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
+            shift = false;
+            rebuildKeyRows();
+            render();
+        });
+        layerButton.setContentDescription("切换符号键盘");
         button(controls, "首", () -> command(6));
         button(controls, "←", () -> command(4));
         button(controls, "→", () -> command(5));
@@ -258,6 +284,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
         if (status != null) status.setText(message + preferencesNotice + page + (shift ? " · Shift" : ""));
+        if (layerButton != null) {
+            layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
+            layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
+                ? "切换符号键盘" : "切换字母键盘");
+        }
         if (candidates == null) return;
         candidates.removeAllViews();
         if (view == null) return;
