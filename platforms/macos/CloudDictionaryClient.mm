@@ -102,3 +102,31 @@ void MSIMEFetchCloudDictionarySnapshot(NSString *bearerToken, MSIMECloudDictiona
         dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, status, e); });
     }] resume];
 }
+
+void MSIMERestoreCloudDictionarySnapshot(NSURL *file, long long revision, NSString *expectedSHA256, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    NSError *(^bad)(void) = ^NSError *{ return [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; };
+    if (!file.isFileURL || revision < 0 || bearerToken.length == 0 || expectedSHA256.length != 64 ||
+        [expectedSHA256 rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet]].location != NSNotFound) {
+        if (completion) completion(nil, 400, bad());
+        return;
+    }
+    NSNumber *size = nil;
+    @try { size = [NSFileManager.defaultManager attributesOfItemAtPath:file.path error:nil][NSFileSize]; } @catch (__unused NSException *exception) {}
+    if (!size || size.longLongValue <= 0 || size.longLongValue > 512LL * 1024 * 1024) {
+        if (completion) completion(nil, 400, bad());
+        return;
+    }
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://api.msime.app/v1/users/me/dictionary/snapshot"];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"revision" value:[NSString stringWithFormat:@"%lld", revision]]];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:components.URL];
+    request.HTTPMethod = @"PUT";
+    request.HTTPBodyStream = [NSInputStream inputStreamWithURL:file];
+    [request setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
+    [request setValue:@"application/x-ndjson" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:size.stringValue forHTTPHeaderField:@"Content-Length"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        if (data.length > 1024 * 1024) { data = nil; status = 413; }
+        dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(data, status, error); });
+    }] resume];
+}
