@@ -14,6 +14,8 @@ test("titlebar sits above the shared sidebar and content body", async () => {
   expect(body.contains(screen.getByRole("main"))).toBe(true);
   expect(body.contains(screen.getByRole("banner", { name: "窗口控制" }))).toBe(false);
   expect(body.previousElementSibling).toBe(screen.getByRole("banner", { name: "窗口控制" }));
+  expect(screen.getByRole("button", { name: "关闭" }).classList.contains("window-close")).toBe(true);
+  expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
 });
 
 test("resize starts on edge press, not pointer movement", async () => {

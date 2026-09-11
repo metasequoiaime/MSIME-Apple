@@ -306,4 +306,44 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .toggle::after { display: none; }
   .sidebar .item.active { outline: 1px solid Highlight; }
 }
- .window-titlebar{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 10px;background:#f5f7fb;color:#253047;font-size:13px;border-bottom:1px solid #dfe4ee;user-select:none}.window-controls{display:flex;gap:2px}.window-controls button{width:32px;height:26px;border:0;background:transparent;color:inherit;font-size:16px;border-radius:4px}.window-controls button:hover{background:#e4e9f2}.window-controls button:last-child:hover{background:#d9534f;color:#fff}
+/* Adapted from MSIME-Windows 04a8df56 titlebar.css; host drag stays in React. */
+.window-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--titlebar-height);
+  padding-left: 12px;
+  background: var(--chrome-bg);
+  color: var(--text-color);
+  user-select: none;
+}
+.window-title {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.2px;
+  opacity: 0.92;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.window-controls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.window-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: var(--titlebar-height);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  cursor: default;
+}
+.window-controls button:hover { background: var(--titlebar-btn-hover); }
+.window-controls button:active { background: var(--titlebar-btn-active); }
+.window-controls .window-close:hover { background: #c42b1c; color: #fff; }
+.window-controls .window-close:active { background: #a72216; color: #fff; }
+.window-controls button:focus-visible { outline-offset: -3px; }
