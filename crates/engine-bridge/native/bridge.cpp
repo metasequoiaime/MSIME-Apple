@@ -102,11 +102,16 @@ EngineSnapshot EngineSession::snapshot() const {
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
-    output.shuangpin_profile = rust::String(value.shuangpin_profile);
+    output.scheme = static_cast<std::uint8_t>(value.scheme);
+    output.shuangpin_profile = value.shuangpin_profile.name;
+    output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) output.candidates.push_back(rust::String(candidate.word));
+    for (const auto& candidate : value.candidates) {
+        output.candidates.push_back(rust::String(candidate.word));
+        output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+    }
     return output;
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {

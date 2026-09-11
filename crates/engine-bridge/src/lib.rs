@@ -54,6 +54,9 @@ mod ffi {
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub scheme: u8,
+        pub answered_by_pinyin_fallback: bool,
+        pub candidate_annotations: Vec<String>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
