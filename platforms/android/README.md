@@ -8,6 +8,8 @@
 
 候选区独立显示当前组合文本、当前页和候选按钮；候选超过一个时可展开当前页的无障碍候选面板，面板内可直接选择或收起，翻页仍通过共享运行时的命令完成。Android 宿主不复制候选算法或分页规则，展开面板明确标注“当前页”，避免把当前页误报为完整候选列表。
 
+输入服务现在消费共享 `candidate_skin` 偏好，将 fluent、wechat、graphite 和 willow_green 映射为 Android 键盘、候选区及展开面板的背景、按键色、前景色、边框圆角和等宽字体样式；设置热更新后不重建输入会话，只重新应用视觉样式。未知皮肤 ID 回退到 fluent，不把用户设置值当作颜色或资源名直接使用。
+
 配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备；源码、打包与签名检查通过不代表设备运行通过。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0。脚本编译全部服务 Java、执行不依赖 Android 运行时的文本/敏感字段策略测试，并校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。

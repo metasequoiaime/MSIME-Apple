@@ -1,6 +1,9 @@
 package app.msime.client;
 
 import android.inputmethodservice.InputMethodService;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
@@ -37,6 +40,7 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView candidatePage;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
+    private KeyboardSkin skin = KeyboardSkin.from("fluent");
     private LinearLayout keyRows;
     private Button layerButton;
     private TextView status;
@@ -82,6 +86,9 @@ public final class MSIMEInputService extends InputMethodService {
                 File file = new File(getFilesDir(), "runtime-options.json");
                 if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
                 JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+                JSONObject preferences = options.optJSONObject("preferences");
+                skin = KeyboardSkin.from(preferences == null ? "fluent"
+                    : preferences.optString("candidate_skin", "fluent"));
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -117,11 +124,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
+        String previousSkin = skin.id();
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
             JSONObject snapshot = value(response);
             // Editor privacy restrictions apply to every update, not only creation.
             if (!allowLearning) snapshot.getJSONObject("preferences").put("learning", false);
+            skin = KeyboardSkin.from(snapshot.getJSONObject("preferences")
+                .optString("candidate_skin", "fluent"));
             JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
             view = result.getJSONObject("view");
             preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
@@ -129,7 +139,8 @@ public final class MSIMEInputService extends InputMethodService {
             // Never replace the working session or log preferences/native responses.
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
-        if (!previousNotice.equals(preferencesNotice) || !previousView.equals(view == null ? "" : view.toString())) render();
+        if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
+                || !previousView.equals(view == null ? "" : view.toString())) render();
     }
 
     private boolean apply(String response) throws JSONException {
@@ -210,9 +221,53 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = new Button(this);
         button.setAllCaps(false);
         button.setText(label);
+        styleButton(button, true);
         button.setOnClickListener(ignored -> action.run());
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         return button;
+    }
+
+    private int pixels(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void styleButton(Button button, boolean action) {
+        boolean selected = button.isSelected();
+        String background = selected ? skin.accent() : action ? skin.actionBackground() : skin.keyBackground();
+        String foreground = selected ? skin.actionForeground() : action ? skin.actionForeground() : skin.keyForeground();
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.parseColor(background));
+        drawable.setCornerRadius(pixels(skin.cornerRadius()));
+        drawable.setStroke(pixels(1), Color.parseColor(skin.accent()));
+        button.setBackground(drawable);
+        button.setTextColor(Color.parseColor(foreground));
+        button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+    }
+
+    private void applySkinToView(View node) {
+        if (node instanceof Button) {
+            CharSequence description = node.getContentDescription();
+            boolean key = description != null && (description.toString().startsWith("按键 ")
+                || description.toString().startsWith("候选 "));
+            styleButton((Button) node, !key);
+        } else if (node instanceof TextView) {
+            TextView text = (TextView) node;
+            text.setTextColor(Color.parseColor(skin.keyForeground()));
+            text.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+        }
+        if (node instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) node;
+            for (int index = 0; index < group.getChildCount(); index++)
+                applySkinToView(group.getChildAt(index));
+        }
+    }
+
+    private void applySkin() {
+        if (keyboardRoot == null) return;
+        keyboardRoot.setBackgroundColor(Color.parseColor(skin.background()));
+        if (expandedCandidates != null)
+            expandedCandidates.setBackgroundColor(Color.parseColor(skin.background()));
+        applySkinToView(keyboardRoot);
     }
 
     private Button candidateButton(JSONObject candidate, int slot) {
@@ -222,6 +277,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean highlighted = candidate.optBoolean("highlighted");
         button.setAllCaps(false);
         button.setText((slot + 1) + ". " + text);
+        styleButton(button, false);
         button.setContentDescription("候选 " + (slot + 1) + "：" + text);
         button.setSelected(highlighted);
         if (Build.VERSION.SDK_INT >= 30)
@@ -309,7 +365,13 @@ public final class MSIMEInputService extends InputMethodService {
             keyRows.addView(row);
             for (String key : keys) {
                 final String input = key;
-                Button keyButton = button(row, key, () -> type(input.charAt(0)));
+                Button keyButton = new Button(this);
+                keyButton.setAllCaps(false);
+                keyButton.setText(key);
+                styleButton(keyButton, false);
+                keyButton.setOnClickListener(ignored -> type(input.charAt(0)));
+                row.addView(keyButton, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1));
                 keyButton.setContentDescription("按键 " + key);
             }
         }
@@ -422,12 +484,16 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? "切换符号键盘" : "切换字母键盘");
         }
-        if (candidates == null) return;
+        if (candidates == null) {
+            applySkin();
+            return;
+        }
         candidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
         if (view == null) {
             closeCandidatePanel();
+            applySkin();
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
@@ -448,5 +514,6 @@ public final class MSIMEInputService extends InputMethodService {
             button(candidatePaging, "下一页", () -> command(100));
         }
         renderExpandedCandidates();
+        applySkin();
     }
 }
