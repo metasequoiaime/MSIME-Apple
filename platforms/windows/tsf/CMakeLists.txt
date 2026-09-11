@@ -64,6 +64,7 @@ add_library(msime-tsf SHARED
   EngineSessionAdapter.cpp EngineSessionAdapter.h EngineResponse.cpp
   HostOptionsPaths.cpp HostOptionsPaths.h PreparedHostOptions.cpp
   IME/MetasequoiaIME.rc
+  IME/MetasequoiaIME.def
 )
 
 find_package(fmt CONFIG REQUIRED)
