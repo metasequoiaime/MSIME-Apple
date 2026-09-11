@@ -1817,7 +1817,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
 }
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
-  if ((button != 1 && button != 2) || flags || !state(engine).focused || state(engine).blocked ||
+  if ((button != 1 && button != 2 && button != 3) || flags || !state(engine).focused || state(engine).blocked ||
       !state(engine).input_enabled)
     return;
   guarded(engine, "candidate_clicked", [&] {
@@ -1833,7 +1833,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       return;
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
-    if (button == 2) {
+    if (button == 3) {
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
       return;
     }
