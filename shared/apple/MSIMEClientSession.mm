@@ -4,6 +4,7 @@
 
 static NSString *const MSIMEClientErrorDomain = @"app.msime.client.host";
 static __weak MSIMEClientSession *gActiveSession;
+NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification = @"MSIMEClientSessionDidReplaceSnapshotNotification";
 
 static void setError(NSError **error, NSString *message) {
     if (error) *error = [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
@@ -93,6 +94,9 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(options.bytes), options.length), error);
     if (!view) return NO;
     session->_handle = [view[@"session"] unsignedLongLongValue];
+    if (session->_handle != 0) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
+    }
     return session->_handle != 0;
 }
 + (NSDictionary *)applySnapshot:(NSDictionary<NSString *, id> *)parameters {

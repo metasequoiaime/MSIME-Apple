@@ -294,10 +294,18 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
+}
+
+- (void)snapshotSessionReplaced:(NSNotification *)notification {
+    if (notification.object != _session) return;
+    _view = @{};
+    [_panel orderOut:nil];
 }
 
 - (void)prepareSession {
