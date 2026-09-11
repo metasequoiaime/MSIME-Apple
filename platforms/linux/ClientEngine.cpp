@@ -754,6 +754,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(frequency_menu, item);
   }
   ibus_property_set_sub_props(frequency_property, frequency_menu);
+  auto number_row_property = ibus_property_new(
+      "NumberRowSelection", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("数字选词"), "",
+      ibus_text_new_from_static_string("使用数字键选择候选词"), TRUE, TRUE,
+      s.number_row_selection ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto word_character_property = ibus_property_new(
       "WordCharacter", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("以词定字"), "",
@@ -887,6 +892,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, layout_property);
     ibus_prop_list_append(properties, page_size_property);
     ibus_prop_list_append(properties, frequency_property);
+    ibus_prop_list_append(properties, number_row_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
@@ -913,6 +919,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, page_size_property);
     ibus_engine_update_property(engine, frequency_property);
+    ibus_engine_update_property(engine, number_row_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
@@ -1186,6 +1193,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CandidateLayout/Horizontal" &&
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
        property_name.rfind("FrequencyMode/", 0) != 0 &&
+       std::string(name) != "NumberRowSelection" &&
        std::string(name) != "WordCharacter" &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
@@ -1202,6 +1210,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name == "NumberRowSelection") {
+      s.number_row_selection = value == PROP_STATE_CHECKED;
+      publish_mode(engine);
+      return;
+    }
     if (property_name == "WordCharacter") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.word_character_override.value_or(s.word_character.enabled) == enabled)
