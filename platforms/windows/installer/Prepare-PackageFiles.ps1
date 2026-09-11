@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$TargetVersion = '0.0.1',
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    # This script lives in platforms/windows/installer; resolve the repository
+    # root rather than treating platforms/windows as the repository.
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     # Component paths are relative to RepoRoot and default to the consolidated layout.
     # Historical or custom layouts remain available through explicit overrides.
     [string]$TsfDirectory = 'windows',
@@ -49,7 +51,7 @@ $tsf32Pdb = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Releas
 $tsf64Pdb = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.pdb')
 $webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
-$factoryConfig = Join-Path $PSScriptRoot 'default_config\config.default.toml'
+$factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $pinyinTable = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\tables\pinyin.txt')
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
 $appIcon = Join-Path $RepoRoot (Join-Path $ServerDirectory 'src\resource\MetasequoiaIME.ico')
