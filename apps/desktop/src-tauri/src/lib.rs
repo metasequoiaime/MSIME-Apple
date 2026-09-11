@@ -130,6 +130,7 @@ fn refresh_skin_catalog(app: tauri::AppHandle) -> Result<(), HostActionError> {
 #[tauri::command]
 fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>, HostActionError> {
     let path = skin_directory(&app)?;
+    let shared_catalog = msime_client_core::skin_catalog::scan(&path);
     let mut result = Vec::new();
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => entries,
@@ -140,6 +141,10 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             continue;
         }
         let id = entry.file_name().to_string_lossy().into_owned();
+        let shared_valid = shared_catalog
+            .packages
+            .iter()
+            .any(|package| package.id == id);
         let manifest = entry.path().join("skin.toml");
         if !manifest.is_file() {
             result.push(ExternalSkinSummary {
@@ -241,7 +246,7 @@ fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>
             .preview
             .as_deref()
             .is_none_or(|v| valid_resource(v, 256));
-        let compatible = basic && supports && window && resources;
+        let compatible = shared_valid && basic && supports && window && resources;
         if !compatible {
             issues.push("manifest 不符合 schema_version 1 或缺少有效候选窗配置".into());
         }
