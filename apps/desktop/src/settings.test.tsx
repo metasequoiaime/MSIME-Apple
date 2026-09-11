@@ -333,7 +333,7 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   fireEvent.click(screen.getByRole("radio", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
 test("floating toolbar settings use Windows defaults and persist independently", async () => {
