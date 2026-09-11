@@ -3,9 +3,28 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 namespace msime::tsf {
+struct EngineCandidate {
+  std::string id;
+  std::string text;
+};
+struct EngineView {
+  std::string preedit;
+  std::string editing_text;
+  std::vector<EngineCandidate> candidates;
+  uint64_t generation = 0;
+};
+struct EngineResult {
+  bool handled = false;
+  bool has_commit = false;
+  std::string commit;
+  std::string diagnostic;
+  EngineView view;
+};
 class EngineSessionAdapter final {
 public:
+  static bool parse_result(const std::string &, EngineResult *, std::string *);
   ~EngineSessionAdapter();
   bool create(const std::string &, std::string *);
   void destroy() noexcept;

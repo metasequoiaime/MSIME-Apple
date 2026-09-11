@@ -2,6 +2,38 @@
 #include <nlohmann/json.hpp>
 namespace msime::tsf {
 using json = nlohmann::json;
+bool EngineSessionAdapter::parse_result(const std::string &text,
+                                        EngineResult *out,
+                                        std::string *error) {
+  try {
+    const auto root = json::parse(text);
+    if (!root.value("ok", false)) {
+      if (error) *error = "Engine request failed";
+      return false;
+    }
+    const auto &value = root.at("value");
+    EngineResult parsed;
+    parsed.handled = value.value("handled", false);
+    parsed.has_commit = value.value("has_commit", value.contains("commit"));
+    if (value.contains("commit") && !value.at("commit").is_null())
+      parsed.commit = value.at("commit").get<std::string>();
+    parsed.diagnostic = value.value("diagnostic", "");
+    if (value.contains("view")) {
+      const auto &view = value.at("view");
+      parsed.view.preedit = view.value("preedit", "");
+      parsed.view.editing_text = view.value("editing_text", "");
+      parsed.view.generation = view.value("generation", uint64_t{0});
+      for (const auto &candidate : view.value("candidates", json::array()))
+        parsed.view.candidates.push_back({candidate.value("id", ""),
+                                          candidate.value("text", "")});
+    }
+    if (out) *out = std::move(parsed);
+    return true;
+  } catch (...) {
+    if (error) *error = "Invalid Engine response";
+    return false;
+  }
+}
 EngineSessionAdapter::~EngineSessionAdapter() { destroy(); }
 bool EngineSessionAdapter::response(char *raw, std::string *out,
                                     std::string *error) const {
