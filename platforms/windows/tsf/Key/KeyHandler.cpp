@@ -161,6 +161,14 @@ VOID CMetasequoiaIME::_DeleteCandidateList(BOOL isForce, _In_opt_ ITfContext *pC
 HRESULT CMetasequoiaIME::_HandleComplete(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     PerfTimer timer;
+    if (_pCompositionProcessorEngine)
+    {
+        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            (void)host->command(MSIME_COMMIT_RAW, &raw, &error);
+        }
+    }
     g_toggleImeFallbackBuffer.clear();
     PerfTimer deleteTimer;
     _DeleteCandidateList(FALSE, pContext);
