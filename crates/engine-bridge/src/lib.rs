@@ -153,8 +153,8 @@ mod ffi {
 }
 
 pub use ffi::{
-    DictionaryEntry, DictionaryKind, DictionaryPage, EngineOptions, EngineResult,
-    EmojiCatalogItem, EngineSnapshot, OnlineQuerySnapshot,
+    DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem, EngineOptions, EngineResult,
+    EngineSnapshot, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
