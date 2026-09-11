@@ -89,6 +89,36 @@ pub struct Preferences {
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub voice: VoicePreferences,
+    #[serde(default)]
+    pub ai_assistant: AiAssistantPreferences,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiAssistantPreferences {
+    pub enabled: bool,
+    pub provider: String,
+    pub model: String,
+    pub endpoint: String,
+    pub candidate_limit: u8,
+    pub prompt_custom_1: String,
+    pub prompt_custom_2: String,
+    pub prompt_custom_3: String,
+}
+
+impl Default for AiAssistantPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "deepseek".into(),
+            model: "deepseek-v4-flash".into(),
+            endpoint: "https://api.deepseek.com/chat/completions".into(),
+            candidate_limit: 3,
+            prompt_custom_1: String::new(),
+            prompt_custom_2: String::new(),
+            prompt_custom_3: String::new(),
+        }
+    }
 }
 
 /// Settings for the optional host-provided floating toolbar.
@@ -291,6 +321,7 @@ impl Default for Preferences {
             clipboard_history: false,
             floating_toolbar: FloatingToolbarPreferences::default(),
             voice: VoicePreferences::default(),
+            ai_assistant: AiAssistantPreferences::default(),
         }
     }
 }
@@ -366,6 +397,13 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFrequency);
         }
+        if !(1..=10).contains(&self.ai_assistant.candidate_limit)
+            || self.ai_assistant.provider.is_empty()
+            || self.ai_assistant.model.len() > 256
+            || self.ai_assistant.endpoint.len() > 2048
+        {
+            return Err(PreferencesError::InvalidAiAssistant);
+        }
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
@@ -440,6 +478,8 @@ pub enum PreferencesError {
     InvalidFrequency,
     #[error("mixed English minimum prefix must be between 1 and 8")]
     InvalidMixedInput,
+    #[error("AI assistant configuration is invalid")]
+    InvalidAiAssistant,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
