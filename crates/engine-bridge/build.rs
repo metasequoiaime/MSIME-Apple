@@ -78,6 +78,7 @@ fn main() {
         destination.display()
     );
     println!("cargo:rustc-link-lib=static=MetasequoiaImeEngine");
+    println!("cargo:rustc-link-lib=static=MetasequoiaHandwriting");
     let sqlite = std::fs::read_to_string(destination.join("build/sqlite-path.txt"))
         .expect("CMake SQLite path");
     let sqlite = PathBuf::from(sqlite.trim());

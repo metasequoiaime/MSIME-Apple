@@ -177,9 +177,15 @@ char *msime_client_translation_provider_request(const uint8_t *query,
  * language and normalized stroke arrays; the user-owned socket returns
  * {candidates:[...]} and owns recognizer/model policy. */
 char *msime_client_handwriting_provider_request(const uint8_t *query,
-                                               size_t query_length,
-                                               const uint8_t *socket_path,
-                                               size_t socket_length);
+                                                size_t query_length,
+                                                const uint8_t *socket_path,
+                                                size_t socket_length);
+/* Run the optional offline Engine recognizer against a trusted packaged model.
+ * The model path must be absolute; response is {candidates:[...]} or an error. */
+char *msime_client_handwriting_local_request(const uint8_t *query,
+                                             size_t query_length,
+                                             const uint8_t *model_path,
+                                             size_t model_length);
 /* Linux standalone emoji panel adapter. The query contains search/category
  * text and a bounded result limit; the socket returns {items:[...]}. */
 char *msime_client_emoji_provider_request(const uint8_t *query,

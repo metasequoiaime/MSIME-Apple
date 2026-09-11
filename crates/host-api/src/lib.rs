@@ -1176,6 +1176,43 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
     })
 }
 
+/// Run the Engine's optional offline handwriting recognizer against a trusted
+/// packaged model. The model path is supplied by the native host, never by a
+/// webview or remote provider.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_handwriting_local_request(
+    query: *const u8,
+    query_length: usize,
+    model_path: *const u8,
+    model_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || model_path.is_null() || query_length > 262_144 || model_length > 4096
+        {
+            return Err("invalid local handwriting buffer".into());
+        }
+        let query = serde_json::from_slice::<HandwritingQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid handwriting query document")?;
+        let model =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(model_path, model_length) })
+                .map_err(|_| "model path is not UTF-8")?;
+        if !std::path::Path::new(model).is_absolute() {
+            return Err("model path must be absolute".into());
+        }
+        let strokes: Vec<Vec<(f32, f32)>> = query
+            .strokes
+            .iter()
+            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+            .collect();
+        let candidates = msime_engine_bridge::handwriting_recognize(model, &strokes, 1.0, 1.0)
+            .map_err(|_| "local handwriting recognizer unavailable")?;
+        Ok(json!({"candidates": candidates}))
+    })
+}
+
 /// Query a user-owned Linux emoji catalog over a Unix socket.
 /// The response is `{items:[{text,annotation}]}` or null when unavailable.
 ///

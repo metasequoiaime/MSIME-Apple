@@ -120,6 +120,12 @@ mod ffi {
         pub annotation: String,
         pub group: String,
     }
+    #[derive(Clone, Debug)]
+    pub struct HandwritingPoint {
+        pub stroke: u32,
+        pub x: f32,
+        pub y: f32,
+    }
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
@@ -173,6 +179,12 @@ mod ffi {
             offset: usize,
             limit: u16,
         ) -> Result<Vec<EmojiCatalogItem>>;
+        fn handwriting_recognize(
+            model_path: &str,
+            points: &[HandwritingPoint],
+            width: f32,
+            height: f32,
+        ) -> Result<Vec<String>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn set_nine_key_enabled(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
@@ -206,7 +218,7 @@ mod ffi {
 
 pub use ffi::{
     DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem, EngineOptions, EngineResult,
-    EngineSnapshot, OnlineQuerySnapshot,
+    EngineSnapshot, HandwritingPoint, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -262,6 +274,28 @@ pub fn emoji_catalog_page(
     limit: u16,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog_page(resources, search, category, offset, limit)
+}
+
+/// Run the Engine's optional offline handwriting recognizer on copied strokes.
+/// Points are flattened with their zero-based stroke index for the CXX ABI.
+pub fn handwriting_recognize(
+    model_path: &str,
+    strokes: &[Vec<(f32, f32)>],
+    width: f32,
+    height: f32,
+) -> Result<Vec<String>, cxx::Exception> {
+    let points: Vec<HandwritingPoint> = strokes
+        .iter()
+        .enumerate()
+        .flat_map(|(stroke, points)| {
+            points.iter().map(move |&(x, y)| HandwritingPoint {
+                stroke: stroke as u32,
+                x,
+                y,
+            })
+        })
+        .collect();
+    ffi::handwriting_recognize(model_path, &points, width, height)
 }
 
 #[derive(Clone, Copy)]
