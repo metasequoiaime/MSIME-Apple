@@ -46,12 +46,12 @@ struct State {
     if (session || blocked || !focused)
       return;
     auto options = configured;
-    if (s.english_override)
-      options["preferences"]["mixed_input"]["english"] = *s.english_override;
-    if (s.emoji_override)
-      options["preferences"]["mixed_input"]["emoji"] = *s.emoji_override;
-    if (s.kaomoji_override)
-      options["preferences"]["mixed_input"]["kaomoji"] = *s.kaomoji_override;
+    if (english_override)
+      options["preferences"]["mixed_input"]["english"] = *english_override;
+    if (emoji_override)
+      options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
+    if (kaomoji_override)
+      options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -90,6 +90,32 @@ void publish_input_enabled(IBusEngine *engine, bool enabled) {
       TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
   g_object_unref(property);
+}
+void publish_expressive(IBusEngine *engine, const State &s) {
+  const auto preferences = configured.at("preferences").at("mixed_input");
+  const auto value = [&](const std::optional<bool> &override_value,
+                         const char *key, bool fallback) {
+    return override_value.value_or(preferences.value(key, fallback));
+  };
+  for (const auto &[name, label, key, fallback] : {
+           std::tuple<const char *, const char *, const char *, bool>{
+               "EnglishCandidates", "英文候选", "english", true},
+           {"EmojiCandidates", "Emoji候选", "emoji", false},
+           {"KaomojiCandidates", "颜文字候选", "kaomoji", false}}) {
+    const auto &override_value = std::string(key) == "english"
+                                     ? s.english_override
+                                     : std::string(key) == "emoji"
+                                           ? s.emoji_override
+                                           : s.kaomoji_override;
+    auto property = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
+        value(override_value, key, fallback) ? PROP_STATE_CHECKED
+                                              : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_engine_update_property(engine, property);
+    g_object_unref(property);
+  }
 }
 void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -353,6 +379,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
       clear(engine);
+      publish_expressive(engine, s);
       return;
     }
     s.input_enabled = value == PROP_STATE_CHECKED;
