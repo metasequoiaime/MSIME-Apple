@@ -1040,7 +1040,7 @@ mod tests {
         read(msime_client_focus(handle, true));
         let enabled = read(msime_client_set_english_mode(handle, true));
         assert_eq!(enabled["ok"], true);
-        assert_eq!(enabled["value"]["view"]["focused"], true);
+        assert_eq!(enabled["value"]["focused"], true);
         assert_eq!(
             read(msime_client_set_english_mode(handle, false))["ok"],
             true
