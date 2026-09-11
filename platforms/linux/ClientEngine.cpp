@@ -142,6 +142,7 @@ struct State {
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    view = response(msime_client_set_character_width(session, fullwidth));
     if (options.at("preferences").value("default_ime_mode", "chinese") == "english")
       view = response(msime_client_set_english_mode(session, true));
     chinese_punctuation = punctuation_override.value_or(
@@ -1344,6 +1345,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "CharacterMode") {
       s.fullwidth = value == PROP_STATE_CHECKED;
+      if (s.session)
+        apply(engine, msime_client_set_character_width(s.session, s.fullwidth));
       publish_mode(engine);
       return;
     }
