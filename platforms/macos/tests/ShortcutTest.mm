@@ -210,7 +210,11 @@ int main() {
         assert([controller handleEvent:inputModeToggle client:client]);
         assert([[controller valueForKey:@"englishMode"] boolValue] && session.englishMode);
         NSMenu *menu = [controller menu];
+        #if MSIME_MACOS_VOICE_SERVICE
+        assert(menu.numberOfItems == 7);
+#else
         assert(menu.numberOfItems == 5);
+#endif
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
         NSMenuItem *englishItem = [menu itemAtIndex:1];
         assert([chineseItem.title isEqualToString:@"中文输入"] && chineseItem.state == NSControlStateValueOff);

@@ -1,3 +1,5 @@
+#import "VoiceInputService.h"
+#import "VoiceSettings.h"
 #import "ShuangpinKeymapPanel.h"
 #import "ChineseTextConversion.h"
 #import <AppKit/AppKit.h>
@@ -28,6 +30,9 @@
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
+    id<MetasequoiaVoiceService> _voiceService;
+    NSUInteger _voiceGeneration;
+    id _voiceMouseMonitor;
     MetasequoiaShuangpinKeymapPanel *_keymapPanel;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
@@ -98,6 +103,62 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
 
+- (void)cancelVoiceInput {
+    ++_voiceGeneration;
+    [_voiceService cancel];
+    if (_voiceMouseMonitor) [NSEvent removeMonitor:_voiceMouseMonitor];
+    _voiceMouseMonitor = nil;
+}
+
+- (void)toggleVoiceInput:(id)sender {
+    (void)sender;
+    if (!_activeClient) return;
+#if MSIME_MACOS_VOICE_SERVICE
+    if (!_voiceService) _voiceService = [MetasequoiaVoiceInputService new];
+#endif
+    if (!_voiceService) return;
+    if (_voiceService.recording) { [_voiceService stop]; return; }
+    if (_voiceService.active) { [self cancelVoiceInput]; return; }
+    if (_session && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    id client = _activeClient;
+    const NSUInteger generation = ++_voiceGeneration;
+    const NSRange selection = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+    __weak MSIMEInputController *weakSelf = self;
+    _voiceMouseMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown handler:^(NSEvent *event) {
+        (void)event;
+        [weakSelf cancelVoiceInput];
+    }];
+    [_voiceService startWithCompletion:^(NSString *text, NSError *error) {
+        MSIMEInputController *owner = weakSelf;
+        if (!owner || owner->_voiceGeneration != generation || owner->_activeClient != client) return;
+        NSRange current = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+        [owner cancelVoiceInput];
+        if (!NSEqualRanges(current, selection)) return;
+        if (error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSAlert *alert = [NSAlert new];
+                alert.messageText = @"语音输入未完成";
+                alert.informativeText = @"请检查麦克风权限和语音设置后重试。";
+                [alert runModal];
+            });
+            return;
+        }
+        if (text.length) [(id<MSIMETextClient>)client insertText:MetasequoiaChineseOutputString(text, owner->_traditionalOutput) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    }];
+}
+
+#if MSIME_MACOS_VOICE_SERVICE
+- (void)showVoiceSettings:(id)sender {
+    (void)sender;
+    [self cancelVoiceInput];
+    [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
+}
+#endif
+
 - (void)showShuangpinKeymap:(NSMenuItem *)sender {
     if (!_keymapPanel) _keymapPanel = [MetasequoiaShuangpinKeymapPanel new];
     [_keymapPanel setProfileName:sender.representedObject];
@@ -145,6 +206,13 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [profiles addItem:hide];
     keymap.submenu = profiles;
     [menu addItem:keymap];
+#if MSIME_MACOS_VOICE_SERVICE
+    for (NSArray *entry in @[@[@"语音输入（Control + Option + V）", NSStringFromSelector(@selector(toggleVoiceInput:))], @[@"语音设置…", NSStringFromSelector(@selector(showVoiceSettings:))]]) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
+        item.target = self;
+        [menu addItem:item];
+    }
+#endif
     return menu;
 }
 
@@ -244,6 +312,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 }
 
 - (void)deactivateServer:(id)sender {
+    [self cancelVoiceInput];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
@@ -253,7 +322,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [super deactivateServer:sender];
 }
 
-- (void)dealloc { [_preferencesTimer invalidate]; }
+- (void)dealloc { [_preferencesTimer invalidate]; [_voiceService cancel]; if (_voiceMouseMonitor) [NSEvent removeMonitor:_voiceMouseMonitor]; }
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
@@ -262,6 +331,18 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     if (event.type != NSEventTypeKeyDown) return NO;
+    if (sender != _activeClient) [self cancelVoiceInput];
+#if MSIME_MACOS_VOICE_SERVICE
+    NSEventModifierFlags voiceModifiers = event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagShift);
+    if (event.keyCode == 9 && voiceModifiers == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
+        if (!event.isARepeat && sender == _activeClient) [self toggleVoiceInput:sender];
+        return YES;
+    }
+#endif
+    if (_voiceService.active) {
+        [self cancelVoiceInput];
+        if (event.keyCode == 53) return YES;
+    }
     if (_inputModeShortcutEnabled && msime::mac::IsInputModeToggle(event.keyCode, event.modifierFlags)) {
         if (!event.isARepeat) [self setEnglishInputMode:!_englishMode];
         return YES;
