@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stdafx.h"
+#include "../Candidate/CandidateListItem.h"
 #include <vector>
 #include "assert.h"
 #include <iostream>
@@ -230,33 +231,6 @@ class CStringRange
   protected:
     DWORD_PTR _stringBufLen;  // Length is in character count.
     const WCHAR *_pStringBuf; // Buffer which is not add zero terminate.
-};
-
-//---------------------------------------------------------------------
-// CCandidateListItem
-//	_ItemString - candidate string
-//	_FindKeyCode - tailing string
-//---------------------------------------------------------------------
-struct CCandidateListItem
-{
-    CStringRange _ItemString;
-    CStringRange _FindKeyCode;
-    // Identity supplied by the shared Engine.  The legacy TSF presenter still
-    // renders the strings, while selection can now preserve generation/index
-    // across UI events without reconstructing identity from display text.
-    uint64_t _EngineGeneration = 0;
-    uint32_t _EngineIndex = 0;
-    bool _EngineHighlighted = false;
-
-    CCandidateListItem &CCandidateListItem::operator=(const CCandidateListItem &rhs)
-    {
-        _ItemString = rhs._ItemString;   // e.g. 你好
-        _FindKeyCode = rhs._FindKeyCode; // e.g. nihao
-        _EngineGeneration = rhs._EngineGeneration;
-        _EngineIndex = rhs._EngineIndex;
-        _EngineHighlighted = rhs._EngineHighlighted;
-        return *this;
-    }
 };
 
 class CPunctuationPair

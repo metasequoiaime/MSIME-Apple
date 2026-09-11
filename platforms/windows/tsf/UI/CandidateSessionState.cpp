@@ -1,5 +1,6 @@
 #include "Private.h"
 #include "CandidateSessionState.h"
+#include <utility>
 #include <corecrt_wstring.h>
 #include <debugapi.h>
 #include "fmt/xchar.h"
@@ -18,12 +19,6 @@ CCandidateSessionState::~CCandidateSessionState()
 
 void CCandidateSessionState::Clear()
 {
-    for (UINT index = 0; index < _candidateList.Count(); index++)
-    {
-        CCandidateListItem *pItemList = _candidateList.GetAt(index);
-        delete[] pItemList->_ItemString.Get();
-        delete[] pItemList->_FindKeyCode.Get();
-    }
     _currentSelection = 0;
     _candidateList.Clear();
     _pageIndex.Clear();
@@ -32,47 +27,12 @@ void CCandidateSessionState::Clear()
 
 void CCandidateSessionState::AddCandidate(_Inout_ CCandidateListItem *pCandidateItem, _In_ BOOL isAddFindKeyCode)
 {
-    DWORD_PTR dwItemString = pCandidateItem->_ItemString.GetLength();
-    const WCHAR *pwchString = nullptr;
-    if (dwItemString)
-    {
-        pwchString = new (std::nothrow) WCHAR[dwItemString];
-        if (!pwchString)
-        {
-            return;
-        }
-        memcpy((void *)pwchString, pCandidateItem->_ItemString.Get(), dwItemString * sizeof(WCHAR));
-    }
-
-    DWORD_PTR itemWildcard = pCandidateItem->_FindKeyCode.GetLength();
-    const WCHAR *pwchWildcard = nullptr;
-    if (itemWildcard && isAddFindKeyCode)
-    {
-        pwchWildcard = new (std::nothrow) WCHAR[itemWildcard];
-        if (!pwchWildcard)
-        {
-            delete[] pwchString;
-            return;
-        }
-        memcpy((void *)pwchWildcard, pCandidateItem->_FindKeyCode.Get(), itemWildcard * sizeof(WCHAR));
-    }
-
+    if (!pCandidateItem) return;
+    // Copy before Append: the source may itself belong to the growing array.
+    CCandidateListItem candidate = *pCandidateItem;
+    if (!isAddFindKeyCode) candidate._FindKeyCode.Clear();
     CCandidateListItem *pLI = _candidateList.Append();
-    if (!pLI)
-    {
-        delete[] pwchString;
-        delete[] pwchWildcard;
-        return;
-    }
-
-    if (pwchString)
-    {
-        pLI->_ItemString.Set(pwchString, dwItemString);
-    }
-    if (pwchWildcard)
-    {
-        pLI->_FindKeyCode.Set(pwchWildcard, itemWildcard);
-    }
+    if (pLI) *pLI = std::move(candidate);
 }
 
 UINT CCandidateSessionState::GetCount() const
