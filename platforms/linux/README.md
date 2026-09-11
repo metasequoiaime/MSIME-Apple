@@ -16,7 +16,7 @@
 {"version":1,"kind":"translation","query":{"generation":9,"target_language":"en","candidates":["你好","世界"]}}
 ```
 
-服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次响应最多 500ms，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。
+服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。独立入口 `msime-client-translation /absolute/provider.sock` 从标准输入读取同一 TranslationQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次响应最多 500ms，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。
 
 Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、Wayland 或某个桌面环境绑定进 IBus Engine。面板采集归一化坐标笔画后，按一行 JSON 请求发送：
 
@@ -86,7 +86,7 @@ Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写�
 
 Linux Tauri 设置窗口也会监视同一 `PreferencesStore` 的 revision。其他窗口或 IBus 侧写入新 revision 后，未编辑的设置页自动刷新；若当前有未保存草稿，只提示外部变更并保留草稿，用户通过“重新读取”显式解决冲突。事件只携带已验证的偏好快照，不携带输入内容或凭据。
 
-安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-online` 在线候选请求入口、`msime-client-dictionary` 个人词典请求入口、`msime-client-cloud-dictionary` 云词典请求入口、`msime-client-cloud-clipboard` 云剪贴板请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口、`msime-client-voice` 语音识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
+安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-online` 在线候选请求入口、`msime-client-translation` 候选翻译请求入口、`msime-client-dictionary` 个人词典请求入口、`msime-client-cloud-dictionary` 云词典请求入口、`msime-client-cloud-clipboard` 云剪贴板请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口、`msime-client-voice` 语音识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
 
 Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置 Engine 随附的离线中文模型（可用 `-DMSIME_HANDWRITING_MODEL=/absolute/model` 覆盖）。模型及其许可证随 Engine 发布，面板应只引用该受信任安装路径。
 
