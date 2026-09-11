@@ -42,4 +42,24 @@ bool EngineSessionAdapter::view(std::string *out, std::string *error) const {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_view(session_), out, error);
 }
+bool EngineSessionAdapter::punctuation(uint8_t value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_punctuation(session_, value), out, error);
+}
+bool EngineSessionAdapter::focus(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_focus(session_, value), out, error);
+}
+bool EngineSessionAdapter::chinese_punctuation(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_chinese_punctuation(session_, value), out, error);
+}
+bool EngineSessionAdapter::character_width(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_character_width(session_, value), out, error);
+}
+bool EngineSessionAdapter::english_mode(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_english_mode(session_, value), out, error);
+}
 }
