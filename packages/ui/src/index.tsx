@@ -33,6 +33,7 @@ export type Preferences = {
   theme?: "dark" | "light" | "system";
   settings_theme?: "follow" | "dark" | "light";
   candidate_theme?: "follow" | "dark" | "light";
+  candidate_skin?: string;
   candidate_layout?: "horizontal" | "vertical";
   candidate_preedit_style?: "pinyin" | "empty";
   tsf_preedit_style?: "raw" | "pinyin" | "empty";
@@ -164,6 +165,7 @@ function message(error: unknown): string {
       case "candidate_font_size_invalid": return "候选窗字号必须为 12 到 32。";
       case "candidate_text_color_invalid": return "候选文字颜色格式无效。";
       case "candidate_font_family_invalid": return "候选字体名称必须为非空 ASCII，且不超过 128 字节。";
+      case "candidate_skin_invalid": return "候选窗皮肤标识无效。";
       case "frequency_invalid": return "调频触发频次和步长必须为 1 到 10。";
       case "mixed_input_invalid": return "中英混输触发字符数必须为 1 到 8。";
       case "key_conflict": return "以词定字和翻页不能使用同一组快捷键。";
@@ -342,6 +344,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><div className="section-header"><span className="section-title">主题模式<small>设置界面和候选预览的颜色主题</small></span><CustomDropdown ariaLabel="主题模式" value={draft.theme ?? "dark"} options={[["dark", "深色"], ["light", "浅色"], ["system", "跟随系统"]]} onChange={value => setDraft({ ...draft, theme: value as Preferences["theme"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">设置界面主题<small>可覆盖全局主题，仅影响当前设置界面</small></span><CustomDropdown ariaLabel="设置界面主题" value={draft.settings_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, settings_theme: value as Preferences["settings_theme"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选窗口主题<small>可覆盖全局主题，仅影响候选窗口</small></span><CustomDropdown ariaLabel="候选窗口主题" value={draft.candidate_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, candidate_theme: value as Preferences["candidate_theme"] })} /></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选窗口皮肤<small>选择候选窗口与工具栏的内置皮肤。</small></span><CustomDropdown ariaLabel="候选窗口皮肤" value={draft.candidate_skin ?? "fluent"} options={[["fluent", "Fluent"], ["wechat", "微信绿"], ["graphite", "Graphite"], ["willow_green", "杨柳青"]]} onChange={value => setDraft({ ...draft, candidate_skin: value })} /></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选词翻译<small>允许宿主在候选窗口旁显示在线翻译结果。</small></span><input aria-label="候选词翻译" className="toggle" type="checkbox" checked={draft.candidate_translations ?? true} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label></div>
         <div className="section"><div className="section-header"><span className="section-title">翻译目标语言<small>候选词翻译服务使用的目标语言。</small></span><CustomDropdown ariaLabel="翻译目标语言" value={draft.translation_target_language ?? "en"} options={[["en", "英语"], ["fr", "法语"], ["ja", "日语"], ["es", "西班牙语"], ["ru", "俄语"], ["de", "德语"], ["ko", "韩语"]]} onChange={value => setDraft({ ...draft, translation_target_language: value as Preferences["translation_target_language"] })} /></div></div>
         <div className="section"><label className="section-header"><span className="section-title">自定义翻译服务<small>使用兼容 DeepLX 的 HTTPS 服务翻译候选词。</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label><label className="field"><span>Endpoint</span><input aria-label="自定义翻译 Endpoint" type="url" value={customTranslation.endpoint} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, endpoint: event.target.value } })} placeholder="https://example.com/translate" /></label><label className="field"><span>API Key</span><input aria-label="自定义翻译 API Key" type="password" value={customTranslation.api_key} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: event.target.value } })} /></label></div>

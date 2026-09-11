@@ -55,6 +55,8 @@ pub struct Preferences {
     pub settings_theme: SettingsTheme,
     #[serde(default)]
     pub candidate_theme: SettingsTheme,
+    #[serde(default = "default_candidate_skin")]
+    pub candidate_skin: String,
     #[serde(default)]
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
@@ -503,6 +505,10 @@ fn enabled_by_default() -> bool {
 fn default_candidate_font_size() -> u8 {
     16
 }
+
+fn default_candidate_skin() -> String {
+    "fluent".to_owned()
+}
 fn default_candidate_font_family() -> String {
     "Segoe UI".to_owned()
 }
@@ -517,6 +523,7 @@ impl Default for Preferences {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
+            candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),
@@ -668,6 +675,20 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
+        if self.candidate_skin.is_empty()
+            || self.candidate_skin.len() > 64
+            || !self.candidate_skin.is_ascii()
+            || !self.candidate_skin.as_bytes()[0].is_ascii_alphanumeric()
+            || !self.candidate_skin.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || byte == b'.'
+                    || byte == b'_'
+                    || byte == b'-'
+            })
+        {
+            return Err(PreferencesError::InvalidCandidateSkin);
+        }
         if self.candidate_fallback_fonts.len() > 8
             || self
                 .candidate_fallback_fonts
@@ -721,6 +742,8 @@ pub enum PreferencesError {
     InvalidCandidateTextColor,
     #[error("candidate font family must be non-empty ASCII and at most 128 bytes")]
     InvalidCandidateFontFamily,
+    #[error("candidate skin identifier is invalid")]
+    InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
@@ -1345,6 +1368,25 @@ mod tests {
             .unwrap();
         assert_eq!(saved.preferences.candidate_font_size, 32);
         assert!(initial.preferences.candidate_font_size == 16);
+    }
+
+    #[test]
+    fn candidate_skin_ids_are_safe_and_bounded() {
+        let mut preferences = Preferences::default();
+        for skin in ["fluent", "willow_green", "external.skin-1"] {
+            preferences.candidate_skin = skin.to_owned();
+            assert!(preferences.validate().is_ok(), "{skin}");
+        }
+        for skin in ["", "-unsafe", "Upper", "../escape", &"a".repeat(65)] {
+            preferences.candidate_skin = skin.to_owned();
+            assert!(
+                matches!(
+                    preferences.validate(),
+                    Err(PreferencesError::InvalidCandidateSkin)
+                ),
+                "{skin}"
+            );
+        }
     }
 
     #[test]
