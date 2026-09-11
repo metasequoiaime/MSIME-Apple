@@ -1,5 +1,7 @@
 /* Built-in preview palette: MSIME-Windows 04a8df56, GPL-3.0. */
 .skin-card-preview.skin-fluent[data-preview-theme="dark"] {
+  --cand-hover: #414141;
+  --cand-selected: #3e3e3eb9;
   --cand-bg: #202020;
   --cand-border: #9b9b9b2e;
   --cand-text: #e9e8e8;
@@ -7,6 +9,8 @@
   --cand-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
 }
 .skin-card-preview.skin-fluent[data-preview-theme="light"] {
+  --cand-hover: #ececec;
+  --cand-selected: #e8e8e8;
   --cand-bg: #ffffff;
   --cand-border: rgba(0, 0, 0, 0.12);
   --cand-text: #1a1a1a;

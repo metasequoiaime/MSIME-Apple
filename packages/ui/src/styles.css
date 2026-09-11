@@ -2,6 +2,7 @@
 @import "./upstream/sections.css";
 @import "./upstream/sidebar.css";
 @import "./skin-preview.css";
+@import "./skin-candidate-preview.css";
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
@@ -37,11 +38,11 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-preview-switch { margin: 0 16px 16px; padding: 4px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 11px; }
 .skin-preview-switch:hover { color: var(--text-color); background: var(--button-secondary-bg); }
 .skin-card-preview { display: flex; flex-direction: column; gap: 10px; min-height: 112px; justify-content: center; padding: 18px; background: var(--skin-preview-stage-bg); }
-.skin-candidate { display: flex; align-items: center; gap: 8px; width: max-content; max-width: 100%; padding: 7px 10px; border: 1px solid var(--cand-border); border-radius: 6px; background: var(--cand-bg); color: var(--cand-text); box-shadow: var(--cand-shadow); font-size: 13px; white-space: nowrap; }
-.skin-candidate-vertical { display: none; }
-.skin-number { color: var(--cand-num); font-size: 11px; }
-.skin-graphite .skin-candidate { border-radius: 2px; }
-.skin-willow_green .skin-candidate { border-radius: 9px; }
+.skin-card-preview .candidate { font-size: 16px; min-width: 0; max-width: 100%; }
+.skin-card-preview .wnd-v .container { width: fit-content; max-width: 100%; }
+.skin-card-preview.skin-graphite .container { border-radius: 3px; }
+.skin-card-preview.skin-graphite .first::before { display: none; }
+.skin-card-preview.skin-willow_green .container { border-radius: 9px; }
 .skin-card-body { display: flex; flex-direction: column; gap: 5px; padding: 13px 16px 16px; }
 .skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }
 .skin-card-description { color: var(--text-muted); font-size: 12px; line-height: 1.5; }

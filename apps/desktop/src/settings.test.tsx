@@ -484,6 +484,31 @@ test("skin preview switches are independent, reversible and do not change saved 
   expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_skin: "wechat" });
 });
 
+test("each skin card includes both six-candidate previews without duplicate IDs", async () => {
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  const cards = screen.getAllByRole("article");
+  expect(cards).toHaveLength(4);
+  for (const card of cards) {
+    const previews = card.querySelectorAll("[data-preview-layout]");
+    expect(previews).toHaveLength(2);
+    for (const layout of ["horizontal", "vertical"]) {
+      const preview = card.querySelector(`[data-preview-layout="${layout}"]`)!;
+      expect(preview.querySelectorAll(".row-wrapper")).toHaveLength(6);
+      expect(preview.querySelectorAll(".first")).toHaveLength(1);
+      expect(preview.querySelector(".pinyin .text")?.textContent).toBe("ni'mf");
+      expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(6);
+      expect(preview.querySelector(".first .text")?.textContent).toBe("1你们(rR)");
+      expect(Array.from(preview.querySelectorAll(layout === "horizontal" ? ".num" : ".cand-no"), node => node.textContent))
+        .toEqual(["1", "2", "3", "4", "5", "6"]);
+    }
+  }
+  expect(mounted.container.querySelectorAll("#realContainer")).toHaveLength(0);
+  const ids = Array.from(mounted.container.querySelectorAll("[id]"), element => element.id);
+  expect(new Set(ids).size).toBe(ids.length);
+});
+
 test("floating toolbar settings use Windows defaults and persist independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
