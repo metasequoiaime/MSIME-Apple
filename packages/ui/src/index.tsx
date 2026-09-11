@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
+import { ExternalSkins, type SkinCatalog } from "./external-skins";
+export type { SkinCatalog, ExternalSkin } from "./external-skins";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
@@ -65,7 +67,7 @@ export type Preferences = {
   candidate_font_size?: 16 | 18 | 20;
   candidate_layout?: "horizontal" | "vertical";
   candidate_preedit_style?: "pinyin" | "empty";
-  candidate_skin?: "fluent" | "wechat" | "graphite" | "willow_green";
+  candidate_skin?: string;
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -146,6 +148,7 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "fullwidth
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
+  scanSkinCatalog?: () => Promise<SkinCatalog>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
@@ -516,6 +519,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>
           </article>)}
         </div>
+        <ExternalSkins scan={client.scanSkinCatalog} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
         <div className="section floating-toolbar-card">

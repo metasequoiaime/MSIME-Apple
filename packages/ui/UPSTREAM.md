@@ -100,3 +100,19 @@ header padding and 9px/24px stage padding. Selection uses a native button with
 switch semantics and the upstream 38px/19px toggle geometry. Like upstream
 `bindSkinSwitch`, activating an already-selected skin keeps it selected. Saving
 still uses the shared draft/revision workflow, not immediate WebView2 writes.
+
+External skin discovery now connects the host-owned `scan_skin_catalog` command
+to `src/external-skins.tsx`. Metadata, manual refresh, empty state, invalid-folder
+diagnostics, compatibility-gated selection and independent preview themes follow
+the same pinned Windows `skin.ts`/`skin.html` (GPL-3.0). Candidate preview colour
+validation and supported palette rules follow upstream; generated rules are
+scoped to a React-owned identifier, never a manifest-provided selector. The
+directory/metadata/diagnostic CSS follows the pinned `skin.css` declarations.
+Selection uses the shared revisioned draft. Current host theme is dark; preview
+overrides do not alter compatibility. Refresh errors keep the last catalog and
+late responses from a replaced host are ignored. No local path is sent by UI.
+
+This is still partial external-skin migration: opening the directory, loading
+external CSS/images, decoration geometry, native runtime resource delivery and
+native visual parity remain unfinished. Cards with external resources explicitly
+label the preview limitation. No arbitrary stylesheet or image URL is loaded.
