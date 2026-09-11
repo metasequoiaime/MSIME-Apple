@@ -54,3 +54,21 @@ struct MacHandwritingCanvasView: View {
     }
   }
 }
+
+struct MacHandwritingToolView: View {
+  @State private var strokes: [MacInkStroke] = []
+  @State private var candidates: [String] = []
+  @State private var socketPath = ""
+  @State private var message: String?
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("手写输入").font(.title2)
+      TextField("provider socket 路径", text: $socketPath)
+      MacHandwritingCanvasView(strokes: $strokes, onSubmit: { ink in
+        do { candidates = try MacHandwritingProvider.recognize(ink, socketPath: socketPath) ; message = nil }
+        catch { candidates = []; message = error.localizedDescription }
+      }, candidates: candidates)
+      if let message { Text(message).foregroundStyle(.secondary) }
+    }.padding(20).frame(width: 560, height: 360)
+  }
+}
