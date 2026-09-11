@@ -37,4 +37,3 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
     }
   }
 }
-

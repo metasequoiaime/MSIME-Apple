@@ -353,11 +353,11 @@ void registries(int malformed = 0) {
   require(transport.current(registered.ticket));
   require(!registry.send(wrong_ticket, 1, frame, 2000).complete());
   auto sending = std::async(std::launch::async, [&] {
-    bool result = false;
+    KeyEventSendResult result = KeyEventSendResult::DefinitelyNotSent;
     require(focus.with_active(activation.pending, [&] {
       result = transport.send(registered.ticket, FanyImePipeRole::ToTsf, frame);
     }));
-    return result;
+    return result == KeyEventSendResult::Sent;
   });
   auto response =
       read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf), 2000);

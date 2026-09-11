@@ -1,4 +1,5 @@
 #import "ShuangpinKeymapPanel.h"
+// Migrated from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 
 #include "ShuangpinProfileNames.h"
 #include "shuangpin/shuangpin_profile.h"
@@ -87,7 +88,7 @@ CGFloat KeyRowInset(NSUInteger count)
 
 NSColor *KeymapAccentColor()
 {
-    return [NSColor colorWithName:@"MetasequoiaKeymapAccentColor"
+    return [NSColor colorWithName:@"MSIMEKeymapAccentColor"
                   dynamicProvider:^NSColor *(NSAppearance *appearance) {
                     NSString *match = [appearance
                         bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
@@ -100,13 +101,13 @@ NSColor *KeymapAccentColor()
 }
 } // namespace
 
-@interface MetasequoiaShuangpinKeyView : NSView
+@interface MSIMEShuangpinKeyView : NSView
 @property(nonatomic, copy) NSString *key;
 @property(nonatomic, copy) NSString *codes;
 @property(nonatomic) BOOL highlighted;
 @end
 
-@implementation MetasequoiaShuangpinKeyView
+@implementation MSIMEShuangpinKeyView
 
 - (BOOL)isFlipped
 {
@@ -161,12 +162,12 @@ namespace
 {
 
 NSStackView *KeyRow(NSArray<NSDictionary<NSString *, NSString *> *> *definitions,
-                    NSMutableArray<MetasequoiaShuangpinKeyView *> *keyViews)
+                    NSMutableArray<MSIMEShuangpinKeyView *> *keyViews)
 {
     NSMutableArray<NSView *> *views = [NSMutableArray arrayWithCapacity:definitions.count];
     for (NSDictionary<NSString *, NSString *> *definition in definitions)
     {
-        MetasequoiaShuangpinKeyView *view = [[MetasequoiaShuangpinKeyView alloc] initWithFrame:NSZeroRect];
+        MSIMEShuangpinKeyView *view = [[MSIMEShuangpinKeyView alloc] initWithFrame:NSZeroRect];
         view.key = definition[@"key"];
         view.codes = definition[@"codes"];
         view.accessibilityRole = NSAccessibilityStaticTextRole;
@@ -184,11 +185,11 @@ NSStackView *KeyRow(NSArray<NSDictionary<NSString *, NSString *> *> *definitions
     return row;
 }
 
-NSString *AccessibleKeymapDescription(NSArray<MetasequoiaShuangpinKeyView *> *keyViews, NSString *highlightedKey)
+NSString *AccessibleKeymapDescription(NSArray<MSIMEShuangpinKeyView *> *keyViews, NSString *highlightedKey)
 {
     NSMutableArray<NSString *> *definitions = [NSMutableArray arrayWithCapacity:keyViews.count];
     NSString *highlightedDescription = nil;
-    for (MetasequoiaShuangpinKeyView *view in keyViews)
+    for (MSIMEShuangpinKeyView *view in keyViews)
     {
         NSString *definition = [NSString stringWithFormat:@"%@：%@", view.key, view.codes];
         [definitions addObject:definition];
@@ -204,10 +205,10 @@ NSString *AccessibleKeymapDescription(NSArray<MetasequoiaShuangpinKeyView *> *ke
 }
 } // namespace
 
-NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *MetasequoiaShuangpinKeymapRows(NSString *profileName)
+NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *MSIMEShuangpinKeymapRows(NSString *profileName)
 {
     const ShuangpinProfile &profile = GetShuangpinProfile(
-        metasequoia::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
+        msime::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
     NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *initialsByKey = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *finalsByKey = [NSMutableDictionary dictionary];
     AppendProfileUnits(profile.initials, initialsByKey);
@@ -224,10 +225,10 @@ NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *MetasequoiaShuangpin
     ];
 }
 
-NSString *MetasequoiaShuangpinZeroInitialText(NSString *profileName)
+NSString *MSIMEShuangpinZeroInitialText(NSString *profileName)
 {
     const ShuangpinProfile &profile = GetShuangpinProfile(
-        metasequoia::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
+        msime::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
     NSMutableArray<NSString *> *entries = [NSMutableArray arrayWithCapacity:profile.zero_initials.size()];
     for (const auto &entry : profile.zero_initials)
     {
@@ -238,12 +239,12 @@ NSString *MetasequoiaShuangpinZeroInitialText(NSString *profileName)
     return [@"零声母  " stringByAppendingString:[entries componentsJoinedByString:@" · "]];
 }
 
-BOOL MetasequoiaShouldShowShuangpinKeymap(BOOL isShuangpin, BOOL enabled, BOOL hasComposition)
+BOOL MSIMEShouldShowShuangpinKeymap(BOOL isShuangpin, BOOL enabled, BOOL hasComposition)
 {
     return isShuangpin && enabled && hasComposition;
 }
 
-NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloat candidateClearance,
+NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloat candidateClearance,
                                             NSRect visibleFrame)
 {
     const CGFloat minimumX = NSMinX(visibleFrame) + kScreenMargin;
@@ -258,9 +259,9 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
     return NSMakeRect(x, y, panelSize.width, panelSize.height);
 }
 
-@implementation MetasequoiaShuangpinKeymapPanel
+@implementation MSIMEShuangpinKeymapPanel
 {
-    NSMutableArray<MetasequoiaShuangpinKeyView *> *_keyViews;
+    NSMutableArray<MSIMEShuangpinKeyView *> *_keyViews;
     NSString *_profileName;
 }
 
@@ -294,7 +295,7 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
 - (void)setProfileName:(NSString *)profileName
 {
     NSString *normalized =
-        @(metasequoia::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
+        @(msime::mac::NormalizeShuangpinSchema(profileName.UTF8String != nullptr ? profileName.UTF8String : ""));
     if ([_profileName isEqualToString:normalized] && _keyViews.count > 0)
     {
         return;
@@ -310,7 +311,7 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
     background.layer.masksToBounds = YES;
     background.accessibilityRole = NSAccessibilityGroupRole;
     NSString *schemaTitle =
-        @(metasequoia::mac::ShuangpinSchemaTitle(_profileName.UTF8String != nullptr ? _profileName.UTF8String : ""));
+        @(msime::mac::ShuangpinSchemaTitle(_profileName.UTF8String != nullptr ? _profileName.UTF8String : ""));
     background.accessibilityLabel = [schemaTitle stringByAppendingString:@"键位提示"];
 
     NSTextField *title = [NSTextField labelWithString:[schemaTitle stringByAppendingString:@"键位"]];
@@ -326,14 +327,14 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
 
     _keyViews = [NSMutableArray arrayWithCapacity:27];
     NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *definitions =
-        MetasequoiaShuangpinKeymapRows(_profileName);
+        MSIMEShuangpinKeymapRows(_profileName);
     NSStackView *topRow = KeyRow(definitions[0], _keyViews);
     NSStackView *homeRow = KeyRow(definitions[1], _keyViews);
     NSStackView *bottomRow = KeyRow(definitions[2], _keyViews);
     const CGFloat homeInset = KeyRowInset(definitions[1].count);
     const CGFloat bottomInset = KeyRowInset(definitions[2].count);
 
-    NSTextField *zeroInitials = [NSTextField labelWithString:MetasequoiaShuangpinZeroInitialText(_profileName)];
+    NSTextField *zeroInitials = [NSTextField labelWithString:MSIMEShuangpinZeroInitialText(_profileName)];
     zeroInitials.font = [NSFont systemFontOfSize:10.0 weight:NSFontWeightRegular];
     zeroInitials.textColor = [NSColor secondaryLabelColor];
     zeroInitials.alignment = NSTextAlignmentCenter;
@@ -372,7 +373,7 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
 - (void)updateHighlightedKey:(NSString *)key
 {
     NSString *normalizedKey = key.length == 1 ? key.uppercaseString : @"";
-    for (MetasequoiaShuangpinKeyView *view in _keyViews)
+    for (MSIMEShuangpinKeyView *view in _keyViews)
     {
         view.highlighted = [view.key isEqualToString:normalizedKey];
     }
@@ -400,7 +401,7 @@ NSRect MetasequoiaShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, 
         [self orderOut:nil];
         return;
     }
-    NSRect panelFrame = MetasequoiaShuangpinKeymapPanelFrame(caretRect, NSMakeSize(kPanelWidth, kPanelHeight),
+    NSRect panelFrame = MSIMEShuangpinKeymapPanelFrame(caretRect, NSMakeSize(kPanelWidth, kPanelHeight),
                                                              candidateClearance, targetScreen.visibleFrame);
     [self setFrame:panelFrame display:NO];
     [self orderFrontRegardless];

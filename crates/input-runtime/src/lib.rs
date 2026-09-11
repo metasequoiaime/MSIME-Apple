@@ -34,11 +34,23 @@ pub mod character_width {
     }
 }
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
-use serde::Serialize;
+use msime_engine_bridge::{
+    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::thread::{self, JoinHandle};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
+
+/// Windows cloud-candidate settle delay, matching the native Server behavior.
+pub const WINDOWS_CLOUD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
@@ -70,6 +82,12 @@ pub trait InputEngine {
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
+    fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine("Candidate pinning is unsupported".into()))
+    }
+    fn remove_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine("Candidate removal is unsupported".into()))
+    }
     fn select_edge(
         &mut self,
         index: usize,
@@ -107,6 +125,8 @@ impl InputEngine for Session {
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
+    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::pin_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
+    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::remove_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -131,7 +151,11 @@ pub struct CandidateId {
 pub struct Candidate {
     pub id: CandidateId,
     pub text: String,
+    /// Engine-derived display suffix, never part of selection or committed text.
+    pub annotation: String,
     pub highlighted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -142,9 +166,12 @@ pub enum CharacterWidth {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    pub scheme: u8,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
+    pub shuangpin_profile: String,
+    pub answered_by_pinyin_fallback: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
     pub session: u64,
@@ -155,16 +182,426 @@ pub struct View {
     /// Byte offset in Engine's ASCII editing_text, not an OS UTF-16 offset.
     pub caret_position: usize,
     pub page: usize,
+    pub page_size: usize,
     pub page_count: usize,
     pub candidates: Vec<Candidate>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutputContext {
+    pub scheme: u8,
+    pub local_mode: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Transition {
     pub handled: bool,
     pub commit: Option<String>,
+    /// Mode before dispatch; committing may clear a local mode or apply deferred settings.
+    pub commit_context: Option<OutputContext>,
     pub diagnostic: Option<String>,
     pub view: View,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct OnlineQuery {
+    pub scheme: u8,
+    pub generation: u64,
+    pub identity: String,
+    pub query_text: String,
+    pub cache_key: String,
+    pub pinyin_segments: Vec<String>,
+    pub cloud_eligible: bool,
+    pub ai_eligible: bool,
+    pub session_id: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationQuery {
+    pub generation: u64,
+    #[serde(default = "default_translation_target_language")]
+    pub target_language: String,
+    pub candidates: Vec<String>,
+}
+
+fn default_translation_target_language() -> String {
+    "en".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationResult {
+    pub text: String,
+    pub translation: String,
+}
+
+/// A bounded stroke payload sent by a Linux handwriting panel to its
+/// user-owned recognizer service. Coordinates are normalized panel pixels;
+/// the recognizer decides how to map them to a platform model.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingQuery {
+    #[serde(default)]
+    pub language: String,
+    pub strokes: Vec<Vec<HandwritingPoint>>,
+}
+
+/// Search request for a standalone Linux emoji panel. The panel owns its
+/// category/search UI while the provider supplies the catalog and annotations.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelQuery {
+    #[serde(default)]
+    pub search: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default = "default_emoji_panel_limit")]
+    pub limit: u8,
+}
+
+fn default_emoji_panel_limit() -> u8 {
+    48
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelItem {
+    pub text: String,
+    #[serde(default)]
+    pub annotation: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OnlineCandidate {
+    pub query: OnlineQuery,
+    pub text: String,
+    /// 0 = cloud suggestion, 1 = AI suggestion.
+    pub source: u8,
+}
+
+/// Build the default cloud request for an eligible online query. Hosts perform
+/// the actual network I/O through their injected transport and then submit the
+/// result to `Runtime::apply_online_candidate`.
+pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
+    if !query.cloud_eligible {
+        return None;
+    }
+    msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
+}
+
+/// Convert a host-fetched Google response into a bounded online result.
+pub fn cloud_candidate_from_response(
+    query: OnlineQuery,
+    response: &[u8],
+) -> Option<OnlineCandidate> {
+    if !query.cloud_eligible {
+        return None;
+    }
+    let text = msime_client_core::cloud::parse_google_response(response)?;
+    Some(OnlineCandidate {
+        query,
+        text,
+        source: 0,
+    })
+}
+
+/// Linux adapter for a user-owned provider over a local Unix socket.
+/// Credentials and network policy remain in the socket service; only a
+/// copied, bounded query crosses this boundary.
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+pub struct UnixSocketProvider {
+    path: PathBuf,
+}
+
+#[cfg(unix)]
+impl UnixSocketProvider {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+        if query.query_text.len() > 4096 || query.identity.len() > 4096 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "query": query}).to_string();
+        if request.len() > 16384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+            source: u8,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+            return None;
+        }
+        Some((reply.text, reply.source))
+    }
+
+    pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
+        if query.candidates.is_empty()
+            || query.candidates.len() > 9
+            || query.candidates.iter().any(|text| text.len() > 4096)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
+        if request.len() > 16384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            translations: Vec<TranslationResult>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.translations.len() > 9
+            || reply
+                .translations
+                .iter()
+                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+        {
+            return None;
+        }
+        Some(reply.translations)
+    }
+
+    /// Ask the user-owned handwriting recognizer for up to twelve candidates.
+    /// The Linux panel owns ink capture and presentation; this service owns
+    /// model selection and any platform-specific recognizer integration.
+    pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
+        if query.language.len() > 64
+            || query.strokes.is_empty()
+            || query.strokes.len() > 32
+            || query
+                .strokes
+                .iter()
+                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "handwriting", "query": query}).to_string();
+        if request.len() > 262_144
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            candidates: Vec<String>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.candidates.len() > 12
+            || reply
+                .candidates
+                .iter()
+                .any(|candidate| candidate.is_empty() || candidate.len() > 4096)
+        {
+            return None;
+        }
+        Some(reply.candidates)
+    }
+
+    /// Search the user-owned emoji catalog. Results stay outside the IBus
+    /// session and can be rendered by any desktop panel toolkit.
+    pub fn emoji(&self, query: EmojiPanelQuery) -> Option<Vec<EmojiPanelItem>> {
+        if query.search.len() > 256
+            || query.category.len() > 128
+            || !(1..=96).contains(&query.limit)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "emoji", "query": query}).to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            items: Vec<EmojiPanelItem>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.items.len() > 96
+            || reply.items.iter().any(|item| {
+                item.text.is_empty()
+                    || item.text.len() > 64
+                    || item.annotation.len() > 256
+            })
+        {
+            return None;
+        }
+        Some(reply.items)
+    }
+
+    /// Run one bounded voice capture/ASR request through the user-owned
+    /// service. The service owns PipeWire/ALSA access, credentials and the
+    /// recognizer; the input host only receives bounded UTF-8 text.
+    pub fn voice(&self, language: &str, generation: u64) -> Option<String> {
+        if language.len() > 64 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        let request = json!({
+            "version": 1,
+            "kind": "voice",
+            "query": {"language": language, "generation": generation}
+        })
+        .to_string();
+        if request.len() > 4096
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.text.is_empty() || reply.text.len() > 4096 {
+            return None;
+        }
+        Some(reply.text)
+    }
+}
+
+/// Bounded provider worker. Provider code runs off the host/IBus thread and
+/// receives only copied query data. Results remain inert until the owner
+/// applies them through Runtime::apply_online_candidate, which revalidates
+/// session identity and Engine generation.
+pub struct OnlineProviderWorker {
+    requests: Option<mpsc::SyncSender<OnlineQuery>>,
+    results: mpsc::Receiver<OnlineCandidate>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl OnlineProviderWorker {
+    pub fn spawn<F>(capacity: usize, provider: F) -> Result<Self, &'static str>
+    where
+        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+    {
+        Self::spawn_with_debounce(capacity, std::time::Duration::ZERO, provider)
+    }
+
+    pub fn spawn_with_debounce<F>(
+        capacity: usize,
+        debounce: std::time::Duration,
+        provider: F,
+    ) -> Result<Self, &'static str>
+    where
+        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+    {
+        if capacity == 0 {
+            return Err("provider queue capacity must be positive");
+        }
+        let (requests, incoming) = mpsc::sync_channel::<OnlineQuery>(capacity);
+        let (outgoing, results) = mpsc::channel();
+        let join = thread::Builder::new()
+            .name("msime-online-provider".into())
+            .spawn(move || {
+                while let Ok(mut query) = incoming.recv() {
+                    // Coalesce bursts from one composition: Windows waits for
+                    // input to settle instead of querying every intermediate text.
+                    while let Ok(newest) = incoming.try_recv() {
+                        query = newest;
+                    }
+                    if !debounce.is_zero() {
+                        let deadline = std::time::Instant::now() + debounce;
+                        loop {
+                            let remaining =
+                                deadline.saturating_duration_since(std::time::Instant::now());
+                            if remaining.is_zero() {
+                                break;
+                            }
+                            match incoming.recv_timeout(remaining) {
+                                Ok(newest) => query = newest,
+                                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                            }
+                        }
+                    }
+                    if let Some((text, source)) = provider(query.clone()) {
+                        if text.is_empty() || source > 1 {
+                            continue;
+                        }
+                        if outgoing
+                            .send(OnlineCandidate {
+                                query,
+                                text,
+                                source,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            })
+            .map_err(|_| "could not spawn provider worker")?;
+        Ok(Self {
+            requests: Some(requests),
+            results,
+            join: Some(join),
+        })
+    }
+
+    pub fn submit(&self, query: OnlineQuery) -> bool {
+        self.requests
+            .as_ref()
+            .is_some_and(|requests| requests.try_send(query).is_ok())
+    }
+
+    pub fn try_recv(&self) -> Option<OnlineCandidate> {
+        self.results.try_recv().ok()
+    }
+
+    pub fn shutdown(mut self) {
+        self.requests.take();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
 }
 
 pub enum Action {
@@ -173,6 +610,8 @@ pub enum Action {
     Command(Command),
     Select(CandidateId),
     SelectEdge(CandidateId, CandidateEdge),
+    PinCandidate(CandidateId),
+    RemoveCandidate(CandidateId),
     SelectHighlighted,
     Finish,
     NextPage,
@@ -190,6 +629,7 @@ pub struct Runtime<E: InputEngine = Session> {
     focused: bool,
     page_size: usize,
     highlighted: usize,
+    translations: HashMap<String, String>,
     cached: EngineSnapshot,
     snapshot_valid: bool,
     character_width: CharacterWidth,
@@ -201,6 +641,67 @@ impl Runtime<Session> {
         self.engine
             .set_chinese_punctuation_enabled(enabled)
             .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+
+    pub fn online_query(&self) -> Result<Option<OnlineQuery>, RuntimeError> {
+        let query = self
+            .engine
+            .online_query()
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        if !query.available {
+            return Ok(None);
+        }
+        Ok(Some(OnlineQuery {
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity,
+            query_text: query.query_text,
+            cache_key: query.cache_key,
+            pinyin_segments: query.pinyin_segments,
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        }))
+    }
+
+    /// Queue the current eligible query for an injected provider. Hosts call
+    /// this after dispatching input; the bounded worker performs I/O off-thread.
+    pub fn submit_online_query(&self, worker: &OnlineProviderWorker) -> Result<bool, RuntimeError> {
+        Ok(self
+            .online_query()?
+            .is_some_and(|query| worker.submit(query)))
+    }
+
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuery,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, RuntimeError> {
+        if source > 1 {
+            return Ok(false);
+        }
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity.clone(),
+            query_text: query.query_text.clone(),
+            cache_key: query.cache_key.clone(),
+            pinyin_segments: query.pinyin_segments.clone(),
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        };
+        let applied = self
+            .engine
+            .apply_online_candidate(&query, candidate, source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        if applied {
+            self.refresh()
+                .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        }
+        Ok(applied)
     }
 }
 
@@ -232,6 +733,7 @@ impl<E: InputEngine> Runtime<E> {
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
+            translations: HashMap::new(),
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
@@ -246,8 +748,11 @@ impl<E: InputEngine> Runtime<E> {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            scheme: self.cached.scheme,
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
+            shuangpin_profile: self.cached.shuangpin_profile.clone(),
+            answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
             local_mode: self.cached.local_mode.clone(),
             session: self.session,
             generation: self.generation,
@@ -256,6 +761,7 @@ impl<E: InputEngine> Runtime<E> {
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
             page,
+            page_size: self.page_size,
             page_count: self.cached.candidates.len().div_ceil(self.page_size),
             candidates: self
                 .cached
@@ -271,7 +777,14 @@ impl<E: InputEngine> Runtime<E> {
                         index,
                     },
                     text: text.clone(),
+                    annotation: self
+                        .cached
+                        .candidate_annotations
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_default(),
                     highlighted: index == self.highlighted,
+                    translation: self.translations.get(text).cloned(),
                 })
                 .collect(),
         }
@@ -282,6 +795,36 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.preedit.is_empty()
             && self.cached.editing_text.is_empty()
             && self.cached.candidates.is_empty()
+    }
+
+    /// Apply translations to the current candidate generation. Stale async
+    /// responses are ignored so a newer candidate window cannot be polluted.
+    pub fn apply_translations(
+        &mut self,
+        generation: u64,
+        translations: impl IntoIterator<Item = (String, String)>,
+    ) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        self.translations = translations.into_iter().collect();
+        true
+    }
+
+    /// Presentation-only resize; a live composition keeps its numeric key map.
+    pub fn set_page_size(&mut self, page_size: u8) -> Result<(), RuntimeError> {
+        if !(1..=9).contains(&page_size) {
+            return Err(RuntimeError::InvalidPageSize);
+        }
+        if self.page_size == usize::from(page_size) {
+            return Ok(());
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        self.advance()?;
+        self.page_size = page_size.into();
+        Ok(())
     }
 
     /// Preserve the host handle/focus while invalidating every old candidate ID.
@@ -313,6 +856,10 @@ impl<E: InputEngine> Runtime<E> {
 
     fn transition(&self, result: EngineResult) -> Transition {
         Transition {
+            commit_context: result.has_commit.then(|| OutputContext {
+                scheme: self.cached.scheme,
+                local_mode: self.cached.local_mode.clone(),
+            }),
             handled: result.handled,
             commit: result.has_commit.then_some(result.commit),
             diagnostic: (!result.diagnostic.is_empty()).then_some(result.diagnostic),
@@ -322,11 +869,16 @@ impl<E: InputEngine> Runtime<E> {
 
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         self.snapshot_valid = false;
+        self.translations.clear();
         // Drop cached candidate identities even if fetching the replacement fails.
         let previous = std::mem::replace(
             &mut self.cached,
             EngineSnapshot {
+                scheme: 255,
+                candidate_annotations: Vec::new(),
                 microsoft_shuangpin: false,
+                shuangpin_profile: String::new(),
+                answered_by_pinyin_fallback: true,
                 local_mode: "unknown".into(),
                 preedit: String::new(),
                 editing_text: String::new(),
@@ -339,8 +891,10 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
+            && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
             && self.cached.candidates == previous.candidates
+            && self.cached.candidate_annotations == previous.candidate_annotations
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -402,7 +956,7 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
-        if let Action::Select(id) | Action::SelectEdge(id, _) = &action {
+        if let Action::Select(id) | Action::SelectEdge(id, _) | Action::PinCandidate(id) | Action::RemoveCandidate(id) = &action {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
                 || id.generation != self.generation
@@ -438,6 +992,10 @@ impl<E: InputEngine> Runtime<E> {
             self.highlighted = index;
             return Ok(self.transition(empty_result(true)));
         }
+        let commit_context = OutputContext {
+            scheme: self.cached.scheme,
+            local_mode: self.cached.local_mode.clone(),
+        };
         let result = match action {
             Action::Punctuation(value) => self.punctuation(value),
             Action::Finish => self.engine.finish(self.highlighted),
@@ -461,6 +1019,8 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
+            Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
+            Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
@@ -471,7 +1031,11 @@ impl<E: InputEngine> Runtime<E> {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
-        Ok(self.transition(result))
+        let mut transition = self.transition(result);
+        if transition.commit.is_some() {
+            transition.commit_context = Some(commit_context);
+        }
+        Ok(transition)
     }
 }
 
@@ -487,6 +1051,7 @@ fn empty_result(handled: bool) -> EngineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     struct Fixture {
         local_mode: String,
         words: Vec<String>,
@@ -521,7 +1086,16 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
+                scheme: 0,
+                candidate_annotations: self
+                    .words
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("({index})"))
+                    .collect(),
                 microsoft_shuangpin: false,
+                shuangpin_profile: "xiaohe".into(),
+                answered_by_pinyin_fallback: false,
                 local_mode: self.local_mode.clone(),
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
@@ -546,6 +1120,7 @@ mod tests {
         }
         fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.local_mode = "none".into();
             Ok(EngineResult {
                 handled: true,
                 has_commit: true,
@@ -586,6 +1161,78 @@ mod tests {
             })
             .unwrap()
     }
+
+    #[test]
+    fn online_provider_worker_is_bounded_and_filters_invalid_results() {
+        let query = OnlineQuery {
+            scheme: 0,
+            generation: 4,
+            identity: "identity".into(),
+            query_text: "nihao".into(),
+            cache_key: "cache".into(),
+            pinyin_segments: vec!["ni".into(), "hao".into()],
+            cloud_eligible: true,
+            ai_eligible: true,
+            session_id: 9,
+        };
+        let worker = OnlineProviderWorker::spawn(1, |query| {
+            if query.query_text == "nihao" {
+                Some(("你好".into(), 0))
+            } else {
+                Some((String::new(), 7))
+            }
+        })
+        .unwrap();
+        assert!(worker.submit(query.clone()));
+        let mut result = None;
+        for _ in 0..100 {
+            result = worker.try_recv();
+            if result.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let result = result.expect("provider result");
+        assert_eq!(result.query, query);
+        assert_eq!(result.text, "你好");
+        assert_eq!(result.source, 0);
+        worker.shutdown();
+    }
+
+    #[test]
+    fn cloud_request_requires_eligible_query() {
+        assert_eq!(
+            WINDOWS_CLOUD_DEBOUNCE,
+            std::time::Duration::from_millis(500)
+        );
+        let mut query = OnlineQuery {
+            scheme: 0,
+            generation: 1,
+            identity: "x".into(),
+            query_text: "ni".into(),
+            cache_key: "x".into(),
+            pinyin_segments: vec![],
+            cloud_eligible: false,
+            ai_eligible: false,
+            session_id: 1,
+        };
+        assert!(cloud_request_url(&query).is_none());
+        query.cloud_eligible = true;
+        assert!(cloud_request_url(&query)
+            .unwrap()
+            .contains("inputtools.google.com"));
+        let response = serde_json::json!(["SUCCESS", [["ni", ["你"]]]]).to_string();
+        let result = cloud_candidate_from_response(query, response.as_bytes()).unwrap();
+        assert_eq!(result.text, "你");
+        assert_eq!(result.source, 0);
+    }
+
+    #[test]
+    fn online_provider_worker_rejects_zero_capacity_and_shutdowns_idle() {
+        assert!(OnlineProviderWorker::spawn(0, |_| None).is_err());
+        let worker = OnlineProviderWorker::spawn(1, |_| None).unwrap();
+        worker.shutdown();
+    }
     #[test]
     fn replacement_requires_verified_idle_and_preserves_session_focus() {
         let mut active = runtime();
@@ -620,6 +1267,29 @@ mod tests {
     }
 
     #[test]
+    fn translations_are_generation_scoped_and_exposed_on_candidates() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let view = type_key(&mut runtime).view;
+        assert!(!runtime
+            .apply_translations(view.generation - 1, [("candidate-0".into(), "old".into())]));
+        assert!(runtime.apply_translations(
+            view.generation,
+            [("candidate-0".into(), "translated".into())]
+        ));
+        assert_eq!(
+            runtime.view().candidates[0].translation.as_deref(),
+            Some("translated")
+        );
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        assert!(runtime
+            .view()
+            .candidates
+            .iter()
+            .all(|candidate| candidate.translation.is_none()));
+    }
+
+    #[test]
     fn replacement_snapshot_failure_keeps_the_original_engine() {
         let mut active = runtime();
         active.focus(true).unwrap();
@@ -639,6 +1309,7 @@ mod tests {
         let page = runtime.dispatch(Action::NextPage).unwrap().view;
         assert_eq!(page.page, 1);
         assert_eq!(page.page_count, 3);
+        assert_eq!(page.candidates[0].annotation, "(5)");
         assert_eq!(page.candidates[0].text, "candidate-5");
         let result = runtime
             .dispatch(Action::Select(page.candidates[2].id))
@@ -848,6 +1519,31 @@ mod tests {
         assert_eq!(result.view.local_mode, "unicode");
         assert_eq!(result.view.page, 0);
         assert!(!result.view.editing_text.starts_with('U'));
+    }
+
+    #[test]
+    fn commit_context_precedes_mode_reset_for_every_selection_route() {
+        for route in 0..5 {
+            let mut runtime = runtime();
+            runtime.focus(true).unwrap();
+            runtime.engine.local_mode = "unicode".into();
+            let view = type_key(&mut runtime).view;
+            let id = view.candidates[0].id;
+            let action = match route {
+                0 => Action::Select(id),
+                1 => Action::SelectEdge(id, CandidateEdge::FirstHan),
+                2 => Action::SelectHighlighted,
+                3 => Action::Finish,
+                _ => Action::Character {
+                    value: b'1',
+                    shift: false,
+                },
+            };
+            let committed = runtime.dispatch(action).unwrap();
+            assert!(committed.commit.is_some());
+            assert_eq!(committed.commit_context.unwrap().local_mode, "unicode");
+            assert_eq!(committed.view.local_mode, "none");
+        }
     }
 
     #[test]

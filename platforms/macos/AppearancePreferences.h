@@ -11,16 +11,28 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
 - (void)reloadSkins;
 - (NSWindowController *)skinCatalogController;
-/// Merges settings owned by this window into a shared Preferences dictionary.
-/// Settings without a shared-schema field, such as page shortcuts, are retained locally.
+/// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
+@property(nonatomic, copy) NSString *inputScheme;
+@property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
+// Native routing preferences; English passes keys through without preparing Engine.
+@property(nonatomic) BOOL englishMode;
+@property(nonatomic) BOOL inputModeShortcut;
+@property(nonatomic) BOOL traditionalOutput;
+@property(nonatomic) BOOL fullWidthInput;
+@property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL autocorrect;
+@property(nonatomic) BOOL helpcodeEnabled;
+@property(nonatomic) BOOL shuangpinKeymap;
+@property(nonatomic) BOOL wubiAutoCommitUnique;
+@property(nonatomic) BOOL floatingToolbarEnabled;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

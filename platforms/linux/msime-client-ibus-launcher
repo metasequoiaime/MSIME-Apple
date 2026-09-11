@@ -1,9 +1,33 @@
 #!/usr/bin/env sh
 set -eu
-config=${MSIME_IBUS_OPTIONS:-${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json}
+# An explicit override must fail visibly if invalid. Only an absent user
+# configuration falls back to the system configuration supplied by IBus.
+if [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
+  config=$MSIME_IBUS_OPTIONS
+else
+  config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
+  if [ ! -e "$config" ]; then
+    config=${1:-/etc/msime-client/runtime-options.json}
+  fi
+fi
 if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
 fi
-launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Resolve both the launcher and options path before handing control to IBus;
+# daemon working directories are not stable across desktop environments.
+config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
+config="$config_dir/$(basename -- "$config")"
+launcher_path=$0
+link_depth=0
+while [ -L "$launcher_path" ]; do
+  link_depth=$((link_depth + 1))
+  [ "$link_depth" -le 32 ] || { echo "MSIME launcher symlink chain is too deep: $0" >&2; exit 1; }
+  link=$(readlink "$launcher_path")
+  case "$link" in
+    /*) launcher_path=$link ;;
+    *) launcher_path=$(dirname -- "$launcher_path")/$link ;;
+  esac
+done
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 exec "$launcher_dir/msime-client-ibus" "$config"

@@ -12,7 +12,13 @@ class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
   using Click = std::function<void(const CandidateClick &)>;
-  explicit CandidateWindow(Reader reader, Click click = {});
+  explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16,
+                           unsigned preedit_font_size = 16,
+                           std::optional<COLORREF> text_color = std::nullopt,
+                           std::string font_family = "Segoe UI",
+                           std::vector<std::string> fallback_fonts = {},
+                           std::optional<bool> dark_theme = std::nullopt,
+                           bool horizontal = false, bool show_preedit = true);
   ~CandidateWindow();
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
@@ -34,5 +40,12 @@ private:
   std::optional<CandidateClick> pressed_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
+  unsigned font_size_ = 16;
+  unsigned preedit_font_size_ = 16;
+  std::optional<COLORREF> text_color_;
+  std::wstring font_family_;
+  std::optional<bool> dark_theme_;
+  bool horizontal_ = false;
+  bool show_preedit_ = true;
 };
 } // namespace msime::windows

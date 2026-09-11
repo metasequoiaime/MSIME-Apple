@@ -4,14 +4,28 @@
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
+static NSString *const SchemeKey = @"MSIMEClientInputScheme";
+static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
 static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
+static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
+static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
+static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
+static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
+static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
+static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
+static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
+static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
+static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
+static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSPopUpButton *_layoutButton;
+    NSPopUpButton *_schemeButton;
+    NSPopUpButton *_profileButton;
     NSPopUpButton *_fontButton;
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
@@ -24,6 +38,14 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     MSIMECandidatePreviewView *_preview;
     NSButton *_themeButton;
     NSWindowController *_skinWindow;
+    NSButton *_inputModeShortcutButton;
+    NSButton *_fullWidthButton;
+    NSButton *_keymapButton;
+    NSButton *_wubiButton;
+    NSButton *_punctuationButton;
+    NSButton *_toolbarButton;
+    NSButton *_autocorrectButton;
+    NSButton *_helpcodeButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -48,10 +70,27 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
-    merged[@"candidate_orientation"] = self.vertical ? @"vertical" : @"horizontal";
-    merged[@"candidate_font_size"] = @(self.fontSize);
+    merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
+    merged[@"scheme"] = self.inputScheme;
+    merged[@"shuangpin_profile"] = self.shuangpinProfile;
+    NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    qh[@"enabled"] = @(self.helpcodeEnabled);
+    merged[@"quanpin_helpcode"] = qh;
+    NSMutableDictionary *sh = [merged[@"shuangpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    sh[@"enabled"] = @(self.helpcodeEnabled);
+    merged[@"shuangpin_helpcode"] = sh;
     merged[@"candidate_page_size"] = @(self.pageSize);
-    merged[@"candidate_skin"] = self.skinID;
+    merged[@"candidate_font_size"] = @(self.fontSize);
+    merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    merged[@"autocorrect"] = @(self.autocorrect);
+    NSMutableDictionary *voice = [merged[@"voice_input"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"];
+    if ([language isEqualToString:@"zh-CN"] || [language isEqualToString:@"en-US"]) voice[@"language"] = language;
+    merged[@"voice_input"] = voice;
+    NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
+    if (!toolbar) toolbar = [NSMutableDictionary dictionary];
+    toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
+    merged[@"floating_toolbar"] = toolbar;
     return merged;
 }
 - (NSImage *)decorationImage { return _decorationImage; }
@@ -72,6 +111,50 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     }
 }
 - (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)autocorrect { return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (void)setAutocorrect:(BOOL)value { [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
+- (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
+- (void)setHelpcodeEnabled:(BOOL)value { [_defaults setBool:value forKey:HelpcodeKey]; [self preferencesChanged]; }
+- (NSString *)inputScheme { NSString *value = [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)shuangpinProfile { NSString *value = [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
+- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
+- (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
+- (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
+- (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
+- (BOOL)chinesePunctuation { return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
+- (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
+- (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
+- (BOOL)floatingToolbarEnabled { return [_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]; }
+- (void)setFloatingToolbarEnabled:(BOOL)value { [_defaults setBool:value forKey:FloatingToolbarKey]; [self preferencesChanged]; }
+- (void)setWubiAutoCommitUnique:(BOOL)value { [_defaults setBool:value forKey:WubiKey]; [self preferencesChanged]; }
+- (void)setShuangpinKeymap:(BOOL)value {
+    [_defaults setBool:value forKey:KeymapKey];
+    [self preferencesChanged];
+}
+- (void)setFullWidthInput:(BOOL)value {
+    [_defaults setBool:value forKey:FullWidthKey];
+    [self preferencesChanged];
+}
+- (void)setChinesePunctuation:(BOOL)value {
+    [_defaults setBool:value forKey:ChinesePunctuationKey];
+    [self preferencesChanged];
+}
+- (void)setTraditionalOutput:(BOOL)value {
+    [_defaults setBool:value forKey:TraditionalKey];
+    [self preferencesChanged];
+}
+- (void)setEnglishMode:(BOOL)value {
+    [_defaults setBool:value forKey:EnglishKey];
+    [self preferencesChanged];
+}
+- (BOOL)inputModeShortcut {
+    return [_defaults objectForKey:InputModeShortcutKey] == nil || [_defaults boolForKey:InputModeShortcutKey];
+}
+- (void)setInputModeShortcut:(BOOL)value {
+    [_defaults setBool:value forKey:InputModeShortcutKey];
+    [self preferencesChanged];
+}
 - (void)setVertical:(BOOL)value {
     [_defaults setInteger:value ? 1 : 0 forKey:LayoutKey];
     [self preferencesChanged];
@@ -114,7 +197,19 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     [self preferencesChanged];
 }
 - (void)refreshControls {
+    _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
+    _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
+    _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _autocorrectButton.state = self.autocorrect ? NSControlStateValueOn : NSControlStateValueOff;
+    _helpcodeButton.state = self.helpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
+    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
+    [_schemeButton selectItemAtIndex:[schemeIndexes[self.inputScheme] integerValue]];
+    NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
+    [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
@@ -138,14 +233,22 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 680) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-    window.title = @"候选预览";
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 760) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+    window.title = @"候选设置";
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_layoutButton addItemsWithTitles:@[@"横向排列", @"纵向列表"]];
     _layoutButton.accessibilityLabel = @"候选排列";
     _layoutButton.target = self;
     _layoutButton.action = @selector(layoutChanged:);
+    _schemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔"]];
+    _schemeButton.target = self;
+    _schemeButton.action = @selector(schemeChanged:);
+    _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_profileButton addItemsWithTitles:@[@"小鹤", @"自然码", @"搜狗", @"微软"]];
+    _profileButton.target = self;
+    _profileButton.action = @selector(profileChanged:);
     _fontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_fontButton addItemsWithTitles:@[@"小（16 pt）", @"标准（18 pt）", @"大（20 pt）"]];
     _fontButton.accessibilityLabel = @"候选字号";
@@ -167,14 +270,32 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     _skinButton.action = @selector(skinChanged:);
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
+    _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
+    _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
+    _keymapButton = [NSButton checkboxWithTitle:@"输入时显示双拼键位提示" target:self action:@selector(keymapChanged:)];
+    _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
+    _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
+    _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
+    _autocorrectButton = [NSButton checkboxWithTitle:@"自动纠错" target:self action:@selector(autocorrectChanged:)];
+    _helpcodeButton = [NSButton checkboxWithTitle:@"启用辅助码" target:self action:@selector(helpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[[NSTextField labelWithString:@"输入方案"], _schemeButton],
+        @[[NSTextField labelWithString:@"双拼键盘"], _profileButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
         @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
         @[[NSTextField labelWithString:@"候选皮肤"], _skinButton],
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
-        @[[NSTextField labelWithString:@"皮肤卡片"], browse]
+        @[[NSTextField labelWithString:@"皮肤卡片"], browse],
+        @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
+        @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
+        @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
+        @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
+        @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
+        @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
+        @[[NSTextField labelWithString:@"输入辅助"], _autocorrectButton],
+        @[[NSTextField labelWithString:@"辅助码"], _helpcodeButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -215,6 +336,16 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)autocorrectChanged:(NSButton *)sender { self.autocorrect = sender.state == NSControlStateValueOn; }
+- (void)helpcodeChanged:(NSButton *)sender { self.helpcodeEnabled = sender.state == NSControlStateValueOn; }
+- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
+- (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
+- (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
+- (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
+- (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
+- (void)wubiChanged:(NSButton *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
+- (void)punctuationChanged:(NSButton *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
+- (void)toolbarChanged:(NSButton *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (NSWindowController *)skinCatalogController {
     if (!_skinWindow) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];

@@ -1,27 +1,7 @@
 #pragma once
-
-namespace metasequoia::mac
-{
-inline int NormalizeHelpcodeSchemaPreference(int schema)
-{
-    return schema >= 0 && schema < 5 ? schema : 0;
+namespace metasequoia::mac {
+inline int NormalizeHelpcodeSchemaPreference(int schema) { return schema >= 0 && schema < 5 ? schema : 0; }
+inline const char *HelpcodeSchemaIdentifier(int schema) {
+    switch (NormalizeHelpcodeSchemaPreference(schema)) { case 1: return "ziranma"; case 2: return "shouyou2_0"; case 3: return "shouyouplus"; case 4: return "xiaohe"; default: return "lantian"; }
 }
-
-inline const char *HelpcodeSchemaIdentifier(int schema)
-{
-    switch (NormalizeHelpcodeSchemaPreference(schema))
-    {
-    case 1:
-        return "ziranma";
-    case 2:
-        return "shouyou2_0";
-    case 3:
-        return "shouyouplus";
-    case 4:
-        return "xiaohe";
-    case 0:
-    default:
-        return "lantian";
-    }
 }
-} // namespace metasequoia::mac

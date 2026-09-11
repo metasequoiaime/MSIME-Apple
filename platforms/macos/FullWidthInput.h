@@ -1,5 +1,7 @@
 #pragma once
 
+// From MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
+
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
 

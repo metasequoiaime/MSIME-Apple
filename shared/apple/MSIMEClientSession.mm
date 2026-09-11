@@ -25,6 +25,39 @@ static NSDictionary *decode(char *response, NSError **error) {
 
 @implementation MSIMEClientSession {
     uint64_t _handle;
+    NSDictionary *_hostOptions;
+}
+- (NSDictionary *)hostOptions { return _hostOptions; }
++ (NSDictionary *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"词典请求格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"词典请求过大"); return nil; }
+    return decode(msime_client_dictionary(static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
++ (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
+    if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
+        setError(error, @"词库准备目录必须是绝对路径"); return nil;
+    }
+    NSDictionary *request = @{@"resources": resourcesDirectory, @"state_root": stateRoot};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"词库准备请求过大"); return nil; }
+    return decode(msime_client_prepare_host(static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
++ (NSDictionary *)savePreferencesInDirectory:(NSString *)directory expectedRevision:(uint64_t)revision snapshot:(NSDictionary *)snapshot error:(NSError **)error {
+    if (![directory isAbsolutePath] || ![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好保存参数无效"); return nil; }
+    NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"偏好快照过大"); return nil; }
+    return decode(msime_client_save_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length, revision, static_cast<const uint8_t *>(data.bytes), data.length), error);
+}
++ (NSDictionary *)loadPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    if (![directory isAbsolutePath] || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
+    NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    return decode(msime_client_load_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
+}
+- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
 }
 
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
@@ -32,6 +65,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     self = [super init];
     if (!self) return nil;
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"输入会话配置必须是 JSON 对象"); return nil; }
+    _hostOptions = [options copy];
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
     if (!data) return nil;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(data.bytes), data.length), error);
@@ -79,6 +113,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_view(_handle), error);
 }
+- (nullable NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return nil;
+    return decode(msime_client_set_candidate_page_size(_handle, size), error);
+}
 - (nullable NSDictionary *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     if (![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好快照必须是 JSON 对象"); return nil; }
@@ -86,6 +124,9 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data) return nil;
     return decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
+- (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
+- (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
+- (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding]; if (!data || data.length > 65536) { setError(error, @"语音文本无效"); return nil; } return decode(msime_client_voice_apply(_handle, generation, static_cast<const uint8_t *>(data.bytes), data.length), error); }
 - (BOOL)closeWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return NO;
     NSDictionary *result = decode(msime_client_destroy(_handle), error);

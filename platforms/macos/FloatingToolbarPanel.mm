@@ -1,23 +1,16 @@
 #import "FloatingToolbarPanel.h"
-#import "AppearancePreferences.h"
+#import "CandidateSkinAppearance.h"
 
 #include <algorithm>
 
-namespace {
+namespace
+{
 constexpr CGFloat kToolbarWidth = 272.0;
 constexpr CGFloat kToolbarHeight = 44.0;
-NSString *const kToolbarFrameAutosaveName = @"MSIMEFloatingToolbarFrame";
+NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
-NSColor *SkinColor(msime::mac::Rgba color) {
-    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
-}
-
-BOOL IsDarkAppearance(NSAppearance *appearance) {
-    NSAppearanceName match = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    return [match isEqualToString:NSAppearanceNameDarkAqua];
-}
-
-NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL action) {
+NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL action)
+{
     NSButton *button = [NSButton buttonWithTitle:title target:target action:action];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.bordered = NO;
@@ -28,13 +21,16 @@ NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL ac
     return button;
 }
 
-NSScreen *ScreenContainingFrame(NSRect frame) {
+NSScreen *ScreenContainingFrame(NSRect frame)
+{
     NSScreen *bestScreen = nil;
     CGFloat bestArea = 0.0;
-    for (NSScreen *screen in NSScreen.screens) {
+    for (NSScreen *screen in NSScreen.screens)
+    {
         NSRect intersection = NSIntersectionRect(frame, screen.frame);
         CGFloat area = intersection.size.width * intersection.size.height;
-        if (area > bestArea) {
+        if (area > bestArea)
+        {
             bestArea = area;
             bestScreen = screen;
         }
@@ -42,81 +38,104 @@ NSScreen *ScreenContainingFrame(NSRect frame) {
     return bestScreen;
 }
 
-NSScreen *ScreenContainingMouse() {
+NSScreen *ScreenContainingMouse()
+{
     NSPoint mouseLocation = NSEvent.mouseLocation;
-    for (NSScreen *screen in NSScreen.screens) {
-        if (NSPointInRect(mouseLocation, screen.frame)) return screen;
+    for (NSScreen *screen in NSScreen.screens)
+    {
+        if (NSPointInRect(mouseLocation, screen.frame))
+        {
+            return screen;
+        }
     }
     return NSScreen.mainScreen;
 }
 } // namespace
 
-NSRect MSIMEFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame) {
+NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
+{
     constexpr CGFloat kDefaultMargin = 20.0;
     constexpr CGFloat kRestoredMargin = 12.0;
     proposedFrame.size = NSMakeSize(kToolbarWidth, kToolbarHeight);
-    if (!hasSavedFrame) {
+    if (!hasSavedFrame)
+    {
         proposedFrame.origin.x = NSMaxX(visibleFrame) - proposedFrame.size.width - kDefaultMargin;
         proposedFrame.origin.y = NSMinY(visibleFrame) + kDefaultMargin;
         return proposedFrame;
     }
-    const CGFloat minimumX = NSMinX(visibleFrame) + kRestoredMargin;
-    const CGFloat maximumX = NSMaxX(visibleFrame) - proposedFrame.size.width - kRestoredMargin;
-    const CGFloat minimumY = NSMinY(visibleFrame) + kRestoredMargin;
-    const CGFloat maximumY = NSMaxY(visibleFrame) - proposedFrame.size.height - kRestoredMargin;
+
+    CGFloat minimumX = NSMinX(visibleFrame) + kRestoredMargin;
+    CGFloat maximumX = NSMaxX(visibleFrame) - proposedFrame.size.width - kRestoredMargin;
+    CGFloat minimumY = NSMinY(visibleFrame) + kRestoredMargin;
+    CGFloat maximumY = NSMaxY(visibleFrame) - proposedFrame.size.height - kRestoredMargin;
     proposedFrame.origin.x = std::clamp(proposedFrame.origin.x, minimumX, maximumX);
     proposedFrame.origin.y = std::clamp(proposedFrame.origin.y, minimumY, maximumY);
     return proposedFrame;
 }
 
-NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
+NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
+{
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    // Every item targets the panel, an NSWindow subclass, and NSMenu's automatic enabling asks
+    // NSWindow's own -validateMenuItem: about each one. NSWindow implements -hideToolbar: for real
+    // toolbars and answers NO when the window has none, which greyed out 隐藏悬浮状态栏 and swallowed
+    // the click. The input menu already opts out of automatic enabling for the same reason.
     menu.autoenablesItems = NO;
     for (NSMenuItem *item in @[
-        [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""],
-        [[NSMenuItem alloc] initWithTitle:@"打开设置…" action:@selector(openSettings:) keyEquivalent:@""],
-        [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""],
-    ]) {
+             [[NSMenuItem alloc] initWithTitle:@"表情与符号…"
+                                        action:@selector(openCharacterPalette:)
+                                 keyEquivalent:@""],
+             [[NSMenuItem alloc] initWithTitle:@"打开设置…" action:@selector(openSettings:) keyEquivalent:@""],
+             [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""],
+         ])
+    {
         item.target = target;
         item.enabled = YES;
         [menu addItem:item];
     }
     [menu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"访问 msime.app" action:@selector(openWebsite:) keyEquivalent:@""];
+    NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"访问 msime.app"
+                                                     action:@selector(openWebsite:)
+                                              keyEquivalent:@""];
     website.target = target;
     website.enabled = YES;
     [menu addItem:website];
     [menu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏悬浮工具栏" action:@selector(dismissFloatingToolbar:) keyEquivalent:@""];
+    NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏悬浮状态栏"
+                                                  action:@selector(dismissFloatingToolbar:)
+                                           keyEquivalent:@""];
     hide.target = target;
     hide.enabled = YES;
     [menu addItem:hide];
     return menu;
 }
 
-@interface MSIMEFloatingToolbarChromeView : NSView
+@interface MetasequoiaFloatingToolbarChromeView : NSView
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *strokeColor;
 @end
-
-@implementation MSIMEFloatingToolbarChromeView
-- (void)viewDidChangeEffectiveAppearance {
+@implementation MetasequoiaFloatingToolbarChromeView
+- (void)viewDidChangeEffectiveAppearance
+{
     [super viewDidChangeEffectiveAppearance];
-    if (self.appearanceTarget != nil && self.appearanceAction != nullptr) {
+    if (self.appearanceTarget != nil && self.appearanceAction != nullptr)
+    {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         [self.appearanceTarget performSelector:self.appearanceAction];
 #pragma clang diagnostic pop
     }
 }
-- (void)drawRect:(NSRect)dirtyRect {
+- (void)drawRect:(NSRect)dirtyRect
+{
     (void)dirtyRect;
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:10.0 yRadius:10.0];
-    [(self.fillColor ?: NSColor.windowBackgroundColor) setFill];
+    [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
     [path fill];
-    if (self.strokeColor.alphaComponent > 0.01) {
+    if (self.strokeColor.alphaComponent > 0.01)
+    {
         path.lineWidth = 1.0;
         [self.strokeColor setStroke];
         [path stroke];
@@ -124,94 +143,139 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
 }
 @end
 
-@implementation MSIMEFloatingToolbarPanel {
-    MSIMEFloatingToolbarChromeView *_chrome;
+@implementation MetasequoiaFloatingToolbarPanel
+{
+    MetasequoiaFloatingToolbarChromeView *_chrome;
     NSButton *_inputModeButton;
     NSButton *_punctuationButton;
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
     NSButton *_settingsButton;
-    BOOL _ready;
 }
 
-+ (instancetype)sharedPanel {
-    static MSIMEFloatingToolbarPanel *panel;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ panel = [[self alloc] init]; });
++ (instancetype)sharedPanel
+{
+    static MetasequoiaFloatingToolbarPanel *panel = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+      panel = [[MetasequoiaFloatingToolbarPanel alloc] init];
+    });
     return panel;
 }
 
-- (instancetype)init {
+- (instancetype)init
+{
     self = [super initWithContentRect:NSMakeRect(0.0, 0.0, kToolbarWidth, kToolbarHeight)
-                             styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
-                               backing:NSBackingStoreBuffered defer:NO];
-    if (!self) return nil;
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                              backing:NSBackingStoreBuffered
+                                defer:NO];
+    if (self == nil)
+    {
+        return nil;
+    }
+
     self.level = NSStatusWindowLevel;
     self.opaque = NO;
-    self.backgroundColor = NSColor.clearColor;
+    self.backgroundColor = [NSColor clearColor];
     self.hasShadow = YES;
     self.hidesOnDeactivate = NO;
     self.becomesKeyOnlyIfNeeded = YES;
     self.movableByWindowBackground = YES;
-    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    self.collectionBehavior =
+        NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     [self setFrameAutosaveName:kToolbarFrameAutosaveName];
+    // The autosave name only writes the frame out; a programmatically created window has to read it back itself, and
+    // force: is required because this panel is borderless and therefore not resizable.
     [self setFrameUsingName:kToolbarFrameAutosaveName force:YES];
 
-    _chrome = [[MSIMEFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
+    _chrome = [[MetasequoiaFloatingToolbarChromeView alloc] initWithFrame:self.contentView.bounds];
     _chrome.appearanceTarget = self;
     _chrome.appearanceAction = @selector(applySkin);
     _chrome.wantsLayer = YES;
     _chrome.layer.cornerRadius = 10.0;
     _chrome.layer.masksToBounds = YES;
     self.contentView = _chrome;
-    _inputModeButton = ToolbarButton(@"中", @"MSIMEFloatingToolbarInputMode", self, @selector(toggleInputMode:));
-    _punctuationButton = ToolbarButton(@"。", @"MSIMEFloatingToolbarPunctuation", self, @selector(togglePunctuation:));
-    _fullWidthButton = ToolbarButton(@"半", @"MSIMEFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
-    _traditionalOutputButton = ToolbarButton(@"简", @"MSIMEFloatingToolbarTraditionalOutput", self, @selector(toggleTraditionalOutput:));
-    _settingsButton = ToolbarButton(@"", @"MSIMEFloatingToolbarSettings", self, @selector(showUtilityMenu:));
+
+    _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
+    _punctuationButton =
+        ToolbarButton(@"。", @"MetasequoiaFloatingToolbarPunctuation", self, @selector(togglePunctuation:));
+    _fullWidthButton = ToolbarButton(@"半", @"MetasequoiaFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
+    _traditionalOutputButton =
+        ToolbarButton(@"简", @"MetasequoiaFloatingToolbarTraditionalOutput", self, @selector(toggleTraditionalOutput:));
+    _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
     _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
-    NSStackView *actions = [NSStackView stackViewWithViews:@[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton]];
+
+    NSStackView *actions = [NSStackView stackViewWithViews:@[
+        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton
+    ]];
     actions.translatesAutoresizingMaskIntoConstraints = NO;
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.alignment = NSLayoutAttributeCenterY;
     actions.distribution = NSStackViewDistributionEqualSpacing;
     actions.spacing = 8.0;
     [_chrome addSubview:actions];
+
     [NSLayoutConstraint activateConstraints:@[
         [actions.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor constant:10.0],
         [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0],
         [actions.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
     ]];
-    _ready = YES;
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applySkin)
+                                                 name:MetasequoiaCandidateSkinDidChangeNotification
+                                               object:nil];
     [self applySkin];
-    [self updateEnglishInputMode:NO chinesePunctuationEnabled:YES fullWidthEnabled:NO traditionalChineseOutputEnabled:NO];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applySkin)
-                                                 name:MSIMEAppearanceDidChangeNotification object:nil];
+    [self updateEnglishInputMode:NO
+              chinesePunctuationEnabled:YES
+                       fullWidthEnabled:NO
+        traditionalChineseOutputEnabled:NO];
     return self;
 }
 
-- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
-- (BOOL)canBecomeKeyWindow { return NO; }
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
-- (void)applySkin {
-    if (!_ready || !_inputModeButton) return;
-    const msime::mac::ResolvedSkin skin = [[MSIMEAppearancePreferences sharedPreferences] resolvedSkinForDark:IsDarkAppearance(_chrome.effectiveAppearance)];
-    _chrome.fillColor = SkinColor(skin.tokens.surface);
-    _chrome.strokeColor = SkinColor(skin.tokens.border);
-    NSColor *text = SkinColor(skin.tokens.text);
-    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton]) {
+- (void)applySkin
+{
+    if (_inputModeButton == nil || _settingsButton == nil)
+    {
+        return;
+    }
+    const metasequoia::mac::ResolvedSkin skin =
+        MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
+    _chrome.fillColor = MetasequoiaColorFromRgba(skin.tokens.surface);
+    _chrome.strokeColor = MetasequoiaColorFromRgba(skin.tokens.border);
+    NSColor *text = MetasequoiaColorFromRgba(skin.tokens.text);
+    for (NSButton *button in
+         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton ])
+    {
         button.contentTintColor = text;
-        if (button.title.length) button.attributedTitle = [[NSAttributedString alloc] initWithString:button.title attributes:@{NSFontAttributeName: button.font, NSForegroundColorAttributeName: text}];
+        if (button.title.length > 0)
+        {
+            button.attributedTitle = [[NSAttributedString alloc] initWithString:button.title
+                                                                     attributes:@{
+                                                                         NSFontAttributeName : button.font,
+                                                                         NSForegroundColorAttributeName : text,
+                                                                     }];
+        }
     }
     _chrome.needsDisplay = YES;
+}
+
+- (BOOL)canBecomeKeyWindow
+{
+    return NO;
 }
 
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
-    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled {
+    traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
+{
     _inputModeButton.title = englishInputMode ? @"英" : @"中";
     _inputModeButton.accessibilityLabel = englishInputMode ? @"切换到中文输入" : @"切换到英文输入";
     _punctuationButton.title = chinesePunctuationEnabled ? @"。" : @".";
@@ -219,42 +283,127 @@ NSMenu *CreateMSIMEFloatingToolbarUtilityMenu(id target) {
     _fullWidthButton.title = fullWidthEnabled ? @"全" : @"半";
     _fullWidthButton.accessibilityLabel = fullWidthEnabled ? @"切换到半角输入" : @"切换到全角输入";
     _traditionalOutputButton.title = traditionalChineseOutputEnabled ? @"繁" : @"简";
-    _traditionalOutputButton.accessibilityLabel = traditionalChineseOutputEnabled ? @"切换到简体输出" : @"切换到繁体输出";
-    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton]) button.toolTip = button.accessibilityLabel;
+    _traditionalOutputButton.accessibilityLabel =
+        traditionalChineseOutputEnabled ? @"切换到简体输出" : @"切换到繁体输出";
+    _inputModeButton.toolTip = _inputModeButton.accessibilityLabel;
+    _punctuationButton.toolTip = _punctuationButton.accessibilityLabel;
+    _fullWidthButton.toolTip = _fullWidthButton.accessibilityLabel;
+    _traditionalOutputButton.toolTip = _traditionalOutputButton.accessibilityLabel;
     [self applySkin];
 }
 
-- (void)activateForDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate visible:(BOOL)visible {
+- (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
+{
     self.toolbarDelegate = delegate;
     [self setVisible:visible forDelegate:delegate];
 }
-- (void)setVisible:(BOOL)visible forDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate {
-    if (self.toolbarDelegate != delegate) return;
-    if (!visible) { [self orderOut:nil]; return; }
-    if (self.visible) { [self orderFrontRegardless]; return; }
-    BOOL hasSavedFrame = [[NSUserDefaults standardUserDefaults] objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
+
+- (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
+{
+    if (self.toolbarDelegate != delegate)
+    {
+        return;
+    }
+    if (!visible)
+    {
+        [self orderOut:nil];
+        return;
+    }
+    if (self.visible)
+    {
+        // Only clamp the frame when the panel comes on screen; re-showing a visible panel must not move it away from
+        // where the user dragged it.
+        [self orderFrontRegardless];
+        return;
+    }
+
+    BOOL hasSavedFrame =
+        [[NSUserDefaults standardUserDefaults]
+            objectForKey:[@"NSWindow Frame " stringByAppendingString:kToolbarFrameAutosaveName]] != nil;
     NSScreen *screen = hasSavedFrame ? ScreenContainingFrame(self.frame) : ScreenContainingMouse();
-    if (!screen) screen = NSScreen.mainScreen;
-    if (screen) [self setFrame:MSIMEFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
+    if (screen == nil)
+    {
+        screen = NSScreen.mainScreen;
+    }
+    if (screen != nil)
+    {
+        [self setFrame:MetasequoiaFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
+    }
     [self orderFrontRegardless];
 }
-- (void)deactivateForDelegate:(id<MSIMEFloatingToolbarDelegate>)delegate {
-    id owner = self.toolbarDelegate;
-    if (owner && owner != delegate) return;
+
+- (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
+{
+    // A deallocating owner reads back as nil through the weak property, so a nil owner is treated as released by the
+    // caller rather than as a mismatch.
+    id<MetasequoiaFloatingToolbarDelegate> owner = self.toolbarDelegate;
+    if (owner != nil && owner != delegate)
+    {
+        return;
+    }
     [self orderOut:nil];
     self.toolbarDelegate = nil;
 }
-- (void)toggleInputMode:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestToggleInputMode:self]; }
-- (void)togglePunctuation:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestTogglePunctuation:self]; }
-- (void)toggleFullWidth:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestToggleFullWidth:self]; }
-- (void)toggleTraditionalOutput:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestToggleTraditionalOutput:self]; }
-- (void)openSettings:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestOpenSettings:self]; }
-- (void)openCharacterPalette:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestOpenCharacterPalette:self]; }
-- (void)checkForUpdates:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestCheckForUpdates:self]; }
-- (void)openWebsite:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self]; }
-- (void)dismissFloatingToolbar:(id)sender { (void)sender; [self.toolbarDelegate floatingToolbarDidRequestHide:self]; }
-- (void)showUtilityMenu:(NSButton *)sender {
-    NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(self);
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(sender.bounds), NSMaxY(sender.bounds) + 4.0) inView:sender];
+
+- (void)toggleInputMode:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestToggleInputMode:self];
+}
+
+- (void)togglePunctuation:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestTogglePunctuation:self];
+}
+
+- (void)toggleFullWidth:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestToggleFullWidth:self];
+}
+
+- (void)toggleTraditionalOutput:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestToggleTraditionalOutput:self];
+}
+
+- (void)openSettings:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestOpenSettings:self];
+}
+
+- (void)openCharacterPalette:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestOpenCharacterPalette:self];
+}
+
+- (void)checkForUpdates:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestCheckForUpdates:self];
+}
+
+- (void)openWebsite:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self];
+}
+
+- (void)dismissFloatingToolbar:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestHide:self];
+}
+
+- (void)showUtilityMenu:(NSButton *)sender
+{
+    NSMenu *menu = CreateMetasequoiaFloatingToolbarUtilityMenu(self);
+    [menu popUpMenuPositioningItem:nil
+                        atLocation:NSMakePoint(NSMinX(sender.bounds), NSMaxY(sender.bounds) + 4.0)
+                            inView:sender];
 }
 @end

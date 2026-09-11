@@ -20,4 +20,3 @@ enum MacCloudFileTransfer {
     else { try FileManager.default.moveItem(at: temporary, to: destination) }
   }
 }
-

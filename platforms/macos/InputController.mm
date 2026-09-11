@@ -1,21 +1,36 @@
-#import "VoiceInputService.h"
-#import "VoiceSettings.h"
-#import "ShuangpinKeymapPanel.h"
-#import "ChineseTextConversion.h"
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
-#import "FullWidthInput.h"
-#import "InputModeRouting.h"
-#import "InputMenu.h"
-#import "CandidateAppearance.h"
-#import "CandidateChrome.h"
+#import "UpdateController.h"
+#import "DictionaryWindowController.h"
+#import "DictionaryRuntime.h"
+#import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
-#import "FloatingToolbarPanel.h"
+#import "AccountWindowController.h"
+#import "CloudClipboardWindowController.h"
+#import "CandidateChrome.h"
 #include "CandidateSkin.h"
+#import "ChineseTextConversion.h"
+#include "FullWidthInput.h"
+#import "ShuangpinKeymapPanel.h"
+#import "FloatingToolbarPanel.h"
+#import "VoiceInputService.h"
+#import "VoiceSettings.h"
+#include "WubiCommitPolicy.h"
+
+static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+    NSString *annotation = candidate[@"annotation"];
+    NSString *text = candidate[@"text"];
+    if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
+    return MSIMEChineseOutputString(text, traditional);
+}
+
+static NSColor *SkinColor(msime::mac::Rgba color) {
+    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
+}
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -29,246 +44,240 @@
 
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
+    MSIMEVoiceInputService *_voiceService;
+    uint64_t _voiceGeneration;
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
-    id<MetasequoiaVoiceService> _voiceService;
-    NSUInteger _voiceGeneration;
-    id _voiceMouseMonitor;
-    MetasequoiaShuangpinKeymapPanel *_keymapPanel;
+    MSIMEShuangpinKeymapPanel *_keymapPanel;
     MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
-    BOOL _verticalCandidates;
-    NSUInteger _candidateFontSize;
-    NSString *_candidateSkin;
-    BOOL _fullWidthInput;
-    BOOL _chinesePunctuation;
-    BOOL _traditionalOutput;
-    BOOL _englishMode;
-    BOOL _inputModeShortcutEnabled;
-    BOOL _floatingToolbarEnabled;
-    BOOL _toolbarHiddenByUser;
-    NSString *_resolvedSkinID;
-    msime::mac::ResolvedSkin _lightSkin;
-    msime::mac::ResolvedSkin _darkSkin;
-    NSImage *_skinDecoration;
+    BOOL _preferencesSaving;
+    MSIMEAppearancePreferences *_appearance;
+    NSUInteger _requestedPageSize;
+    BOOL _skinShowsSelectedBar;
+    BOOL _focusPending;
+    MSIMEDictionaryWindowController *_dictionaryWindow;
 }
 
-static NSColor *MSIMESkinColor(msime::mac::Rgba color)
-{
-    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
+- (void)ensureAppearance {
+    if (_appearance) return;
+    _appearance = [MSIMEAppearancePreferences sharedPreferences];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
 }
-
-static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
-{
-    NSAppearanceName match = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    return [match isEqualToString:NSAppearanceNameDarkAqua];
+- (void)appearanceChanged:(NSNotification *)notification {
+    (void)notification;
+    if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    }
+    [self syncPageSize];
+    [self syncPunctuation];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+    if (_activeClient) [self renderCandidates];
+    [self persistAppearancePreferences];
 }
-
-- (void)refreshResolvedSkins
-{
-    const std::filesystem::path root = msime::mac::DefaultSkinsRoot();
-    const std::string skinID = _candidateSkin.UTF8String ?: "fluent";
-    _lightSkin = msime::mac::ResolveSkin(skinID, false, root);
-    _darkSkin = msime::mac::ResolveSkin(skinID, true, root);
-    _resolvedSkinID = [_candidateSkin copy];
-    _skinDecoration = nil;
-    if (_lightSkin.decorationTopDip > 0.0 && !_lightSkin.decorationPath.empty()) {
-        _skinDecoration = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
+- (void)persistAppearancePreferences {
+    if (_preferencesSaving || !_preferencesDirectory || !_session) return;
+    _preferencesSaving = YES;
+    NSString *directory = [_preferencesDirectory copy];
+    MSIMEAppearancePreferences *appearance = _appearance;
+    __weak MSIMEInputController *weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *loadError = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&loadError];
+        NSDictionary *preferences = snapshot ? [appearance sharedPreferencesByMerging:snapshot[@"preferences"]] : nil;
+        uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+        NSError *saveError = nil;
+        NSDictionary *saved = nil;
+        if (preferences) {
+            saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:@{ @"format_version": @1, @"revision": @(revision), @"preferences": preferences } error:&saveError];
+        }
+        if (!saved && snapshot) {
+            NSError *retryLoadError = nil;
+            NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:&retryLoadError];
+            NSDictionary *latestPreferences = latest ? [appearance sharedPreferencesByMerging:latest[@"preferences"]] : nil;
+            if (latestPreferences) {
+                saveError = nil;
+                saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *controller = weakSelf;
+            if (!controller) return;
+            controller->_preferencesSaving = NO;
+            if (saved && !saveError) [controller reloadPreferences];
+        });
+    });
+}
+- (void)syncPageSize {
+    if (!_session) return;
+    [self ensureAppearance];
+    NSUInteger size = _appearance.pageSize;
+    if (_requestedPageSize == size) return;
+    NSDictionary *result = [_session setCandidatePageSize:(uint8_t)size error:nil];
+    if (result) {
+        _requestedPageSize = size;
+        _view = result[@"view"];
     }
 }
-
-- (void)applyView:(NSDictionary *)view {
-    if (![view isKindOfClass:NSDictionary.class] || !_activeClient) return;
-    _view = view;
-    [self renderCandidates];
+- (void)syncPunctuation {
+    if (_session) [self apply:[_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil]];
 }
-
-- (void)refreshToolbar {
-    if (!_toolbar) return;
-    [_toolbar updateEnglishInputMode:_englishMode
-             chinesePunctuationEnabled:_chinesePunctuation
-                      fullWidthEnabled:_fullWidthInput
-       traditionalChineseOutputEnabled:_traditionalOutput];
-    [_toolbar setVisible:_floatingToolbarEnabled && !_toolbarHiddenByUser forDelegate:self];
+- (NSMenu *)menu {
+    [self ensureAppearance];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    menu.autoenablesItems = NO;
+    for (NSUInteger mode = 0; mode < 2; ++mode) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
+        item.target = self;
+        item.state = _appearance.englishMode == (mode == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    for (NSUInteger script = 0; script < 2; ++script) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:script ? @"繁体输出" : @"简体输出" action:script ? @selector(selectTraditionalOutput:) : @selector(selectSimplifiedOutput:) keyEquivalent:@""];
+        item.target = self;
+        item.state = _appearance.traditionalOutput == (script == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
+    palette.target = self;
+    [menu addItem:palette];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
+    item.target = self;
+    [menu addItem:item];
+    NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"个人词典…" action:@selector(showDictionary:) keyEquivalent:@""];
+    dictionary.target = self;
+    [menu addItem:dictionary];
+    NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
+    NSMenuItem *clipboard = [[NSMenuItem alloc] initWithTitle:@"云剪贴板…" action:@selector(showCloudClipboard:) keyEquivalent:@""]; clipboard.target = self; [menu addItem:clipboard];
+    NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
+    prepare.target = self;
+    [menu addItem:prepare];
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
+    updates.target = self;
+    [menu addItem:updates];
+    NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"官方网站" action:@selector(openWebsite:) keyEquivalent:@""];
+    website.target = self;
+    [menu addItem:website];
+    NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(toggleVoiceInput:) keyEquivalent:@""];
+    voice.target = self;
+    [menu addItem:voice];
+    NSMenuItem *voiceSettings = [[NSMenuItem alloc] initWithTitle:@"语音输入设置…" action:@selector(showVoiceSettings:) keyEquivalent:@""];
+    voiceSettings.target = self;
+    [menu addItem:voiceSettings];
+    return menu;
 }
-
-- (void)syncCharacterWidth {
-    if (!_session) return;
-    NSDictionary *view = [_session setCharacterWidthFull:_fullWidthInput error:nil];
-    if (view) [self applyView:view];
-}
-
-- (void)syncChinesePunctuation {
-    if (!_session) return;
-    NSDictionary *view = [_session setChinesePunctuationEnabled:_chinesePunctuation error:nil];
-    if (view) [self applyView:view];
-}
-
+- (void)showAccount:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户标识"; NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"查看"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMEAccountWindowController sharedController] showForAccountID:field.stringValue]; }
+- (void)showCloudClipboard:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户 access token"; NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"打开"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMECloudClipboardWindowController sharedController] showWithToken:field.stringValue]; }
 - (void)setEnglishInputMode:(BOOL)enabled {
-    if (enabled == _englishMode) return;
-    if (!_session) {
-        _englishMode = enabled;
-        [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"MSIMEClientEnglishMode"];
-        [self refreshToolbar];
+    [self ensureAppearance];
+    if (enabled && !_appearance.englishMode && _session && _activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return; // Do not hide an unsettled composition after an Engine failure.
+        [self apply:finished];
+    }
+    _appearance.englishMode = enabled;
+    [_panel orderOut:nil];
+    [_keymapPanel orderOut:nil];
+}
+- (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
+- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = NO; }
+- (void)selectTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = YES; }
+- (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
+- (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
+- (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
+- (void)showVoiceSettings:(id)sender { (void)sender; [[MSIMEVoiceSettings sharedSettings] showAndActivate]; }
+- (void)toggleVoiceInput:(id)sender {
+    (void)sender;
+    if (!_session) [self prepareSession];
+    if (!_session) return;
+    if (!_voiceService) _voiceService = [[MSIMEVoiceInputService alloc] init];
+    if (_voiceService.active) { [_voiceService stopMicrophoneCapture]; [_voiceService stopTranscription]; [_voiceService cancelWithError:nil]; return; }
+    __weak MSIMEInputController *weakSelf = self;
+    void (^start)(void) = ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || !controller->_session) return;
+        NSError *error = nil;
+        if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
+        NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
+        if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
+            (void)final;
+            [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
+        } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
+        if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) { (void)buffer; } error:&error]) { [controller->_voiceService stopTranscription]; [controller->_voiceService cancelWithError:nil]; }
+    };
+    if (_voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
+        [_voiceService requestSpeechPermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
         return;
     }
-    if (enabled && _activeClient && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
-        [(NSString *)_view[@"editing_text"] length]) {
+    if (_voiceService.microphoneAuthorizationStatus != AVAuthorizationStatusAuthorized) {
+        [_voiceService requestMicrophonePermission:^(BOOL granted) { if (granted) [weakSelf toggleVoiceInput:nil]; }];
+        return;
+    }
+    start();
+}
+- (void)openWebsite:(id)sender { (void)sender; [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]]; }
+- (void)openCharacterPalette:(id)sender {
+    (void)sender;
+    if (_session && _activeClient) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
     }
-    NSDictionary *transition = [_session setEnglishMode:enabled error:nil];
-    if (!transition) return;
-    _englishMode = enabled;
-    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"MSIMEClientEnglishMode"];
-    [self apply:transition];
-    if (!enabled && _activeClient) [self apply:[_session setFocused:YES error:nil]];
-    if (enabled) [_panel orderOut:nil];
-    [self refreshToolbar];
+    [self showSystemCharacterPalette];
 }
-
-- (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
-- (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
-- (void)showCandidatePreview:(id)sender {
+- (void)showAppearance:(id)sender {
     (void)sender;
     [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
-- (void)showPreferences:(id)sender { (void)sender; [[MSIMEPreferencesWindowController sharedController] showAndActivate]; }
-- (void)openCharacterPalette:(id)sender { (void)sender; [[NSApplication sharedApplication] orderFrontCharacterPalette:nil]; }
-- (void)checkForUpdates:(id)sender { (void)sender; }
-- (void)openWebsite:(id)sender {
+- (void)showDictionary:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
+- (void)prepareDictionary:(id)sender {
     (void)sender;
-    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app"]];
-}
-
-- (void)cancelVoiceInput {
-    ++_voiceGeneration;
-    [_voiceService cancel];
-    if (_voiceMouseMonitor) [NSEvent removeMonitor:_voiceMouseMonitor];
-    _voiceMouseMonitor = nil;
-}
-
-- (void)toggleVoiceInput:(id)sender {
-    (void)sender;
-    if (!_activeClient) return;
-#if MSIME_MACOS_VOICE_SERVICE
-    if (!_voiceService) _voiceService = [MetasequoiaVoiceInputService new];
-#endif
-    if (!_voiceService) return;
-    if (_voiceService.recording) { [_voiceService stop]; return; }
-    if (_voiceService.active) { [self cancelVoiceInput]; return; }
-    if (_session && [_view[@"editing_text"] length]) {
+    if (_session && _activeClient) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
+        [_session setFocused:NO error:nil];
+        [_session closeWithError:nil];
+        _session = nil;
+        [_preferencesTimer invalidate];
+        _preferencesTimer = nil;
     }
-    id client = _activeClient;
-    const NSUInteger generation = ++_voiceGeneration;
-    const NSRange selection = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
-    __weak MSIMEInputController *weakSelf = self;
-    _voiceMouseMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown handler:^(NSEvent *event) {
-        (void)event;
-        [weakSelf cancelVoiceInput];
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO; panel.canChooseDirectories = YES; panel.allowsMultipleSelection = NO;
+    [panel beginWithCompletionHandler:^(NSModalResponse response) {
+        if (response != NSModalResponseOK || !panel.URL) return;
+        NSURL *support = [[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSURL *state = [support URLByAppendingPathComponent:@"app.msime.client.preview" isDirectory:YES];
+        [MSIMEDictionaryRuntime prepareResourcesDirectory:panel.URL.path stateRoot:state.path completion:^(NSDictionary *options, NSError *error) {
+            if (!options) { NSAlert *alert = [NSAlert new]; alert.messageText = @"词库准备失败"; alert.informativeText = error.localizedDescription ?: @"无法准备词库"; [alert runModal]; return; }
+            NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:nil];
+            NSURL *target = [state URLByAppendingPathComponent:@"runtime-options.json"];
+            [[NSFileManager defaultManager] createDirectoryAtURL:state withIntermediateDirectories:YES attributes:nil error:nil];
+            [data writeToURL:target options:NSDataWritingAtomic error:nil];
+        }];
     }];
-    [_voiceService startWithCompletion:^(NSString *text, NSError *error) {
-        MSIMEInputController *owner = weakSelf;
-        if (!owner || owner->_voiceGeneration != generation || owner->_activeClient != client) return;
-        NSRange current = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
-        [owner cancelVoiceInput];
-        if (!NSEqualRanges(current, selection)) return;
-        if (error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                NSAlert *alert = [NSAlert new];
-                alert.messageText = @"语音输入未完成";
-                alert.informativeText = @"请检查麦克风权限和语音设置后重试。";
-                [alert runModal];
-            });
-            return;
-        }
-        if (text.length) [(id<MSIMETextClient>)client insertText:MetasequoiaChineseOutputString(text, owner->_traditionalOutput) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-    }];
-}
-
-#if MSIME_MACOS_VOICE_SERVICE
-- (void)showVoiceSettings:(id)sender {
-    (void)sender;
-    [self cancelVoiceInput];
-    [[MetasequoiaVoiceSettingsWindow sharedController] showAndActivate];
-}
-#endif
-
-- (void)showShuangpinKeymap:(NSMenuItem *)sender {
-    if (!_keymapPanel) _keymapPanel = [MetasequoiaShuangpinKeymapPanel new];
-    [_keymapPanel setProfileName:sender.representedObject];
-    [_keymapPanel updateHighlightedKey:@""];
-    [_keymapPanel center];
-    [_keymapPanel orderFrontRegardless];
-}
-- (void)hideShuangpinKeymap:(id)sender { (void)sender; [_keymapPanel orderOut:nil]; }
-
-- (NSMenu *)menu {
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
-    menu.autoenablesItems = NO;
-    [menu addItem:CreateInputModeItem(@"中文输入", @selector(selectChineseMode:), self, !_englishMode)];
-    [menu addItem:CreateInputModeItem(@"英文输入", @selector(selectEnglishMode:), self, _englishMode)];
-    [menu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *preview = [[NSMenuItem alloc] initWithTitle:@"候选预览…"
-                                                        action:@selector(showCandidatePreview:)
-                                                 keyEquivalent:@""];
-    preview.target = self;
-    [menu addItem:preview];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showPreferences:) keyEquivalent:@""]];
-
-    NSMenuItem *keymap = [[NSMenuItem alloc] initWithTitle:@"双拼键位参考" action:nil keyEquivalent:@""];
-    NSMenu *profiles = [[NSMenu alloc] initWithTitle:keymap.title];
-    profiles.autoenablesItems = NO;
-    NSArray *names = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
-    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
-    for (NSUInteger index = 0; index < names.count; ++index) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:names[index] action:@selector(showShuangpinKeymap:) keyEquivalent:@""];
-        item.representedObject = identifiers[index];
-        item.target = self;
-        [profiles addItem:item];
-    }
-    [profiles addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏键位参考" action:@selector(hideShuangpinKeymap:) keyEquivalent:@""];
-    hide.target = self;
-    [profiles addItem:hide];
-    keymap.submenu = profiles;
-    [menu addItem:keymap];
-#if MSIME_MACOS_VOICE_SERVICE
-    for (NSArray *entry in @[@[@"语音输入（Control + Option + V）", NSStringFromSelector(@selector(toggleVoiceInput:))], @[@"语音设置…", NSStringFromSelector(@selector(showVoiceSettings:))]]) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
-        item.target = self;
-        [menu addItem:item];
-    }
-#endif
-    return menu;
 }
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
-    _activeClient = sender;
-    _fullWidthInput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientFullWidthInput"];
-    _englishMode = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientEnglishMode"];
-    _chinesePunctuation = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientChinesePunctuation"] == nil ||
-                          [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientChinesePunctuation"];
-    _floatingToolbarEnabled = YES;
-    _toolbarHiddenByUser = NO;
-    _inputModeShortcutEnabled = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientInputModeShortcut"] == nil ||
-                                [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientInputModeShortcut"];
+    [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
-    [_toolbar activateForDelegate:self visible:_floatingToolbarEnabled];
-    _verticalCandidates = YES;
-    _candidateFontSize = 18;
-    _candidateSkin = @"fluent";
-    _traditionalOutput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientTraditionalChineseOutput"];
+    [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
+    _activeClient = sender;
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+    [self ensureAppearance];
+    _focusPending = _appearance.englishMode;
+    if (!_appearance.englishMode) [self prepareSession];
+}
+
+- (void)prepareSession {
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
@@ -278,49 +287,16 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         NSData *data = [NSData dataWithContentsOfFile:path];
         NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         if ([options isKindOfClass:NSDictionary.class]) {
-            NSDictionary *preferences = options[@"preferences"];
-            if ([preferences isKindOfClass:NSDictionary.class]) {
-                if ([preferences[@"chinese_punctuation"] isKindOfClass:NSNumber.class]) {
-                    _chinesePunctuation = [preferences[@"chinese_punctuation"] boolValue];
-                    [[NSUserDefaults standardUserDefaults] setBool:_chinesePunctuation forKey:@"MSIMEClientChinesePunctuation"];
-                }
-                NSDictionary *toolbar = preferences[@"floating_toolbar"];
-                if ([toolbar isKindOfClass:NSDictionary.class] && [toolbar[@"enabled"] isKindOfClass:NSNumber.class]) {
-                    _floatingToolbarEnabled = [toolbar[@"enabled"] boolValue];
-                }
-            }
-            _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
-            if ([preferences isKindOfClass:NSDictionary.class]) {
-                if ([preferences[@"traditional_chinese_output"] isKindOfClass:NSNumber.class]) {
-                    _traditionalOutput = [preferences[@"traditional_chinese_output"] boolValue];
-                    [[NSUserDefaults standardUserDefaults] setBool:_traditionalOutput forKey:@"MSIMEClientTraditionalChineseOutput"];
-                }
-                id orientation = preferences[@"candidate_orientation"];
-                if ([orientation isKindOfClass:NSString.class]) {
-                    _verticalCandidates = metasequoia::mac::IsVerticalCandidateOrientation(orientation);
-                }
-                id fontSize = preferences[@"candidate_font_size"];
-                if ([fontSize isKindOfClass:NSNumber.class]) {
-                    _candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
-                }
-                id skin = preferences[@"candidate_skin"];
-                if ([skin isKindOfClass:NSString.class]) {
-                    const std::string normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
-                    _candidateSkin = [NSString stringWithUTF8String:normalized.c_str()];
-                }
-            }
-            [self refreshResolvedSkins];
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
     }
-    [self refreshToolbar];
+    [self syncPageSize];
     if (_session) {
-        [self syncCharacterWidth];
-        [self syncChinesePunctuation];
-        if (_englishMode) [self apply:[_session setEnglishMode:YES error:nil]];
-        else [self apply:[_session setFocused:YES error:nil]];
+        [self syncPunctuation];
+        [self apply:[_session setFocused:YES error:nil]];
+        _focusPending = NO;
     }
     if (_session && _preferencesDirectory) {
         [_preferencesTimer invalidate];
@@ -343,37 +319,13 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         controller->_preferencesLoading = NO;
         // Failed loads retain the old configuration; never synthesize defaults here.
         if (result && !error && controller->_activeClient) {
-            NSDictionary *presentation = result[@"presentation"];
-            if ([presentation isKindOfClass:NSDictionary.class]) {
-                id orientation = presentation[@"candidate_orientation"];
-                if ([orientation isKindOfClass:NSString.class]) {
-                    controller->_verticalCandidates = metasequoia::mac::IsVerticalCandidateOrientation(orientation);
-                }
-                id fontSize = presentation[@"candidate_font_size"];
-                if ([fontSize isKindOfClass:NSNumber.class]) {
-                    controller->_candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
-                }
-                id skin = presentation[@"candidate_skin"];
-                if ([skin isKindOfClass:NSString.class]) {
-                    const std::string normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
-                    controller->_candidateSkin = [NSString stringWithUTF8String:normalized.c_str()];
-                }
-                NSDictionary *toolbar = presentation[@"floating_toolbar"];
-                if ([toolbar isKindOfClass:NSDictionary.class] &&
-                    [toolbar[@"enabled"] isKindOfClass:NSNumber.class]) {
-                    controller->_floatingToolbarEnabled = [toolbar[@"enabled"] boolValue];
-                }
-            }
-            [controller refreshResolvedSkins];
             controller->_view = result[@"view"];
             [controller renderCandidates];
-            [controller refreshToolbar];
         }
     }];
 }
 
 - (void)deactivateServer:(id)sender {
-    [self cancelVoiceInput];
     [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
@@ -384,68 +336,38 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [super deactivateServer:sender];
 }
 
-- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    [self setEnglishInputMode:!_englishMode];
-}
-
+- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self setEnglishInputMode:!_appearance.englishMode]; }
 - (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
-    if (_session && _activeClient && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
-        [(NSString *)_view[@"editing_text"] length]) {
+    [self ensureAppearance];
+    if (_session && _activeClient && [_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
     }
-    _chinesePunctuation = !_chinesePunctuation;
-    [[NSUserDefaults standardUserDefaults] setBool:_chinesePunctuation forKey:@"MSIMEClientChinesePunctuation"];
-    [self syncChinesePunctuation];
-    [self refreshToolbar];
+    _appearance.chinesePunctuation = !_appearance.chinesePunctuation;
+    [self syncPunctuation];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
 }
-
-- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    _fullWidthInput = !_fullWidthInput;
-    [[NSUserDefaults standardUserDefaults] setBool:_fullWidthInput forKey:@"MSIMEClientFullWidthInput"];
-    [self syncCharacterWidth];
-    [self refreshToolbar];
-}
-
-- (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    _traditionalOutput = !_traditionalOutput;
-    [[NSUserDefaults standardUserDefaults] setBool:_traditionalOutput forKey:@"MSIMEClientTraditionalChineseOutput"];
-    [self refreshToolbar];
-    [self renderCandidates];
-}
-
-- (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    [self openCharacterPalette:nil];
-}
-
-- (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    [self showPreferences:nil];
-}
-
-- (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar {
-    (void)toolbar;
-    [self checkForUpdates:nil];
-}
-
+- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.fullWidthInput = !_appearance.fullWidthInput; }
+- (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.traditionalOutput = !_appearance.traditionalOutput; }
+- (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }
+- (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showAppearance:nil]; }
+- (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
-    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app"]];
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app/"]];
 }
-
 - (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
-    _toolbarHiddenByUser = YES;
-    [self refreshToolbar];
+    _appearance.floatingToolbarEnabled = NO;
+    [_toolbar setVisible:NO forDelegate:self];
 }
 
-- (void)dealloc { [_preferencesTimer invalidate]; [_voiceService cancel]; if (_voiceMouseMonitor) [NSEvent removeMonitor:_voiceMouseMonitor]; }
+- (void)dealloc {
+    [_preferencesTimer invalidate];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
@@ -454,64 +376,63 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     if (event.type != NSEventTypeKeyDown) return NO;
-    if (sender != _activeClient) [self cancelVoiceInput];
-#if MSIME_MACOS_VOICE_SERVICE
-    NSEventModifierFlags voiceModifiers = event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagShift);
-    if (event.keyCode == 9 && voiceModifiers == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
-        if (!event.isARepeat && sender == _activeClient) [self toggleVoiceInput:sender];
-        return YES;
-    }
-#endif
-    if (_voiceService.active) {
-        [self cancelVoiceInput];
-        if (event.keyCode == 53) return YES;
-    }
-    if (_inputModeShortcutEnabled && msime::mac::IsInputModeToggle(event.keyCode, event.modifierFlags)) {
-        if (!event.isARepeat) [self setEnglishInputMode:!_englishMode];
-        return YES;
-    }
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
-        if (!event.isARepeat) {
-            _fullWidthInput = !_fullWidthInput;
-            [[NSUserDefaults standardUserDefaults] setBool:_fullWidthInput forKey:@"MSIMEClientFullWidthInput"];
-            [self syncCharacterWidth];
-            [self refreshToolbar];
-        }
-        return YES;
-    }
-    if (!_session) return NO;
-    if (_englishMode) return NO;
+    [self ensureAppearance];
     if (sender != _activeClient) {
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
-        [self apply:[_session setFocused:YES error:nil]];
+        _focusPending = _appearance.englishMode;
+        if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
+    const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
+    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
+        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        return YES;
+    }
+    if (_appearance.englishMode) return NO;
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
+        if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
+        return YES;
+    }
+    if (!_session) [self prepareSession];
+    if (!_session) return NO;
+    if (_focusPending) [self prepareSession];
+    [self syncPageSize];
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
     }
     uint32_t command = UINT32_MAX;
-    // Candidate navigation uses the runtime's highlight; hidden panels retain editing commands.
-    if (_panel.isVisible) {
-        switch (event.keyCode) {
-            case 123: case 124:
-                if (_verticalCandidates) return YES;
-                command = event.keyCode == 123 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
-                break;
-            case 115: command = MSIME_FIRST_CANDIDATE_ON_PAGE; break;
-            case 119: command = MSIME_LAST_CANDIDATE_ON_PAGE; break;
+    [self ensureAppearance];
+    if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift)) {
+        NSString *characters = event.charactersIgnoringModifiers;
+        if (characters.length == 1) {
+            const unichar character = [characters characterAtIndex:0];
+            const NSInteger shortcut = _appearance.pageShortcut;
+            const BOOL previous = (shortcut == 0 && character == '-') || (shortcut == 1 && character == '[');
+            const BOOL next = (shortcut == 0 && character == '=') || (shortcut == 1 && character == ']');
+            if (previous || next) {
+                [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+                return YES;
+            }
         }
     }
-    if (command == UINT32_MAX) switch (event.keyCode) {
+    if (_panel.isVisible && event.keyCode >= 123 && event.keyCode <= 126) {
+        const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
+        if (horizontal == _appearance.vertical) return YES;
+        const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
+        [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
+        return YES;
+    }
+    switch (event.keyCode) {
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
         case 53: command = MSIME_CANCEL; break;
         case 49: command = MSIME_COMMIT_CANDIDATE; break;
         case 123: command = MSIME_MOVE_LEFT; break;
         case 124: command = MSIME_MOVE_RIGHT; break;
-        case 115: command = MSIME_MOVE_HOME; break;
-        case 119: command = MSIME_MOVE_END; break;
+        case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE_ON_PAGE : MSIME_MOVE_HOME; break;
+        case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE_ON_PAGE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
         case 116: command = MSIME_PREVIOUS_PAGE; break;
         case 121: command = MSIME_NEXT_PAGE; break;
@@ -521,23 +442,29 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
-        const unichar character = [event.characters characterAtIndex:0];
-        transition = [_session typeASCII:(uint8_t)character shift:(event.modifierFlags & NSEventModifierFlagShift) != 0 error:nil];
+        transition = [_session typeASCII:(uint8_t)[event.characters characterAtIndex:0] shift:(event.modifierFlags & NSEventModifierFlagShift) != 0 error:nil];
     }
     if (!transition) return NO;
     [self apply:transition];
+    if (command == UINT32_MAX && [transition[@"handled"] boolValue] &&
+        ![transition[@"commit"] isKindOfClass:NSString.class] && event.characters.length == 1 &&
+        [event.characters characterAtIndex:0] >= 'a' && [event.characters characterAtIndex:0] <= 'z' &&
+        MSIMEShouldAutoCommitWubi(_appearance.wubiAutoCommitUnique, transition[@"view"])) {
+        NSDictionary *committed = [_session command:MSIME_COMMIT_CANDIDATE error:nil];
+        if (committed) [self apply:committed];
+    }
     if ([transition[@"handled"] boolValue]) return YES;
-    if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
+    // Match Apple: Engine gets first refusal, then finish any composition before fallback.
+    if ([_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return NO;
         [self apply:finished];
     }
-    if (_fullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+    if (_appearance.fullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
         ![_view[@"editing_text"] length] && event.characters.length == 1 &&
         msime::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], event.modifierFlags)) {
         const unichar converted = msime::mac::FullWidthCharacter([event.characters characterAtIndex:0]);
-        [(id<IMKTextInput>)_activeClient insertText:[NSString stringWithCharacters:&converted length:1]
-                                   replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        [(id<MSIMETextClient>)sender insertText:[NSString stringWithCharacters:&converted length:1] replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
         return YES;
     }
     return NO;
@@ -550,18 +477,44 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
-    if ([transition[@"commit"] isKindOfClass:NSString.class] &&
-        _traditionalOutput) {
+    NSDictionary *displayTransition = transition;
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
-        converted[@"commit"] = MetasequoiaChineseOutputString(transition[@"commit"], YES);
-        transition = converted;
+        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
+        displayTransition = converted;
     }
-    MSIMEApplyTransition(transition, (id<MSIMETextClient>)_activeClient);
+    MSIMEApplyTransition(displayTransition, (id<MSIMETextClient>)_activeClient);
     _view = transition[@"view"];
     [self renderCandidates];
 }
 
+- (void)updateKeymapPanel {
+    NSString *preedit = _view[@"preedit"];
+    NSNumber *scheme = _view[@"scheme"];
+    NSString *profile = _view[@"shuangpin_profile"];
+    if (!_session || !_activeClient || _appearance.englishMode ||
+        ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
+        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, [preedit isKindOfClass:NSString.class] && preedit.length > 0)) {
+        [_keymapPanel orderOut:nil];
+        return;
+    }
+    NSRect cursor = NSZeroRect;
+    [_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&cursor];
+    if (!MSIMEValidCaret(cursor)) { [_keymapPanel orderOut:nil]; return; }
+    if (!_keymapPanel) _keymapPanel = [[MSIMEShuangpinKeymapPanel alloc] init];
+    [_keymapPanel setProfileName:profile];
+    const unichar last = [preedit characterAtIndex:preedit.length - 1];
+    NSString *key = ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') ? [NSString stringWithCharacters:&last length:1] : @"";
+    [_keymapPanel updateHighlightedKey:key];
+    CGFloat clearance = _appearance.fontSize + 42.0;
+    if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
+    [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
+}
+
 - (void)renderCandidates {
+    [self updateKeymapPanel];
+    if (_appearance.englishMode) { [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) { [_panel orderOut:nil]; return; }
     NSRect cursor = NSZeroRect;
@@ -574,45 +527,45 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     screen = screen ?: NSScreen.mainScreen;
     if (!screen) { [_panel orderOut:nil]; return; }
     NSRect visible = screen.visibleFrame;
-    if (![_resolvedSkinID isEqualToString:_candidateSkin]) [self refreshResolvedSkins];
-    NSFont *font = [NSFont systemFontOfSize:(CGFloat)metasequoia::mac::NormalizeCandidateFontSize(_candidateFontSize)];
-    const BOOL dark = MSIMEIsDarkAppearance(_panel.effectiveAppearance ?: NSApp.effectiveAppearance);
-    const msime::mac::ResolvedSkin &skin = dark ? _darkSkin : _lightSkin;
-    const msime::mac::SkinTokens &tokens = skin.tokens;
-    const CGFloat inset = MAX(2.0, static_cast<CGFloat>(tokens.pad));
+    [self ensureAppearance];
+    const BOOL vertical = _appearance.vertical;
+    NSAppearance *currentAppearance = _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
+    NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    const auto skin = [_appearance resolvedSkinForDark:[currentTheme isEqual:NSAppearanceNameDarkAqua]];
+    const auto geometry = skin.tokens;
+    _skinShowsSelectedBar = geometry.showSelectedBar;
+    const CGFloat inset = MAX(2.0, geometry.pad);
+    NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
-    const BOOL vertical = _verticalCandidates;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
-    const BOOL hasPreviousPage = page > 0;
-    const BOOL hasNextPage = pageCount > 0 && page + 1 < pageCount;
-    const BOOL paging = hasPreviousPage || hasNextPage;
-    NSMutableArray<NSNumber *> *itemWidths = [NSMutableArray arrayWithCapacity:candidates.count];
-    CGFloat candidateWidth = 0;
+    const BOOL paging = pageCount > 1;
+    CGFloat width = 20;
+    NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
+    CGFloat totalWidth = 0;
+    NSUInteger index = 0;
+    const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     for (NSDictionary *candidate in candidates) {
-        const NSUInteger index = itemWidths.count + 1;
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)index, candidate[@"text"]];
-        CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + (vertical ? 28 : 12);
-        if (!vertical) itemWidth = MIN(180, itemWidth);
-        [itemWidths addObject:@(itemWidth)];
-        candidateWidth = vertical ? MAX(candidateWidth, itemWidth) : candidateWidth + itemWidth;
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, CandidateDisplay(candidate, traditional)];
+        const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
+        [widths addObject:@(itemWidth)];
+        totalWidth += itemWidth;
+        width = MAX(width, itemWidth + 2 * inset);
     }
-    const CGFloat navigationWidth = !vertical && paging ? 56 : 0;
-    const CGFloat availableWidth = MAX(80, visible.size.width - 20 - navigationWidth - 2 * inset);
-    if (vertical) {
-        candidateWidth = MIN(candidateWidth, availableWidth);
-    } else if (candidateWidth > availableWidth && candidateWidth > 0) {
-        const CGFloat scale = availableWidth / candidateWidth;
-        candidateWidth = 0;
-        for (NSUInteger index = 0; index < itemWidths.count; ++index) {
-            const CGFloat scaled = MAX(24, floor(itemWidths[index].doubleValue * scale));
-            itemWidths[index] = @(scaled);
-            candidateWidth += scaled;
+    width = MIN(width, MAX(80, visible.size.width - 20));
+    if (paging) width = MAX(width, 76);
+    if (!vertical) {
+        const CGFloat available = MAX(80, visible.size.width - 32 - (paging ? 56 : 0));
+        if (totalWidth > available) {
+            const CGFloat scale = available / totalWidth;
+            totalWidth = 0;
+            for (NSUInteger i = 0; i < widths.count; ++i) {
+                widths[i] = @(MAX(24, floor(widths[i].doubleValue * scale)));
+                totalWidth += widths[i].doubleValue;
+            }
         }
+        width = totalWidth + 2 * inset + (paging ? 56 : 0);
     }
-    CGFloat panelWidth = vertical ? (paging ? MAX(candidateWidth, 64) : candidateWidth)
-                                  : candidateWidth + navigationWidth + 2 * inset;
-    panelWidth = MAX(panelWidth, MAX(static_cast<CGFloat>(skin.minWidthDip), static_cast<CGFloat>(skin.decorationWidthDip)));
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
@@ -620,85 +573,84 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
         _panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
-        _panel.backgroundColor = NSColor.clearColor;
-        _panel.opaque = NO;
-        _panel.contentView.wantsLayer = YES;
-        _panel.contentView.layer.cornerRadius = 8.0;
-        _panel.contentView.layer.masksToBounds = YES;
     }
-    const CGFloat navigationHeight = paging && vertical ? 26 : 0;
-    const CGFloat decorationHeight = static_cast<CGFloat>(skin.decorationTopDip);
-    const CGFloat height = vertical ? candidates.count * rowHeight + navigationHeight + 2 * inset + decorationHeight
-                                    : rowHeight + 2 * inset + decorationHeight;
-    [_panel setContentSize:NSMakeSize(panelWidth, height)];
-    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, height)];
-    content.fillColor = MSIMESkinColor(tokens.surface);
-    content.strokeColor = MSIMESkinColor(tokens.border);
-    content.cornerRadius = tokens.radius;
-    content.lineWidth = tokens.borderWidth;
+    _panel.opaque = NO;
+    _panel.backgroundColor = NSColor.clearColor;
+    const CGFloat decorationHeight = skin.decorationTopDip;
+    width = MAX(width, MAX(skin.minWidthDip, skin.decorationWidthDip));
+    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight;
+    [_panel setContentSize:NSMakeSize(width, height)];
+    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
-    const CGFloat contentTop = height - inset - decorationHeight - navigationHeight;
+    CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
+        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
-        if (vertical) {
-            button.frame = NSMakeRect(inset, contentTop - (++slot * rowHeight), panelWidth - 2 * inset, rowHeight);
-        } else {
-            CGFloat x = inset;
-            for (NSUInteger index = 0; index < slot; ++index) x += itemWidths[index].doubleValue;
-            button.frame = NSMakeRect(x, inset, itemWidths[slot].doubleValue, rowHeight);
-            ++slot;
-        }
+        button.tag = (NSInteger)slot;
+        CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
+        button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
+        ++slot;
+        if (!vertical) x += itemWidth;
         button.font = font;
-        button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
-        button.fillColor = MSIMESkinColor(tokens.selected);
-        button.titleColor = MSIMESkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);
-        button.numberColor = MSIMESkinColor(tokens.number);
-        button.barColor = MSIMESkinColor(tokens.accent);
-        button.showSelectedBar = tokens.showSelectedBar;
-        button.bordered = NO;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
-        button.toolTip = candidate[@"text"];
+        button.toolTip = display;
+        button.bordered = NO;
+        button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
     if (paging) {
-        for (NSUInteger index = 0; index < 2; ++index) {
-            NSButton *button = [NSButton buttonWithTitle:index == 0 ? @"‹" : @"›"
-                                                    target:self
-                                                    action:@selector(changeCandidatePage:)];
-            button.frame = vertical ? NSMakeRect(inset + index * 28, inset, 28, 26)
-                                    : NSMakeRect(candidateWidth + inset + index * 28, inset, 28, rowHeight);
+        for (NSUInteger direction = 0; direction < 2; ++direction) {
+            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
+            button.frame = NSMakeRect((vertical ? inset : x) + direction * 28, inset, 28, vertical ? 26 : rowHeight);
             button.bordered = NO;
-            button.contentTintColor = MSIMESkinColor(tokens.text);
-            button.font = font;
-            button.tag = index == 0 ? -1 : -2;
-            button.enabled = index == 0 ? hasPreviousPage : hasNextPage;
-            button.accessibilityLabel = index == 0 ? @"上一页候选" : @"下一页候选";
+            button.tag = direction == 0 ? -1 : -2;
+            button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;
+            button.accessibilityLabel = direction == 0 ? @"上一页候选" : @"下一页候选";
+            // A retained button from an old page cannot navigate a newer view.
+            button.candidateID = _view;
             [content addSubview:button];
         }
     }
-    if (decorationHeight > 0.0 && _skinDecoration && skin.decorationWidthDip > 0.0) {
-        NSImageView *decoration = [[NSImageView alloc]
-            initWithFrame:NSMakeRect(panelWidth - skin.decorationWidthDip, height - decorationHeight,
-                                     skin.decorationWidthDip, decorationHeight)];
-        decoration.image = _skinDecoration;
+    if (decorationHeight > 0 && _appearance.decorationImage) {
+        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(width - skin.decorationWidthDip, height - decorationHeight, skin.decorationWidthDip, decorationHeight)];
+        decoration.image = _appearance.decorationImage;
         decoration.imageScaling = NSImageScaleProportionallyUpOrDown;
         decoration.imageAlignment = NSImageAlignTopRight;
+        decoration.wantsLayer = YES;
         [content addSubview:decoration];
     }
     _panel.contentView = content;
+    content.appearanceTarget = self;
+    content.appearanceAction = @selector(refreshCandidateSkin);
+    [self refreshCandidateSkin];
     [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
     [_panel orderFrontRegardless];
 }
 
-- (void)changeCandidatePage:(NSButton *)button {
-    if (!_session || ![_view[@"page"] isKindOfClass:NSNumber.class] || ![_view[@"page_count"] isKindOfClass:NSNumber.class]) return;
-    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
-    const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
-    if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
-    if (button.tag == -2 && page + 1 < pageCount) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
+- (void)refreshCandidateSkin {
+    if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
+    MSIMECandidateChromeView *content = (id)_panel.contentView;
+    NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    const auto tokens = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
+    if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
+    content.fillColor = SkinColor(tokens.surface);
+    content.strokeColor = SkinColor(tokens.border);
+    content.cornerRadius = tokens.radius;
+    content.lineWidth = tokens.borderWidth;
+    for (MSIMECandidateButton *button in content.subviews) {
+        if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
+        button.fillColor = SkinColor(tokens.selected);
+        button.titleColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);
+        button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
+        button.barColor = SkinColor(tokens.accent);
+        button.showSelectedBar = tokens.showSelectedBar;
+        button.contentTintColor = SkinColor(tokens.text);
+        button.needsDisplay = YES;
+    }
+    content.needsDisplay = YES;
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
@@ -707,5 +659,16 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         ![identifier[@"session"] isEqual:_view[@"session"]])
         return;
     [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
+}
+
+- (void)changeCandidatePage:(MSIMECandidateButton *)button {
+    if (!_activeClient || !_panel.isVisible || ![_view[@"focused"] boolValue] || !button.enabled) return;
+    for (NSString *key in @[@"session", @"generation", @"page"]) {
+        if (![button.candidateID[key] isEqual:_view[key]]) return;
+    }
+    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
+    const NSUInteger count = [_view[@"page_count"] unsignedIntegerValue];
+    if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
+    if (button.tag == -2 && count > 0 && page < count - 1) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
 }
 @end

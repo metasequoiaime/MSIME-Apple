@@ -149,4 +149,3 @@ struct MacCloudSnapshotView: View {
     } message: { Text("此操作将替换全部云端个人词库及学习、删除和排序记录。预览后云端有新变化时会拒绝恢复，请重新选择并确认。") }
   }
 }
-

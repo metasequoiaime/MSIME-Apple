@@ -4,6 +4,20 @@
 
 namespace msime::windows {
 namespace {
+bool installed_font(const std::wstring &family) {
+  HDC dc = GetDC(nullptr);
+  if (!dc) return false;
+  LOGFONTW logfont{};
+  wcsncpy_s(logfont.lfFaceName, family.c_str(), LF_FACESIZE - 1);
+  bool found = false;
+  EnumFontFamiliesExW(dc, &logfont,
+      [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM data) -> int {
+        *reinterpret_cast<bool *>(data) = true;
+        return 0;
+      }, reinterpret_cast<LPARAM>(&found), 0);
+  ReleaseDC(nullptr, dc);
+  return found;
+}
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates";
 // Affect only this UI operation; restore the caller's thread context even on
 // failure. The created HWND retains PMv2 awareness for its entire lifetime.
@@ -21,11 +35,11 @@ struct Font {
   HDC dc;
   HFONT font;
   HGDIOBJ previous;
-  Font(HDC target, int height)
+  Font(HDC target, int height, const wchar_t *family = L"Segoe UI")
       : dc(target), font(CreateFontW(-height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
                                      FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                     DEFAULT_PITCH, L"Segoe UI")),
+                                     DEFAULT_PITCH, family)),
         previous(nullptr) {
     if (!font)
       throw std::runtime_error("Candidate font unavailable");
@@ -66,8 +80,31 @@ struct Painting {
   ~Painting() { EndPaint(window, &state); }
 };
 } // namespace
-CandidateWindow::CandidateWindow(Reader reader, Click click)
-    : reader_(std::move(reader)), click_(std::move(click)) {
+CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
+                                 unsigned preedit_font_size,
+                                 std::optional<COLORREF> text_color,
+                                 std::string font_family,
+                                 std::vector<std::string> fallback_fonts,
+                                 std::optional<bool> dark_theme,
+                                 bool horizontal, bool show_preedit)
+    : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
+      preedit_font_size_(preedit_font_size), text_color_(text_color),
+      font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal),
+      show_preedit_(show_preedit) {
+  if (font_family_.empty() || font_family_.size() > 128)
+    throw std::invalid_argument("Invalid candidate font family");
+  if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
+      preedit_font_size_ > 32)
+    throw std::invalid_argument("Invalid candidate font size");
+  if (!installed_font(font_family_)) {
+    for (const auto &fallback : fallback_fonts) {
+      auto candidate = wide(fallback);
+      if (!candidate.empty() && candidate.size() <= 128 && installed_font(candidate)) {
+        font_family_ = std::move(candidate);
+        break;
+      }
+    }
+  }
   if (!reader_)
     throw std::invalid_argument("Missing candidate reader");
   DpiScope dpi_scope;
@@ -136,7 +173,7 @@ void CandidateWindow::refresh() {
   const auto dpi = GetDpiForWindow(window_);
   const auto bounds =
       candidate_bounds(value->x, value->y, work.left, work.top, work.right,
-                       work.bottom, dpi, value->candidates.size());
+      work.bottom, dpi, value->candidates.size(), font_size_, horizontal_);
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
@@ -151,7 +188,14 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate painting unavailable");
   RECT bounds{};
   GetClientRect(window_, &bounds);
-  FillRect(painting.dc, &bounds, GetSysColorBrush(COLOR_WINDOW));
+  const auto background = dark_theme_.value_or(false) ? RGB(32, 32, 32) : GetSysColor(COLOR_WINDOW);
+  const auto foreground = dark_theme_.value_or(false) ? RGB(243, 243, 243) : GetSysColor(COLOR_WINDOWTEXT);
+  const auto highlight = dark_theme_.value_or(false) ? RGB(76, 74, 150) : GetSysColor(COLOR_HIGHLIGHT);
+  const auto highlight_text = dark_theme_.value_or(false) ? RGB(255, 255, 255) : GetSysColor(COLOR_HIGHLIGHTTEXT);
+  HBRUSH background_brush = CreateSolidBrush(background);
+  if (!background_brush) throw std::runtime_error("Candidate background unavailable");
+  FillRect(painting.dc, &bounds, background_brush);
+  DeleteObject(background_brush);
   const auto value = reader_(); // Never paint the last cached owner's text.
   if (!value || !value->visible) {
     hide();
@@ -159,26 +203,59 @@ void CandidateWindow::paint() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  const auto metrics = candidate_metrics(GetDpiForWindow(window_));
-  Font font(painting.dc, metrics.font);
+  const auto metrics = candidate_metrics(GetDpiForWindow(window_), font_size_);
   SetBkMode(painting.dc, TRANSPARENT);
   auto line = [&](const std::wstring &text, size_t row, bool highlighted) {
     RECT rect{metrics.padding,
               static_cast<LONG>(metrics.padding + row * metrics.row),
               bounds.right - metrics.padding,
               static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
-    if (highlighted)
-      FillRect(painting.dc, &rect, GetSysColorBrush(COLOR_HIGHLIGHT));
-    SetTextColor(painting.dc, GetSysColor(highlighted ? COLOR_HIGHLIGHTTEXT
-                                                      : COLOR_WINDOWTEXT));
+    if (highlighted) {
+      HBRUSH brush = CreateSolidBrush(highlight);
+      if (!brush) throw std::runtime_error("Candidate highlight unavailable");
+      FillRect(painting.dc, &rect, brush);
+      DeleteObject(brush);
+    }
+    SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
     rect.left += metrics.padding;
     DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
   };
-  line(wide(value->preedit), 0, false);
-  for (size_t i = 0; i < value->candidates.size(); ++i)
-    line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
-         i + 1, value->candidates[i].highlighted);
+  if (show_preedit_) {
+    Font preedit_font(painting.dc, candidate_metrics(
+        GetDpiForWindow(window_), preedit_font_size_).font, font_family_.c_str());
+    line(wide(value->preedit), 0, false);
+  }
+  {
+    Font candidate_font(painting.dc, metrics.font, font_family_.c_str());
+    if (!horizontal_) {
+      for (size_t i = 0; i < value->candidates.size(); ++i)
+        line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
+             i + 1, value->candidates[i].highlighted);
+    } else {
+      const auto inner = bounds.right - 2 * metrics.padding;
+      const auto column = (inner + static_cast<LONG>(value->candidates.size()) - 1) /
+                          static_cast<LONG>(value->candidates.size());
+      for (size_t i = 0; i < value->candidates.size(); ++i) {
+        RECT rect{metrics.padding + static_cast<LONG>(i) * column,
+                  metrics.padding + metrics.row,
+                  metrics.padding + static_cast<LONG>(i + 1) * column,
+                  metrics.padding + 2 * metrics.row};
+        const auto highlighted = value->candidates[i].highlighted;
+        if (highlighted) {
+          HBRUSH brush = CreateSolidBrush(highlight);
+          if (!brush) throw std::runtime_error("Candidate highlight unavailable");
+          FillRect(painting.dc, &rect, brush);
+          DeleteObject(brush);
+        }
+        SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
+        rect.left += metrics.padding;
+        DrawTextW(painting.dc,
+                  (std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text)).c_str(),
+                  -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+      }
+    }
+  }
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
 }
@@ -189,7 +266,8 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
   const auto row = candidate_hit(x, y, bounds.right, bounds.bottom,
-                                 painted_dpi_, painted_->candidates.size());
+                                 painted_dpi_, painted_->candidates.size(),
+                                 font_size_, horizontal_);
   if (!row)
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];

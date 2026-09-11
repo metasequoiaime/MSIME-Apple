@@ -59,6 +59,7 @@ public:
     check_thread();
     return word_character_;
   }
+  TsfPreeditStyle tsf_preedit_style() const { check_thread(); return tsf_preedit_style_; }
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -81,6 +82,7 @@ private:
   std::string options_;
   NavigationBindings navigation_;
   WordCharacterBinding word_character_ = WordCharacterBinding::Disabled;
+  TsfPreeditStyle tsf_preedit_style_ = TsfPreeditStyle::Local;
   std::optional<PreferenceSnapshot> preferences_;
   std::unordered_map<uint64_t, Client> clients_;
 };

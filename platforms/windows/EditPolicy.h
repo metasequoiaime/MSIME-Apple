@@ -1,9 +1,17 @@
 #pragma once
 #include "KeyEvent.h"
 #include <string_view>
+#include <nlohmann/json.hpp>
 
 namespace msime::windows {
-enum class TsfPreeditStyle { Local, Pinyin };
+enum class TsfPreeditStyle { Local, Pinyin, Empty };
+inline TsfPreeditStyle preference_tsf_preedit_style(const nlohmann::json &p) {
+  const auto value = p.value("tsf_preedit_style", "raw");
+  if (value == "raw") return TsfPreeditStyle::Local;
+  if (value == "pinyin") return TsfPreeditStyle::Pinyin;
+  if (value == "empty") return TsfPreeditStyle::Empty;
+  throw std::invalid_argument("Invalid TSF preedit style preference");
+}
 enum class EditKind { None, Character, Erase, Caret };
 // Only composition editing. Native priority paths (shortcuts,
 // word-to-character, punctuation and navigation) remain separate; never infer

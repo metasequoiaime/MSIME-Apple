@@ -123,4 +123,3 @@ struct MacCloudClipboardView: View {
     } message: { Text(confirmation == .enable ? "开启后可以手动上传文字，并在已登录的设备上获取。" : "云端历史删除后不可恢复，已复制到其他应用的内容不会被删除。") }
   }
 }
-

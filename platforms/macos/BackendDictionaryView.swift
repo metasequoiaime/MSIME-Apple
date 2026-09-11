@@ -201,4 +201,3 @@ struct MacCloudDictionaryView: View {
     } message: { Text("文件内容将上传到当前账号。重复或无效词条会导致整批拒绝，不会自动覆盖已有词条。") }
   }
 }
-

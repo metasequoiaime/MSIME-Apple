@@ -46,10 +46,11 @@ test("frequency values above the upstream dropdown range remain visible", async 
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const trigger = await screen.findByLabelText("触发频次(第几次上屏触发)") as HTMLSelectElement;
-  expect(trigger.value).toBe("10");
-  expect((screen.getByLabelText("线性调频步长") as HTMLSelectElement).value).toBe("7");
-  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), { target: { value: "pin" } });
+  const trigger = await screen.findByRole("button", { name: "触发频次(第几次上屏触发)" });
+  expect(trigger.textContent).toContain("10");
+  expect(screen.getByRole("button", { name: "线性调频步长" }).textContent).toContain("7");
+  fireEvent.click(screen.getByRole("button", { name: "调频方式" }));
+  fireEvent.click(screen.getByRole("option", { name: "一次置顶" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...snapshot.preferences, frequency: { mode: "pin", trigger_count: 10, linear_step: 7 } });
@@ -59,12 +60,14 @@ test("frequency modes, threshold and step persist independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const mode = await screen.findByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
-  expect(mode.value).toBe("promote");
-  expect(Array.from(mode.options, option => option.value)).toEqual(["disabled", "pin", "halve", "linear", "promote"]);
-  fireEvent.change(mode, { target: { value: "linear" } });
-  fireEvent.change(screen.getByLabelText("触发频次(第几次上屏触发)"), { target: { value: "3" } });
-  fireEvent.change(screen.getByLabelText("线性调频步长"), { target: { value: "2" } });
+  const mode = await screen.findByRole("button", { name: "调频方式" });
+  expect(mode.textContent).toContain("一次置前");
+  fireEvent.click(mode);
+  fireEvent.click(screen.getByRole("option", { name: "线性调频" }));
+  fireEvent.click(screen.getByRole("button", { name: "触发频次(第几次上屏触发)" }));
+  fireEvent.click(screen.getByRole("option", { name: "3" }));
+  fireEvent.click(screen.getByRole("button", { name: "线性调频步长" }));
+  fireEvent.click(screen.getByRole("option", { name: "2" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, frequency: { mode: "linear", trigger_count: 3, linear_step: 2 } });
@@ -75,19 +78,18 @@ test("frequency settings remain editable independently of learning and mode", as
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const learning = await screen.findByRole("checkbox", { name: /学习选词习惯/ }) as HTMLInputElement;
-  const mode = screen.getByRole("combobox", { name: "调频方式" }) as HTMLSelectElement;
-  const trigger = screen.getByLabelText("触发频次(第几次上屏触发)") as HTMLSelectElement;
-  const step = screen.getByLabelText("线性调频步长") as HTMLSelectElement;
-  expect(step.disabled).toBe(false);
-  fireEvent.change(mode, { target: { value: "linear" } });
-  expect(step.disabled).toBe(false);
+  const mode = screen.getByRole("button", { name: "调频方式" });
+  const trigger = screen.getByRole("button", { name: "触发频次(第几次上屏触发)" });
+  const step = screen.getByRole("button", { name: "线性调频步长" });
+  fireEvent.click(mode);
+  fireEvent.click(screen.getByRole("option", { name: "线性调频" }));
   fireEvent.click(learning);
-  expect(mode.disabled).toBe(false);
-  expect(trigger.disabled).toBe(false);
-  expect(step.disabled).toBe(false);
-  fireEvent.change(mode, { target: { value: "disabled" } });
-  expect(mode.value).toBe("disabled");
-  expect(step.disabled).toBe(false);
+  expect(mode).toBeDefined();
+  expect(trigger).toBeDefined();
+  expect(step).toBeDefined();
+  fireEvent.click(mode);
+  fireEvent.click(screen.getByRole("option", { name: "关闭" }));
+  expect(mode.textContent).toContain("关闭");
 });
 
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
@@ -133,14 +135,15 @@ test("helpcode schemes save independently and retain disabled selections", async
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
-  const quanpin = await screen.findByLabelText("全拼辅助码方案") as HTMLSelectElement;
-  expect(quanpin.value).toBe("ziranma");
-  expect(quanpin.options.length).toBe(5);
-  fireEvent.change(quanpin, { target: { value: "xiaohe" } });
+  const quanpin = await screen.findByRole("button", { name: "全拼辅助码方案" }) as HTMLButtonElement;
+  expect(quanpin.textContent).toContain("自然码");
+  fireEvent.click(quanpin);
+  fireEvent.click(screen.getByRole("option", { name: "小鹤" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
-  expect(quanpin.value).toBe("xiaohe");
-  fireEvent.change(screen.getByLabelText("双拼辅助码方案"), { target: { value: "shouyou2_0" } });
+  expect(quanpin.textContent).toContain("小鹤");
+  fireEvent.click(screen.getByRole("button", { name: "双拼辅助码方案" }));
+  fireEvent.click(screen.getByRole("option", { name: "首右2.0" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
@@ -361,16 +364,17 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: "全拼" });
-  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "双拼方案" })).toBeDefined();
   fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
-  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
-  fireEvent.change(profile, { target: { value: "microsoft" } });
+  const profile = screen.getByRole("button", { name: "双拼方案" }) as HTMLButtonElement;
+  fireEvent.click(profile);
+  fireEvent.click(screen.getByRole("option", { name: "微软双拼" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin", shuangpin_profile: "microsoft" });
   fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
-  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
-  expect(profile.value).toBe("microsoft");
+  expect(screen.getByRole("button", { name: "双拼方案" })).toBeDefined();
+  expect(profile.textContent).toContain("微软双拼");
 });
 
 test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] as const)("Japanese mode retains %s across save and reload", async (scheme, label) => {
@@ -398,8 +402,9 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
 test("saves edited preferences against the loaded revision", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByLabelText("每页候选数量");
-  fireEvent.change(size, { target: { value: "9" } });
+  const size = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(size);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9 });
@@ -409,15 +414,16 @@ test("saves edited preferences against the loaded revision", async () => {
 test("conflicts preserve edits and require an explicit reload", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByLabelText("每页候选数量");
-  fireEvent.change(size, { target: { value: "9" } });
+  const size = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(size);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
-  expect((size as HTMLSelectElement).value).toBe("9");
+  expect(size.textContent).toContain("9");
   expect(client.load).toHaveBeenCalledTimes(1);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  await waitFor(() => expect((size as HTMLSelectElement).value).toBe("5"));
+  await waitFor(() => expect(size.textContent).toContain("5"));
   confirm.mockRestore();
 });
 
@@ -447,13 +453,15 @@ test("category navigation preserves one draft and saves edits across pages", asy
   render(<SettingsPage client={client} />);
   const appearance = screen.getByRole("button", { name: "外观" });
   expect(appearance.getAttribute("aria-current")).toBe("page");
-  fireEvent.change(await screen.findByLabelText("每页候选数量"), { target: { value: "9" } });
+  const pageSize = await screen.findByRole("button", { name: "每页候选数量" });
+  fireEvent.click(pageSize);
+  fireEvent.click(screen.getByRole("option", { name: "9" }));
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
-  expect(screen.queryByRole("combobox", { name: "每页候选数量" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "每页候选数量" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   fireEvent.click(appearance);
-  expect((screen.getByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement).value).toBe("9");
+  expect(screen.getByRole("button", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma" } });

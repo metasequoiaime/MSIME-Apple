@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component>
+  <name>msime-client-preview</name>
+  <description>MSIME Client Linux input method</description>
+  <exec>&quot;@CMAKE_INSTALL_FULL_BINDIR@/msime-client-ibus-launcher&quot; &quot;@CMAKE_INSTALL_FULL_SYSCONFDIR@/msime-client/runtime-options.json&quot;</exec>
+  <version>0.1.0</version>
+  <author>MSIME contributors</author>
+  <license>GPL-3.0-only</license>
+  <homepage>https://github.com/metasequoiaime/MSIME-Client</homepage>
+  <textdomain>msime-client</textdomain>
+  <engines>
+    <engine>
+      <name>msime-client-preview</name>
+      <longname>MSIME Client</longname>
+      <description>Shared MSIME Linux input runtime</description>
+      <language>zh</language>
+      <license>GPL-3.0-only</license>
+      <author>MSIME contributors</author>
+      <icon>input-keyboard</icon>
+      <layout>us</layout>
+    </engine>
+  </engines>
+</component>

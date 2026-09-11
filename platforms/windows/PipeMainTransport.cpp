@@ -23,9 +23,13 @@ PipeMainTransport::read(const PipeTicket &ticket) {
   std::memcpy(&packet, result.frame.data(), sizeof(packet));
   return packet;
 }
-bool PipeMainTransport::send(const PipeTicket &ticket, uint32_t role,
-                             const std::vector<uint8_t> &frame) {
-  return registry_.send(ticket, role, frame, timeout_).complete();
+KeyEventSendResult PipeMainTransport::send(const PipeTicket &ticket,
+                                           uint32_t role,
+                                           const std::vector<uint8_t> &frame) {
+  const auto result = registry_.send(ticket, role, frame, timeout_);
+  if (result.complete()) return KeyEventSendResult::Sent;
+  return result.delivery_uncertain ? KeyEventSendResult::DeliveryAmbiguous
+                                   : KeyEventSendResult::DefinitelyNotSent;
 }
 void PipeMainTransport::close(const PipeTicket &ticket) noexcept {
   registry_.remove(ticket, FanyImePipeRole::Main);

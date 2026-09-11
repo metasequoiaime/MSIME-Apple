@@ -58,14 +58,15 @@ public:
     packets_[ticket.client].pop_front();
     return packet;
   }
-  bool send(const PipeTicket &ticket, uint32_t role,
-            const std::vector<uint8_t> &bytes) override {
+  KeyEventSendResult send(const PipeTicket &ticket, uint32_t role,
+                          const std::vector<uint8_t> &bytes) override {
     std::lock_guard lock(mutex_);
-    if (!matches(ticket)) return false;
+    if (!matches(ticket)) return KeyEventSendResult::DefinitelyNotSent;
     writes_.emplace_back(role, bytes);
     if (write_failure == 2)
       throw std::runtime_error("Synthetic write failure");
-    return write_failure == 0;
+    return write_failure == 0 ? KeyEventSendResult::Sent
+                               : KeyEventSendResult::DeliveryAmbiguous;
   }
   void push(FanyImeNamedpipeData packet) {
     std::lock_guard lock(mutex_);
