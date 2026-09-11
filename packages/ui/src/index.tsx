@@ -14,6 +14,7 @@ const pages = [
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
   { id: "screen-keyboard", title: "屏幕键盘", icon: new URL("./assets/screen-keyboard.svg", import.meta.url).href },
   { id: "handwriting", title: "手写识别板", icon: new URL("./assets/handwriting.svg", import.meta.url).href },
+  { id: "voice", title: "语音输入", icon: new URL("./assets/handwriting.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
   { id: "floating-toolbar", title: "悬浮工具栏", icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href },
   { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
@@ -531,6 +532,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="section-header panel-launch-row"><span className="section-title">打开手写识别板<small>使用鼠标或触控方式手写输入，自动识别候选汉字</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openHandwriting} onClick={() => void openPanel(client.openHandwriting)}>打开</button></div>
           <div className="panel-preview handwriting-preview" aria-label="手写识别板预览"><div className="panel-preview-label">预览</div><div className="handwriting-mock"><div className="handwriting-canvas"><span className="handwriting-stroke">水</span></div><div className="handwriting-candidates"><span>水</span><span>永</span><span>木</span><span>未</span></div></div></div>
         </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
+        <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice?.enabled ?? true} onChange={event => setDraft({ ...draft, voice: { enabled: event.target.checked, provider: draft.voice?.provider ?? "local_whisper", language: draft.voice?.language ?? "zh-CN" } })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={draft.voice?.provider ?? "local_whisper"} onChange={event => setDraft({ ...draft, voice: { enabled: draft.voice?.enabled ?? true, provider: event.target.value as "local_whisper" | "cloud", language: draft.voice?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice: { enabled: draft.voice?.enabled ?? true, provider: draft.voice?.provider ?? "local_whisper", language: event.target.value } })} /></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
         <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
