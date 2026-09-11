@@ -357,16 +357,15 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: "全拼" });
-  expect(screen.getByRole("button", { name: "双拼方案" })).toBeDefined();
+  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
   fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
-  const profile = screen.getByRole("button", { name: "双拼方案" }) as HTMLButtonElement;
-  fireEvent.click(profile);
-  fireEvent.click(screen.getByRole("option", { name: "微软双拼" }));
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+  fireEvent.change(profile, { target: { value: "microsoft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin", shuangpin_profile: "microsoft" });
   fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
-  expect(screen.getByRole("button", { name: "双拼方案" })).toBeDefined();
+  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
   expect(profile.textContent).toContain("微软双拼");
 });
 
