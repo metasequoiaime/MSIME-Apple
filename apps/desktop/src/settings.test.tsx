@@ -115,6 +115,23 @@ test("traditional Chinese output toggle persists", async () => {
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, traditional_chinese_output: true });
 });
 
+test("voice settings persist under the shared voice_input contract", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const enabled = await screen.findByRole("checkbox", { name: "启用语音输入" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(true);
+  fireEvent.click(enabled);
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), { target: { value: "doubao" } });
+  fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US" },
+  });
+});
+
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
