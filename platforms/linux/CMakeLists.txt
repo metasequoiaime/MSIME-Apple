@@ -34,9 +34,11 @@ target_compile_options(msime-voice-worker-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-voice-worker-test PRIVATE .)
 
 include(GNUInstallDirs)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/msime-client-preview.xml.in
+               ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-clipboard RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS msime-client-ibus-launcher DESTINATION "${CMAKE_INSTALL_BINDIR}")
-install(FILES data/msime-client-preview.xml
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml
         DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
 
 install(FILES "${MSIME_HOST_LIBRARY}"
