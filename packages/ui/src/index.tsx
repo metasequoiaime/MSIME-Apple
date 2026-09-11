@@ -141,7 +141,7 @@ export interface SettingsClient {
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
-  onWindowStateChanged?: (listener: (maximized: boolean) => void) => () => void;
+  onWindowStateChanged?: (listener: (maximized: boolean) => void) => Promise<() => void>;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -182,7 +182,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [windowMaximized, setWindowMaximized] = useState(false);
-  useEffect(() => client.onWindowStateChanged?.(setWindowMaximized), [client]);
+  useEffect(() => {
+    let active = true; let unsubscribe: (() => void) | undefined;
+    void client.onWindowStateChanged?.(setWindowMaximized).then(value => { if (active) unsubscribe = value; else value(); });
+    return () => { active = false; unsubscribe?.(); };
+  }, [client]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 

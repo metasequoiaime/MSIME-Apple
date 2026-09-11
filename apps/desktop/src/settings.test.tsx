@@ -16,7 +16,7 @@ test("window buttons do not bubble drag or double-click maximize", async () => {
   const windowControl = vi.fn().mockResolvedValue(undefined);
   const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl, beginWindowDrag,
-    onWindowStateChanged: listener => { listener(true); return () => {}; } }} />);
+    onWindowStateChanged: async listener => { listener(true); return () => {}; } }} />);
   const restore = await screen.findByRole("button", { name: "还原" });
   fireEvent.pointerDown(restore, { button: 0 });
   fireEvent.doubleClick(restore);

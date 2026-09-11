@@ -29,6 +29,12 @@ const client: SettingsClient = {
     return window.maximize();
   },
   beginWindowDrag: () => getCurrentWindow().startDragging(),
+  onWindowStateChanged: async listener => {
+    const window = getCurrentWindow();
+    listener(await window.isMaximized());
+    const unlisten = await window.onResized(async () => listener(await window.isMaximized()));
+    return unlisten;
+  },
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
     list: () => invoke<string[]>("list_clipboard_history"),
