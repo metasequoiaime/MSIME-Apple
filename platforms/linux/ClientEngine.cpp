@@ -1664,7 +1664,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
         !s.view.at("candidates").empty()) {
       if (const auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
-        handled = apply(engine, msime_client_command(s.session, *edge));
+        for (const auto &candidate : s.view.at("candidates")) {
+          if (!candidate.at("highlighted").get<bool>()) continue;
+          const auto &id = candidate.at("id");
+          if (id.at("session").get<uint64_t>() != s.session) return;
+          handled = apply(engine, msime_client_select_edge(
+              s.session, id.at("generation").get<uint64_t>(),
+              id.at("index").get<size_t>(), *edge));
+          return;
+        }
         return;
       }
       if (const auto navigation = s.navigation.command(
@@ -1730,8 +1738,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
                                   : (key == IBUS_0 ? 9 : key - IBUS_1);
       if (index >= s.view.at("candidates").size()) return;
       const auto &candidate = s.view.at("candidates").at(index);
+      const auto &id = candidate.at("id");
+      if (id.at("session").get<uint64_t>() != s.session) return;
       handled = apply(engine, msime_client_select(
-          s.session, candidate.at("id").at("generation").get<uint64_t>(), index));
+          s.session, id.at("generation").get<uint64_t>(),
+          id.at("index").get<size_t>()));
       return;
     }
     if (!s.view.at("candidates").empty() &&
