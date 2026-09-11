@@ -74,6 +74,34 @@ fn optional_string(
     Ok(Some(value.to_owned()))
 }
 
+fn safe_resource(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.contains('\\')
+        && value.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        })
+}
+
+fn enum_array(table: &toml::map::Map<String, Value>, key: &str, allowed: &[&str]) -> bool {
+    table
+        .get(key)
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            !items.is_empty()
+                && items
+                    .iter()
+                    .all(|item| item.as_str().is_some_and(|value| allowed.contains(&value)))
+        })
+}
+
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     if !safe_id(folder) {
         return Err("invalid skin id".into());
@@ -108,6 +136,59 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         "fluent" | "wechat" | "graphite" | "willow_green"
     ) {
         return Err("unsupported base skin".into());
+    }
+    let supports = table
+        .get("supports")
+        .and_then(Value::as_table)
+        .ok_or("missing supports")?;
+    if !enum_array(supports, "layouts", &["horizontal", "vertical"])
+        || !enum_array(supports, "themes", &["dark", "light"])
+    {
+        return Err("invalid supports".into());
+    }
+    let window = table
+        .get("candidate_window")
+        .and_then(Value::as_table)
+        .ok_or("missing candidate_window")?;
+    let number = |value: Option<&Value>| {
+        value
+            .and_then(|value| {
+                value
+                    .as_float()
+                    .or_else(|| value.as_integer().map(|n| n as f64))
+            })
+            .unwrap_or(0.0)
+    };
+    let min_width = number(window.get("min_width_dip"));
+    if !min_width.is_finite() || !(0.0..=1000.0).contains(&min_width) {
+        return Err("invalid min_width_dip".into());
+    }
+    let decoration = window
+        .get("decoration")
+        .and_then(Value::as_table)
+        .ok_or("missing decoration")?;
+    let top = number(decoration.get("top_inset_dip"));
+    let width = number(decoration.get("width_dip"));
+    if !top.is_finite()
+        || !width.is_finite()
+        || !(0.0..=500.0).contains(&top)
+        || !(0.0..=1000.0).contains(&width)
+        || (top == 0.0) != (width == 0.0)
+    {
+        return Err("invalid decoration".into());
+    }
+    if let Some(stylesheet) = optional_string(table, "toolbar_stylesheet", 128)? {
+        if !safe_resource(&stylesheet, 128)
+            || !stylesheet.ends_with(".css")
+            || !contained(&dir, &dir.join(&stylesheet))
+        {
+            return Err("invalid toolbar_stylesheet".into());
+        }
+    }
+    if let Some(preview) = optional_string(table, "preview", 256)? {
+        if !safe_resource(&preview, 256) || !contained(&dir, &dir.join(&preview)) {
+            return Err("invalid preview".into());
+        }
     }
     Ok(SkinSummary {
         id,
@@ -152,7 +233,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let skin = dir.path().join("sample_skin");
         fs::create_dir(&skin).unwrap();
-        fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\nauthor = 'Test'\ndescription = 'Demo'\n").unwrap();
+        fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\nauthor = 'Test'\ndescription = 'Demo'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
         fs::create_dir(dir.path().join("../escape")).ok();
         let catalog = scan(dir.path());
         assert_eq!(
