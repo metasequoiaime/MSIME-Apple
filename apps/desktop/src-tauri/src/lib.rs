@@ -1,5 +1,6 @@
 mod update_body;
 
+use msime_client_core::cloud::{build_google_url, parse_google_response};
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
@@ -866,6 +867,55 @@ struct CommandError {
     code: &'static str,
 }
 
+#[tauri::command]
+async fn fetch_cloud_candidate(
+    input: String,
+    japanese: bool,
+) -> Result<Option<String>, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let url = build_google_url(&input, japanese).ok_or(CommandError {
+            code: "invalid_input",
+        })?;
+        let response = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .user_agent(concat!("MSIME-Client/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| CommandError {
+                code: "unavailable",
+            })?
+            .get(url)
+            .send()
+            .map_err(|_| CommandError {
+                code: "unavailable",
+            })?
+            .error_for_status()
+            .map_err(|_| CommandError {
+                code: "unavailable",
+            })?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > 256 * 1024)
+        {
+            return Err(CommandError {
+                code: "unavailable",
+            });
+        }
+        let bytes = response.bytes().map_err(|_| CommandError {
+            code: "unavailable",
+        })?;
+        if bytes.len() > 256 * 1024 {
+            return Err(CommandError {
+                code: "unavailable",
+            });
+        }
+        Ok(parse_google_response(&bytes))
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "unavailable",
+    })?
+}
+
 impl From<PreferencesError> for CommandError {
     fn from(value: PreferencesError) -> Self {
         Self {
@@ -985,7 +1035,8 @@ pub fn run() {
             get_diagnostic_log,
             clear_clipboard_history,
             select_skin,
-            selected_skin
+            selected_skin,
+            fetch_cloud_candidate
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
