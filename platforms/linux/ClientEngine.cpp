@@ -49,6 +49,7 @@ struct State {
   std::optional<std::string> layout_override;
   std::optional<std::string> preedit_override;
   std::optional<std::string> theme_override;
+  std::optional<std::string> skin_override;
   std::optional<std::string> scheme_override;
   std::optional<std::string> shuangpin_profile_override;
   std::optional<uint8_t> candidate_page_size_override;
@@ -129,6 +130,8 @@ struct State {
       options["preferences"]["tsf_preedit_style"] = *preedit_override;
     if (theme_override)
       options["preferences"]["candidate_theme"] = *theme_override;
+    if (skin_override)
+      options["preferences"]["candidate_skin"] = *skin_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -287,7 +290,12 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   return color;
 }
 std::optional<guint> candidate_background_color(const Json &preferences) {
+  const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
+  const bool dark = theme == "dark";
+  if (skin == "wechat") return dark ? 0x163c2cu : 0xe8f5e9u;
+  if (skin == "graphite") return dark ? 0x2f3437u : 0xf1f3f4u;
+  if (skin == "willow_green") return dark ? 0x244437u : 0xf1f8eeu;
   if (theme == "dark") return 0x202124u;
   if (theme == "light") return 0xffffffu;
   return std::nullopt;
@@ -435,6 +443,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("tsf_preedit_style", "raw"));
   const auto theme = s.theme_override.value_or(
       configured.at("preferences").value("candidate_theme", "follow"));
+  const auto skin = s.skin_override.value_or(
+      configured.at("preferences").value("candidate_skin", "fluent"));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -678,6 +688,24 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(theme_menu, item);
   }
   ibus_property_set_sub_props(theme_property, theme_menu);
+  auto skin_property = ibus_property_new(
+      "CandidateSkin", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("候选皮肤"), "",
+      ibus_text_new_from_static_string("选择候选窗口内置皮肤"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  auto skin_menu = ibus_prop_list_new();
+  const std::pair<const char *, const char *> skin_options[] = {
+      {"fluent", "Fluent"}, {"wechat", "微信绿"},
+      {"graphite", "Graphite"}, {"willow_green", "杨柳青"}};
+  for (const auto &[value, label] : skin_options) {
+    auto item = ibus_property_new(
+        (std::string("CandidateSkin/") + value).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("选择候选窗口内置皮肤"), TRUE, TRUE,
+        skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(skin_menu, item);
+  }
+  ibus_property_set_sub_props(skin_property, skin_menu);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
@@ -753,6 +781,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
+    ibus_prop_list_append(properties, skin_property);
     ibus_prop_list_append(properties, scheme);
     ibus_prop_list_append(properties, profile);
     ibus_engine_register_properties(engine, properties);
@@ -776,6 +805,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
+    ibus_engine_update_property(engine, skin_property);
     ibus_engine_update_property(engine, scheme);
     ibus_engine_update_property(engine, profile);
   }
@@ -1152,6 +1182,21 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       s.theme_override = selected;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    if (std::string(name).rfind("CandidateSkin/", 0) == 0) {
+      const auto selected = std::string(name).substr(std::string("CandidateSkin/").size());
+      if (s.skin_override.value_or(
+              configured.at("preferences").value("candidate_skin", "fluent")) == selected)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.skin_override = selected;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
