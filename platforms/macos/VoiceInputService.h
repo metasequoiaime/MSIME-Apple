@@ -1,6 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
+#import <Speech/Speech.h>
 #import "MSIMEClientSession.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -11,6 +12,8 @@ typedef void (^MSIMEVoiceAudioBuffer)(AVAudioPCMBuffer *buffer);
 - (BOOL)cancelWithError:(NSError **)error;
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)bufferHandler error:(NSError **)error;
 - (void)stopMicrophoneCapture;
+- (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *text, BOOL final))handler error:(NSError **)error;
+- (void)stopTranscription;
 - (AVAuthorizationStatus)microphoneAuthorizationStatus;
 - (void)requestMicrophonePermission:(void (^)(BOOL granted))completion;
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion;
