@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ExternalSkins } from "../../../packages/ui/src/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
+import geometryCss from "../../../packages/ui/src/external-skin-geometry.css?raw";
 
 afterEach(cleanup);
 const catalog: SkinCatalog = {
@@ -16,6 +17,88 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
 } };
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
+
+test("decorated previews preserve upstream geometry in both layouts without decorating toolbar", async () => {
+  render(<ExternalSkins {...props} scan={async () => ({ ...catalog, packages: [{ ...catalog.packages[0],
+    minWidthDip: 280.5, decorationTopDip: 32.5, decorationWidthDip: 150 }] })} />);
+  refresh();
+  const card = await screen.findByRole("article");
+  expect(card.classList.contains("external-skin-decorated")).toBe(true);
+  const preview = card.querySelector<HTMLElement>(".skin-card-preview")!;
+  expect(preview.style.getPropertyValue("--msime-skin-min-width")).toBe("280.5px");
+  expect(preview.style.getPropertyValue("--msime-skin-decoration-top")).toBe("32.5px");
+  expect(preview.style.getPropertyValue("--msime-skin-decoration-width")).toBe("150px");
+  for (const layout of ["horizontal", "vertical"]) {
+    expect(card.querySelector(`[data-preview-layout="${layout}"] > .containerParent > .container`)).not.toBeNull();
+  }
+  expect(card.querySelectorAll(".containerParent")).toHaveLength(2);
+  expect(card.querySelector(".skin-preview-stage:last-child .containerParent")).toBeNull();
+});
+
+test.each([
+  [0, 0], [12, 0], [0, 12], [-1, 12], [501, 12], [12, 1001], [Infinity, 12], [12, NaN],
+])("invalid or absent decoration %s/%s retains plain candidate markup", async (decorationTopDip, decorationWidthDip) => {
+  render(<ExternalSkins {...props} scan={async () => ({ ...catalog, packages: [{ ...catalog.packages[0],
+    minWidthDip: Infinity, decorationTopDip, decorationWidthDip }] })} />);
+  refresh();
+  const card = await screen.findByRole("article");
+  expect(card.classList.contains("external-skin-decorated")).toBe(false);
+  expect(card.querySelector(".containerParent")).toBeNull();
+  const preview = card.querySelector<HTMLElement>(".skin-card-preview")!;
+  expect(preview.style.getPropertyValue("--msime-skin-min-width")).toBe("0px");
+  expect(preview.style.getPropertyValue("--msime-skin-decoration-top")).toBe("0px");
+  expect(preview.style.getPropertyValue("--msime-skin-decoration-width")).toBe("0px");
+});
+
+test("refresh removes stale geometry and independent cards do not inherit it", async () => {
+  const scan = vi.fn().mockResolvedValueOnce({ ...catalog, packages: [
+    { ...catalog.packages[0], decorationTopDip: 500, decorationWidthDip: 1000, minWidthDip: 1000 },
+    { ...catalog.packages[0], id: "plain", name: "Plain" },
+  ] }).mockResolvedValue(catalog);
+  render(<ExternalSkins {...props} scan={scan} />);
+  refresh();
+  const card = await screen.findByRole("article", { name: "Sample skin" });
+  expect(card.querySelectorAll(".containerParent")).toHaveLength(2);
+  expect(screen.getByRole("article", { name: "Plain" }).querySelector(".containerParent")).toBeNull();
+  refresh();
+  await act(async () => {});
+  expect(card.querySelector(".containerParent")).toBeNull();
+  expect(card.classList.contains("external-skin-decorated")).toBe(false);
+});
+
+test("geometry stylesheet retains upstream stacking, dimensions and candidate-only scope", () => {
+  const style = document.createElement("style");
+  style.textContent = geometryCss;
+  document.head.append(style);
+  try {
+    const rules = Array.from(style.sheet!.cssRules) as CSSStyleRule[];
+    const parent = rules.find(rule => rule.selectorText === ".external-skin-decorated .candidate .containerParent")!;
+    expect(parent.style.getPropertyValue("padding-top")).toBe("var(--msime-skin-decoration-top, 0px)");
+    const ornament = rules.find(rule => rule.selectorText?.endsWith("::before"))!;
+    expect(ornament.style.getPropertyValue("height")).toBe("118px");
+    expect(ornament.style.getPropertyValue("pointer-events")).toBe("none");
+    expect(ornament.style.getPropertyValue("z-index")).toBe("0");
+    const container = rules.find(rule => rule.selectorText === ".external-skin-decorated .candidate .container")!;
+    expect(container.style.getPropertyValue("z-index")).toBe("1");
+    expect(container.style.getPropertyValue("min-width")).toBe("max(7em, var(--msime-skin-min-width, 0px))");
+    expect(geometryCss).not.toContain("url(");
+  } finally { style.remove(); }
+});
+
+test("light preview inherits dark palette fields before applying its sparse overrides", async () => {
+  render(<ExternalSkins {...props} scan={async () => ({ ...catalog, packages: [{ ...catalog.packages[0], candidate: {
+    dark: { surface: "#123456", text: "#112233", showSelectedBar: false }, light: { surface: "#abcdef" },
+  } }] })} />);
+  refresh();
+  const card = await screen.findByRole("article");
+  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  const css = card.querySelector("style")!.textContent!;
+  expect(css).toContain("#112233");
+  expect(css).toContain("display:none");
+  expect(css.indexOf("#abcdef")).toBeGreaterThan(css.indexOf("#123456"));
+  fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
+  expect(card.querySelector("style")!.textContent).not.toContain("#abcdef");
+});
 
 test("open directory is explicit, path-free and independent of scanning and selection", async () => {
   const openDirectory = vi.fn().mockResolvedValue(undefined);

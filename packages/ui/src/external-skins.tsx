@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 
@@ -12,6 +12,10 @@ export type ExternalSkin = {
   candidate: { dark: Palette; light: Palette };
 };
 export type SkinCatalog = { directory: string; packages: ExternalSkin[]; issues: { folder: string; reason: string }[] };
+
+function dimension(value: number, maximum: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum ? value : 0;
+}
 
 // Same plain colour notations as the fixed Windows upstream. Never interpolate
 // arbitrary manifest strings into stylesheet rules or load URLs from a palette.
@@ -41,7 +45,15 @@ function ExternalSkinCard({ skin, selected, layout, onSelect }: {
   // not change runtime compatibility or the selected preference.
   const compatible = skin.layouts.includes(layout) && skin.themes.includes("dark");
   const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base) ? skin.base : "fluent";
-  return <article aria-label={skin.name} className={`skin-card${selected === skin.id ? " selected" : ""}`}>
+  const top = dimension(skin.decorationTopDip, 500);
+  const width = dimension(skin.decorationWidthDip, 1000);
+  const decorated = top > 0 && width > 0;
+  const geometry = {
+    "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
+    "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
+    "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
+  } as CSSProperties;
+  return <article aria-label={skin.name} className={`skin-card${selected === skin.id ? " selected" : ""}${decorated ? " external-skin-decorated" : ""}`}>
     <div className="skin-card-header">
       <div className="skin-card-body">
         <span className="skin-card-title">{skin.name}</span>
@@ -53,10 +65,10 @@ function ExternalSkinCard({ skin, selected, layout, onSelect }: {
         <button type="button" className="skin-preview-switch" onClick={() => setOverride(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "预览浅色" : "预览深色"}</button>
       </div>
     </div>
-    <div className={`skin-card-preview skin-${base} ${scope}`} data-preview-theme={theme} aria-hidden="true">
-      <style>{paletteCss(scope, skin.candidate[theme])}</style>
-      <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" /></div>
-      <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" /></div>
+    <div className={`skin-card-preview skin-${base} ${scope}`} style={geometry} data-preview-theme={theme} aria-hidden="true">
+      <style>{paletteCss(scope, skin.candidate.dark) + (theme === "light" ? paletteCss(scope, skin.candidate.light) : "")}</style>
+      <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" decorated={decorated} /></div>
+      <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" decorated={decorated} /></div>
       <div className="skin-preview-stage"><SkinToolbarPreview /></div>
     </div>
     {(skin.preview || skin.toolbarStylesheet) && <p className="skin-card-description external-skin-resource-note">当前预览包含基础样式与候选配色；外部图片和工具栏样式尚未接入。</p>}
