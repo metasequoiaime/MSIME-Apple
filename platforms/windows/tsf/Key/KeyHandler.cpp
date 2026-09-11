@@ -969,6 +969,28 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
     CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
     pCompositionProcessorEngine = _pCompositionProcessorEngine;
 
+    if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        std::string raw, error;
+        if (host->command(MSIME_BACKSPACE, &raw, &error))
+        {
+            msime::tsf::EngineResult result;
+            if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
+            {
+                const std::string &value = result.view.preedit;
+                int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                                 static_cast<int>(value.size()), nullptr, 0);
+                std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+                if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                               static_cast<int>(value.size()), preedit.data(), n);
+                if (preedit.empty()) return _HandleCompositionFinalize(ec, pContext, FALSE);
+                CStringRange rendered;
+                rendered.Set(preedit.c_str(), preedit.size());
+                return _AddComposingAndChar(ec, pContext, &rendered);
+            }
+        }
+    }
+
     DWORD_PTR vKeyLen = pCompositionProcessorEngine->GetVirtualKeyLength();
 
     if (!g_toggleImeFallbackBuffer.empty())
