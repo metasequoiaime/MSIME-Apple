@@ -12,6 +12,7 @@ const dictionary: DictionaryClient = {
   edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
 };
 const client: SettingsClient = {
+  scanSkinCatalog: () => invoke("scan_skin_catalog"),
   load: () => {
     if (!isTauri()) return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
     return invoke<Snapshot>("load_preferences");
