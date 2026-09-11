@@ -8,6 +8,7 @@
 #include "LanguageBar.h"
 #include "RegKey.h"
 #include "define.h"
+#include "../HostOptionsPaths.h"
 #include <msctf.h>
 #include <string>
 #include <fmt/xchar.h>
@@ -255,6 +256,12 @@ BOOL CCompositionProcessorEngine::SetupLanguageProfile(LANGID langid, REFGUID gu
     SetupLanguageBar(pThreadMgr, tfClientId, isSecureMode);
     SetupKeystroke();
     SetupConfiguration();
+    if (_hostEngineAdapter && !_hostEngineAdapter->valid()) {
+        const std::string options = msime::tsf::default_host_options_json();
+        std::string error;
+        if (!options.empty())
+            (void)InitializeHostSession(options, &error);
+    }
 
 Exit:
     return ret;
