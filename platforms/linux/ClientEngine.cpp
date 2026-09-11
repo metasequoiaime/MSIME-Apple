@@ -84,7 +84,8 @@ struct State {
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
-  std::string clipboard_history_path, online_provider_socket;
+  std::string clipboard_history_path, online_provider_socket,
+      translation_provider_socket;
   std::string voice_provider_socket, voice_language = "zh-cn";
   bool voice_enabled = true;
   bool voice_active = false;
@@ -152,6 +153,18 @@ struct State {
     }
     clipboard_history_path = options.value("clipboard_history_path", std::string{});
     online_provider_socket = options.value("online_provider_socket", std::string{});
+    if (online_provider_socket.empty()) {
+      if (const auto *socket = g_getenv("MSIME_ONLINE_PROVIDER_SOCKET"))
+        online_provider_socket = socket;
+    }
+    translation_provider_socket =
+        options.value("translation_provider_socket", std::string{});
+    if (translation_provider_socket.empty()) {
+      if (const auto *socket = g_getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
+        translation_provider_socket = socket;
+    }
+    if (translation_provider_socket.empty())
+      translation_provider_socket = online_provider_socket;
     voice_provider_socket = options.value("voice_provider_socket", std::string{});
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
@@ -449,13 +462,13 @@ void render(IBusEngine *engine, const Json &view);
 void translation_complete(GObject *source, GAsyncResult *result, gpointer);
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
-  if (s.online_provider_socket.empty() || s.translation_loading || !s.session ||
+  if (s.translation_provider_socket.empty() || s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || !s.view.value("candidates", Json::array()).size())
     return;
   try {
     auto query = response(msime_client_translation_query(s.session));
     if (query.is_null() || !query.is_object()) return;
-    auto *task_data = new TranslationTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
+    auto *task_data = new TranslationTask{s.session, s.provider_epoch, query.dump(), s.translation_provider_socket};
     s.translation_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
     g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
