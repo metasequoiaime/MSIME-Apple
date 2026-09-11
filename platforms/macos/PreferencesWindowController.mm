@@ -1,10 +1,21 @@
 #import "PreferencesWindowController.h"
 #import "AppearancePreferences.h"
 
+static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
+static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
+
 NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification = @"MSIMEClientStandalonePreferencesDidClose";
 
 @implementation MSIMEPreferencesWindowController {
     BOOL _standaloneLaunch;
+}
++ (NSInteger)storedScheme {
+    NSInteger value = [NSUserDefaults.standardUserDefaults integerForKey:MSIMESchemeKey];
+    return value >= 0 && value <= 2 ? value : 0;
+}
++ (NSString *)storedShuangpinSchema {
+    NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:MSIMEShuangpinSchemaKey];
+    return value.length ? value : @"msime";
 }
 + (instancetype)sharedController {
     static MSIMEPreferencesWindowController *controller;

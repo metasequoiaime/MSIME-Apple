@@ -5,6 +5,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEStandalonePreferencesDidCloseNot
 
 /// Native preferences entry point; pages are added incrementally to this controller.
 @interface MSIMEPreferencesWindowController : NSWindowController <NSWindowDelegate>
++ (NSInteger)storedScheme;
++ (NSString *)storedShuangpinSchema;
 + (instancetype)sharedController;
 - (void)showAndActivate;
 - (void)showAndActivateForStandaloneLaunch;
