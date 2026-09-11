@@ -8,6 +8,20 @@ static void setError(NSError **error, NSString *message) {
     if (error) *error = [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
 }
 
+struct SnapshotReaderContext { MSIMESnapshotNextRecord block; };
+static intptr_t SnapshotNext(void *opaque, uint8_t *buffer, size_t capacity) {
+    auto *context = static_cast<SnapshotReaderContext *>(opaque);
+    NSError *failure = nil;
+    NSDictionary *record = context->block(&failure);
+    if (failure) return -1;
+    if (!record) return 0;
+    NSError *serializationError = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:&serializationError];
+    if (serializationError || !data || data.length == 0 || data.length > capacity) return -1;
+    memcpy(buffer, data.bytes, data.length);
+    return static_cast<intptr_t>(data.length);
+}
+
 static NSDictionary *decode(char *response, NSError **error) {
     if (!response) { setError(error, @"输入运行时未返回响应"); return nil; }
     NSData *data = [NSData dataWithBytes:response length:std::strlen(response)];
@@ -46,6 +60,20 @@ static NSDictionary *decode(char *response, NSError **error) {
 + (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error {
     if (!handle) { setError(error, @"本地词库准备句柄无效"); return NO; }
     return decode(msime_client_snapshot_discard(handle), error) != nil;
+}
++ (NSDictionary *)prepareSnapshotRequest:(NSDictionary<NSString *, id> *)request
+                               nextRecord:(MSIMESnapshotNextRecord)nextRecord
+                                    error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request] || !nextRecord) {
+        setError(error, @"本地词库快照参数无效"); return nil;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"本地词库快照参数过大"); return nil; }
+    SnapshotReaderContext context{[nextRecord copy]};
+    NSDictionary *result = decode(msime_client_snapshot_prepare(static_cast<const uint8_t *>(data.bytes), data.length,
+                                                                 SnapshotNext, &context), error);
+    context.block = nil;
+    return result;
 }
 + (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
     if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
