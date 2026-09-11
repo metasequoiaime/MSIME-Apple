@@ -1,11 +1,13 @@
 //! Safe discovery and validation of external candidate-skin manifests.
 
+use serde::Serialize;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use toml::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SkinSummary {
     pub id: String,
     pub name: String,
@@ -13,15 +15,30 @@ pub struct SkinSummary {
     pub base: String,
     pub author: Option<String>,
     pub description: Option<String>,
+    pub layouts: Vec<String>,
+    pub themes: Vec<String>,
+    pub min_width_dip: f64,
+    pub decoration_top_dip: f64,
+    pub decoration_width_dip: f64,
+    pub toolbar_stylesheet: Option<String>,
+    pub preview: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl SkinSummary {
+    /// Compatibility comes from the manifest, not the base skin's capabilities.
+    pub fn supports(&self, layout: &str, theme: &str) -> bool {
+        self.layouts.iter().any(|value| value == layout)
+            && self.themes.iter().any(|value| value == theme)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SkinIssue {
     pub folder: String,
     pub reason: String,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
 pub struct SkinCatalog {
     pub packages: Vec<SkinSummary>,
     pub issues: Vec<SkinIssue>,
@@ -91,17 +108,24 @@ fn safe_resource(value: &str, max: usize) -> bool {
         })
 }
 
-fn enum_array(table: &toml::map::Map<String, Value>, key: &str, allowed: &[&str]) -> bool {
-    table
-        .get(key)
-        .and_then(Value::as_array)
-        .is_some_and(|items| {
-            !items.is_empty()
-                && items.iter().enumerate().all(|(index, item)| {
-                    item.as_str().is_some_and(|value| allowed.contains(&value))
-                        && !items[..index].contains(item)
-                })
-        })
+fn enum_array(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    allowed: &[&str],
+) -> Option<Vec<String>> {
+    let items = table.get(key)?.as_array()?;
+    if items.is_empty() {
+        return None;
+    }
+    let mut values = Vec::new();
+    for item in items {
+        let value = item.as_str()?;
+        if !allowed.contains(&value) || values.iter().any(|existing| existing == value) {
+            return None;
+        }
+        values.push(value.to_owned());
+    }
+    Some(values)
 }
 
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
@@ -155,11 +179,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         .get("supports")
         .and_then(Value::as_table)
         .ok_or("missing supports")?;
-    if !enum_array(supports, "layouts", &["horizontal", "vertical"])
-        || !enum_array(supports, "themes", &["dark", "light"])
-    {
-        return Err("invalid supports".into());
-    }
+    let layouts =
+        enum_array(supports, "layouts", &["horizontal", "vertical"]).ok_or("invalid supports")?;
+    let themes = enum_array(supports, "themes", &["dark", "light"]).ok_or("invalid supports")?;
     let window = table
         .get("candidate_window")
         .and_then(Value::as_table)
@@ -189,19 +211,21 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     {
         return Err("invalid decoration".into());
     }
-    if let Some(stylesheet) = optional_string(table, "toolbar_stylesheet", 128)? {
-        if !safe_resource(&stylesheet, 128)
+    let toolbar_stylesheet = optional_string(table, "toolbar_stylesheet", 128)?;
+    if let Some(stylesheet) = &toolbar_stylesheet {
+        if !safe_resource(stylesheet, 128)
             || stylesheet.contains('/')
             || stylesheet.len() <= 4
             || !stylesheet.ends_with(".css")
-            || !contained(&dir, &dir.join(&stylesheet))
-            || !dir.join(&stylesheet).is_file()
+            || !contained(&dir, &dir.join(stylesheet))
+            || !dir.join(stylesheet).is_file()
         {
             return Err("invalid toolbar_stylesheet".into());
         }
     }
-    if let Some(preview) = optional_string(table, "preview", 256)? {
-        if !safe_resource(&preview, 256) || !contained(&dir, &dir.join(&preview)) {
+    let preview = optional_string(table, "preview", 256)?;
+    if let Some(preview) = &preview {
+        if !safe_resource(preview, 256) || !contained(&dir, &dir.join(preview)) {
             return Err("invalid preview".into());
         }
     }
@@ -212,6 +236,13 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         base,
         author,
         description,
+        layouts,
+        themes,
+        min_width_dip: min_width,
+        decoration_top_dip: top,
+        decoration_width_dip: width,
+        toolbar_stylesheet,
+        preview,
     })
 }
 
@@ -253,6 +284,56 @@ mod tests {
         fs::create_dir(&skin).unwrap();
         fs::write(skin.join("skin.toml"), body).unwrap();
         scan(root.path())
+    }
+
+    #[test]
+    fn preserves_capabilities_dimensions_and_relative_resources_for_hosts() {
+        let root = tempdir().unwrap();
+        let skin = root.path().join("sample");
+        fs::create_dir_all(skin.join("images")).unwrap();
+        fs::write(skin.join("toolbar.css"), "/* fixture */").unwrap();
+        fs::write(skin.join("images/preview.svg"), "<svg/>").unwrap();
+        let body = format!(
+            "toolbar_stylesheet = 'toolbar.css'\npreview = 'images/preview.svg'\n{}",
+            manifest("sample")
+        )
+        .replace("['vertical']", "['vertical', 'horizontal']")
+        .replace("min_width_dip = 10", "min_width_dip = 320.5")
+        .replace("top_inset_dip = 0", "top_inset_dip = 24.5")
+        .replace("width_dip = 0", "width_dip = 180");
+        fs::write(skin.join("skin.toml"), body).unwrap();
+        let catalog = scan(root.path());
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        let package = &catalog.packages[0];
+        assert_eq!(package.layouts, ["vertical", "horizontal"]);
+        assert_eq!(package.themes, ["light"]);
+        assert!(package.supports("vertical", "light"));
+        assert!(package.supports("horizontal", "light"));
+        assert!(!package.supports("vertical", "dark"));
+        assert!(!package.supports("unknown", "light"));
+        let json = serde_json::to_value(&catalog).unwrap();
+        let package = &json["packages"][0];
+        assert_eq!(package["minWidthDip"], 320.5);
+        assert_eq!(package["decorationTopDip"], 24.5);
+        assert_eq!(package["decorationWidthDip"], 180.0);
+        assert_eq!(package["toolbarStylesheet"], "toolbar.css");
+        assert_eq!(package["preview"], "images/preview.svg");
+        assert_eq!(
+            package["layouts"],
+            serde_json::json!(["vertical", "horizontal"])
+        );
+    }
+
+    #[test]
+    fn compatibility_does_not_inherit_unlisted_base_modes() {
+        let catalog = scan_manifest(&manifest("sample"));
+        let package = &catalog.packages[0];
+        assert_eq!(package.base, "fluent");
+        assert!(package.supports("vertical", "light"));
+        assert!(!package.supports("horizontal", "light"));
+        assert!(!package.supports("vertical", "dark"));
+        assert_eq!(package.toolbar_stylesheet, None);
+        assert_eq!(package.preview, None);
     }
 
     #[test]
@@ -344,6 +425,13 @@ mod tests {
                 base: "fluent".into(),
                 author: Some("Test".into()),
                 description: Some("Demo".into()),
+                layouts: vec!["vertical".into()],
+                themes: vec!["light".into()],
+                min_width_dip: 0.0,
+                decoration_top_dip: 0.0,
+                decoration_width_dip: 0.0,
+                toolbar_stylesheet: None,
+                preview: None,
             }],
             "{catalog:?}"
         );
