@@ -2070,6 +2070,7 @@ dependencies = [
 name = "msime-input-runtime"
 version = "0.1.0"
 dependencies = [
+ "msime-client-core",
  "msime-engine-bridge",
  "serde",
  "serde_json",

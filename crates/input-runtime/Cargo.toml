@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 msime-engine-bridge = { path = "../engine-bridge" }
+msime-client-core = { path = "../client-core" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

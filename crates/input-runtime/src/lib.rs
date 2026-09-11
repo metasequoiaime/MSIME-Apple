@@ -153,6 +153,16 @@ pub struct OnlineCandidate {
     pub source: u8,
 }
 
+/// Build the default cloud request for an eligible online query. Hosts perform
+/// the actual network I/O through their injected transport and then submit the
+/// result to `Runtime::apply_online_candidate`.
+pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
+    if !query.cloud_eligible {
+        return None;
+    }
+    msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
+}
+
 /// Linux adapter for a user-owned provider over a local Unix socket.
 /// Credentials and network policy remain in the socket service; only a
 /// copied, bounded query crosses this boundary.
@@ -807,6 +817,26 @@ mod tests {
         assert_eq!(result.text, "你好");
         assert_eq!(result.source, 0);
         worker.shutdown();
+    }
+
+    #[test]
+    fn cloud_request_requires_eligible_query() {
+        let mut query = OnlineQuery {
+            scheme: 0,
+            generation: 1,
+            identity: "x".into(),
+            query_text: "ni".into(),
+            cache_key: "x".into(),
+            pinyin_segments: vec![],
+            cloud_eligible: false,
+            ai_eligible: false,
+            session_id: 1,
+        };
+        assert!(cloud_request_url(&query).is_none());
+        query.cloud_eligible = true;
+        assert!(cloud_request_url(&query)
+            .unwrap()
+            .contains("inputtools.google.com"));
     }
 
     #[test]
