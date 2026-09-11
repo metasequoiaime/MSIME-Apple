@@ -4,6 +4,9 @@
 mod dictionary_revision;
 pub use dictionary_revision::dictionary_state_revision;
 use dictionary_revision::DictionaryRevision;
+mod dictionary_stage;
+use dictionary_stage::DictionaryRecordStream;
+pub use dictionary_stage::{stage_dictionary_state, DictionaryStateRecord, SnapshotReadError};
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
@@ -11,6 +14,19 @@ mod ffi {
         type DictionaryRevision;
         fn text(self: &mut DictionaryRevision, value: &str);
         fn integer(self: &mut DictionaryRevision, value: u64);
+        type DictionaryRecordStream;
+        fn next(self: &mut DictionaryRecordStream) -> Result<DictionaryStateWire>;
+    }
+    struct DictionaryStateWire {
+        record_type: u8,
+        kind: DictionaryKind,
+        context: String,
+        key: String,
+        value: String,
+        number: i64,
+        display: String,
+        deleted: bool,
+        user_inserted: bool,
     }
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum DictionaryKind {
@@ -107,6 +123,13 @@ mod ffi {
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
+        fn stage_dictionary_state(
+            options: &EngineOptions,
+            generation: &str,
+            content_id: &str,
+            maximum_records: usize,
+            stream: &mut DictionaryRecordStream,
+        ) -> Result<EngineOptions>;
         fn hash_dictionary_state(
             options: &EngineOptions,
             sink: &mut DictionaryRevision,
