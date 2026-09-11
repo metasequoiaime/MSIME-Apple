@@ -28,6 +28,7 @@ const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LI
 const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
 
 export type Preferences = {
+  voice?: { enabled: boolean; provider: "local_whisper" | "cloud"; language: string };
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
