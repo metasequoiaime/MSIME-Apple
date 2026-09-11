@@ -55,6 +55,13 @@ install(TARGETS msime-tsf
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )
+add_executable(msime-tsf-engine-response-test tests/engine_response.cpp
+  EngineSessionAdapter.cpp)
+target_include_directories(msime-tsf-engine-response-test PRIVATE .
+  ../../../../crates/host-api/include)
+target_link_libraries(msime-tsf-engine-response-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME msime-tsf-engine-response
+  COMMAND msime-tsf-engine-response-test)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
   set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
