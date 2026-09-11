@@ -9,7 +9,7 @@
 #import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
-#import "AccountWindowController.h"
+#import "BackendAccountEntry.h"
 #import "CloudClipboardWindowController.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
@@ -180,7 +180,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [menu addItem:voiceSettings];
     return menu;
 }
-- (void)showAccount:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户标识"; NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"查看"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMEAccountWindowController sharedController] showForAccountID:field.stringValue]; }
+- (void)showAccount:(id)sender {
+    (void)sender;
+    if (!MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"账户窗口暂不可用";
+        alert.informativeText = @"请重新启动输入法；若仍无法打开，请检查安装是否完整。";
+        [alert runModal];
+    }
+}
 - (void)showCloudClipboard:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户 access token"; NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"打开"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMECloudClipboardWindowController sharedController] showWithToken:field.stringValue]; }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
