@@ -48,6 +48,10 @@ function Reset-Directory {
 
 $serverRelease = Join-Path $RepoRoot (Join-Path $ServerDirectory 'build-release\bin\Release')
 if ($ServerReleaseDirectory) { $serverRelease = Join-Path $RepoRoot $ServerReleaseDirectory }
+$clientNativeBin = Join-Path $RepoRoot 'target\windows-full\x64\bin'
+if (-not $ServerReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
+    $serverRelease = $clientNativeBin
+}
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 $tsf32Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.dll')
 $tsf64Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.dll')
