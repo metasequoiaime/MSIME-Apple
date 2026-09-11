@@ -11,7 +11,9 @@ button { cursor: pointer; }
 button:disabled, select:disabled, input:disabled { cursor: default; opacity: .5; }
 :focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
 [hidden] { display: none !important; }
-.settings-shell { display: flex; height: 100%; overflow: hidden; background: var(--chrome-bg); }
+.settings-shell { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--chrome-bg); }
+.settings-body { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.window-titlebar { flex-shrink: 0; }
 .sidebar { flex: 0 0 200px; }
 .sidebar .item { border: 0; background: transparent; font: inherit; text-align: left; min-height: 36px; flex-shrink: 0; }
 .sidebar .item.active::before { content: ""; position: absolute; left: 0; width: 4px; height: 22px; border-radius: 999px; background: var(--accent-color); }
@@ -221,7 +223,7 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .emoji-panel-empty { display: flex; min-height: 220px; align-items: center; justify-content: center; margin: 0; color: #aeb0b7; font-size: 14px; text-align: center; }
 .emoji-panel-notice { flex: 0 0 30px; min-height: 30px; margin: 0; padding: 6px 24px; border-top: 1px solid rgba(255, 255, 255, .09); color: #aeb0b7; font-size: 12px; text-align: center; }
 @media (max-width: 600px) {
-  .settings-shell { flex-direction: column; }
+  .settings-body { flex-direction: column; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }
   .sidebar-header { width: 100%; margin-bottom: 0; padding: 0 4px 8px; }
   .sidebar .item { flex: 1; margin: 2px; gap: 6px; padding: 6px 8px; }

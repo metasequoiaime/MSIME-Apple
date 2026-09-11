@@ -5,6 +5,17 @@ import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type Setting
 
 afterEach(cleanup);
 
+test("titlebar sits above the shared sidebar and content body", async () => {
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
+    windowControl: vi.fn().mockResolvedValue(undefined) }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const body = mounted.container.querySelector(".settings-body")!;
+  expect(body.contains(screen.getByRole("navigation", { name: "设置分类" }))).toBe(true);
+  expect(body.contains(screen.getByRole("main"))).toBe(true);
+  expect(body.contains(screen.getByRole("banner", { name: "窗口控制" }))).toBe(false);
+  expect(body.previousElementSibling).toBe(screen.getByRole("banner", { name: "窗口控制" }));
+});
+
 test("resize starts on edge press, not pointer movement", async () => {
   const resizeWindow = vi.fn().mockResolvedValue(undefined);
   const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), resizeWindow }} />);
