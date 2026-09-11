@@ -50,6 +50,11 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data || data.length > 16384) { setError(error, @"偏好快照过大"); return nil; }
     return decode(msime_client_save_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length, revision, static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
++ (NSDictionary *)loadPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    if (![directory isAbsolutePath] || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
+    NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    return decode(msime_client_load_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
+}
 - (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
