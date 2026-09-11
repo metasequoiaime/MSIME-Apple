@@ -83,3 +83,8 @@ add_executable(frequency-adjustment-preference-test tests/FrequencyAdjustmentPre
 target_include_directories(frequency-adjustment-preference-test PRIVATE ../../vendor/MSIME-Engine/include)
 target_compile_options(frequency-adjustment-preference-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME frequency-adjustment-preference COMMAND frequency-adjustment-preference-test)
+add_executable(candidate-selection-state-test tests/CandidateSelectionStateTests.cpp)
+target_include_directories(candidate-selection-state-test PRIVATE . ../../vendor/MSIME-Engine/include)
+target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-selection-state-test PRIVATE "-framework Foundation")
+add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
