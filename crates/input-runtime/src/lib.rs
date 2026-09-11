@@ -114,12 +114,13 @@ pub struct Candidate {
     pub highlighted: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum CharacterWidth {
     Fullwidth,
     Halfwidth,
 }
 
+#[derive(Clone, Debug, Serialize)]
 pub struct View {
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
