@@ -1,8 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
-out=${TMPDIR:-/tmp}/msime-backend-account-tests.$$
+out=$(mktemp "${TMPDIR:-/tmp}/msime-backend-account-tests.XXXXXX")
 trap 'rm -f "$out"' EXIT
-sources=$(find "$root/shared/backend" "$root/shared/backend-ui" "$root/platforms/macos" -maxdepth 1 -name '*.swift' ! -name 'Package.swift' -print)
-swiftc -parse-as-library -emit-executable -o "$out" $sources "$root/platforms/macos/tests/BackendAccountTests.swift"
+sources=()
+for source in "$root"/shared/backend/*.swift "$root"/shared/backend-ui/*.swift "$root"/platforms/macos/Backend*.swift; do
+  if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
+done
+swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
+xcrun swiftc -parse-as-library -emit-executable -target "$swift_target" \
+  -o "$out" "${sources[@]}" "$root/platforms/macos/tests/BackendAccountTests.swift"
 "$out"

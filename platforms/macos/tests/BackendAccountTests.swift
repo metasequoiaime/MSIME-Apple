@@ -1,3 +1,5 @@
+// Ported from MSIME-Apple develop at 2b0250f4dd7012520392b310dfcc0288c3208a75.
+// Uses synthetic fixtures and in-memory credentials only; no live service access.
 import AppKit
 import Foundation
 
