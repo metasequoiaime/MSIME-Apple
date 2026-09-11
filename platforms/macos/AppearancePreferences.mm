@@ -13,6 +13,7 @@ static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
+static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
@@ -40,6 +41,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_wubiButton;
     NSButton *_punctuationButton;
     NSButton *_toolbarButton;
+    NSButton *_autocorrectButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -69,6 +71,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    merged[@"autocorrect"] = @(self.autocorrect);
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
@@ -93,6 +96,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
 }
 - (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)autocorrect { return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (void)setAutocorrect:(BOOL)value { [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (NSString *)inputScheme { NSString *value = [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
 - (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
@@ -178,6 +183,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _autocorrectButton.state = self.autocorrect ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
@@ -244,6 +250,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
+    _autocorrectButton = [NSButton checkboxWithTitle:@"自动纠错" target:self action:@selector(autocorrectChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"输入方案"], _schemeButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
@@ -258,7 +265,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
-        @[[NSTextField labelWithString:@"工具栏"], _toolbarButton]
+        @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
+        @[[NSTextField labelWithString:@"输入辅助"], _autocorrectButton]
     ]];
     grid.rowSpacing = 16;
     grid.columnSpacing = 20;
@@ -299,6 +307,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
+- (void)autocorrectChanged:(NSButton *)sender { self.autocorrect = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }

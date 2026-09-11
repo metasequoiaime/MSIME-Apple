@@ -27,6 +27,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
+@property(nonatomic) BOOL autocorrect;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
