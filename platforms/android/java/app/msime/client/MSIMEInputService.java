@@ -58,6 +58,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePanelOpen;
     private ScrollView clipboardScroll;
     private LinearLayout clipboardPanel;
+    private ScrollView schemeScroll;
+    private LinearLayout schemePanel;
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
     private boolean candidateHorizontal;
@@ -66,6 +68,8 @@ public final class MSIMEInputService extends InputMethodService {
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
+    private Button schemeButton;
+    private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
@@ -80,6 +84,10 @@ public final class MSIMEInputService extends InputMethodService {
     private KeyboardLayout.Layer keyboardLayer = KeyboardLayout.Layer.LETTERS;
     private boolean allowLearning;
     private String preferencesNotice = "";
+    private String preferencesDirectory = "";
+    private JSONObject preferencesSnapshot;
+    private long preferenceSaveGeneration;
+    private boolean schemeSaving;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
@@ -118,6 +126,9 @@ public final class MSIMEInputService extends InputMethodService {
                 if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
                 JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
                 JSONObject preferences = options.optJSONObject("preferences");
+                selectedScheme = KeyboardScheme.fromPreferences(
+                    preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
+                    preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"));
                 skin = KeyboardSkin.from(preferences == null ? "fluent"
                     : preferences.optString("candidate_skin", "fluent"));
                 localModes = preferences == null ? new JSONObject()
@@ -131,7 +142,10 @@ public final class MSIMEInputService extends InputMethodService {
                 apply(NativeClient.focus(session, true));
                 message = "MSIME Preview";
                 String directory = options.optString("preferences_directory", "");
-                if (!directory.isEmpty() && new File(directory).isAbsolute()) preferencesReloader.start(directory, this::reloadPreferences);
+                if (!directory.isEmpty() && new File(directory).isAbsolute()) {
+                    preferencesDirectory = directory;
+                    preferencesReloader.start(directory, this::reloadPreferences);
+                }
             } catch (Exception | LinkageError error) {
                 stop(false);
                 message = "共享运行时未就绪：仅直接输入";
@@ -146,6 +160,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void stop(boolean finish) {
         preferencesReloader.stop();
+        preferenceSaveGeneration++;
+        preferencesDirectory = "";
+        preferencesSnapshot = null;
+        schemeSaving = false;
         if (session != 0) {
             try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
@@ -156,6 +174,7 @@ public final class MSIMEInputService extends InputMethodService {
         view = null;
         closeCandidatePanel();
         closeClipboardHistory();
+        closeSchemePicker();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -191,36 +210,11 @@ public final class MSIMEInputService extends InputMethodService {
         String previousSkin = skin.id();
         String previousAppearance = candidateAppearanceKey();
         boolean previousClipboard = clipboardHistoryEnabled;
+        KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
             JSONObject snapshot = value(response);
-            // Editor privacy restrictions apply to every update, not only creation.
-            if (!allowLearning) snapshot.getJSONObject("preferences").put("learning", false);
-            KeyboardSkin nextSkin = KeyboardSkin.from(snapshot.getJSONObject("preferences")
-                .optString("candidate_skin", "fluent"));
-            JSONObject nextLocalModes = snapshot.getJSONObject("preferences").optJSONObject("local_modes");
-            if (nextLocalModes == null) nextLocalModes = new JSONObject();
-            JSONObject preferences = snapshot.getJSONObject("preferences");
-            String nextLayout = preferences.optString("candidate_layout",
-                preferences.optString("candidate_orientation", "vertical"));
-            boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
-            int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
-            int nextPreeditFontSize = CandidateAppearance.fontSize(
-                preferences.optInt("candidate_preedit_font_size", nextFontSize));
-            boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
-            JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
-            skin = nextSkin;
-            localModes = nextLocalModes;
-            candidateHorizontal = nextHorizontal;
-            candidateFontSize = nextFontSize;
-            candidatePreeditFontSize = nextPreeditFontSize;
-            clipboardHistoryEnabled = nextClipboard;
-            if (!clipboardHistoryEnabled && clipboardHistory != null) {
-                clipboardHistory.clear();
-                closeClipboardHistory();
-            }
-            view = result.getJSONObject("view");
-            preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
+            applyPreferencesSnapshot(snapshot);
         } catch (JSONException | LinkageError error) {
             // Never replace the working session or log preferences/native responses.
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
@@ -228,7 +222,44 @@ public final class MSIMEInputService extends InputMethodService {
         if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || previousClipboard != clipboardHistoryEnabled
+                || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
+    }
+
+    private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
+        JSONObject accepted = new JSONObject(snapshot.toString());
+        JSONObject preferences = accepted.getJSONObject("preferences");
+        KeyboardSkin nextSkin = KeyboardSkin.from(preferences.optString("candidate_skin", "fluent"));
+        JSONObject nextLocalModes = preferences.optJSONObject("local_modes");
+        if (nextLocalModes == null) nextLocalModes = new JSONObject();
+        String nextLayout = preferences.optString("candidate_layout",
+            preferences.optString("candidate_orientation", "vertical"));
+        boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
+        int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        int nextPreeditFontSize = CandidateAppearance.fontSize(
+            preferences.optInt("candidate_preedit_font_size", nextFontSize));
+        boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
+        KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
+            preferences.optString("scheme", "quanpin"),
+            preferences.optString("shuangpin_profile", "xiaohe"));
+        JSONObject sessionSnapshot = new JSONObject(accepted.toString());
+        // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
+        if (!allowLearning) sessionSnapshot.getJSONObject("preferences").put("learning", false);
+        JSONObject result = value(NativeClient.updatePreferences(session, sessionSnapshot.toString()));
+        skin = nextSkin;
+        localModes = nextLocalModes;
+        candidateHorizontal = nextHorizontal;
+        candidateFontSize = nextFontSize;
+        candidatePreeditFontSize = nextPreeditFontSize;
+        clipboardHistoryEnabled = nextClipboard;
+        selectedScheme = nextScheme;
+        preferencesSnapshot = accepted;
+        if (!clipboardHistoryEnabled && clipboardHistory != null) {
+            clipboardHistory.clear();
+            closeClipboardHistory();
+        }
+        view = result.getJSONObject("view");
+        preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
     }
 
     private boolean apply(String response) throws JSONException {
@@ -339,7 +370,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (node instanceof Button) {
             CharSequence description = node.getContentDescription();
             boolean key = description != null && (description.toString().startsWith("按键 ")
-                || description.toString().startsWith("候选 "));
+                || description.toString().startsWith("候选 ")
+                || description.toString().startsWith("输入方案卡片 "));
             styleButton((Button) node, !key);
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
@@ -358,6 +390,8 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardRoot.setBackgroundColor(Color.parseColor(skin.background()));
         if (expandedCandidates != null)
             expandedCandidates.setBackgroundColor(Color.parseColor(skin.background()));
+        if (schemePanel != null)
+            schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         applySkinToView(keyboardRoot);
     }
 
@@ -413,6 +447,148 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void closeClipboardHistory() {
         if (clipboardScroll != null) clipboardScroll.setVisibility(View.GONE);
+    }
+
+    private void closeSchemePicker() {
+        if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
+    }
+
+    private void showSchemePicker() {
+        if (session == 0 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) {
+            Toast.makeText(this, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeCandidatePanel();
+        closeClipboardHistory();
+        renderSchemePicker();
+        schemeScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void renderSchemePicker() {
+        if (schemePanel == null) return;
+        schemePanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("输入方案");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button close = button(header, "返回键盘", this::closeSchemePicker);
+        close.setContentDescription("返回键盘");
+        schemePanel.addView(header);
+        KeyboardScheme[] schemes = KeyboardScheme.values();
+        for (int start = 0; start < schemes.length; start += 4) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int slot = 0; slot < 4; slot++) {
+                int index = start + slot;
+                if (index >= schemes.length) {
+                    View spacer = new View(this);
+                    row.addView(spacer, new LinearLayout.LayoutParams(0, pixels(72), 1));
+                    continue;
+                }
+                KeyboardScheme scheme = schemes[index];
+                Button card = button(row, scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title(),
+                    () -> selectKeyboardScheme(scheme));
+                card.setSelected(scheme == selectedScheme);
+                card.setEnabled(!schemeSaving);
+                card.setContentDescription("输入方案卡片 " + scheme.title());
+                if (Build.VERSION.SDK_INT >= 30)
+                    card.setStateDescription(scheme == selectedScheme ? "已选中" : "未选中");
+                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) card.getLayoutParams();
+                params.height = pixels(72);
+                card.setLayoutParams(params);
+                styleButton(card, true);
+            }
+            schemePanel.addView(row);
+        }
+        TextView hint = new TextView(this);
+        hint.setText("切换会先完成当前组词，并同步到共享设置");
+        schemePanel.addView(hint);
+        applySkin();
+    }
+
+    private void selectKeyboardScheme(KeyboardScheme scheme) {
+        if (schemeSaving || session == 0 || preferencesSnapshot == null
+                || preferencesDirectory.isEmpty()) return;
+        if (scheme == selectedScheme) {
+            closeSchemePicker();
+            return;
+        }
+        final long targetSession = session;
+        final String targetDirectory = preferencesDirectory;
+        final JSONObject pending;
+        final long expectedRevision;
+        try {
+            // Scheme replacement is never deferred: complete Engine composition first.
+            apply(NativeClient.command(targetSession, 9));
+            if (session != targetSession || preferencesSnapshot == null
+                    || !targetDirectory.equals(preferencesDirectory)) return;
+            pending = new JSONObject(preferencesSnapshot.toString());
+            expectedRevision = pending.getLong("revision");
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+            JSONObject preferences = pending.getJSONObject("preferences");
+            String currentScheme = preferences.optString("scheme", "quanpin");
+            String lastChinese = preferences.optString("last_chinese_scheme", currentScheme);
+            KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
+                preferences.optString("shuangpin_profile", "xiaohe"));
+            preferences.put("scheme", mapping.scheme());
+            preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
+            preferences.put("shuangpin_profile", mapping.shuangpinProfile());
+        } catch (JSONException | LinkageError error) {
+            preferencesNotice = " · 输入方案切换失败，保留当前设置";
+            closeSchemePicker();
+            render();
+            return;
+        }
+        closeSchemePicker();
+        schemeSaving = true;
+        preferencesNotice = " · 正在切换输入方案";
+        final long operation = ++preferenceSaveGeneration;
+        render();
+        Runnable save = () -> {
+            String response;
+            try {
+                response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
+            } catch (Exception | LinkageError error) {
+                response = null;
+            }
+            final String savedResponse = response;
+            main.post(() -> finishSchemeSave(operation, targetSession, targetDirectory, savedResponse));
+        };
+        try {
+            preferencesWorker.execute(save);
+        } catch (RuntimeException error) {
+            if (operation == preferenceSaveGeneration) {
+                schemeSaving = false;
+                preferencesNotice = " · 输入方案切换失败，保留当前设置";
+                render();
+            }
+        }
+    }
+
+    private void finishSchemeSave(long operation, long targetSession, String targetDirectory,
+                                  String response) {
+        if (operation != preferenceSaveGeneration || session != targetSession
+                || !targetDirectory.equals(preferencesDirectory)) return;
+        schemeSaving = false;
+        try {
+            if (response == null) throw new JSONException("Preferences save unavailable");
+            JSONObject saved = value(response);
+            long savedRevision = saved.getLong("revision");
+            if (preferencesSnapshot != null
+                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                preferencesNotice = "";
+            } else {
+                applyPreferencesSnapshot(saved);
+                preferencesNotice = " · 输入方案已切换";
+            }
+        } catch (JSONException | LinkageError error) {
+            // A conflict or storage failure leaves the working session unchanged.
+            preferencesNotice = " · 输入方案切换失败，保留当前设置";
+            Toast.makeText(this, "输入方案未能保存", Toast.LENGTH_SHORT).show();
+        }
+        render();
     }
 
     private void insertClipboardText(String text) {
@@ -476,6 +652,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showClipboardHistory() {
         if (!clipboardHistoryEnabled || clipboardScroll == null) return;
         closeCandidatePanel();
+        closeSchemePicker();
         renderClipboardHistory();
         clipboardScroll.setVisibility(View.VISIBLE);
     }
@@ -823,6 +1000,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
         button(controls, "回车", this::enter);
         button(controls, "切换", () -> switchToNextInputMethod(false));
+        schemeButton = button(controls, "方案", this::showSchemePicker);
+        schemeButton.setContentDescription("选择输入方案");
         moreButton = button(controls, "更多", this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
         for (int index = 0; index < controls.getChildCount(); index++) {
@@ -851,6 +1030,16 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardScroll.addView(clipboardPanel);
         clipboardScroll.setVisibility(View.GONE);
         keyboardRoot.addView(clipboardScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        schemePanel = new LinearLayout(this);
+        schemePanel.setOrientation(LinearLayout.VERTICAL);
+        schemePanel.setPadding(24, 16, 24, 16);
+        schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
+        schemePanel.setContentDescription("输入方案选择器");
+        schemeScroll = new ScrollView(this);
+        schemeScroll.addView(schemePanel);
+        schemeScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         render();
         return keyboardRoot;
@@ -881,6 +1070,11 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? "切换符号键盘" : "切换字母键盘");
+        }
+        if (schemeButton != null) {
+            schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
+            schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
+            schemeButton.setEnabled(session != 0 && preferencesSnapshot != null && !schemeSaving);
         }
         if (candidates == null) {
             applySkin();

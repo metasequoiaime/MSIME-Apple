@@ -15,6 +15,15 @@ public final class NativeSmoke {
             Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));
             success(NativeClient.loadPreferences(preferences.toString()));
             Path saved = preferences.resolve("preferences.json");
+            String firstSnapshot = "{\"format_version\":1,\"revision\":0,\"preferences\":{"
+                + "\"scheme\":\"quanpin\",\"candidate_page_size\":5,\"learning\":false,"
+                + "\"chinese_punctuation\":true}}";
+            String firstSave = NativeClient.savePreferences(preferences.toString(), 0, firstSnapshot);
+            success(firstSave);
+            if (!firstSave.contains("\"revision\":1")) throw new AssertionError(firstSave);
+            if (!NativeClient.savePreferences(preferences.toString(), 0, firstSnapshot).contains("\"ok\":false")) {
+                throw new AssertionError("stale preferences save was accepted");
+            }
             Files.writeString(saved, "broken");
             if (!NativeClient.loadPreferences(preferences.toString()).contains("\"ok\":false") || !Files.readString(saved).equals("broken")) {
                 throw new AssertionError("malformed preferences were accepted or overwritten");
@@ -57,7 +66,7 @@ public final class NativeSmoke {
             if (!punctuation.contains("\"handled\":false")) throw new AssertionError(punctuation);
             success(NativeClient.destroy(handle));
             if (!NativeClient.view(handle).contains("\"ok\":false")) throw new AssertionError("stale handle accepted");
-            System.out.println("JNI consumer: supplementary UTF-8 paths and input commit passed");
+            System.out.println("JNI consumer: supplementary UTF-8 paths, preferences CAS and input commit passed");
         } finally {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);

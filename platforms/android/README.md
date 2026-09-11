@@ -14,6 +14,8 @@
 
 “更多”菜单的“本地输入”子菜单接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。
 
+键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示共享 Engine 已支持的全拼 26 键、小鹤/自然码/微软/首道双拼、86 五笔和日语 26 键。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme` 和 `shuangpin_profile`，保存成功后才更新当前会话；冲突或存储失败保留原方案。Android 尚无相应 Engine 契约的中日文九键、手写和 AI 回复不会提前显示为可用方案。
+
 中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
 
 候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size` 和 `candidate_preedit_font_size`；偏好热更新成功后立即调整候选排列和字号，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16。
@@ -44,7 +46,7 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 新 bootstrap 配置包含绝对路径 `preferences_directory`。输入会话启动后，Android 后台读取该目录的共享 PreferencesStore，之后每秒重试；不在输入主线程等待文件锁，不重叠读取，切换编辑器或结束输入后丢弃旧读取结果并停止旧轮询。已有配置没有目录字段时保留原行为，不猜测其他应用的数据目录。
 
-JNI `loadPreferences` 只读取共享层，快照回到会话主线程后调用同一个 `updatePreferences`；revision 校验、组词期间延迟应用和重建失败保护仍在 Rust 中。更新只刷新候选视图，不用空预编辑覆盖现有编辑器内容。相同视图和状态不反复重建键盘控件。密码等直接输入字段不启动配置轮询；禁止个性化学习的编辑器在创建和每次快照应用时均强制关闭学习。
+JNI `loadPreferences` 只读取共享层，快照回到会话主线程后调用同一个 `updatePreferences`；键盘侧写入通过 `savePreferences` 进入同一共享 CAS 边界。revision 校验、组词期间延迟应用和重建失败保护仍在 Rust 中。更新只刷新候选视图，不用空预编辑覆盖现有编辑器内容。相同视图和状态不反复重建键盘控件。密码等直接输入字段不启动配置轮询；禁止个性化学习的编辑器在创建和每次快照应用时均强制关闭学习，同时内存中保留未经隐私覆盖的已接受磁盘快照，避免键盘写入意外永久关闭全局学习设置。
 
 读取或应用失败保留当前输入会话，显示非阻断提示，后续继续重试；不写入默认值覆盖坏文件。共享 React 设置页在上述 Tauri 合包中使用同一个存储；完整移动产品、真机与其他平台仍待验收。
 

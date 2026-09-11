@@ -21,6 +21,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardFeedbackSmoke.java" \
   "$repo_root/platforms/android/tests/LocalInputModeSmoke.java" \
+  "$repo_root/platforms/android/tests/KeyboardSchemeSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateAppearanceSmoke.java" \
   "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java"
 java -cp "$output_dir" EditorSmoke
@@ -29,6 +30,7 @@ java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir" LocalInputModeSmoke
+java -cp "$output_dir" KeyboardSchemeSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
