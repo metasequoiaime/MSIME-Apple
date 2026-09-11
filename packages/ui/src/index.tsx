@@ -204,10 +204,16 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [cloudHasMore, setCloudHasMore] = useState(false);
   const [cloudError, setCloudError] = useState("");
   const [cloudForm, setCloudForm] = useState<{ code: string; word: string; weight: number } | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState(0);
   async function loadCloud(offset = 0) {
     if (!client.cloudDictionary) return;
     setCloudError("");
     try { const page = await client.cloudDictionary.list(cloudKind, cloudSearch, offset); setCloudEntries(page.entries); setCloudOffset(page.offset); setCloudHasMore(page.has_more); }
+    catch (reason) { setCloudError(message(reason)); }
+  }
+  async function syncCloud() {
+    if (!client.cloudDictionary) return;
+    try { const result = await client.cloudDictionary.changes(cloudSyncStatus, 100); setCloudSyncStatus(result.next); await loadCloud(cloudOffset); }
     catch (reason) { setCloudError(message(reason)); }
   }
 
@@ -555,7 +561,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "cloud_dictionary"} aria-label="云词库">
         {client.cloudDictionary ? <div className="section" role="region" aria-label="云词库管理">
-          <div className="section-header"><span className="section-title">云词库<small>管理当前账户的云端词条。</small></span><span><button type="button" className="secondary" onClick={() => void loadCloud(0)}>查询</button> <button type="button" className="secondary" onClick={() => setCloudForm({ code: "", word: "", weight: 100000 })}>新增</button></span></div>
+          <div className="section-header"><span className="section-title">云词库<small>管理当前账户的云端词条。</small></span><span><button type="button" className="secondary" onClick={() => void loadCloud(0)}>查询</button> <button type="button" className="secondary" onClick={() => void syncCloud()}>同步变更</button> <button type="button" className="secondary" onClick={() => setCloudForm({ code: "", word: "", weight: 100000 })}>新增</button></span></div>
           <label>词库 <select value={cloudKind} onChange={event => setCloudKind(event.target.value as CloudDictionaryKind)}><option value="pinyin">拼音</option><option value="wubi">五笔</option><option value="quick">快捷短语</option><option value="english">英文</option></select></label>
           <label>搜索 <input value={cloudSearch} onChange={event => setCloudSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void loadCloud(0); }} /></label>
           {cloudError && <p role="alert" className="error">{cloudError}</p>}
