@@ -199,6 +199,14 @@ HRESULT CMetasequoiaIME::_HandleCompleteCommitFirst(TfEditCookie ec, _In_ ITfCon
 HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     PerfTimer timer;
+    if (_pCompositionProcessorEngine)
+    {
+        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            (void)host->command(MSIME_CANCEL, &raw, &error);
+        }
+    }
     g_toggleImeFallbackBuffer.clear();
     GlobalIme::word_for_creating_word = L"";
     GlobalIme::pending_create_word_preedit.clear();
