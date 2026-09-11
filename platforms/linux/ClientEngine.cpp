@@ -673,7 +673,13 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       continue;
     ++slot;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
-                                       std::pair{"CandidateRemove", "删除候选"}}) {
+                                       std::pair{"CandidateRemove", "删除候选"},
+                                       std::pair{"CandidateFix1", "固定到 1"},
+                                       std::pair{"CandidateFix2", "固定到 2"},
+                                       std::pair{"CandidateFix3", "固定到 3"},
+                                       std::pair{"CandidateFix4", "固定到 4"},
+                                       std::pair{"CandidateFix5", "固定到 5"},
+                                       std::pair{"CandidateClear", "取消固定"}}) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto title = std::string(label) + " " + std::to_string(slot);
       ibus_prop_list_append(items, ibus_property_new(
@@ -1451,7 +1457,9 @@ void focus_out(IBusEngine *engine) {
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   const std::string candidate_name = name ? name : "";
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
-      candidate_name.rfind("CandidateRemove", 0) == 0) {
+      candidate_name.rfind("CandidateRemove", 0) == 0 ||
+      candidate_name.rfind("CandidateFix", 0) == 0 ||
+      candidate_name.rfind("CandidateClear", 0) == 0) {
     guarded(engine, "candidate_property", [&] {
       auto &s = state(engine);
       if (!s.session || !s.focused || s.blocked || !s.input_enabled)
@@ -1459,14 +1467,30 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       for (const auto &candidate : s.view.at("candidates")) {
         const auto &id = candidate.at("id");
         const bool pin = candidate_name == candidate_action_name("CandidatePin", id);
-        if (!pin && candidate_name != candidate_action_name("CandidateRemove", id))
+        const bool remove = candidate_name == candidate_action_name("CandidateRemove", id);
+        const bool clear = candidate_name == candidate_action_name("CandidateClear", id);
+        uint8_t position = 0;
+        for (uint8_t slot = 1; slot <= 5; ++slot) {
+          if (candidate_name == candidate_action_name(
+                  (std::string("CandidateFix") + std::to_string(slot)).c_str(), id)) {
+            position = slot;
+            break;
+          }
+        }
+        if (!pin && !remove && !clear && position == 0)
           continue;
         if (id.at("session").get<uint64_t>() != s.session)
           return;
         const auto generation = id.at("generation").get<uint64_t>();
         const auto index = id.at("index").get<size_t>();
-        apply(engine, pin ? msime_client_pin_candidate(s.session, generation, index)
-                          : msime_client_remove_candidate(s.session, generation, index));
+        if (pin)
+          apply(engine, msime_client_pin_candidate(s.session, generation, index));
+        else if (remove)
+          apply(engine, msime_client_remove_candidate(s.session, generation, index));
+        else if (clear)
+          apply(engine, msime_client_clear_candidate_position(s.session, generation, index));
+        else
+          apply(engine, msime_client_fix_candidate_position(s.session, generation, index, position));
         return;
       }
     });

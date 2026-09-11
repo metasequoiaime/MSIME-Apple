@@ -929,6 +929,45 @@ pub extern "C" fn msime_client_remove_candidate(
     )
 }
 
+#[no_mangle]
+pub extern "C" fn msime_client_fix_candidate_position(
+    handle: u64,
+    generation: u64,
+    index: usize,
+    position: u8,
+) -> *mut c_char {
+    if !(1..=5).contains(&position) {
+        return response(|| Err("candidate position must be between 1 and 5".into()));
+    }
+    dispatch(
+        handle,
+        Action::FixCandidatePosition(
+            CandidateId {
+                session: handle,
+                generation,
+                index,
+            },
+            position,
+        ),
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_clear_candidate_position(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::ClearCandidatePosition(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
 /// Select one spelling from View.nine_key_spellings for the exact view generation.
 #[no_mangle]
 pub extern "C" fn msime_client_choose_nine_key_spelling(
