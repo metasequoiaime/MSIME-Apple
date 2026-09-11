@@ -907,8 +907,35 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--prerelease=false", calls)
         self.assertIn("--latest", calls)
+        self.assertNotIn("--latest=false", calls)
         self.assertNotIn("（自动构建）", calls)
         self.assertNotIn("metasequoia-build-channel", notes)
+
+    def test_a_release_without_macos_does_not_take_the_latest_badge(self):
+        # SUFeedURL is releases/latest/download/appcast.xml, so the badge decides which release
+        # every macOS copy asks for its updates. An iOS-only release has no appcast: taking the
+        # badge would 404 that URL and stop updates for everyone until a macOS release took it back.
+        # It is still an ordinary release, just not the one Sparkle is pointed at.
+        result, calls, _ = self.run_publication(
+            "false", "-unsigned", release_trigger="workflow_dispatch", release_macos=False
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--prerelease=false", calls)
+        self.assertIn("--latest=false", calls)
+        # Omitting the flag is not the same thing: the API defaults make_latest to true.
+        edit = [line for line in calls.splitlines() if "release edit" in line and "--draft=false" in line]
+        self.assertTrue(edit, calls)
+        self.assertIn("--latest=false", edit[-1])
+
+    def test_a_macos_release_still_takes_the_latest_badge(self):
+        result, calls, _ = self.run_publication(
+            "false", "-unsigned", release_trigger="workflow_dispatch", release_ios=False
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--latest", calls)
+        self.assertNotIn("--latest=false", calls)
 
     def test_build_channel_note_is_not_repeated_on_a_retry(self):
         _, _, notes = self.run_publication(

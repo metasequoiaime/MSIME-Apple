@@ -144,7 +144,18 @@ if [[ "$RELEASE_TRIGGER" == push ]]; then
     needs_channel_note=true
 else
     release_title="$TAG_NAME"
-    channel=(--prerelease=false --latest)
+    # The Latest badge is not decoration: SUFeedURL is
+    # releases/latest/download/appcast.xml, so whichever release holds the badge is the one every
+    # macOS copy asks for its updates. A release that does not cover macOS carries no appcast, and
+    # letting it take the badge turns that URL into a 404 -- updates stop for everyone, silently,
+    # until some later macOS release takes the badge back. Passing the flag off explicitly matters:
+    # omitted, the API defaults make_latest to true and the badge moves anyway.
+    channel=(--prerelease=false)
+    if [[ "$RELEASE_MACOS" == true ]]; then
+        channel+=(--latest)
+    else
+        channel+=(--latest=false)
+    fi
     needs_channel_note=false
 fi
 current_notes=$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json body --jq '.body // ""')
