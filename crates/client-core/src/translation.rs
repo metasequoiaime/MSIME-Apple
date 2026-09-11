@@ -1,7 +1,7 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
 
-use serde_json::Value;
 use hmac::{Hmac, Mac};
+use serde_json::Value;
 use sha2::Sha256;
 use std::io::Read;
 use std::time::{Duration, Instant};
@@ -40,6 +40,17 @@ pub fn translate_batch(
     source: &str,
     target: &str,
 ) -> Vec<Option<String>> {
+    let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(480));
+    translate_batch_cached(config, texts, source, target, &mut cache)
+}
+
+pub fn translate_batch_cached(
+    config: &TranslationConfig,
+    texts: &[String],
+    source: &str,
+    target: &str,
+    cache: &mut crate::cloud::TranslationCache,
+) -> Vec<Option<String>> {
     let mut results = vec![None; texts.len()];
     if texts.is_empty()
         || source.is_empty()
@@ -58,7 +69,15 @@ pub fn translate_batch(
         Err(_) => return results,
     };
     let started = Instant::now();
+    let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
+        if let Some(value) = cache.get(text) {
+            results[index] = value;
+        } else {
+            pending.push((index, text));
+        }
+    }
+    for (index, text) in pending {
         let timeout = request_timeout(started.elapsed());
         if timeout.is_zero() {
             break;
@@ -78,7 +97,9 @@ pub fn translate_batch(
             Ok(response) if response.status().is_success() => response,
             _ => continue,
         };
-        results[index] = read_translation_response(response);
+        let value = read_translation_response(response);
+        cache.remember(text.clone(), value.clone());
+        results[index] = value;
     }
     results
 }
@@ -261,10 +282,19 @@ mod tests {
     #[test]
     fn tencent_tc3_signature_is_deterministic_and_message_bound() {
         let first = tencent_tc3_derive("secret", "20240101", "tmt", "request");
-        assert_eq!(first, tencent_tc3_derive("secret", "20240101", "tmt", "request"));
+        assert_eq!(
+            first,
+            tencent_tc3_derive("secret", "20240101", "tmt", "request")
+        );
         assert_eq!(first.len(), 64);
-        assert_ne!(first, tencent_tc3_derive("secret", "20240101", "tmt", "other"));
-        assert_ne!(first, tencent_tc3_derive("different", "20240101", "tmt", "request"));
+        assert_ne!(
+            first,
+            tencent_tc3_derive("secret", "20240101", "tmt", "other")
+        );
+        assert_ne!(
+            first,
+            tencent_tc3_derive("different", "20240101", "tmt", "request")
+        );
     }
 
     #[test]
