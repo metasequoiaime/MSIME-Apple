@@ -12,6 +12,7 @@
         window.title = @"语音输入设置";
         _service = [[MSIMEVoiceInputService alloc] init];
         _language = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_language addItemsWithTitles:@[@"中文（简体）", @"English"]];
+        [_language selectItemAtIndex:[[[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] isEqualToString:@"en-US"] ? 1 : 0];
         _language.target = self; _language.action = @selector(languageChanged:);
         _status = [NSTextField labelWithString:@"权限状态未知"];
         NSButton *permission = [NSButton buttonWithTitle:@"请求麦克风与语音权限" target:self action:@selector(requestPermission:)];

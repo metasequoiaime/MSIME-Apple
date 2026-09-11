@@ -198,7 +198,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         if (!controller || !controller->_session) return;
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) return;
-        if (![controller->_voiceService startTranscriptionWithLanguage:@"zh-CN" textHandler:^(NSString *text, BOOL final) {
+        NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
+        if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             (void)final;
             [controller->_voiceService applyText:text generation:controller->_voiceGeneration completion:^(NSDictionary *result, NSError *applyError) { if (result && !applyError) [controller apply:result]; }];
         } error:&error]) { [controller->_voiceService cancelWithError:nil]; return; }
