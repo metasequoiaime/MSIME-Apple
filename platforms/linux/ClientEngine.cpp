@@ -379,7 +379,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     auto &s = state(engine);
     if (std::string(name) == "ChinesePunctuation") {
       s.chinese_punctuation = value == PROP_STATE_CHECKED;
-      if (s.session)
+      if (s.session && s.view.value("focused", false))
         apply(engine, msime_client_set_chinese_punctuation(
                          s.session, s.chinese_punctuation));
       publish_punctuation(engine, s.chinese_punctuation);
