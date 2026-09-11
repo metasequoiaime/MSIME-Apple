@@ -443,6 +443,14 @@ int main(int argc, char **argv) {
     phrase();
     require(key(IBUS_space) && seen.committed == committed + "你好",
             "Private text focus did not recover");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
+    require(key('a'), "Fullwidth ASCII was not handled");
+    require(seen.committed == committed + "你好ａ", "Fullwidth ASCII commit mismatch");
+    invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
+    require(key('b'), "Halfwidth ASCII was not handled");
+    require(seen.committed == committed + "你好ａb", "Halfwidth ASCII commit mismatch");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {
