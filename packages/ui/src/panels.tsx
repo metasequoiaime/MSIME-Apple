@@ -118,12 +118,12 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   async function recognize(nextStrokes: InkStroke[]) {
-    if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由 Windows 原生宿主提供"); return; }
+    if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由宿主提供"); return; }
     try {
       const result = await client.recognizeHandwriting({ language: "zh-CN", strokes: nextStrokes });
       setCandidates(result.candidates);
       setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
-    } catch { setCandidates([]); setNotice("Windows Ink 识别失败"); }
+    } catch { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); }
   }
   function start(event: PointerEvent<SVGSVGElement>) { event.currentTarget.setPointerCapture?.(event.pointerId); setDrawing([pointFromEvent(event)]); }
   function move(event: PointerEvent<SVGSVGElement>) {
