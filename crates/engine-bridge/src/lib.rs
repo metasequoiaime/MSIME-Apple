@@ -320,6 +320,8 @@ mod tests {
             helpcode: false,
             helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: 0,
             frequency_mode: "promote".into(),
             frequency_trigger_count: 1,
             frequency_linear_step: 1,
