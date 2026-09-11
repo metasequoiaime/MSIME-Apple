@@ -5,4 +5,5 @@ if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
 fi
-exec /usr/bin/msime-client-ibus "$config"
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$launcher_dir/msime-client-ibus" "$config"
