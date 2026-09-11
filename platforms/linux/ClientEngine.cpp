@@ -101,6 +101,13 @@ void publish_punctuation(IBusEngine *engine, bool enabled) {
       enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
 }
+void publish_character_width(IBusEngine *engine, bool fullwidth) {
+  auto property = ibus_property_new(
+      "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
+      fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+}
 void publish_expressive(IBusEngine *engine, const State &s) {
   const auto preferences = configured.at("preferences").value("mixed_input", Json::object());
   const auto value = [&](const std::optional<bool> &override_value,
@@ -372,11 +379,21 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
-       std::string(name) != "ChinesePunctuation") ||
+       std::string(name) != "ChinesePunctuation" &&
+       std::string(name) != "CharacterWidth") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
+    if (std::string(name) == "CharacterWidth") {
+      const bool fullwidth = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        auto result = response(msime_client_set_character_width(s.session, fullwidth));
+        s.view = result;
+      }
+      publish_character_width(engine, fullwidth);
+      return;
+    }
     if (std::string(name) == "ChinesePunctuation") {
       s.chinese_punctuation = value == PROP_STATE_CHECKED;
       if (s.session && s.view.value("focused", false))
@@ -429,6 +446,11 @@ void register_properties(IBusEngine *engine) {
           : PROP_STATE_UNCHECKED,
       nullptr);
   ibus_prop_list_append(properties, punctuation);
+  auto width = ibus_property_new(
+      "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(properties, width);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
