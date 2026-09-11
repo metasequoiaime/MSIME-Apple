@@ -90,6 +90,7 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     }
 
     DWORD_PTR _GetSelectedCandidateString(_Outptr_result_maybenull_ const WCHAR **ppwchCandidateString);
+    UINT _GetSelectedCandidateIndex() const { return _candidateState.GetSelection(); }
     BOOL _SetSelectionInPage(int nPos)
     {
         return _candidateState.SetSelectionInPage(nPos);
