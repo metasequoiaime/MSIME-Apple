@@ -56,6 +56,8 @@ mod ffi {
     #[derive(Debug)]
     pub struct EngineSnapshot {
         pub local_mode: String,
+        pub nine_key: bool,
+        pub nine_key_spellings: Vec<String>,
         pub microsoft_shuangpin: bool,
         pub shuangpin_profile: String,
         pub preedit: String,
@@ -137,6 +139,11 @@ mod ffi {
         ) -> Result<Vec<EmojiCatalogItem>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
+        fn set_nine_key_enabled(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
+        fn choose_nine_key_spelling(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+        ) -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
@@ -272,6 +279,15 @@ impl Session {
     }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
+    }
+    pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_nine_key_enabled(enabled)
+    }
+    pub fn choose_nine_key_spelling(
+        &mut self,
+        index: usize,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().choose_nine_key_spelling(index)
     }
     pub fn command(&mut self, command: Command) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().command(command as u8)
@@ -421,5 +437,28 @@ mod tests {
         assert_eq!(result.commit, "中");
         assert!(session.snapshot().unwrap().preedit.is_empty());
         assert_eq!(session.snapshot().unwrap().local_mode, "none");
+    }
+
+    #[test]
+    fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::new(&options(dir.path())).unwrap();
+        assert!(!session.snapshot().unwrap().nine_key);
+        assert!(!session.character(b'6', false).unwrap().handled);
+        session.set_nine_key_enabled(true).unwrap();
+        assert!(session.snapshot().unwrap().nine_key);
+        assert!(session.character(b'6', false).unwrap().handled);
+        let snapshot = session.snapshot().unwrap();
+        assert!(!snapshot.nine_key_spellings.is_empty());
+        assert!(
+            !session
+                .choose_nine_key_spelling(snapshot.nine_key_spellings.len())
+                .unwrap()
+                .handled
+        );
+        assert!(session.choose_nine_key_spelling(0).unwrap().handled);
+        session.command(Command::Cancel).unwrap();
+        session.set_nine_key_enabled(false).unwrap();
+        assert!(!session.snapshot().unwrap().nine_key);
     }
 }

@@ -58,10 +58,14 @@ pub enum RuntimeError {
     InvalidPageSize,
     #[error("candidate belongs to an expired view or another session")]
     StaleCandidate,
+    #[error("nine-key spelling belongs to an expired view or another session")]
+    StaleNineKeySpelling,
     #[error("session identity exhausted")]
     IdentityExhausted,
     #[error("cannot replace an engine while composition is active")]
     CompositionActive,
+    #[error("nine-key mode requires the quanpin scheme")]
+    InvalidNineKeyScheme,
     #[error("punctuation action requires an ASCII punctuation character")]
     InvalidPunctuation,
     #[error("engine action failed: {0}")]
@@ -77,6 +81,14 @@ pub trait InputEngine {
     }
     fn set_dedicated_english(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
+    }
+    fn set_nine_key_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine("Nine-key mode is unsupported".into()))
+    }
+    fn choose_nine_key_spelling(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Nine-key spelling selection is unsupported".into(),
+        ))
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
@@ -111,6 +123,14 @@ impl InputEngine for Session {
     }
     fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_dedicated_english(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_nine_key_enabled(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
@@ -155,6 +175,13 @@ pub struct CandidateId {
     pub index: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct NineKeySpellingId {
+    pub session: u64,
+    pub generation: u64,
+    pub index: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Candidate {
     pub id: CandidateId,
@@ -177,6 +204,9 @@ pub enum CharacterWidth {
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
     pub scheme: u8,
+    /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
+    pub nine_key: bool,
+    pub nine_key_spellings: Vec<String>,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
@@ -620,6 +650,7 @@ pub enum Action {
     SelectEdge(CandidateId, CandidateEdge),
     PinCandidate(CandidateId),
     RemoveCandidate(CandidateId),
+    ChooseNineKeySpelling(NineKeySpellingId),
     SelectHighlighted,
     Finish,
     NextPage,
@@ -752,11 +783,29 @@ impl<E: InputEngine> Runtime<E> {
         self.character_width = width;
     }
 
+    /// Switch the Engine's digit interpretation only after the host finishes composition.
+    pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        if enabled && self.cached.scheme != 0 {
+            return Err(RuntimeError::InvalidNineKeyScheme);
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        if self.cached.nine_key == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_nine_key_enabled(enabled)?;
+        self.refresh()
+    }
+
     pub fn view(&self) -> View {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
             scheme: self.cached.scheme,
+            nine_key: self.cached.nine_key,
+            nine_key_spellings: self.cached.nine_key_spellings.clone(),
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
@@ -889,6 +938,8 @@ impl<E: InputEngine> Runtime<E> {
             &mut self.cached,
             EngineSnapshot {
                 scheme: 255,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
                 candidate_annotations: Vec::new(),
                 candidate_sources: Vec::new(),
                 microsoft_shuangpin: false,
@@ -986,6 +1037,15 @@ impl<E: InputEngine> Runtime<E> {
                 return Err(RuntimeError::StaleCandidate);
             }
         }
+        if let Action::ChooseNineKeySpelling(id) = &action {
+            if id.session != self.session
+                || id.generation != self.generation
+                || !self.cached.nine_key
+                || id.index >= self.cached.nine_key_spellings.len()
+            {
+                return Err(RuntimeError::StaleNineKeySpelling);
+            }
+        }
         self.advance()?;
         let len = self.cached.candidates.len();
         let next_highlight = match &action {
@@ -1025,7 +1085,11 @@ impl<E: InputEngine> Runtime<E> {
                         return self.punctuation(value);
                     }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first.
-                    if result.handled || !(b'1'..=b'9').contains(&value) || len == 0 {
+                    if result.handled
+                        || self.cached.nine_key
+                        || !(b'1'..=b'9').contains(&value)
+                        || len == 0
+                    {
                         return Ok(result);
                     }
                     let page_start = (self.highlighted / self.page_size) * self.page_size;
@@ -1041,6 +1105,7 @@ impl<E: InputEngine> Runtime<E> {
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
             Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
             Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
+            Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
@@ -1073,12 +1138,28 @@ mod tests {
     use super::*;
     use std::time::Duration;
     struct Fixture {
+        scheme: u8,
+        nine_key: bool,
+        nine_key_spellings: Vec<String>,
         local_mode: String,
         words: Vec<String>,
         text: String,
         snapshot_fails: bool,
     }
     impl InputEngine for Fixture {
+        fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+            self.nine_key = enabled;
+            self.nine_key_spellings.clear();
+            Ok(())
+        }
+        fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+            if !self.nine_key || index >= self.nine_key_spellings.len() {
+                return Ok(empty_result(false));
+            }
+            self.text = self.nine_key_spellings[index].clone();
+            self.nine_key_spellings = vec![self.text.clone()];
+            Ok(empty_result(true))
+        }
         fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
             if value == b'!' {
                 return Err(RuntimeError::Engine("injected punctuation failure".into()));
@@ -1106,7 +1187,9 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
-                scheme: 0,
+                scheme: self.scheme,
+                nine_key: self.nine_key,
+                nine_key_spellings: self.nine_key_spellings.clone(),
                 candidate_annotations: self
                     .words
                     .iter()
@@ -1129,6 +1212,11 @@ mod tests {
             })
         }
         fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
+            if self.nine_key && (b'2'..=b'9').contains(&value) {
+                self.text.push(value as char);
+                self.nine_key_spellings = vec!["ni".into(), "mi".into()];
+                return Ok(empty_result(true));
+            }
             if value.is_ascii_digit() || value.is_ascii_punctuation() {
                 return Ok(empty_result(false));
             }
@@ -1137,10 +1225,12 @@ mod tests {
         }
         fn command(&mut self, _command: Command) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.nine_key_spellings.clear();
             Ok(empty_result(true))
         }
         fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.nine_key_spellings.clear();
             self.local_mode = "none".into();
             Ok(EngineResult {
                 handled: true,
@@ -1165,6 +1255,9 @@ mod tests {
     fn runtime() -> Runtime<Fixture> {
         Runtime::new(
             Fixture {
+                scheme: 0,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: (0..12).map(|n| format!("candidate-{n}")).collect(),
                 text: String::new(),
@@ -1505,6 +1598,73 @@ mod tests {
             })
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-6"));
+    }
+
+    #[test]
+    fn nine_key_mode_owns_digits_and_spelling_choices_are_generation_scoped() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let original_generation = runtime.view().generation;
+        runtime.set_nine_key_enabled(true).unwrap();
+        assert!(runtime.view().nine_key && runtime.view().generation > original_generation);
+        let typed = runtime
+            .dispatch(Action::Character {
+                value: b'6',
+                shift: false,
+            })
+            .unwrap();
+        assert!(typed.handled && typed.commit.is_none());
+        assert_eq!(
+            typed.view.nine_key_spellings,
+            vec!["ni".to_owned(), "mi".to_owned()]
+        );
+        let invalid_digit = runtime
+            .dispatch(Action::Character {
+                value: b'1',
+                shift: false,
+            })
+            .unwrap();
+        assert!(!invalid_digit.handled && invalid_digit.commit.is_none());
+        let generation = invalid_digit.view.generation;
+        let stale = NineKeySpellingId {
+            session: invalid_digit.view.session,
+            generation: generation - 1,
+            index: 0,
+        };
+        assert!(matches!(
+            runtime.dispatch(Action::ChooseNineKeySpelling(stale)),
+            Err(RuntimeError::StaleNineKeySpelling)
+        ));
+        let invalid = NineKeySpellingId {
+            session: invalid_digit.view.session,
+            generation,
+            index: 2,
+        };
+        assert!(matches!(
+            runtime.dispatch(Action::ChooseNineKeySpelling(invalid)),
+            Err(RuntimeError::StaleNineKeySpelling)
+        ));
+        let selected = runtime
+            .dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
+                session: invalid_digit.view.session,
+                generation,
+                index: 1,
+            }))
+            .unwrap();
+        assert!(selected.handled && selected.view.editing_text == "mi");
+        assert!(matches!(
+            runtime.set_nine_key_enabled(false),
+            Err(RuntimeError::CompositionActive)
+        ));
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        runtime.set_nine_key_enabled(false).unwrap();
+        assert!(!runtime.view().nine_key);
+        runtime.engine.scheme = 1;
+        runtime.refresh().unwrap();
+        assert!(matches!(
+            runtime.set_nine_key_enabled(true),
+            Err(RuntimeError::InvalidNineKeyScheme)
+        ));
     }
 
     #[test]

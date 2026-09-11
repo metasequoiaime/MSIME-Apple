@@ -21,6 +21,9 @@ public final class NativeClient {
             snapshot.getBytes(StandardCharsets.UTF_8)));
     }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
+    public static String setNineKeyMode(long session, boolean enabled) {
+        return text(setNineKeyModeRaw(session, enabled));
+    }
     public static String character(long session, int ascii, boolean shift) {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return text(characterRaw(session, ascii, shift));
@@ -35,6 +38,10 @@ public final class NativeClient {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
         return text(removeCandidateRaw(session, generation, index));
     }
+    public static String chooseNineKeySpelling(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid nine-key spelling index");
+        return text(chooseNineKeySpellingRaw(session, generation, index));
+    }
     public static String view(long session) { return text(viewRaw(session)); }
     public static String updatePreferences(long session, String snapshot) { return text(updatePreferencesRaw(session, snapshot.getBytes(StandardCharsets.UTF_8))); }
     public static String destroy(long session) { return text(destroyRaw(session)); }
@@ -43,11 +50,13 @@ public final class NativeClient {
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
+    private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);
     private static native byte[] pinCandidateRaw(long session, long generation, long index);
     private static native byte[] removeCandidateRaw(long session, long generation, long index);
+    private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] destroyRaw(long session);

@@ -86,6 +86,10 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
+/* Engine-owned quanpin nine-key mode. Call only after finishing composition.
+ * View.nine_key and View.nine_key_spellings are authoritative. Enabling for
+ * another scheme or changing mode during composition is rejected. */
+char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);
@@ -107,6 +111,8 @@ char *msime_client_command(uint64_t session, uint32_t command);
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_pin_candidate(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_remove_candidate(uint64_t session, uint64_t generation, size_t index);
+/* Select an entry from View.nine_key_spellings. The generation rejects stale UI. */
+char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
  * A candidate without Han text is unhandled and keeps composition; no fallback

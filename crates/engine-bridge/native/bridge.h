@@ -19,6 +19,8 @@ public:
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
     EngineResult character(std::uint8_t value, bool shift);
+    void set_nine_key_enabled(bool enabled);
+    EngineResult choose_nine_key_spelling(std::size_t index);
     EngineResult command(std::uint8_t value);
     EngineResult select(std::size_t index);
     EngineResult pin_candidate(std::size_t index);
@@ -32,6 +34,7 @@ public:
     void set_dedicated_english(bool enabled);
 private:
     metasequoia::Session session_;
+    bool nine_key_ = false;
     bool microsoft_shuangpin_;
     std::string shuangpin_profile_;
 };
