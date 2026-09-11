@@ -11,6 +11,7 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
 const BATCH_BUDGET: Duration = Duration::from_secs(6);
 const MAX_SOURCE_CHARS: usize = 40;
+const MAX_PERSIST_GLOSS_CHARS: usize = 32;
 
 /// Tencent TC3 signing primitive. The caller owns credential lifetime.
 pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: &str) -> String {
@@ -108,6 +109,13 @@ pub fn format_translation_gloss(text: &str) -> Option<String> {
         output.push(ch);
     }
     (!output.is_empty()).then_some(output)
+}
+
+pub fn should_persist_translation(key: &str, gloss: &str) -> bool {
+    !key.is_empty()
+        && !gloss.is_empty()
+        && gloss.chars().count() <= MAX_PERSIST_GLOSS_CHARS
+        && !gloss.eq_ignore_ascii_case(key)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -434,5 +442,12 @@ mod tests {
             Some("hello world".into())
         );
         assert_eq!(format_translation_gloss("\u{0000}"), None);
+    }
+
+    #[test]
+    fn persistence_requires_short_changed_gloss() {
+        assert!(should_persist_translation("hello", "你好"));
+        assert!(!should_persist_translation("hello", "hello"));
+        assert!(!should_persist_translation("hello", &"字".repeat(33)));
     }
 }
