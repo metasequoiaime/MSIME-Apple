@@ -1,5 +1,9 @@
 //! Host independent voice input contracts.
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum VoiceError { #[error("invalid language")] InvalidLanguage, #[error("audio is empty")] EmptyAudio, #[error("audio is too large")] AudioTooLarge, #[error("recognized text is too large")] TextTooLarge, #[error("invalid confidence")] InvalidConfidence }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,27 +43,27 @@ pub struct VoiceRecognitionResult {
 }
 
 impl VoiceRecognitionResult {
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), VoiceError> {
         if self.text.len() > 16 * 1024 {
-            return Err("text too large");
+            return Err(VoiceError::TextTooLarge);
         }
         if self.confidence.is_some_and(|v| v > 1000) {
-            return Err("invalid confidence");
+            return Err(VoiceError::InvalidConfidence);
         }
         Ok(())
     }
 }
 
 impl VoiceRecognitionRequest {
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), VoiceError> {
         if self.language.is_empty() || self.language.len() > 32 {
-            return Err("invalid language");
+            return Err(VoiceError::InvalidLanguage);
         }
         if self.audio.is_empty() {
-            return Err("empty audio");
+            return Err(VoiceError::EmptyAudio);
         }
         if self.audio.len() > 25 * 1024 * 1024 {
-            return Err("audio too large");
+            return Err(VoiceError::AudioTooLarge);
         }
         Ok(())
     }
