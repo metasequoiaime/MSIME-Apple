@@ -39,6 +39,7 @@ export type Preferences = {
   candidate_follow_cursor?: boolean;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  cloud_candidates?: boolean;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -533,6 +534,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) void client.clipboard?.clear(); }} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">云候选<small>输入组合期间向云端请求一个额外候选；请求不包含已上屏文本。</small></span><input aria-label="云候选" className="toggle" type="checkbox" checked={draft.cloud_candidates ?? true} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}

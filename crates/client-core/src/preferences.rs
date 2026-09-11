@@ -87,6 +87,9 @@ pub struct Preferences {
     pub local_modes: LocalModePreferences,
     #[serde(default = "enabled_by_default")]
     pub clipboard_history: bool,
+    /// Fetch one additional candidate from the configured cloud provider.
+    #[serde(default = "enabled_by_default")]
+    pub cloud_candidates: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -503,6 +506,7 @@ impl Default for Preferences {
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
             clipboard_history: true,
+            cloud_candidates: true,
         }
     }
 }
