@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
+import { installSkinPalette } from "./skin-palette";
 
 type Palette = Partial<Record<"accent" | "selected" | "hover" | "surface" | "border" | "text" | "number", string | null>> & { showSelectedBar?: boolean | null };
 export type ExternalSkin = {
@@ -21,7 +22,7 @@ function dimension(value: number, maximum: number): number {
 // Same plain colour notations as the fixed Windows upstream. Never interpolate
 // arbitrary manifest strings into stylesheet rules or load URLs from a palette.
 const colorPattern = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|rgb\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*\)|rgba\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\/)\s*(0|1|0?\.\d+|\d{1,3}%)\s*\))$/i;
-function paletteCss(scope: string, palette: Palette): string {
+function paletteCss(scope: string, palette: Palette): string[] {
   const rules: [keyof Palette, string, string][] = [
     ["accent", ".cursor", "background"], ["accent", ".first::before", "background"],
     ["selected", ".first", "background-color"], ["hover", ".cand:not(.first):hover", "background-color"],
@@ -32,8 +33,9 @@ function paletteCss(scope: string, palette: Palette): string {
     const value = palette[key];
     return typeof value === "string" && colorPattern.test(value.trim())
       ? `.${scope} ${selector}{${property}:${value.trim()} !important}` : "";
-  }).join("");
-  return css + (palette.showSelectedBar === false ? `.${scope} .first::before{display:none !important}` : "");
+  }).filter(Boolean);
+  if (palette.showSelectedBar === false) css.push(`.${scope} .first::before{display:none !important}`);
+  return css;
 }
 
 function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revision }: {
@@ -42,6 +44,14 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revisio
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   const theme = override ?? (skin.themes.includes("dark") ? "dark" : "light");
   const scope = `external-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const [paletteFailed, setPaletteFailed] = useState(false);
+  useEffect(() => {
+    try {
+      const remove = installSkinPalette([...paletteCss(scope, skin.candidate.dark), ...(theme === "light" ? paletteCss(scope, skin.candidate.light) : [])]);
+      setPaletteFailed(false);
+      return remove;
+    } catch { setPaletteFailed(true); }
+  }, [scope, skin.candidate, theme]);
   // Current settings host uses the dark product theme. Preview overrides must
   // not change runtime compatibility or the selected preference.
   const compatible = skin.layouts.includes(layout) && skin.themes.includes("dark");
@@ -70,11 +80,11 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, revisio
       </div>
     </div>
     <div className={`skin-card-preview skin-${base} ${scope}`} style={geometry} data-preview-theme={theme} aria-hidden="true">
-      <style>{paletteCss(scope, skin.candidate.dark) + (theme === "light" ? paletteCss(scope, skin.candidate.light) : "")}</style>
       <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
       <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
       <div className="skin-preview-stage"><SkinToolbarPreview /></div>
     </div>
+    {paletteFailed && <p role="status" className="skin-card-description external-skin-resource-note">当前浏览器无法应用皮肤配色，保留基础预览。</p>}
     {(image?.failed || decodeFailed) && <p role="status" className="skin-card-description external-skin-resource-note">皮肤图片加载失败，保留基础预览。可刷新皮肤重试。</p>}
     {skin.preview && decorated && !readImage && <p className="skin-card-description external-skin-resource-note">当前宿主不支持皮肤图片预览。</p>}
     {skin.toolbarStylesheet && <p className="skin-card-description external-skin-resource-note">外部工具栏样式尚未接入。</p>}

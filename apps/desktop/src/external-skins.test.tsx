@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { ExternalSkins } from "../../../packages/ui/src/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
@@ -8,6 +8,14 @@ import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin-imag
 import desktopConfig from "../src-tauri/tauri.conf.json";
 
 afterEach(cleanup);
+// jsdom parses CSS rules but does not implement adopted stylesheet rendering.
+// Real CSP/computed-style coverage lives in scripts/test-skin-palette-csp.py.
+beforeEach(() => Object.defineProperty(document, "adoptedStyleSheets", { configurable: true, writable: true, value: [] }));
+function previewCss(card: HTMLElement): string {
+  const scope = Array.from(card.querySelector(".skin-card-preview")!.classList).find(value => value.startsWith("external-preview-"))!;
+  return document.adoptedStyleSheets.flatMap(sheet => Array.from(sheet.cssRules).map(rule => rule.cssText))
+    .filter(rule => rule.includes(`.${scope} `)).join("").replace(/\s+/g, "");
+}
 const catalog: SkinCatalog = {
   directory: "/synthetic/state/skins", issues: [{ folder: "Bad", reason: "invalid manifest" }],
   packages: [{ id: "sample", name: "Sample skin", version: "1", base: "fluent", author: "Example", description: "Sample description",
@@ -19,6 +27,28 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
 } };
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
+
+test("palette sheets replace on theme change and disappear when cards unmount", async () => {
+  const mounted = render(<ExternalSkins {...props} scan={async () => catalog} />);
+  refresh();
+  const card = await screen.findByRole("article");
+  expect(card.querySelector("style")).toBeNull();
+  expect(document.adoptedStyleSheets).toHaveLength(1);
+  const previous = document.adoptedStyleSheets[0];
+  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  expect(document.adoptedStyleSheets).toHaveLength(1);
+  expect(document.adoptedStyleSheets[0]).not.toBe(previous);
+  mounted.unmount();
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+});
+
+test("missing adopted stylesheets reports fallback without injecting inline styles", async () => {
+  Reflect.deleteProperty(document, "adoptedStyleSheets");
+  render(<ExternalSkins {...props} scan={async () => catalog} />);
+  refresh();
+  await screen.findByText("当前浏览器无法应用皮肤配色，保留基础预览。");
+  expect(screen.getByRole("article").querySelector("style")).toBeNull();
+});
 
 const imageCatalog: SkinCatalog = { ...catalog, packages: [{ ...catalog.packages[0],
   preview: "images/top.png", decorationTopDip: 32, decorationWidthDip: 150 }] };
@@ -174,12 +204,12 @@ test("light preview inherits dark palette fields before applying its sparse over
   refresh();
   const card = await screen.findByRole("article");
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
-  const css = card.querySelector("style")!.textContent!;
-  expect(css).toContain("#112233");
+  const css = previewCss(card);
+  expect(css).toContain("rgb(17,34,51)");
   expect(css).toContain("display:none");
-  expect(css.indexOf("#abcdef")).toBeGreaterThan(css.indexOf("#123456"));
+  expect(css.indexOf("rgb(171,205,239)")).toBeGreaterThan(css.indexOf("rgb(18,52,86)"));
   fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
-  expect(card.querySelector("style")!.textContent).not.toContain("#abcdef");
+  expect(previewCss(card)).not.toContain("rgb(171,205,239)");
 });
 
 test("open directory is explicit, path-free and independent of scanning and selection", async () => {
@@ -256,7 +286,7 @@ test("external selection enters the revisioned draft; preview toggles never save
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-  expect(card.querySelector("style")?.textContent).toContain("#abcdef");
+  expect(previewCss(card)).toContain("rgb(171,205,239)");
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(within(card).getByRole("switch"));
   fireEvent.click(within(card).getByRole("switch"));
@@ -334,8 +364,8 @@ test("manifest text is escaped and palette cannot inject CSS or resource URLs", 
   refresh();
   const card = await screen.findByRole("article", { name: hostile });
   expect(card.querySelector("img[src=x]")).toBeNull();
-  const css = card.querySelector("style")!.textContent!;
-  expect(css).toContain("#123456");
+  const css = previewCss(card);
+  expect(css).toContain("rgb(18,52,86)");
   expect(css).toContain("display:none");
   expect(css).not.toContain("body");
   expect(css).not.toContain("url(");
