@@ -116,4 +116,8 @@ EngineResult EngineSession::punctuation(std::uint8_t value) {
 void EngineSession::set_chinese_punctuation_enabled(bool enabled) {
     session_.set_chinese_punctuation_enabled(enabled);
 }
+
+void EngineSession::set_dedicated_english(bool enabled) {
+    session_.set_dedicated_english(enabled);
+}
 }
