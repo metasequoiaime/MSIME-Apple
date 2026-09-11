@@ -38,7 +38,7 @@ use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -232,6 +232,22 @@ pub struct TranslationResult {
     pub translation: String,
 }
 
+/// A bounded stroke payload sent by a Linux handwriting panel to its
+/// user-owned recognizer service. Coordinates are normalized panel pixels;
+/// the recognizer decides how to map them to a platform model.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingQuery {
+    #[serde(default)]
+    pub language: String,
+    pub strokes: Vec<Vec<HandwritingPoint>>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineCandidate {
     pub query: OnlineQuery,
@@ -344,6 +360,49 @@ impl UnixSocketProvider {
             return None;
         }
         Some(reply.translations)
+    }
+
+    /// Ask the user-owned handwriting recognizer for up to twelve candidates.
+    /// The Linux panel owns ink capture and presentation; this service owns
+    /// model selection and any platform-specific recognizer integration.
+    pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
+        if query.language.len() > 64
+            || query.strokes.is_empty()
+            || query.strokes.len() > 32
+            || query
+                .strokes
+                .iter()
+                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "handwriting", "query": query}).to_string();
+        if request.len() > 262_144
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            candidates: Vec<String>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.candidates.len() > 12
+            || reply
+                .candidates
+                .iter()
+                .any(|candidate| candidate.is_empty() || candidate.len() > 4096)
+        {
+            return None;
+        }
+        Some(reply.candidates)
     }
 }
 
