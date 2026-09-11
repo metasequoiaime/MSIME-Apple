@@ -1,12 +1,28 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
 
 use serde_json::Value;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use std::io::Read;
 use std::time::{Duration, Instant};
 
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
 const BATCH_BUDGET: Duration = Duration::from_secs(6);
+
+/// Tencent TC3 signing primitive. The caller owns credential lifetime.
+pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: &str) -> String {
+    type HmacSha256 = Hmac<Sha256>;
+    let sign = |key: &[u8], data: &str| -> Vec<u8> {
+        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts arbitrary keys");
+        mac.update(data.as_bytes());
+        mac.finalize().into_bytes().to_vec()
+    };
+    let date_key = sign(format!("TC3{secret_key}").as_bytes(), date);
+    let service_key = sign(&date_key, service);
+    let signing_key = sign(&service_key, "tc3_request");
+    hex::encode(sign(&signing_key, message))
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
