@@ -91,7 +91,6 @@ void publish_input_enabled(IBusEngine *engine, bool enabled) {
       ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
       TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
-  g_object_unref(property);
 }
 void publish_punctuation(IBusEngine *engine, bool enabled) {
   auto property = ibus_property_new(
@@ -100,7 +99,6 @@ void publish_punctuation(IBusEngine *engine, bool enabled) {
       ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
       enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
-  g_object_unref(property);
 }
 void publish_expressive(IBusEngine *engine, const State &s) {
   const auto preferences = configured.at("preferences").value("mixed_input", Json::object());
@@ -125,8 +123,7 @@ void publish_expressive(IBusEngine *engine, const State &s) {
                                               : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_engine_update_property(engine, property);
-    g_object_unref(property);
-  }
+    }
 }
 void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -424,7 +421,6 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
       PROP_STATE_CHECKED, nullptr);
   ibus_prop_list_append(properties, punctuation);
-  g_object_unref(punctuation);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
@@ -434,7 +430,6 @@ void register_properties(IBusEngine *engine) {
           : PROP_STATE_UNCHECKED,
       nullptr);
   ibus_prop_list_append(properties, english);
-  g_object_unref(english);
   for (const auto &[name, label, key] : {
            std::tuple<const char *, const char *, const char *>{"EmojiCandidates", "Emoji候选", "emoji"},
            {"KaomojiCandidates", "颜文字候选", "kaomoji"}}) {
@@ -446,11 +441,8 @@ void register_properties(IBusEngine *engine) {
             : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_prop_list_append(properties, item);
-    g_object_unref(item);
   }
   ibus_engine_register_properties(engine, properties);
-  g_object_unref(property);
-  g_object_unref(properties);
 }
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimePreviewEngine *>(object);
