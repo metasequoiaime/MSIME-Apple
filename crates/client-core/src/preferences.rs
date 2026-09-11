@@ -99,6 +99,12 @@ pub struct Preferences {
     pub scheme: InputScheme,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
+    /// Horizontal key gap in tenths of a density-independent pixel.
+    #[serde(default = "default_touch_key_spacing_tenths")]
+    pub touch_key_spacing_tenths: u8,
+    /// Vertical row gap in tenths of a density-independent pixel.
+    #[serde(default = "default_touch_row_spacing_tenths")]
+    pub touch_row_spacing_tenths: u8,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -539,6 +545,14 @@ fn default_candidate_font_size() -> u8 {
     16
 }
 
+fn default_touch_key_spacing_tenths() -> u8 {
+    60
+}
+
+fn default_touch_row_spacing_tenths() -> u8 {
+    70
+}
+
 fn default_candidate_skin() -> String {
     "fluent".to_owned()
 }
@@ -565,6 +579,8 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
+            touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
+            touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
@@ -691,6 +707,11 @@ impl Preferences {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !(30..=60).contains(&self.touch_key_spacing_tenths)
+            || !(40..=100).contains(&self.touch_row_spacing_tenths)
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSpacing);
+        }
         if !(12..=32).contains(&self.candidate_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
@@ -772,6 +793,8 @@ pub enum PreferencesError {
     InvalidCustomTranslation,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
+    #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
+    InvalidTouchKeyboardSpacing,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
@@ -1260,6 +1283,52 @@ mod tests {
         fs::write(store.path(), &bytes).unwrap();
         assert!(store.load().is_err());
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths"] {
+            legacy["preferences"].as_object_mut().unwrap().remove(key);
+        }
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.preferences.touch_key_spacing_tenths, 60);
+        assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    touch_key_spacing_tenths: 35,
+                    touch_row_spacing_tenths: 95,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
+        assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
+
+        for (key, value) in [
+            ("touch_key_spacing_tenths", 29),
+            ("touch_key_spacing_tenths", 61),
+            ("touch_row_spacing_tenths", 39),
+            ("touch_row_spacing_tenths", 101),
+        ] {
+            let mut invalid = saved.preferences.clone();
+            match key {
+                "touch_key_spacing_tenths" => invalid.touch_key_spacing_tenths = value,
+                _ => invalid.touch_row_spacing_tenths = value,
+            }
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSpacing)
+            ));
+        }
     }
 
     #[test]

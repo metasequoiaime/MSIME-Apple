@@ -163,12 +163,14 @@ mod tests {
 
     #[test]
     fn translation_cache_tracks_positive_and_negative_results() {
-        let mut cache = TranslationCache::new(Duration::from_millis(1));
+        let mut cache = TranslationCache::new(Duration::from_secs(60));
         cache.remember("positive".into(), Some("译文".into()));
         cache.remember("negative".into(), None);
         assert_eq!(cache.get("positive"), Some(Some("译文".into())));
         assert_eq!(cache.get("negative"), Some(None));
-        std::thread::sleep(Duration::from_millis(3));
-        assert_eq!(cache.get("negative"), None);
+        cache
+            .negative
+            .insert("expired".into(), Instant::now() - Duration::from_millis(1));
+        assert_eq!(cache.get("expired"), None);
     }
 }

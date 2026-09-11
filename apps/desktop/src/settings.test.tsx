@@ -456,6 +456,29 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("touch keyboard spacing mirrors Apple defaults and persists tenths", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  const keys = screen.getByRole("slider", { name: "按键间距" }) as HTMLInputElement;
+  const rows = screen.getByRole("slider", { name: "行间距" }) as HTMLInputElement;
+  expect(keys.value).toBe("60");
+  expect(rows.value).toBe("70");
+  expect(screen.getByText("6.0 dp")).toBeDefined();
+  expect(screen.getByText("7.0 dp")).toBeDefined();
+  fireEvent.change(keys, { target: { value: "35" } });
+  fireEvent.change(rows, { target: { value: "95" } });
+  expect(screen.getByText("3.5 dp")).toBeDefined();
+  expect(screen.getByText("9.5 dp")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    touch_key_spacing_tenths: 35,
+    touch_row_spacing_tenths: 95,
+  });
+});
+
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);

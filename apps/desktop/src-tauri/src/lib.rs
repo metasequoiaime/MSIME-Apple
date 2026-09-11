@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(target_os = "linux")]
 use tauri::Emitter;
 use tauri::Manager;
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(mobile)))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
@@ -1125,36 +1125,46 @@ fn open_panel_window(
     height: f64,
     position: Option<(f64, f64)>,
 ) -> Result<(), HostActionError> {
-    if let Some(window) = app.get_webview_window(label) {
-        window
-            .show()
-            .and_then(|_| window.set_focus())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return Ok(());
-    }
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        label,
-        WebviewUrl::App(format!("index.html?panel={route}").into()),
-    )
-    .title(title);
-    if let Some((x, y)) = position {
-        builder = builder.position(x, y);
-    }
-    builder
-        .inner_size(width, height)
-        .min_inner_size(width, height)
-        .resizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .build()
-        .map(|_| ())
-        .map_err(|_| HostActionError {
+    #[cfg(mobile)]
+    {
+        let _ = (app, label, route, title, width, height, position);
+        Err(HostActionError {
             code: "unavailable",
         })
+    }
+    #[cfg(not(mobile))]
+    {
+        if let Some(window) = app.get_webview_window(label) {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+            return Ok(());
+        }
+        let mut builder = WebviewWindowBuilder::new(
+            app,
+            label,
+            WebviewUrl::App(format!("index.html?panel={route}").into()),
+        )
+        .title(title);
+        if let Some((x, y)) = position {
+            builder = builder.position(x, y);
+        }
+        builder
+            .inner_size(width, height)
+            .min_inner_size(width, height)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .build()
+            .map(|_| ())
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
+    }
 }
 
 #[tauri::command]

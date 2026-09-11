@@ -56,6 +56,8 @@ export type Preferences = {
   navigation?: NavigationPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
+  touch_key_spacing_tenths?: number;
+  touch_row_spacing_tenths?: number;
   default_ime_mode?: "chinese" | "english";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -401,6 +403,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = draft?.floating_toolbar ?? defaultFloatingToolbar;
+  const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
+  const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   useEffect(() => {
@@ -713,6 +717,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
+        <div className="section" role="group" aria-labelledby="touch-keyboard-spacing-title">
+          <div className="section-title" id="touch-keyboard-spacing-title">触屏键盘间距<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+          <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">行间距 <small>{(touchRowSpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="行间距" type="range" min="40" max="100" step="1" value={touchRowSpacingTenths} onChange={event => setDraft({ ...draft, touch_row_spacing_tenths: Number(event.target.value) })} /></label>
+        </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
           <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><div className="keyboard-mock"><div className="keyboard-mock-title">水杉屏幕键盘</div><div className="keyboard-mock-keys">{[..."QWERTYUIOP", ..."ASDFGHJKL", ..."ZXCVBNM"].map((key, index) => <span key={`${key}-${index}`}>{key}</span>)}</div><div className="keyboard-mock-space">空格</div></div></div>
