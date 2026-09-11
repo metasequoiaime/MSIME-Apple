@@ -210,6 +210,13 @@ int main(int argc, char **argv) {
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Control-space toggle was not handled");
     require(!key('n'), "Disabled input consumed a character");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "InputEnabled", PROP_STATE_CHECKED));
+    require(key('n'), "InputEnabled property did not re-enable input");
+    invoke("Reset");
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space disable was not handled");
+    require(!key('n'), "Disabled input consumed a character after property toggle");
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Control-space re-enable was not handled");
     require(key('n'), "Re-enabled input did not consume a character");
