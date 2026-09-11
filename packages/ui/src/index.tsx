@@ -89,6 +89,7 @@ export interface DictionaryClient {
 export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
 export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
 export type CloudDictionaryCatalog = { entries: CloudDictionaryEntry[]; offset: number; has_more: boolean; revision: number; normalized: string };
+export type CloudDictionaryChange = { revision: number; previous?: CloudDictionaryEntry; replacement?: CloudDictionaryEntry; reset?: boolean };
 export interface CloudDictionaryClient {
   list(kind: CloudDictionaryKind, search: string, offset: number): Promise<{ entries: CloudDictionaryEntry[]; has_more: boolean; offset: number }>;
   add(kind: CloudDictionaryKind, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
@@ -98,6 +99,7 @@ export interface CloudDictionaryClient {
   export(kind: CloudDictionaryKind, format: "standard" | "windows"): Promise<string>;
   catalog(kind: CloudDictionaryKind, code: string, offset: number, scheme: string, profile: string): Promise<CloudDictionaryCatalog>;
   editCatalog(entry: CloudDictionaryEntry, revision: number, replacement: { code: string; word: string; weight: number } | null): Promise<void>;
+  changes(after: number, limit: number): Promise<{ changes: CloudDictionaryChange[]; next: number; has_more: boolean }>;
   import(kind: CloudDictionaryKind, text: string, format: "standard" | "hans"): Promise<number>;
   export(kind: CloudDictionaryKind, format: "standard" | "hans"): Promise<string>;
 }
