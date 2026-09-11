@@ -62,6 +62,7 @@ struct State {
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
   bool number_row_selection = true;
+  std::optional<bool> number_row_override;
   char last_smart_punctuation = 0;
   gint64 last_smart_punctuation_time = 0;
   std::string punctuation_lock = "follow";
@@ -106,7 +107,8 @@ struct State {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
-    number_row_selection = options.value("preferences", Json::object()).value("number_row_selection", true);
+    number_row_selection = number_row_override.value_or(
+        options.value("preferences", Json::object()).value("number_row_selection", true));
     auto &preferences = options["preferences"];
     if (paired_punctuation_override) preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override) preferences["punctuation_lock"] = *punctuation_lock_override;
@@ -1212,6 +1214,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   guarded(engine, [&] {
     if (property_name == "NumberRowSelection") {
       s.number_row_selection = value == PROP_STATE_CHECKED;
+      s.number_row_override = s.number_row_selection;
       publish_mode(engine);
       return;
     }
