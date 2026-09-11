@@ -6,6 +6,8 @@
 #include "MetasequoiaIMEBaseStructure.h"
 #include "Compartment.h"
 #include "define.h"
+#include "../EngineSessionAdapter.h"
+#include <memory>
 
 class CCompositionProcessorEngine
 {
@@ -44,6 +46,12 @@ class CCompositionProcessorEngine
                                              _Out_opt_ _KEYSTROKE_STATE *pKeyState);
 
     BOOL AddVirtualKey(WCHAR wch);
+    // The host Engine bridge is introduced behind this accessor so individual
+    // TSF paths can migrate without duplicating composition algorithms.
+    msime::tsf::EngineSessionAdapter *GetHostEngineAdapter() const noexcept
+    {
+        return _hostEngineAdapter.get();
+    }
     void RemoveVirtualKey(DWORD_PTR dwIndex);
     BOOL RemoveVirtualKeyBeforeCaret();
     BOOL RemoveVirtualKeyAtCaret();
@@ -264,6 +272,7 @@ class CCompositionProcessorEngine
     ITfThreadMgr *_pOwnerThreadMgr;
     HWND _ownerMsgWndHandle;
     CMetasequoiaIME *_pTextService;
+    std::unique_ptr<msime::tsf::EngineSessionAdapter> _hostEngineAdapter;
     BOOL _keyboardOpen;
     BOOL _keyboardOpenKnown;
     BOOL _suppressKeyboardCloseCommit;
