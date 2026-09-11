@@ -9,7 +9,7 @@
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
 ```json
-{"version":1,"kind":"translation","query":{"generation":9,"candidates":["你好","世界"]}}
+{"version":1,"kind":"translation","query":{"generation":9,"target_language":"en","candidates":["你好","世界"]}}
 ```
 
 服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。宿主只接受最多 9 个候选、每项最多 4096 字节、每次响应最多 500ms，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。

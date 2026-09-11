@@ -703,6 +703,8 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .collect::<Vec<_>>();
             Ok(json!({
                 "generation": view.generation,
+                "target_language": serde_json::to_value(session.applied.translation_target_language)
+                    .map_err(|e| e.to_string())?,
                 "candidates": candidates,
             }))
         })
