@@ -1703,6 +1703,8 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     if (!s.session || index >= s.view.at("candidates").size())
       return;
     auto id = s.view.at("candidates").at(index).at("id");
+    if (id.at("session").get<uint64_t>() != s.session)
+      return;
     apply(engine,
           msime_client_select(s.session, id.at("generation").get<uint64_t>(),
                               id.at("index").get<size_t>()));
