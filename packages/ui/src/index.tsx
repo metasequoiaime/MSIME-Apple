@@ -59,6 +59,7 @@ export type Preferences = {
   candidate_page_size: number;
   candidate_font_size?: 16 | 18 | 20;
   candidate_layout?: "horizontal" | "vertical";
+  candidate_preedit_style?: "pinyin" | "empty";
   candidate_skin?: "fluent" | "wechat" | "graphite" | "willow_green";
   learning: boolean;
   autocorrect?: boolean;
@@ -477,6 +478,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
           <option value="16">小</option><option value="18">标准</option><option value="20">大</option>
+        </select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
+          <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}

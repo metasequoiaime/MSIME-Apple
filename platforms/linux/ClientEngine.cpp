@@ -69,6 +69,7 @@ struct State {
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
   bool fullwidth = false;
   bool traditional_output = false;
+  std::string candidate_preedit_style = "pinyin";
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool paired_punctuation = true;
@@ -192,6 +193,10 @@ struct State {
         ::candidate_background_color(options.at("preferences"));
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
     preedit_style = ::preedit_style(options.at("preferences"));
+    candidate_preedit_style =
+        preferences.value("candidate_preedit_style", "pinyin");
+    if (candidate_preedit_style != "empty")
+      candidate_preedit_style = "pinyin";
     view = response(
         msime_client_set_chinese_punctuation(session, chinese_punctuation));
     navigation = bindings;
@@ -1134,6 +1139,13 @@ void render(IBusEngine *engine, const Json &view) {
   }
   auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
                 std::to_string(view.at("page_count").get<size_t>());
+  if (state(engine).candidate_preedit_style == "pinyin") {
+    const auto candidate_preedit = view.value("preedit", std::string{});
+    if (!candidate_preedit.empty()) {
+      paging += "  · ";
+      paging += candidate_preedit;
+    }
+  }
   const auto mode = view.at("local_mode").get<std::string>();
   const std::pair<const char *, const char *> labels[] = {
       {"unicode", "U+"}, {"date_time", "日期时间"},
@@ -2197,6 +2209,10 @@ gboolean reload_preferences(gpointer data) {
                                  reinterpret_cast<const uint8_t *>(encoded.data()),
                                  encoded.size()));
                              s.view = updated.at("view");
+                             s.candidate_preedit_style = snapshot.at("preferences").value(
+                                 "candidate_preedit_style", "pinyin");
+                             if (s.candidate_preedit_style != "empty")
+                               s.candidate_preedit_style = "pinyin";
                              render(IBUS_ENGINE(source), s.view);
                              publish_mode(IBUS_ENGINE(source));
                            } catch (...) {
