@@ -49,6 +49,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private KeyboardSkin skin = KeyboardSkin.from("fluent");
+    private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
@@ -104,6 +105,9 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject preferences = options.optJSONObject("preferences");
                 skin = KeyboardSkin.from(preferences == null ? "fluent"
                     : preferences.optString("candidate_skin", "fluent"));
+                localModes = preferences == null ? new JSONObject()
+                    : preferences.optJSONObject("local_modes");
+                if (localModes == null) localModes = new JSONObject();
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -145,9 +149,13 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject snapshot = value(response);
             // Editor privacy restrictions apply to every update, not only creation.
             if (!allowLearning) snapshot.getJSONObject("preferences").put("learning", false);
-            skin = KeyboardSkin.from(snapshot.getJSONObject("preferences")
+            KeyboardSkin nextSkin = KeyboardSkin.from(snapshot.getJSONObject("preferences")
                 .optString("candidate_skin", "fluent"));
+            JSONObject nextLocalModes = snapshot.getJSONObject("preferences").optJSONObject("local_modes");
+            if (nextLocalModes == null) nextLocalModes = new JSONObject();
             JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
+            skin = nextSkin;
+            localModes = nextLocalModes;
             view = result.getJSONObject("view");
             preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
         } catch (JSONException | LinkageError error) {
@@ -319,6 +327,25 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    private boolean supportsLocalTools() {
+        if (view == null) return false;
+        int scheme = view.optInt("scheme", 0);
+        return scheme != 2 && scheme != 3;
+    }
+
+    private boolean localModeEnabled(LocalInputMode mode) {
+        return localModes.optBoolean(mode.preferenceKey(), true);
+    }
+
+    private void openLocalInputMode(LocalInputMode mode) {
+        if (session == 0 || !supportsLocalTools() || !localModeEnabled(mode)) return;
+        playFeedback(moreButton);
+        boolean previousShift = shift;
+        shift = true;
+        character(mode.trigger().charAt(0));
+        shift = previousShift;
+    }
+
     private void showFeedbackMenu() {
         if (moreButton == null) return;
         PopupMenu popup = new PopupMenu(this, moreButton);
@@ -334,12 +361,22 @@ public final class MSIMEInputService extends InputMethodService {
         light.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.LIGHT);
         medium.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.MEDIUM);
         strong.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.STRONG);
+        android.view.SubMenu local = menu.addSubMenu("本地输入");
+        for (LocalInputMode mode : LocalInputMode.values()) {
+            MenuItem item = local.add(2, 100 + mode.ordinal(), Menu.NONE, mode.title());
+            item.setEnabled(supportsLocalTools() && localModeEnabled(mode));
+        }
         popup.setOnMenuItemClickListener(item -> {
             if (item == sound) soundEnabled = !soundEnabled;
             else if (item == haptics) hapticsEnabled = !hapticsEnabled;
             else if (item == light) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.LIGHT;
             else if (item == medium) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
             else if (item == strong) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.STRONG;
+            else if (item.getGroupId() == 2 && item.getItemId() >= 100
+                    && item.getItemId() < 100 + LocalInputMode.values().length) {
+                openLocalInputMode(LocalInputMode.values()[item.getItemId() - 100]);
+                return true;
+            }
             else return false;
             saveFeedbackPreferences();
             return true;
@@ -566,7 +603,18 @@ public final class MSIMEInputService extends InputMethodService {
         String page = "";
         if (view != null && view.optInt("page_count", 0) > 0)
             page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
-        if (status != null) status.setText(message + preferencesNotice + page + (shift ? " · Shift" : ""));
+        String localMode = "";
+        if (view != null) {
+            String modeKey = view.optString("local_mode", "none");
+            for (LocalInputMode mode : LocalInputMode.values()) {
+                if (mode.preferenceKey().equals(modeKey)) {
+                    localMode = " · " + mode.title();
+                    break;
+                }
+            }
+        }
+        if (status != null) status.setText(message + preferencesNotice + localMode + page
+            + (shift ? " · Shift" : ""));
         if (preedit != null) preedit.setText(view == null ? "" : view.optString("editing_text", ""));
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         if (layerButton != null) {
