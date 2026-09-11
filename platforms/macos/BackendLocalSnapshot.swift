@@ -10,7 +10,7 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
   private var stagingRoot: URL?
   init(context: NSDictionary, snapshot: BackendPreparedSnapshot) { self.context = context; self.snapshot = snapshot }
   static func invoke(_ selector: String, _ parameters: NSDictionary? = nil) throws -> NSDictionary {
-    guard let type = NSClassFromString("MSIMEMacDictionarySync") as? NSObject.Type,
+    guard let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           let result = type.perform(NSSelectorFromString(selector), with: parameters)?.takeUnretainedValue() as? NSDictionary else {
       throw BackendAccountClient.Failure(status: 503)
     }
