@@ -27,15 +27,11 @@ pub enum ChineseScheme {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum TranslationTargetLanguage {
+pub enum PunctuationLock {
     #[default]
-    En,
-    Fr,
-    Ja,
-    Es,
-    Ru,
-    De,
-    Ko,
+    Follow,
+    Chinese,
+    English,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,11 +89,9 @@ pub struct Preferences {
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
     #[serde(default = "enabled_by_default")]
-    pub smart_punctuation: bool,
-    #[serde(default = "enabled_by_default")]
-    pub smart_punctuation_repeat: bool,
-    #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
+    #[serde(default)]
+    pub punctuation_lock: PunctuationLock,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -106,297 +100,6 @@ pub struct Preferences {
     pub frequency: FrequencyPreferences,
     #[serde(default)]
     pub mixed_input: MixedInputPreferences,
-    #[serde(default)]
-    pub local_modes: LocalModePreferences,
-    #[serde(default = "enabled_by_default")]
-    pub clipboard_history: bool,
-    /// Fetch one additional candidate from the configured cloud provider.
-    #[serde(default = "enabled_by_default")]
-    pub cloud_candidates: bool,
-    #[serde(default = "enabled_by_default")]
-    pub candidate_translations: bool,
-    #[serde(default)]
-    pub translation_target_language: TranslationTargetLanguage,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VoiceInputPreferences {
-    #[serde(default = "enabled_by_default")]
-    pub enabled: bool,
-    #[serde(default = "enabled_by_default")]
-    pub sound_enabled: bool,
-    #[serde(default = "enabled_by_default")]
-    pub start_sound: bool,
-    #[serde(default = "enabled_by_default")]
-    pub end_sound: bool,
-    #[serde(default)]
-    pub mute_system_audio: bool,
-    #[serde(default)]
-    pub language: String,
-    #[serde(default)]
-    pub commit_mode: String,
-    #[serde(default)]
-    pub asr_provider: String,
-    #[serde(default)]
-    pub asr_app_key: String,
-    #[serde(default)]
-    pub asr_token: String,
-    #[serde(default)]
-    pub asr_endpoint: String,
-    #[serde(default)]
-    pub asr_model: String,
-    #[serde(default)]
-    pub polish_enabled: bool,
-    #[serde(default)]
-    pub polish_provider: String,
-    #[serde(default)]
-    pub polish_token: String,
-    #[serde(default)]
-    pub polish_endpoint: String,
-    #[serde(default)]
-    pub polish_model: String,
-    #[serde(default)]
-    pub polish_prompt_id: String,
-    #[serde(default)]
-    pub polish_prompt: String,
-    #[serde(default = "enabled_by_default")]
-    pub hotkey_ralt: bool,
-    #[serde(default)]
-    pub hotkey_ctrl_win: bool,
-    #[serde(default)]
-    pub hotkey_rctrl_ralt: bool,
-    #[serde(default = "enabled_by_default")]
-    pub hotkey_hold_space_lock: bool,
-    #[serde(default = "enabled_by_default")]
-    pub hotkey_ctrl_f9: bool,
-    #[serde(default = "enabled_by_default")]
-    pub doubao_enable_itn: bool,
-    #[serde(default = "enabled_by_default")]
-    pub doubao_enable_punc: bool,
-    #[serde(default)]
-    pub doubao_enable_ddc: bool,
-    #[serde(default)]
-    pub doubao_boosting_table_id: String,
-}
-
-impl Default for VoiceInputPreferences {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            sound_enabled: true,
-            start_sound: true,
-            end_sound: true,
-            mute_system_audio: false,
-            language: "zh-cn".into(),
-            commit_mode: "tsf".into(),
-            asr_provider: "doubao".into(),
-            asr_app_key: String::new(),
-            asr_token: String::new(),
-            asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
-            asr_model: String::new(),
-            polish_enabled: false,
-            polish_provider: "siliconflow".into(),
-            polish_token: String::new(),
-            polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
-            polish_model: "Qwen/Qwen3-8B".into(),
-            polish_prompt_id: "cleanup".into(),
-            polish_prompt: String::new(),
-            hotkey_ralt: true,
-            hotkey_ctrl_win: false,
-            hotkey_rctrl_ralt: false,
-            hotkey_hold_space_lock: true,
-            hotkey_ctrl_f9: true,
-            doubao_enable_itn: true,
-            doubao_enable_punc: true,
-            doubao_enable_ddc: false,
-            doubao_boosting_table_id: String::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AiAssistantPreferences {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub provider: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub token: String,
-    #[serde(default)]
-    pub tokens: BTreeMap<String, String>,
-    #[serde(default)]
-    pub endpoint: String,
-    #[serde(default = "default_ai_candidate_limit")]
-    pub candidate_limit: u8,
-    #[serde(default)]
-    pub prompt_id: String,
-    #[serde(default)]
-    pub prompt: String,
-    #[serde(default)]
-    pub prompt_custom_1: String,
-    #[serde(default)]
-    pub prompt_custom_2: String,
-    #[serde(default)]
-    pub prompt_custom_3: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct CustomTranslationPreferences {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub endpoint: String,
-    #[serde(default)]
-    pub api_key: String,
-}
-
-fn default_ai_candidate_limit() -> u8 {
-    3
-}
-
-impl Default for AiAssistantPreferences {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            provider: "deepseek".into(),
-            model: String::new(),
-            token: String::new(),
-            tokens: BTreeMap::new(),
-            endpoint: String::new(),
-            candidate_limit: 3,
-            prompt_id: "custom_1".into(),
-            prompt: String::new(),
-            prompt_custom_1: String::new(),
-            prompt_custom_2: String::new(),
-            prompt_custom_3: String::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FloatingToolbarPreferences {
-    #[serde(default = "enabled_by_default")]
-    pub enabled: bool,
-    #[serde(default = "default_toolbar_scale")]
-    pub scale_percent: u16,
-    #[serde(default = "default_toolbar_font_size")]
-    pub font_size: u16,
-    #[serde(default = "enabled_by_default")]
-    pub fullwidth: bool,
-    #[serde(default = "enabled_by_default")]
-    pub punctuation: bool,
-    #[serde(default = "enabled_by_default")]
-    pub character_set: bool,
-    #[serde(default = "enabled_by_default")]
-    pub emoji: bool,
-    #[serde(default)]
-    pub screen_keyboard: bool,
-    #[serde(default = "enabled_by_default")]
-    pub settings: bool,
-}
-
-fn default_toolbar_scale() -> u16 {
-    100
-}
-fn default_toolbar_font_size() -> u16 {
-    24
-}
-
-impl Default for FloatingToolbarPreferences {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            scale_percent: 100,
-            font_size: 24,
-            fullwidth: true,
-            punctuation: true,
-            character_set: true,
-            emoji: true,
-            screen_keyboard: false,
-            settings: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ThemeMode {
-    #[default]
-    Dark,
-    Light,
-    System,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SettingsTheme {
-    #[default]
-    Follow,
-    Dark,
-    Light,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CandidateLayout {
-    Horizontal,
-    #[default]
-    Vertical,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CandidatePreeditStyle {
-    #[default]
-    Pinyin,
-    Empty,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum PreeditStyle {
-    #[default]
-    Raw,
-    Pinyin,
-    Empty,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum UiBackend {
-    #[default]
-    Direct2d,
-    Webview2,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LocalModePreferences {
-    pub unicode: bool,
-    pub date_time: bool,
-    pub quick_phrase: bool,
-    pub emoji: bool,
-    pub kaomoji: bool,
-    pub super_jianpin: bool,
-    pub temporary_english: bool,
-    pub temporary_japanese: bool,
-}
-
-impl Default for LocalModePreferences {
-    fn default() -> Self {
-        Self {
-            unicode: true,
-            date_time: true,
-            quick_phrase: true,
-            emoji: true,
-            kaomoji: true,
-            super_jianpin: true,
-            temporary_english: true,
-            temporary_japanese: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -543,18 +246,12 @@ impl Default for Preferences {
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
-            smart_punctuation: true,
-            smart_punctuation_repeat: true,
             paired_punctuation: true,
+            punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
-            local_modes: LocalModePreferences::default(),
-            clipboard_history: true,
-            cloud_candidates: true,
-            candidate_translations: true,
-            translation_target_language: TranslationTargetLanguage::default(),
         }
     }
 }
@@ -622,28 +319,6 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
-        let translation = &self.custom_translation;
-        if translation.endpoint.len() > 2048
-            || translation.api_key.len() > 4096
-            || translation.endpoint.chars().any(char::is_control)
-            || translation.api_key.chars().any(char::is_control)
-            || (!translation.endpoint.is_empty() && !translation.endpoint.starts_with("https://"))
-        {
-            return Err(PreferencesError::InvalidCustomTranslation);
-        }
-        if !(1..=10).contains(&self.ai_assistant.candidate_limit)
-            || !matches!(
-                self.ai_assistant.provider.as_str(),
-                "deepseek" | "openai" | "siliconflow" | "groq"
-            )
-        {
-            return Err(PreferencesError::InvalidAiAssistant);
-        }
-        if !(50..=200).contains(&self.floating_toolbar.scale_percent)
-            || !(12..=48).contains(&self.floating_toolbar.font_size)
-        {
-            return Err(PreferencesError::InvalidFloatingToolbar);
-        }
         if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
             return Err(PreferencesError::InvalidMixedInput);
         }
@@ -866,72 +541,6 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn local_mode_defaults_and_each_switch_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PreferencesStore::new(dir.path());
-        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        legacy["preferences"]
-            .as_object_mut()
-            .unwrap()
-            .remove("local_modes");
-        let bytes = serde_json::to_vec(&legacy).unwrap();
-        fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(
-            store.load().unwrap().preferences.local_modes,
-            LocalModePreferences::default()
-        );
-        assert_eq!(fs::read(store.path()).unwrap(), bytes);
-        for (revision, key) in [
-            "unicode",
-            "date_time",
-            "quick_phrase",
-            "emoji",
-            "kaomoji",
-            "super_jianpin",
-            "temporary_english",
-            "temporary_japanese",
-        ]
-        .iter()
-        .enumerate()
-        {
-            let mut value = serde_json::to_value(Preferences::default()).unwrap();
-            value["local_modes"][*key] = false.into();
-            let saved = store
-                .save(revision as u64, serde_json::from_value(value).unwrap())
-                .unwrap();
-            assert_eq!(store.load().unwrap(), saved);
-        }
-    }
-
-    #[test]
-    fn appearance_preferences_legacy_defaults_and_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PreferencesStore::new(dir.path());
-        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-        for key in [
-            "theme",
-            "settings_theme",
-            "ui_backend",
-            "candidate_follow_cursor",
-        ] {
-            legacy["preferences"].as_object_mut().unwrap().remove(key);
-        }
-        let bytes = serde_json::to_vec(&legacy).unwrap();
-        fs::write(store.path(), &bytes).unwrap();
-        assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
-        assert_eq!(fs::read(store.path()).unwrap(), bytes);
-        let preferences = Preferences {
-            theme: ThemeMode::Light,
-            settings_theme: SettingsTheme::Dark,
-            ui_backend: UiBackend::Webview2,
-            candidate_follow_cursor: false,
-            ..Preferences::default()
-        };
-        let saved = store.save(0, preferences).unwrap();
-        assert_eq!(store.load().unwrap(), saved);
-    }
 
     #[test]
     fn mixed_input_legacy_roundtrip_and_bounds() {

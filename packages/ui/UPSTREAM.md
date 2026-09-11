@@ -34,14 +34,3 @@ same pinned Windows commit. Persisted defaults follow `config.toml`: English
 enabled with a two-character threshold, emoji and kaomoji disabled. The English
 threshold has eight choices and is disabled (but retained) when English mixing
 is off. Candidate generation and ordering remain owned by Engine.
-
-The utilities category and eight local-mode toggles follow
-`src/partials/tools-settings.html`; `assets/utilities.svg` is copied from
-`public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0).
-Descriptions are condensed for the shared cards. Clipboard history and the
-quick-phrase CRUD/import/export manager are not migrated in this increment.
-
-The shared settings client now accepts an optional dictionary capability. When
-provided by a native host, the utilities page lists and deletes QuickPhrase
-entries through the bounded host request contract; the page remains usable
-without that capability and never writes dictionary files directly.

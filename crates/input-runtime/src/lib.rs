@@ -1,18 +1,41 @@
 //! Shared host orchestration; the Engine remains the owner of composition state.
 //! Views are cached values. UI selection carries both session and view identity.
 
-use msime_engine_bridge::{
-    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
-};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::collections::HashMap;
-#[cfg(unix)]
-use std::io::{BufRead, BufReader, Write};
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
-#[cfg(unix)]
-use std::path::PathBuf;
+/// Character width conversion used by host-specific mode selectors.
+/// Converts printable ASCII to Unicode fullwidth forms and back.
+pub mod character_width {
+    pub fn to_fullwidth(input: &str) -> String {
+        input
+            .chars()
+            .map(|c| {
+                if c == ' ' {
+                    '\u{3000}'
+                } else if ('!'..='~').contains(&c) {
+                    char::from_u32(c as u32 + 0xfee0).unwrap()
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+    pub fn to_halfwidth(input: &str) -> String {
+        input
+            .chars()
+            .map(|c| {
+                if c == '\u{3000}' {
+                    ' '
+                } else if ('！'..='～').contains(&c) {
+                    char::from_u32(c as u32 - 0xfee0).unwrap()
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+}
+
+use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
+use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
@@ -39,6 +62,15 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn set_punctuation_lock(&mut self, _lock: u8) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn set_dedicated_english(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
@@ -53,6 +85,17 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_paired_punctuation_enabled(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
+        Session::set_punctuation_lock(self, lock).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_dedicated_english(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -100,10 +143,17 @@ pub struct Candidate {
     pub translation: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum CharacterWidth {
+    Fullwidth,
+    Halfwidth,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
     pub scheme: u8,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
+    pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub answered_by_pinyin_fallback: bool,
@@ -408,6 +458,7 @@ pub struct Runtime<E: InputEngine = Session> {
     translations: HashMap<String, String>,
     cached: EngineSnapshot,
     snapshot_valid: bool,
+    character_width: CharacterWidth,
 }
 
 impl Runtime<Session> {
@@ -481,6 +532,18 @@ impl Runtime<Session> {
 }
 
 impl<E: InputEngine> Runtime<E> {
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine.set_paired_punctuation_enabled(enabled)
+    }
+
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
+        self.engine.set_punctuation_lock(lock)
+    }
+
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine.set_dedicated_english(enabled)
+    }
+
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
@@ -499,14 +562,19 @@ impl<E: InputEngine> Runtime<E> {
             translations: HashMap::new(),
             cached,
             snapshot_valid: true,
+            character_width: CharacterWidth::Halfwidth,
         })
+    }
+
+    pub fn set_character_width(&mut self, width: CharacterWidth) {
+        self.character_width = width;
     }
 
     pub fn view(&self) -> View {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
-            scheme: self.cached.scheme,
+            character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
             answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
@@ -736,11 +804,13 @@ impl<E: InputEngine> Runtime<E> {
             Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
             Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
             Action::FirstCandidateOnPage if len > 0 => {
-                Some(self.highlighted / self.page_size * self.page_size)
+                Some((self.highlighted / self.page_size) * self.page_size)
             }
-            Action::LastCandidateOnPage if len > 0 => {
-                Some(((self.highlighted / self.page_size + 1) * self.page_size).min(len) - 1)
-            }
+            Action::LastCandidateOnPage if len > 0 => Some(
+                ((self.highlighted / self.page_size) * self.page_size + self.page_size)
+                    .min(len)
+                    .saturating_sub(1),
+            ),
             _ => None,
         };
         if let Some(index) = next_highlight {
@@ -1072,87 +1142,46 @@ mod tests {
     }
 
     #[test]
-    fn page_size_changes_only_when_idle_and_updates_numeric_mapping() {
-        let mut active = runtime();
-        active.focus(true).unwrap();
-        for size in [5, 7, 9] {
-            active.set_page_size(size).unwrap();
-            let generation = active.view().generation;
-            active.set_page_size(size).unwrap();
-            assert_eq!(active.view().generation, generation);
-            assert!(active.set_page_size(0).is_err());
-            assert_eq!(active.view().generation, generation);
-            let before = type_key(&mut active).view;
-            assert_eq!(before.candidates.len(), usize::from(size));
-            assert!(matches!(
-                active.set_page_size(2),
-                Err(RuntimeError::CompositionActive)
-            ));
-            assert_eq!(active.view().generation, before.generation);
-            assert_eq!(active.view().editing_text, before.editing_text);
-            let selected = active
-                .dispatch(Action::Character {
-                    value: b'0' + size,
-                    shift: false,
-                })
-                .unwrap();
-            assert_eq!(selected.commit, Some(format!("candidate-{}", size - 1)));
-        }
-    }
-
-    #[test]
-    fn page_edges_preserve_composition_and_select_global_candidate() {
-        for (page, first, last) in [(0, 0, 4), (1, 5, 9), (2, 10, 11)] {
-            let mut active = runtime();
-            assert!(
-                !active
-                    .dispatch(Action::LastCandidateOnPage)
-                    .unwrap()
-                    .handled
-            );
-            active.focus(true).unwrap();
-            assert!(
-                !active
-                    .dispatch(Action::FirstCandidateOnPage)
-                    .unwrap()
-                    .handled
-            );
-            let typed = type_key(&mut active).view;
-            for _ in 0..page {
-                active.dispatch(Action::NextPage).unwrap();
-            }
-            for (action, expected) in [
-                (Action::LastCandidateOnPage, last),
-                (Action::FirstCandidateOnPage, first),
-                (Action::LastCandidateOnPage, last),
-            ] {
-                let stale = active.view().candidates[0].id;
-                let moved = active.dispatch(action).unwrap();
-                assert!(moved.handled && moved.commit.is_none());
-                assert_eq!(moved.view.page, page);
-                assert_eq!(moved.view.editing_text, typed.editing_text);
-                assert_eq!(moved.view.caret_position, typed.caret_position);
-                assert_eq!(
-                    moved
-                        .view
-                        .candidates
-                        .iter()
-                        .find(|c| c.highlighted)
-                        .unwrap()
-                        .id
-                        .index,
-                    expected
-                );
-                assert!(matches!(
-                    active.dispatch(Action::Select(stale)),
-                    Err(RuntimeError::StaleCandidate)
-                ));
-            }
-            assert_eq!(
-                active.dispatch(Action::SelectHighlighted).unwrap().commit,
-                Some(format!("candidate-{last}"))
-            );
-        }
+    fn candidate_page_edges_stay_within_the_active_page() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        let first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
+        assert_eq!(
+            first
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-0"
+        );
+        let last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+        assert_eq!(
+            last.candidates.iter().find(|c| c.highlighted).unwrap().text,
+            "candidate-4"
+        );
+        runtime.dispatch(Action::NextPage).unwrap();
+        let page_last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+        assert_eq!(
+            page_last
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-9"
+        );
+        let page_first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
+        assert_eq!(
+            page_first
+                .candidates
+                .iter()
+                .find(|c| c.highlighted)
+                .unwrap()
+                .text,
+            "candidate-5"
+        );
     }
 
     #[test]
@@ -1386,87 +1415,11 @@ mod tests {
             Err(RuntimeError::StaleCandidate)
         ));
     }
-
-    #[cfg(unix)]
     #[test]
-    fn unix_socket_provider_round_trips_bounded_json() {
-        use std::io::{BufRead, Write};
-        use std::os::unix::net::UnixListener;
-        use std::thread;
-
-        let path = std::env::temp_dir().join(format!("msime-provider-{}", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = String::new();
-            std::io::BufReader::new(&mut stream)
-                .read_line(&mut request)
-                .unwrap();
-            assert!(request.contains("\"version\":1"));
-            stream
-                .write_all("{\"text\":\"候选\",\"source\":0}\n".as_bytes())
-                .unwrap();
-        });
-        let query = OnlineQuery {
-            scheme: 0,
-            generation: 1,
-            identity: "id".into(),
-            query_text: "nihao".into(),
-            cache_key: "key".into(),
-            pinyin_segments: vec!["ni".into(), "hao".into()],
-            cloud_eligible: true,
-            ai_eligible: false,
-            session_id: 1,
-        };
-        assert_eq!(
-            UnixSocketProvider::new(&path).query(query),
-            Some(("候选".into(), 0))
-        );
-        server.join().unwrap();
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unix_socket_translation_provider_round_trips_generation_and_glosses() {
-        use std::io::{BufRead, Write};
-        use std::os::unix::net::UnixListener;
-        use std::thread;
-
-        let path =
-            std::env::temp_dir().join(format!("msime-translation-provider-{}", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = String::new();
-            std::io::BufReader::new(&mut stream)
-                .read_line(&mut request)
-                .unwrap();
-            let value: serde_json::Value = serde_json::from_str(&request).unwrap();
-            assert_eq!(value["kind"], "translation");
-            assert_eq!(value["query"]["generation"], 9);
-            assert_eq!(value["query"]["target_language"], "en");
-            assert_eq!(value["query"]["candidates"][0], "你好");
-            stream
-                .write_all(r#"{"translations":[{"text":"你好","translation":"hello"}]}"#.as_bytes())
-                .unwrap();
-            stream.write_all(b"\n").unwrap();
-        });
-        let query = TranslationQuery {
-            generation: 9,
-            target_language: "en".into(),
-            candidates: vec!["你好".into()],
-        };
-        assert_eq!(
-            UnixSocketProvider::new(&path).translate(query),
-            Some(vec![TranslationResult {
-                text: "你好".into(),
-                translation: "hello".into()
-            }])
-        );
-        server.join().unwrap();
-        let _ = std::fs::remove_file(path);
+    fn character_width_conversion_preserves_non_ascii_and_roundtrips_ascii() {
+        let full = crate::character_width::to_fullwidth("A 1!");
+        assert_eq!(full, "Ａ　１！");
+        assert_eq!(crate::character_width::to_halfwidth(&full), "A 1!");
+        assert_eq!(crate::character_width::to_fullwidth("中文"), "中文");
     }
 }

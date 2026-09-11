@@ -147,6 +147,7 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   try {
+    g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
     // Synthetic fixture only; the production host does not invoke this
     // bootstrap.
     gchar *temporary = g_dir_make_tmp("msime-ibus-test-XXXXXX", nullptr);
@@ -315,6 +316,8 @@ int main(int argc, char **argv) {
             "Pure Shift did not toggle input mode on");
     require(seen.input_enabled, "Pure Shift did not restore input mode");
     phrase();
+    require(key(IBUS_End), "End did not move to the page edge");
+    require(key(IBUS_Home), "Home did not move to the page edge");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
             "Shared next page missing");
@@ -380,6 +383,21 @@ int main(int argc, char **argv) {
            g_variant_new("(su)", "Scheme/Quanpin", PROP_STATE_CHECKED));
     auto committed = seen.committed;
     phrase();
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_UNCHECKED));
+    require(seen.preedit_visible && seen.preedit == "nihao" &&
+                seen.lookup_visible && seen.committed == committed,
+            "Punctuation toggle lost composition or committed input");
+    invoke("Reset");
+    require(!key(','), "English punctuation should pass through when idle");
+    require(seen.committed == committed, "English punctuation emitted a commit");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_CHECKED));
+    require(key(','), "Restored Chinese punctuation was not consumed");
+    require(seen.committed == committed + "，",
+            "Restored punctuation mode did not reach the session");
+    committed = seen.committed;
+    phrase();
     require(key(IBUS_KP_Page_Down), "Keypad paging not consumed");
     auto numbered = seen.candidates.front();
     require(key(IBUS_KP_1) && seen.committed == committed + numbered,
@@ -391,24 +409,21 @@ int main(int argc, char **argv) {
             "Shortcut was intercepted or left stale composition");
     require(seen.committed == committed,
             "Shortcut unexpectedly committed input");
-    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Ctrl+Shift+Space fullwidth toggle was not consumed");
-    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Ctrl+Shift+Space fullwidth toggle could not restore mode");
-    require(key('f', IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Ctrl+Shift+F character mode toggle was not consumed");
-    require(key('f', IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Ctrl+Shift+F character mode toggle could not restore mode");
-    committed = seen.committed;
-    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Could not enable fullwidth mode for UTF-8 regression");
-    phrase();
-    require(key(IBUS_space) && seen.committed == committed + "你好",
-            "Fullwidth mode corrupted non-ASCII commit text");
-    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
-            "Could not disable fullwidth mode after UTF-8 regression");
-    committed = seen.committed;
-    phrase();
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space toggle was not handled");
+    require(!key('n'), "Disabled input consumed a character");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "InputEnabled", PROP_STATE_CHECKED));
+    require(key('n'), "InputEnabled property did not re-enable input");
+    invoke("Reset");
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space disable was not handled");
+    require(!key('n'), "Disabled input consumed a character after property toggle");
+    require(key(IBUS_space, IBUS_CONTROL_MASK),
+            "Control-space re-enable was not handled");
+    require(key('n'), "Re-enabled input did not consume a character");
+    invoke("Reset");
+    invoke("Reset");
     invoke("FocusOut");
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
             "Focus loss did not clear and stop input");

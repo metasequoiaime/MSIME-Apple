@@ -14,6 +14,8 @@
 
 服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。宿主只接受最多 9 个候选、每项最多 4096 字节、每次响应最多 500ms，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。
 
+IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCandidates` 三个混输开关。切换属性会结束当前组合并重建本会话的 Engine，避免把新旧混输候选规则混在同一代视图中；覆盖只作用于当前 IBus 会话，不改写共享偏好文件。Windows 的设置窗口仍负责持久化配置，Linux 桌面 panel 只负责会话级快速切换。
+
 ## 构建与运行
 
 候选辅助文本在页码后展示 Engine 快照提供的本地模式标签（U+、日期时间、短语、Emoji、颜文字、简拼、EN、日文）。普通或未知模式不附加标签，取消组合或没有候选时隐藏辅助文本；不从预编辑前缀推断模式。
@@ -42,12 +44,7 @@ cargo run -p msime-host-api --example prepare_host --locked -- /absolute/verifie
 target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.json
 ```
 
-发行安装可在 CMake 配置时传入已由 `prepare_host` 生成的配置：
-`-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`。该文件会安装到
-`/usr/local/etc/msime-client/runtime-options.json`，并与 component XML 的启动路径一致；
-未传入时不会伪造运行配置，适合开发预览流程。
-
-准备配置必须在没有会话使用该状态目录时执行。`cmake --install` 会安装宿主、词典入口和标准 IBus component XML；发行版或前端仍需生成 `/etc/msime-client/runtime-options.json`，其中资源和用户数据路径由安装器按系统策略填充。安装组件不自动切换用户输入法；关闭进程即结束本次注册。
+准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client-preview`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
 ## 隔离验证
 
@@ -55,18 +52,14 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 
 `engine_smoke` 使用真实共享库与固定 Release 词库，通过 D-Bus 调用实际 IBusEngine：验证预编辑与候选信号、上屏、第二页全局索引点击、标点、修饰键/key-up、快捷键取消、失焦、密码隔离与私密文本恢复。另启动实际宿主可执行文件，由独立 Python IBus 输入上下文通过 daemon/factory 输入合成拼音并接收提交。共享核心/运行时/宿主 25 项 Rust 测试纳入本地脚本。
 
-配置包含绝对路径 `preferences_directory` 时，活动会话每秒在后台通过共享 PreferencesStore 尝试读取设置，写锁占用、损坏文件及旧版本保留当前状态并重试。GLib 主线程复核会话后发布设置，Engine 相关更改由共享运行时延迟到组合结束；私密会话始终覆盖 learning=false。失焦时不发布，关闭或重建会话后丢弃旧读取结果；无此配置字段时保留启动快照行为。后台任务不调用线程绑定的输入会话接口。
-
-已验证的基础环境为 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包及完整 Windows 功能对照；不是完整 Linux 产品迁移完成。CI 保持禁用。
+已验证 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包以及 Tauri 设置自动重读。Linux IBus 预览宿主已连接配置文件监听；不是完整 Linux 产品迁移完成。CI 保持禁用。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
 
-`candidate_font_size` 同样属于宿主渲染设置。Linux IBus Engine 只能提交候选文本和标签，不能为单个 lookup table 指定字体大小；实际字号由桌面 panel 和用户主题控制。共享设置仍由核心校验并保存，Linux 不会把字号误写成候选文本或辅助信息，也不声称覆盖 panel 的主题配置。
+## Windows parity gaps
 
-`candidate_preedit_font_size` 遵循同一平台边界。IBus 的 `UpdatePreeditText` 只携带文本、光标和可见性，不携带字体或字号；预编辑显示由应用程序和桌面输入上下文主题绘制。Linux 会保留共享设置的校验与持久化，但不会把字号编码进预编辑字符串，也不声称可以覆盖 GTK/Qt 应用的字体设置。
+The Windows mode panel exposes fullwidth/halfwidth character output. Linux now carries a session-scoped `CharacterWidth` through `input-runtime` and `msime-host-api`; the IBus panel exposes `CharacterWidth` and commit text applies fullwidth conversion for printable ASCII. The mode is ephemeral and does not rewrite preferences. Native GTK/Qt editor validation and a dedicated end-to-end ASCII commit fixture remain follow-ups.
 
-`candidate_font_family` 是 Windows 候选窗口的字体族设置。IBus lookup table 没有输入法侧字体族属性；Linux 保留共享设置的校验与持久化，但候选字体由桌面 panel 主题决定，不把字体名写入候选文本或辅助文本。
-
-`candidate_fallback_fonts` 同样不能由 IBus Engine 指定。lookup table 不携带字体族或字体回退链；Linux 保留最多八项回退字体的共享配置校验与持久化，但实际字形回退由桌面 panel、字体栈和系统语言环境决定。
+Container acceptance also requires the locked Engine dictionary source `googlepinyinime-rev/src/share/dictbuilder.cpp`; without it, full daemon compilation cannot be validated.

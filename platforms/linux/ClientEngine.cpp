@@ -1,6 +1,5 @@
 #include "ClientEngine.h"
-#include "NavigationBindings.h"
-#include "WordCharacterBinding.h"
+#include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <filesystem>
@@ -9,6 +8,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <tuple>
 #include <stdexcept>
 #include <sys/file.h>
 #include <unistd.h>
@@ -17,6 +17,7 @@ using Json = nlohmann::json;
 struct MsimePreviewEngine;
 namespace {
 Json configured;
+void register_properties(IBusEngine *engine);
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       raw, msime_client_string_free);
@@ -32,106 +33,44 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 struct State {
+  MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
   Json view;
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
-  bool fullwidth = false;
   bool input_enabled = true;
-  bool pure_shift_candidate = false;
+  bool chinese_punctuation = true;
+  bool properties_registered = false;
   std::optional<bool> english_override;
-  std::optional<bool> autocorrect_override;
-  std::optional<bool> helpcode_override;
-  std::optional<std::string> helpcode_schema_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
-  std::optional<std::string> layout_override;
-  std::optional<std::string> preedit_override;
-  std::optional<std::string> theme_override;
-  std::optional<std::string> skin_override;
-  std::optional<std::string> scheme_override;
-  std::optional<std::string> shuangpin_profile_override;
-  std::optional<uint8_t> candidate_page_size_override;
-  std::optional<std::string> frequency_mode_override;
-  std::optional<bool> word_character_override;
-  bool chinese_punctuation = true;
-  bool smart_punctuation = true;
-  bool smart_punctuation_repeat = true;
-  bool paired_punctuation = true;
-  char last_smart_punctuation = 0;
-  gint64 last_smart_punctuation_time = 0;
-  std::string punctuation_lock = "follow";
-  std::optional<guint> candidate_text_color;
-  std::optional<guint> candidate_background_color;
-  IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
-  std::string preedit_style = "raw";
-  std::optional<bool> punctuation_override;
-  guint preferences_timer = 0;
-  bool preferences_loading = false;
-  std::string online_provider_socket;
-  bool online_loading = false;
-  bool translation_loading = false;
-  std::string clipboard_history_path;
-  std::vector<std::string> clipboard_items_cache;
-  uint64_t clipboard_generation = 0;
-  bool clipboard_loading = false;
-  bool clipboard_loaded = false;
-  msime::linux_host::NavigationBindings navigation;
-  msime::linux_host::WordCharacterBinding word_character;
-  ~State() { close(); }
+  std::string surrounding_text;
+  guint surrounding_cursor = 0;
+  guint surrounding_anchor = 0;
+  ~State() {
+    voice_worker.cancel();
+    close();
+  }
   void close() {
     if (session)
       msime_client_string_free(msime_client_destroy(session));
     session = 0;
     view = nullptr;
-    online_loading = false;
-    translation_loading = false;
-    clipboard_loading = false;
-    clipboard_loaded = false;
-    clipboard_items_cache.clear();
-    ++clipboard_generation;
+    surrounding_text.clear();
+    surrounding_cursor = 0;
+    surrounding_anchor = 0;
   }
   void open() {
     if (session || blocked || !focused || !input_enabled)
       return;
     auto options = configured;
-    clipboard_history_path = options.value("clipboard_history_path", "");
-    online_provider_socket = options.value("online_provider_socket", "");
-    if (scheme_override)
-      options["preferences"]["scheme"] = *scheme_override;
-    if (shuangpin_profile_override)
-      options["preferences"]["shuangpin_profile"] = *shuangpin_profile_override;
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
-    if (autocorrect_override)
-      options["preferences"]["autocorrect"] = *autocorrect_override;
-    if (helpcode_override) {
-      const auto scheme = options["preferences"].value("scheme", "quanpin");
-      if (scheme == "quanpin" || scheme == "shuangpin")
-        options["preferences"][scheme + "_helpcode"]["enabled"] = *helpcode_override;
-    }
-    if (helpcode_schema_override) {
-      const auto scheme = options["preferences"].value("scheme", "quanpin");
-      if (scheme == "quanpin" || scheme == "shuangpin")
-        options["preferences"][scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
-    }
-    if (candidate_page_size_override)
-      options["preferences"]["candidate_page_size"] = *candidate_page_size_override;
-    if (frequency_mode_override)
-      options["preferences"]["frequency"]["mode"] = *frequency_mode_override;
     if (emoji_override)
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
       options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
-    if (layout_override)
-      options["preferences"]["candidate_layout"] = *layout_override;
-    if (preedit_override)
-      options["preferences"]["tsf_preedit_style"] = *preedit_override;
-    if (theme_override)
-      options["preferences"]["candidate_theme"] = *theme_override;
-    if (skin_override)
-      options["preferences"]["candidate_skin"] = *skin_override;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -817,6 +756,54 @@ void clear(IBusEngine *engine) {
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
 }
+void publish_input_enabled(IBusEngine *engine, bool enabled) {
+  auto property = ibus_property_new(
+      "InputEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入启用"), "",
+      ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
+      TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+}
+void publish_punctuation(IBusEngine *engine, bool enabled) {
+  auto property = ibus_property_new(
+      "ChinesePunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
+      enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+}
+void publish_character_width(IBusEngine *engine, bool fullwidth) {
+  auto property = ibus_property_new(
+      "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
+      fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+}
+void publish_expressive(IBusEngine *engine, const State &s) {
+  const auto preferences = configured.at("preferences").value("mixed_input", Json::object());
+  const auto value = [&](const std::optional<bool> &override_value,
+                         const char *key, bool fallback) {
+    return override_value.value_or(preferences.value(key, fallback));
+  };
+  for (const auto &[name, label, key, fallback] : {
+           std::tuple<const char *, const char *, const char *, bool>{
+               "EnglishCandidates", "英文候选", "english", true},
+           {"EmojiCandidates", "Emoji候选", "emoji", false},
+           {"KaomojiCandidates", "颜文字候选", "kaomoji", false}}) {
+    const auto &override_value = std::string(key) == "english"
+                                     ? s.english_override
+                                     : std::string(key) == "emoji"
+                                           ? s.emoji_override
+                                           : s.kaomoji_override;
+    auto property = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
+        value(override_value, key, fallback) ? PROP_STATE_CHECKED
+                                              : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_engine_update_property(engine, property);
+    }
+}
 void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
@@ -918,77 +905,46 @@ bool apply(IBusEngine *engine, char *raw) {
   translation_schedule(engine);
   return result.at("handled").get<bool>();
 }
-
-void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto *engine = IBUS_ENGINE(source);
-  auto &s = state(engine);
-  auto *request = static_cast<TranslationTask *>(g_task_get_task_data(G_TASK(result)));
-  s.translation_loading = false;
-  auto *raw = g_task_propagate_pointer(G_TASK(result), nullptr);
-  if (!raw || !request || s.session != request->session || !s.focused) return;
-  try {
-    auto reply = response(static_cast<char *>(raw));
-    if (reply.is_null() || !reply.is_object() || !reply.contains("translations")) return;
-    auto query = Json::parse(request->query);
-    const auto generation = query.at("generation").get<uint64_t>();
-    auto encoded = reply.at("translations").dump();
-    s.translation_loading = true;
-    apply(engine, msime_client_apply_translations(
-        s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    s.translation_loading = false;
-  } catch (...) { g_warning("MSIME translation provider result rejected"); }
-}
-void online_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto *engine = IBUS_ENGINE(source);
-  auto &s = state(engine);
-  auto *request = static_cast<OnlineTask *>(g_task_get_task_data(G_TASK(result)));
-  s.online_loading = false;
-  auto *raw = g_task_propagate_pointer(G_TASK(result), nullptr);
-  if (!raw || !request || !s.session || s.session != request->session || !s.focused)
-    return;
-  try {
-    auto reply = response(static_cast<char *>(raw));
-    if (reply.is_null() || !reply.is_object() || !reply.contains("text") ||
-        !reply.at("text").is_string() || !reply.contains("source"))
-      return;
-    auto text = reply.at("text").get<std::string>();
-    auto source_id = reply.at("source").get<uint8_t>();
-    auto query_bytes = request->query;
-    s.online_loading = true;
-    apply(engine, msime_client_apply_online_candidate(
-                       s.session, reinterpret_cast<const uint8_t *>(query_bytes.data()),
-                       query_bytes.size(), reinterpret_cast<const uint8_t *>(text.data()),
-                       text.size(), source_id));
-    s.online_loading = false;
-  } catch (...) {
-    g_warning("MSIME online provider result rejected");
-  }
-}
-template <class F> void guarded(IBusEngine *engine, F action) noexcept {
+template <class F> void guarded(IBusEngine *engine, const char *operation, F action) noexcept {
   try {
     action();
   } catch (...) {
     // Never log the raw error or response: either can include input or paths.
-    g_warning("MSIME preview host operation failed");
+    g_warning("MSIME preview host operation failed: %s", operation);
     state(engine).close();
     clear(engine);
     publish_mode(engine);
   }
 }
+void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
+  // Keep platform context available without feeding it into Engine composition.
+  auto &s = state(engine);
+  s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
+  const auto length = static_cast<guint>(s.surrounding_text.size());
+  s.surrounding_cursor = std::min(cursor, length);
+  s.surrounding_anchor = std::min(anchor, length);
+}
 void focus_in(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
     s.focused = true;
     s.open();
     if (s.session)
-      apply(engine, msime_client_focus(s.session, s.input_enabled));
-    publish_mode(engine, true);
+      apply(engine, msime_client_focus(s.session, true));
+    if (!s.properties_registered &&
+        g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
+      register_properties(engine);
+      s.properties_registered = true;
+    }
   });
 }
 void focus_out(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     s.focused = false;
+    s.surrounding_text.clear();
+    s.surrounding_cursor = 0;
+    s.surrounding_anchor = 0;
     if (s.session)
       apply(engine, msime_client_focus(s.session, false));
     clear(engine);
@@ -1377,14 +1333,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   });
 }
 void reset(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "reset", [&] {
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
   });
 }
 void content_type(IBusEngine *engine, guint purpose, guint hints) {
-  guarded(engine, [&] {
+  guarded(engine, "content_type", [&] {
     auto &s = state(engine);
     bool blocked = purpose == IBUS_INPUT_PURPOSE_PASSWORD ||
                    purpose == IBUS_INPUT_PURPOSE_PIN ||
@@ -1467,21 +1423,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   if (modifier(key))
     return FALSE;
   bool handled = false;
-  guarded(engine, [&] {
-    if (mode_toggle) {
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
+  guarded(engine, "process_key", [&] {
+    s.open();
+    if ((flags & IBUS_CONTROL_MASK) && key == IBUS_space) {
       s.input_enabled = !s.input_enabled;
-      s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
       clear(engine);
-      publish_mode(engine);
+      publish_punctuation(engine, s.chinese_punctuation);
       handled = true;
       return;
     }
-    s.open();
+    if (!s.input_enabled)
+      return;
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
     if (s.chinese_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
@@ -1527,47 +1481,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
-    if (!s.view.at("candidates").empty()) {
-      if (key == IBUS_Home || key == IBUS_KP_Home) {
-        handled = apply(engine, msime_client_command(
-                                   s.session, MSIME_FIRST_CANDIDATE_ON_PAGE));
-        return;
-      }
-      if (key == IBUS_End || key == IBUS_KP_End) {
-        handled = apply(engine, msime_client_command(
-                                   s.session, MSIME_LAST_CANDIDATE_ON_PAGE));
-        return;
-      }
-      auto edge = s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0);
-      if (edge && s.view.at("local_mode") != "unknown" &&
-          !s.view.at("editing_text").get<std::string>().empty()) {
-        // Use the displayed highlighted candidate's generation and global
-        // index. Engine owns Han extraction, including non-BMP characters.
-        for (const auto &candidate : s.view.at("candidates")) {
-          if (!candidate.at("highlighted").get<bool>())
-            continue;
-          auto id = candidate.at("id");
-          handled =
-              apply(engine, msime_client_select_edge(
-                                s.session, id.at("generation").get<uint64_t>(),
-                                id.at("index").get<size_t>(), *edge));
-          if (!handled)
-            handled = apply(engine, msime_client_punctuation(
-                                        s.session, static_cast<uint8_t>(key)));
-          return;
-        }
-      }
-      auto navigation =
-          s.navigation.command(key, (flags & IBUS_SHIFT_MASK) != 0);
-      if (navigation) {
-        handled = apply(engine, msime_client_command(s.session, *navigation));
-        return;
-      }
-    }
-    if (msime::linux_host::navigation_key(key)) {
-      // Disabled bindings and empty candidate lists return native navigation
-      // to the editor. Finish pending input before the editor moves focus.
-      apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+    if (!s.view.at("candidates").empty() &&
+        (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
+         key == IBUS_KP_End)) {
+      const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
+                               ? MSIME_FIRST_CANDIDATE_ON_PAGE
+                               : MSIME_LAST_CANDIDATE_ON_PAGE;
+      handled = apply(engine, msime_client_command(s.session, command));
       return;
     }
     uint32_t command = UINT32_MAX;
@@ -1631,7 +1551,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
   if (button != 1 || flags || !state(engine).focused || state(engine).blocked ||
       !state(engine).input_enabled)
     return;
-  guarded(engine, [&] {
+  guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
     if (!s.session || index >= s.view.at("candidates").size())
       return;
@@ -1642,128 +1562,167 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
   });
 }
 void page(IBusEngine *engine, uint32_t command) {
-  guarded(engine, [&] {
+  guarded(engine, "page", [&] {
     auto &s = state(engine);
     if (s.session && s.focused && !s.blocked && s.input_enabled)
       apply(engine, msime_client_command(s.session, command));
   });
 }
-struct PreferencesRead {
-  std::string directory;
-  uint64_t session;
-};
-gboolean reload_preferences(gpointer data) {
-  auto engine = IBUS_ENGINE(data);
-  auto &s = state(engine);
-  if (!s.focused || !s.session || s.preferences_loading)
-    return G_SOURCE_CONTINUE;
-  auto directory = configured.find("preferences_directory");
-  if (directory == configured.end() || !directory->is_string())
-    return G_SOURCE_CONTINUE;
-  auto path = directory->get<std::string>();
-  if (path.empty() || path.front() != '/')
-    return G_SOURCE_CONTINUE;
-  s.preferences_loading = true;
-  auto task = g_task_new(
-      engine, nullptr,
-      +[](GObject *source, GAsyncResult *result, gpointer) {
-        auto self = reinterpret_cast<MsimePreviewEngine *>(source);
-        std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
-            static_cast<char *>(
-                g_task_propagate_pointer(G_TASK(result), nullptr)),
-            msime_client_string_free);
-        // Explicit IBus destruction can precede completion of the worker.
-        if (!self->state)
-          return;
-        auto &s = *self->state;
-        s.preferences_loading = false;
-        auto request = static_cast<PreferencesRead *>(
-            g_task_get_task_data(G_TASK(result)));
-        if (s.session != request->session || !s.focused || s.blocked)
-          return;
-        try {
-          auto snapshot = response(raw.release());
-          if (snapshot.is_null()) // Writer holds the shared store lock.
-            return;
-          if (s.private_input)
-            snapshot["preferences"]["learning"] = false;
-          if (s.autocorrect_override)
-            snapshot["preferences"]["autocorrect"] = *s.autocorrect_override;
-          const auto active_scheme = s.scheme_override.value_or(
-              snapshot["preferences"].value("scheme", "quanpin"));
-          if (s.scheme_override)
-            snapshot["preferences"]["scheme"] = *s.scheme_override;
-          if (s.shuangpin_profile_override)
-            snapshot["preferences"]["shuangpin_profile"] = *s.shuangpin_profile_override;
-          if (s.helpcode_override &&
-              (active_scheme == "quanpin" || active_scheme == "shuangpin"))
-            snapshot["preferences"][active_scheme + "_helpcode"]["enabled"] =
-                *s.helpcode_override;
-          if (s.helpcode_schema_override &&
-              (active_scheme == "quanpin" || active_scheme == "shuangpin"))
-            snapshot["preferences"][active_scheme + "_helpcode"]["schema"] =
-                *s.helpcode_schema_override;
-          if (s.candidate_page_size_override)
-            snapshot["preferences"]["candidate_page_size"] =
-                *s.candidate_page_size_override;
-          if (s.frequency_mode_override)
-            snapshot["preferences"]["frequency"]["mode"] =
-                *s.frequency_mode_override;
-          if (s.english_override)
-            snapshot["preferences"]["mixed_input"]["english"] = *s.english_override;
-          if (s.emoji_override)
-            snapshot["preferences"]["mixed_input"]["emoji"] = *s.emoji_override;
-          if (s.kaomoji_override)
-            snapshot["preferences"]["mixed_input"]["kaomoji"] = *s.kaomoji_override;
-          if (s.layout_override)
-            snapshot["preferences"]["candidate_layout"] = *s.layout_override;
-          if (s.preedit_override)
-            snapshot["preferences"]["tsf_preedit_style"] = *s.preedit_override;
-          if (s.theme_override)
-            snapshot["preferences"]["candidate_theme"] = *s.theme_override;
-          auto bindings = msime::linux_host::NavigationBindings::read(
-              snapshot.at("preferences"));
-          auto edge_binding = msime::linux_host::WordCharacterBinding::read(
-              snapshot.at("preferences"));
-          auto encoded = snapshot.dump();
-          auto updated = response(msime_client_update_preferences(
-              s.session, reinterpret_cast<const uint8_t *>(encoded.data()),
-              encoded.size()));
-          s.view = updated.at("view");
-          s.candidate_text_color =
-              ::candidate_text_color(snapshot.at("preferences"));
-          s.candidate_background_color =
-              ::candidate_background_color(snapshot.at("preferences"));
-          s.candidate_orientation =
-              ::candidate_orientation(snapshot.at("preferences"));
-          s.preedit_style = ::preedit_style(snapshot.at("preferences"));
-          s.navigation = bindings;
-          s.word_character = edge_binding;
-          if (s.word_character_override)
-            s.word_character.enabled = *s.word_character_override;
-          render(IBUS_ENGINE(source), s.view);
-        } catch (...) {
-          // Bad files and stale revisions preserve the live session. Retry on
-          // the next tick without logging configuration, paths, or input.
-        }
-      },
+void property_activate(IBusEngine *engine, const gchar *name, guint value) {
+  if (!name || (std::string(name) != "InputEnabled" &&
+       std::string(name) != "EnglishCandidates" &&
+       std::string(name) != "EmojiCandidates" &&
+       std::string(name) != "KaomojiCandidates" &&
+       std::string(name) != "ChinesePunctuation" &&
+       std::string(name) != "CharacterWidth" &&
+       std::string(name) != "EnglishMode" &&
+       std::string(name) != "PunctuationChineseLock" &&
+       std::string(name) != "PunctuationEnglishLock" &&
+       std::string(name) != "PairedPunctuation") ||
+      (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+    return;
+  guarded(engine, "property_activate", [&] {
+    auto &s = state(engine);
+    if (std::string(name) == "PairedPunctuation") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        s.view = response(msime_client_set_paired_punctuation(s.session, enabled));
+        render(engine, s.view);
+      }
+      return;
+    }
+    if (std::string(name) == "PunctuationChineseLock" ||
+        std::string(name) == "PunctuationEnglishLock") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled && s.session) {
+        s.view = response(msime_client_set_punctuation_lock(
+            s.session, std::string(name) == "PunctuationChineseLock" ? 1 : 2));
+        render(engine, s.view);
+      } else if (!enabled && s.session) {
+        s.view = response(msime_client_set_punctuation_lock(s.session, 0));
+        render(engine, s.view);
+      }
+      return;
+    }
+    if (std::string(name) == "EnglishMode") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+        s.view = response(msime_client_set_english_mode(s.session, enabled));
+      }
+      return;
+    }
+    if (std::string(name) == "CharacterWidth") {
+      const bool fullwidth = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        auto result = response(msime_client_set_character_width(s.session, fullwidth));
+        s.view = result;
+      }
+      publish_character_width(engine, fullwidth);
+      return;
+    }
+    if (std::string(name) == "ChinesePunctuation") {
+      s.chinese_punctuation = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        // The mode setter returns a View, not a commit Transition.
+        s.view = response(msime_client_set_chinese_punctuation(
+            s.session, s.chinese_punctuation));
+        render(engine, s.view);
+      }
+      publish_punctuation(engine, s.chinese_punctuation);
+      return;
+    }
+    if (std::string(name) == "EnglishCandidates" ||
+        std::string(name) == "EmojiCandidates" ||
+        std::string(name) == "KaomojiCandidates") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      if (std::string(name) == "EnglishCandidates")
+        s.english_override = enabled;
+      else if (std::string(name) == "EmojiCandidates")
+        s.emoji_override = enabled;
+      else
+        s.kaomoji_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      clear(engine);
+      publish_expressive(engine, s);
+      return;
+    }
+    s.input_enabled = value == PROP_STATE_CHECKED;
+    if (s.session)
+      apply(engine, msime_client_focus(s.session, s.input_enabled));
+    clear(engine);
+    publish_input_enabled(engine, s.input_enabled);
+  });
+}
+void register_properties(IBusEngine *engine) {
+  auto properties = ibus_prop_list_new();
+  auto property = ibus_property_new(
+      "InputEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入启用"), "",
+      ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
+      TRUE, PROP_STATE_CHECKED, nullptr);
+  ibus_prop_list_append(properties, property);
+  auto punctuation = ibus_property_new(
+      "ChinesePunctuation", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
+      configured.at("preferences").value("chinese_punctuation", true)
+          ? PROP_STATE_CHECKED
+          : PROP_STATE_UNCHECKED,
       nullptr);
-  g_task_set_task_data(
-      task, new PreferencesRead{std::move(path), s.session},
-      +[](gpointer p) { delete static_cast<PreferencesRead *>(p); });
-  g_task_run_in_thread(
-      task, +[](GTask *task, gpointer, gpointer data, GCancellable *) {
-        const auto &path = static_cast<PreferencesRead *>(data)->directory;
-        g_task_return_pointer(
-            task,
-            msime_client_try_load_preferences(
-                reinterpret_cast<const uint8_t *>(path.data()), path.size()),
-            +[](gpointer p) {
-              msime_client_string_free(static_cast<char *>(p));
-            });
-      });
-  g_object_unref(task);
-  return G_SOURCE_CONTINUE;
+  ibus_prop_list_append(properties, punctuation);
+  auto width = ibus_property_new(
+      "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(properties, width);
+  auto english_mode = ibus_property_new(
+      "EnglishMode", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("英文模式"), "",
+      ibus_text_new_from_static_string("使用 Engine 专用英文输入模式"), TRUE, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(properties, english_mode);
+  auto paired = ibus_property_new(
+      "PairedPunctuation", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("成对标点"), "",
+      ibus_text_new_from_static_string("启用引号和书名号成对转换"), TRUE, TRUE,
+      PROP_STATE_CHECKED, nullptr);
+  ibus_prop_list_append(properties, paired);
+  for (const auto &[name, label] : {
+           std::tuple<const char *, const char *>
+               {"PunctuationChineseLock", "强制中文标点"},
+           {"PunctuationEnglishLock", "强制英文标点"}}) {
+    auto item = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("锁定当前会话的标点语言"), TRUE, TRUE,
+        PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(properties, item);
+  }
+  auto english = ibus_property_new(
+      "EnglishCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("英文候选"), "",
+      ibus_text_new_from_static_string("在中文方案中补充英文候选"), TRUE, TRUE,
+      configured.at("preferences").value("mixed_input", Json::object()).value("english", true)
+          ? PROP_STATE_CHECKED
+          : PROP_STATE_UNCHECKED,
+      nullptr);
+  ibus_prop_list_append(properties, english);
+  for (const auto &[name, label, key] : {
+           std::tuple<const char *, const char *, const char *>{"EmojiCandidates", "Emoji候选", "emoji"},
+           {"KaomojiCandidates", "颜文字候选", "kaomoji"}}) {
+    auto item = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
+        configured.at("preferences").value("mixed_input", Json::object()).value(key, false)
+            ? PROP_STATE_CHECKED
+            : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_prop_list_append(properties, item);
+  }
+  ibus_engine_register_properties(engine, properties);
 }
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimePreviewEngine *>(object);
@@ -1789,7 +1748,9 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->disable = focus_out;
   engine->reset = reset;
   engine->set_content_type = content_type;
+  engine->set_surrounding_text = set_surrounding;
   engine->candidate_clicked = candidate_clicked;
+  engine->property_activate = property_activate;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
   engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
   engine->cursor_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_CANDIDATE); };

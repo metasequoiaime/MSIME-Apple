@@ -32,6 +32,10 @@ context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | 
 context.focus_in()
 context.set_engine("msime-client-preview")
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
+context.property_activate("EnglishCandidates", IBus.PropState.CHECKED)
+context.property_activate("EmojiCandidates", IBus.PropState.CHECKED)
+context.property_activate("KaomojiCandidates", IBus.PropState.CHECKED)
 for character in "nihao":
     assert context.process_key_event(ord(character), 0, 0)
 assert context.process_key_event(IBus.KEY_space, 0, 0)
