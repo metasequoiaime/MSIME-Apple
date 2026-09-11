@@ -78,6 +78,7 @@ EngineSnapshot EngineSession::snapshot() const {
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
     output.microsoft_shuangpin = microsoft_shuangpin_;
+    output.shuangpin_profile = rust::String(value.shuangpin_profile);
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;

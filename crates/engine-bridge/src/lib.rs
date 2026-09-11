@@ -36,6 +36,7 @@ mod ffi {
     pub struct EngineSnapshot {
         pub local_mode: String,
         pub microsoft_shuangpin: bool,
+        pub shuangpin_profile: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
