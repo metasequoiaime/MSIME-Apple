@@ -30,6 +30,7 @@ fn registry() -> &'static Mutex<HashMap<u64, Prepared>> {
 
 struct Prepared {
     directory: tempfile::TempDir,
+    active_options: EngineOptions,
     options: EngineOptions,
     source_version: String,
 }
@@ -162,9 +163,89 @@ fn prepare(
     }
     Ok(Prepared {
         directory,
+        active_options: options,
         options: staged,
         source_version: current,
     })
+}
+
+fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
+    let mut entries = registry()
+        .lock()
+        .map_err(|_| "snapshot registry unavailable")?;
+    let prepared = entries.get(&handle).ok_or("unknown snapshot handle")?;
+    if prepared.source_version != expected {
+        return Err("snapshot source changed");
+    }
+    let active = &prepared.active_options;
+    let staged = &prepared.options;
+    let _access = DictionaryAccess::try_maintenance(
+        Path::new(&active.user_data),
+        Path::new(&active.dictionaries),
+    )
+    .map_err(|_| "snapshot access unavailable")?
+    .ok_or("snapshot access busy")?;
+    if version_without_access(active)? != expected {
+        return Err("snapshot source changed");
+    }
+    let suffix = format!(".msime-snapshot-old-{handle}");
+    let pairs = [
+        (&active.user_data, &staged.user_data),
+        (&active.cache, &staged.cache),
+        (&active.dictionaries, &staged.dictionaries),
+    ];
+    let mut moved = Vec::new();
+    for (current, replacement) in pairs {
+        let current = Path::new(current);
+        let replacement = Path::new(replacement);
+        let backup = current.with_file_name(format!(
+            "{}{}",
+            current
+                .file_name()
+                .and_then(|x| x.to_str())
+                .unwrap_or("state"),
+            suffix
+        ));
+        if std::fs::rename(current, &backup).is_err() {
+            for (old, saved) in moved.iter().rev() {
+                let _ = std::fs::rename(saved, old);
+            }
+            return Err("snapshot activation failed");
+        }
+        if std::fs::rename(replacement, current).is_err() {
+            let _ = std::fs::rename(&backup, current);
+            for (old, saved) in moved.iter().rev() {
+                let _ = std::fs::rename(saved, old);
+            }
+            return Err("snapshot activation failed");
+        }
+        moved.push((current.to_path_buf(), backup));
+    }
+    for (_, backup) in moved {
+        let _ = std::fs::remove_dir_all(backup);
+    }
+    entries.remove(&handle);
+    Ok(json!({"activated": true}))
+}
+
+fn version_without_access(options: &EngineOptions) -> Result<String, &'static str> {
+    let mut hash = Sha256::new();
+    hash.update(b"msime-host-dictionary-version-v1");
+    for path in [
+        &options.resources,
+        &options.user_data,
+        &options.cache,
+        &options.dictionaries,
+    ] {
+        let canonical = Path::new(path)
+            .canonicalize()
+            .map_err(|_| "snapshot path unavailable")?;
+        let text = canonical.to_str().ok_or("invalid snapshot path")?;
+        hash.update((text.len() as u64).to_be_bytes());
+        hash.update(text.as_bytes());
+    }
+    hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn register(prepared: Prepared) -> Result<Value, &'static str> {
@@ -256,6 +337,22 @@ pub extern "C" fn msime_client_snapshot_discard(handle: u64) -> *mut c_char {
             .map_err(|_| "snapshot cleanup failed")?;
         entries.remove(&handle);
         Ok(json!({"discarded": true}))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_snapshot_activate(
+    handle: u64,
+    expected: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if expected.is_null() || length != 64 {
+            return Err("invalid snapshot version".into());
+        }
+        let expected = std::str::from_utf8(unsafe { std::slice::from_raw_parts(expected, length) })
+            .map_err(|_| "invalid snapshot version")?;
+        activate(handle, expected).map_err(Into::into)
     })
 }
 

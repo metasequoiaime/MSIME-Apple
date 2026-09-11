@@ -35,8 +35,10 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
     prepared = number.uint64Value
   }
   @MainActor func activate() throws {
-    guard prepared != nil else { throw BackendAccountClient.Failure(status: 400) }
-    throw BackendAccountClient.Failure(status: 501)
+    guard let prepared else { throw BackendAccountClient.Failure(status: 400) }
+    let versionResult = try Self.invoke("snapshotVersion:", context)
+    guard let version = versionResult["version"] as? String else { throw BackendAccountClient.Failure(status: 409) }
+    _ = try Self.invoke("applySnapshot:", ["handle": prepared, "expectedVersion": version])
   }
   deinit {
     if let prepared { _ = try? Self.invoke("discardSnapshot:", ["handle": prepared]) }
