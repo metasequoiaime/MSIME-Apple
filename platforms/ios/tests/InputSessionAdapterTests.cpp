@@ -288,17 +288,15 @@ int RunTest()
         Require(!adapter.handle_backspace().handled, "Idle Backspace was swallowed by the engine adapter.");
         Require(!adapter.handle_character('N').handled, "Unsupported uppercase input was swallowed by the adapter.");
 
-        // The engine treats A-Z during a composition as helpcode input, so testing uppercase with no
-        // composition proves nothing any more: that path was always unhandled. Pin the state that
-        // actually changed, and pin that the composition survives untouched.
+        // A-Z during a composition is helpcode, which the engine narrows the candidates down with.
+        // Outside one it is a capital the user is typing and stays unhandled, so the keyboard can
+        // hand it to the client itself.
         Require(adapter.handle_character('n').handled && adapter.handle_character('i').handled,
-                "The uppercase fixture did not start a composition.");
-        const auto uppercaseDuringComposition = adapter.handle_character('H');
-        Require(!uppercaseDuringComposition.handled,
-                "Uppercase input during a composition was swallowed instead of passed to the client.");
-        Require(uppercaseDuringComposition.preedit == "ni",
-                "Uppercase input during a composition altered the preedit.");
-        Require(adapter.cancel().handled, "The uppercase fixture did not clear its composition.");
+                "The helpcode fixture did not start a composition.");
+        const auto helpcode = adapter.handle_character('H');
+        Require(helpcode.handled, "Uppercase input during a composition was not offered to the engine as helpcode.");
+        Require(helpcode.preedit == "ni", "Helpcode input replaced the composition instead of narrowing it.");
+        Require(adapter.cancel().handled, "The helpcode fixture did not clear its composition.");
 
         const auto punctuation = adapter.handle_punctuation('.');
         Require(punctuation.handled && punctuation.commit.has_value() && *punctuation.commit == "。",

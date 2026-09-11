@@ -429,6 +429,37 @@ final class NineKeyKeyboardTests: XCTestCase {
       "分词键不该有长按手势")
   }
 
+  func testShiftEntersHelpcodeWhileComposingShuangpin() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .shuangpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    func letterKey(_ letter: String) throws -> UIButton {
+      try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(letter)" || $0.accessibilityLabel == "大写 \(letter)"
+      } as? UIButton)
+    }
+
+    // Shift before a composition still means capitals for the host, so the letters stay lowercase
+    // faces and nothing is sent to the engine as helpcode.
+    try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try letterKey("N").configuration?.title, "n", "组合开始前 shift 不该改中文键面")
+
+    // Start a composition, then shift: the faces go uppercase because the next letter is helpcode.
+    try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try letterKey("N").sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(try button("preeditButton", in: controller).configuration?.title?.isEmpty ?? true)
+    try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try letterKey("N").configuration?.title, "N", "组合中 shift 应显示大写,表示下一个字母是辅码")
+
+    // Taking it drops shift, the way a one-shot capital does.
+    try letterKey("N").sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try letterKey("N").configuration?.title, "n", "辅码输入后 shift 应复位")
+  }
+
   func testNineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows() throws {
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }

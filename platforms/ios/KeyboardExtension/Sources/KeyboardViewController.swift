@@ -81,6 +81,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
+  /// 组合进行中按下 shift 的字母作为辅码送给引擎。
+  ///
+  /// The engine takes helpcode for Quanpin and Shuangpin, and only inside a composition, so this
+  /// asks the same questions. A local utility mode spells its own input and is left alone.
+  private var entersHelpcode: Bool {
+    letterCaseState != .lowercase && !visiblePreedit.isEmpty && !session.isInLocalMode
+      && (inputScheme == .quanpin || usesShuangpin)
+  }
   private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && !inputScheme.isJapanese }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
@@ -1103,6 +1111,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         && !("2"..."9").contains(character) && character != "'" {
         return
       }
+      // Shift does nothing to a letter while composing Chinese, and the engine reads a capital
+      // there as helpcode -- the extra key that narrows the candidates down. That is the one thing
+      // it can usefully mean here, so it is what it does.
+      if entersHelpcode, let letter = character.first, letter.isLetter {
+        render(session.handleCharacter(character.uppercased()))
+        if letterCaseState == .shifted { letterCaseState = .lowercase; updateLetterCaseControls() }
+        return
+      }
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
@@ -1255,7 +1271,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
-    let usesUppercase = !isChineseMode && letterCaseState != .lowercase
+    // Chinese mode shows capitals too once shift means helpcode, so the shift key reads as having
+    // done something rather than looking stuck.
+    let usesUppercase = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode)
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.

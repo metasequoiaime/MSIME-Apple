@@ -102,10 +102,11 @@ InputSessionAdapter::~InputSessionAdapter() = default;
 
 InputSnapshot InputSessionAdapter::handle_character(char character)
 {
-    // The engine accepts A-Z during a composition as helpcode input, which this keyboard does not offer.
-    // Reject it here so an uppercase letter stays unhandled and the frontend passes it to the client,
-    // preserving the keyboard's existing uppercase passthrough behavior.
-    if (character >= 'A' && character <= 'Z')
+    // A-Z during a composition is helpcode, which the engine narrows down candidates with. Outside
+    // one it is a capital the user is typing, and the keyboard hands those to the client itself, so
+    // it stays unhandled here. The engine applies its own rules to the helpcode -- Quanpin and
+    // Shuangpin only, and only while the scheme has it switched on.
+    if (character >= 'A' && character <= 'Z' && impl_->session.snapshot().preedit.empty())
     {
         return MakeSnapshot(impl_->session, KeyResult{});
     }
