@@ -1,0 +1,23 @@
+#pragma once
+#include "EngineSessionAdapter.h"
+
+namespace msime::tsf {
+enum class CharacterResultStatus { Applied, Unhandled, Failed };
+template<class Insert, class Cleanup, class Refresh>
+CharacterResultStatus ApplyHostCharacterResult(const EngineResult &result,
+                                               Insert insert, Cleanup cleanup, Refresh refresh) {
+    if (!result.handled && !result.has_commit) return CharacterResultStatus::Unhandled;
+    const bool composing = !result.view.preedit.empty() || !result.view.editing_text.empty() ||
+                           !result.view.candidates.empty();
+    if (result.has_commit) {
+        // Replace the old composition before ending it: terminating first
+        // leaves raw preedit behind and appends the commit a second time.
+        if (!result.commit.empty() && !insert(result.commit)) return CharacterResultStatus::Failed;
+        if (!cleanup()) return CharacterResultStatus::Failed;
+    }
+    if (composing) {
+        if (!refresh()) return CharacterResultStatus::Failed;
+    } else if (!result.has_commit && !cleanup()) return CharacterResultStatus::Failed;
+    return CharacterResultStatus::Applied;
+}
+}
