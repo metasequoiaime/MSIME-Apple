@@ -1,4 +1,5 @@
 #include "bridge.h"
+#include <metasequoia/personal_dictionary.h>
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <stdexcept>
 
@@ -72,6 +73,14 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
     return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true};
+}
+rust::String validate_personal_dictionary(std::uint8_t kind, rust::Str key, rust::Str value) {
+    metasequoia::PersonalDictionaryEntry entry;
+    entry.kind = static_cast<metasequoia::PersonalDictionaryKind>(kind);
+    entry.key = std::string(key);
+    entry.value = std::string(value);
+    auto result = metasequoia::validate_personal_dictionary_entry(std::move(entry));
+    return result.error;
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();

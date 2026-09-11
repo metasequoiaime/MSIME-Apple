@@ -53,6 +53,7 @@ mod ffi {
         include!("bridge.h");
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String;
         fn prepare_options(
             resources: &str,
             user_data: &str,
