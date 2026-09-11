@@ -40,6 +40,7 @@ impl HostSession {
         current.candidate_orientation = next.candidate_orientation;
         current.candidate_skin = next.candidate_skin.clone();
         current.clipboard_history = next.clipboard_history;
+        current.floating_toolbar = next.floating_toolbar;
         current == *next
     }
 
@@ -157,6 +158,7 @@ impl HostSession {
                 "candidate_font_size": snapshot.preferences.candidate_font_size,
                 "candidate_orientation": snapshot.preferences.candidate_orientation,
                 "candidate_skin": snapshot.preferences.candidate_skin,
+                "floating_toolbar": snapshot.preferences.floating_toolbar,
             },
             "view": self.runtime.view()
         }))
@@ -760,11 +762,39 @@ mod tests {
             "horizontal"
         );
         assert_eq!(result["value"]["presentation"]["candidate_skin"], "wechat");
+        assert_eq!(
+            result["value"]["presentation"]["floating_toolbar"]["scale"],
+            100
+        );
         SESSIONS.with(|sessions| {
             assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
         });
         read(msime_client_destroy(handle));
     }
+
+    #[test]
+    fn floating_toolbar_changes_apply_without_rebuilding_the_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        let mut preferences = Preferences::default();
+        preferences.floating_toolbar.enabled = false;
+        preferences.floating_toolbar.screen_keyboard = true;
+        let result = update(handle, 1, &preferences);
+        assert_eq!(result["value"]["deferred"], false);
+        assert_eq!(
+            result["value"]["presentation"]["floating_toolbar"]["enabled"],
+            false
+        );
+        assert_eq!(
+            result["value"]["presentation"]["floating_toolbar"]["screen_keyboard"],
+            true
+        );
+        SESSIONS.with(|sessions| {
+            assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
+        });
+        read(msime_client_destroy(handle));
+    }
+
     #[test]
     fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
         use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};

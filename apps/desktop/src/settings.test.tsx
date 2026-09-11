@@ -216,6 +216,29 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("floating toolbar settings use Windows defaults and persist independently", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const enabled = await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(true);
+  expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
+  expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
+  expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
+  fireEvent.change(screen.getByLabelText("图标尺寸"), { target: { value: "28" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "在桌面显示悬浮工具栏" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, floating_toolbar: {
+    enabled: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
+    screen_keyboard: true, settings: true, scale: 125, font_size: 28,
+  } });
+});
+
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

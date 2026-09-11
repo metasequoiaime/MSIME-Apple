@@ -21,6 +21,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidPageSize => "invalid",
                 PreferencesError::InvalidFrequency => "frequency_invalid",
                 PreferencesError::InvalidMixedInput => "mixed_input_invalid",
+                PreferencesError::InvalidFloatingToolbar => "floating_toolbar_invalid",
                 PreferencesError::ConflictingKeyBindings => "key_conflict",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",

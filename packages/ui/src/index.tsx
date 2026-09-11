@@ -10,6 +10,7 @@ const pages = [
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
+  { id: "floating-toolbar", title: "悬浮工具栏", icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
@@ -17,6 +18,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 export type Preferences = {
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -66,6 +68,38 @@ const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][
   ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏"],
   ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮"],
 ];
+export type FloatingToolbarPreferences = {
+  enabled: boolean;
+  fullwidth: boolean;
+  punctuation: boolean;
+  character_set: boolean;
+  emoji: boolean;
+  screen_keyboard: boolean;
+  settings: boolean;
+  scale: 75 | 100 | 125 | 150;
+  font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
+};
+const defaultFloatingToolbar: FloatingToolbarPreferences = {
+  enabled: true,
+  fullwidth: true,
+  punctuation: true,
+  character_set: true,
+  emoji: true,
+  screen_keyboard: false,
+  settings: true,
+  scale: 100,
+  font_size: 24,
+};
+const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "fullwidth" | "punctuation" | "character_set" | "emoji" | "screen_keyboard" | "settings">, string][] = [
+  ["fullwidth", "全角 / 半角"],
+  ["punctuation", "中英文标点"],
+  ["character_set", "简繁切换"],
+  ["emoji", "表情与符号"],
+  ["screen_keyboard", "屏幕键盘"],
+  ["settings", "设置"],
+];
+const floatingToolbarScales: FloatingToolbarPreferences["scale"][] = [75, 100, 125, 150];
+const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
@@ -194,6 +228,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const clipboardHistory = draft?.clipboard_history ?? false;
+  const floatingToolbar = draft?.floating_toolbar ?? defaultFloatingToolbar;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   useEffect(() => {
     if (!client.clipboard?.list) return;
@@ -236,6 +271,30 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>
             <div className="skin-card-body"><span className="skin-card-title">{title}</span><span className="skin-card-description">{description}</span></div>
           </label>)}
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
+        <div className="section floating-toolbar-card">
+          <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
+          <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
+            <div className="floating-toolbar-preview-label">预览</div>
+            <div className={`toolbar-preview${floatingToolbar.enabled ? "" : " disabled"}`} style={{ transform: `scale(${floatingToolbar.scale / 100})`, fontSize: `${floatingToolbar.font_size}px` }}>
+              <span className="toolbar-preview-handle">⋮</span><span className="toolbar-preview-required">中 / 英</span>
+              {floatingToolbarOptions.map(([key, label]) => floatingToolbar[key] && <span className="toolbar-preview-item" key={key}>{label.split(" ")[0]}</span>)}
+            </div>
+          </div>
+        </div>
+        <div className="section floating-toolbar-appearance">
+          <label className="section-header"><span className="section-title">工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small></span><select aria-label="工具栏缩放" value={floatingToolbar.scale} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, scale: Number(event.target.value) as FloatingToolbarPreferences["scale"] } })}>{floatingToolbarScales.map(value => <option key={value} value={value}>{value}%</option>)}</select></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">图标尺寸<small>图标基准大小（像素），再乘以上方缩放</small></span><select aria-label="图标尺寸" value={floatingToolbar.font_size} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, font_size: Number(event.target.value) as FloatingToolbarPreferences["font_size"] } })}>{floatingToolbarFontSizes.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        </div>
+        <div className="section floating-toolbar-components">
+          <div className="section-title">工具栏组件<small>勾选要显示在悬浮工具栏中的功能</small></div>
+          <div className="floating-toolbar-component-list">
+            <label className="check-option floating-toolbar-required-option"><input type="checkbox" checked disabled /><span>中英文切换</span><span className="floating-toolbar-required-label">始终显示</span></label>
+            {floatingToolbarOptions.map(([key, label]) => <div key={key}><div className="input-option-divider" /><label className="check-option"><input type="checkbox" checked={floatingToolbar[key]} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, [key]: event.target.checked } })} /><span>{label}</span></label></div>)}
+          </div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">

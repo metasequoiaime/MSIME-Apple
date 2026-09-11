@@ -82,6 +82,42 @@ pub struct Preferences {
     /// Records copied text only when the host explicitly observes clipboard events.
     #[serde(default)]
     pub clipboard_history: bool,
+    #[serde(default)]
+    pub floating_toolbar: FloatingToolbarPreferences,
+}
+
+/// Settings for the optional host-provided floating toolbar.
+///
+/// `scale` is stored as a percentage so the preferences remain exactly
+/// comparable and portable across hosts. A value of 100 means 100%.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FloatingToolbarPreferences {
+    pub enabled: bool,
+    pub fullwidth: bool,
+    pub punctuation: bool,
+    pub character_set: bool,
+    pub emoji: bool,
+    pub screen_keyboard: bool,
+    pub settings: bool,
+    pub scale: u16,
+    pub font_size: u8,
+}
+
+impl Default for FloatingToolbarPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            fullwidth: true,
+            punctuation: true,
+            character_set: true,
+            emoji: true,
+            screen_keyboard: false,
+            settings: true,
+            scale: 100,
+            font_size: 24,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +283,7 @@ impl Default for Preferences {
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
             clipboard_history: false,
+            floating_toolbar: FloatingToolbarPreferences::default(),
         }
     }
 }
@@ -328,6 +365,14 @@ impl Preferences {
         if !matches!(self.candidate_font_size, 16 | 18 | 20) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
+        if !matches!(self.floating_toolbar.scale, 75 | 100 | 125 | 150)
+            || !matches!(
+                self.floating_toolbar.font_size,
+                16 | 18 | 20 | 22 | 24 | 26 | 28
+            )
+        {
+            return Err(PreferencesError::InvalidFloatingToolbar);
+        }
         if self.candidate_skin.is_empty()
             || self.candidate_skin.len() > 64
             || !self.candidate_skin.is_ascii()
@@ -378,6 +423,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("candidate font size must be 16, 18, or 20")]
     InvalidCandidateFontSize,
+    #[error("floating toolbar scale or font size is invalid")]
+    InvalidFloatingToolbar,
     #[error("candidate skin identifier is invalid")]
     InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
@@ -537,6 +584,52 @@ mod tests {
             let saved = store
                 .save(revision as u64, serde_json::from_value(value).unwrap())
                 .unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+    }
+
+    #[test]
+    fn floating_toolbar_legacy_defaults_and_values_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("floating_toolbar");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.floating_toolbar,
+            FloatingToolbarPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+        let preferences = Preferences {
+            floating_toolbar: FloatingToolbarPreferences {
+                enabled: false,
+                fullwidth: false,
+                punctuation: true,
+                character_set: false,
+                emoji: false,
+                screen_keyboard: true,
+                settings: false,
+                scale: 125,
+                font_size: 28,
+            },
+            ..Preferences::default()
+        };
+        let saved = store.save(0, preferences).unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+
+        for (scale, font_size) in [(74, 24), (151, 24), (100, 15), (100, 29)] {
+            let mut invalid = saved.preferences.clone();
+            invalid.floating_toolbar.scale = scale;
+            invalid.floating_toolbar.font_size = font_size;
+            assert!(matches!(
+                store.save(saved.revision, invalid),
+                Err(PreferencesError::InvalidFloatingToolbar)
+            ));
             assert_eq!(store.load().unwrap(), saved);
         }
     }

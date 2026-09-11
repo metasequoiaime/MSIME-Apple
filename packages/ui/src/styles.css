@@ -41,6 +41,22 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-card-body { display: flex; flex-direction: column; gap: 5px; padding: 13px 16px 16px; }
 .skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }
 .skin-card-description { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.floating-toolbar-card { padding: 0; overflow: hidden; }
+.floating-toolbar-setting-row { padding: 20px 24px; }
+.floating-toolbar-preview { min-height: 190px; padding: 20px 24px 30px; border-top: 1px solid var(--border-color); background: var(--surface-subtle); overflow: hidden; }
+.floating-toolbar-preview-label { margin-bottom: 28px; color: var(--text-muted); font-size: 12px; }
+.toolbar-preview { display: flex; align-items: center; width: max-content; max-width: 100%; min-height: 35px; margin: 0 auto; padding: 4px 7px; gap: 6px; transform-origin: center; border: 1px solid rgba(255, 255, 255, .15); border-radius: 8px; background: #1a1a1a; color: #fff; box-shadow: 4px 4px 4px rgba(0, 0, 0, .3); white-space: nowrap; }
+.toolbar-preview.disabled { opacity: .45; }
+.toolbar-preview-handle { color: var(--accent-color); font-size: 1.1em; line-height: 1; }
+.toolbar-preview-required { padding-right: 5px; border-right: 1px solid rgba(255, 255, 255, .2); }
+.toolbar-preview-item { padding: 3px 5px; border-radius: 5px; background: rgba(255, 255, 255, .12); font-size: .7em; }
+.floating-toolbar-appearance .section-header { padding: 16px 24px; gap: 16px; }
+.floating-toolbar-components { overflow: hidden; }
+.floating-toolbar-component-list { padding: 8px 20px 10px; }
+.floating-toolbar-component-list .check-option { min-height: 34px; padding: 8px 4px; }
+.floating-toolbar-required-option { cursor: default; }
+.floating-toolbar-required-option input:disabled { opacity: .72; }
+.floating-toolbar-required-label { margin-left: auto; color: var(--text-muted) !important; font-size: 12px !important; }
 .shortcut-intro { color: var(--text-secondary); line-height: 1.6; }
 .shortcut-section .section-title { font-size: 15px; }
 .shortcut-list { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
