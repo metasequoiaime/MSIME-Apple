@@ -214,6 +214,56 @@ int main() {
         assert(rendered.font.pointSize == 18);
         assert([rendered.toolTip isEqualToString:@"合成候选布局测试文本"]);
         assert(rendered.lineBreakMode == NSLineBreakByTruncatingTail);
+        NSMutableDictionary *pageView = [@{
+            @"session": @1,
+            @"generation": @2,
+            @"page": @0,
+            @"page_count": @2,
+            @"editing_text": @"ceshi",
+            @"caret_position": @5,
+            @"candidates": @[@{
+                @"text": @"测试",
+                @"highlighted": @YES,
+                @"id": @{@"session": @1, @"generation": @2, @"index": @0},
+            }],
+        } mutableCopy];
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        NSButton *nextPage = nil;
+        for (NSView *view in layoutPanel.contentView.subviews) {
+            if ([view isKindOfClass:NSButton.class] && ((NSButton *)view).tag == -2) nextPage = (NSButton *)view;
+        }
+        assert(nextPage != nil && nextPage.enabled);
+        session.lastCommand = UINT32_MAX;
+        [controller changeCandidatePage:nextPage];
+        assert(session.lastCommand == MSIME_NEXT_PAGE);
+        pageView[@"page"] = @1;
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        NSButton *previousPage = nil;
+        nextPage = nil;
+        for (NSView *view in layoutPanel.contentView.subviews) {
+            if (![view isKindOfClass:NSButton.class]) continue;
+            if (((NSButton *)view).tag == -1) previousPage = (NSButton *)view;
+            if (((NSButton *)view).tag == -2) nextPage = (NSButton *)view;
+        }
+        assert(previousPage != nil && previousPage.enabled && nextPage != nil && !nextPage.enabled);
+        session.lastCommand = UINT32_MAX;
+        [controller changeCandidatePage:previousPage];
+        assert(session.lastCommand == MSIME_PREVIOUS_PAGE);
+        pageView[@"page_count"] = @1;
+        pageView[@"candidates"] = @[
+            @{@"text": @"短", @"highlighted": @YES},
+            @{@"text": @"一个更长的候选", @"highlighted": @NO},
+        ];
+        [controller setValue:@NO forKey:@"verticalCandidates"];
+        [controller setValue:pageView forKey:@"view"];
+        [controller renderCandidates];
+        NSButton *firstHorizontal = (NSButton *)layoutPanel.contentView.subviews[0];
+        NSButton *secondHorizontal = (NSButton *)layoutPanel.contentView.subviews[1];
+        assert(NSMaxX(firstHorizontal.frame) <= NSMinX(secondHorizontal.frame));
+        assert([secondHorizontal.toolTip isEqualToString:@"一个更长的候选"]);
+        [controller setValue:@YES forKey:@"verticalCandidates"];
         client.caret = NSZeroRect;
         [controller renderCandidates];
         assert(!layoutPanel.requestedVisible);

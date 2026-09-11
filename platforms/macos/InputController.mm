@@ -192,21 +192,34 @@
     NSFont *font = [NSFont systemFontOfSize:18];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const BOOL vertical = _verticalCandidates;
-    CGFloat width = 20;
-    NSUInteger index = 0;
+    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
+    const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
+    const BOOL hasPreviousPage = page > 0;
+    const BOOL hasNextPage = pageCount > 0 && page + 1 < pageCount;
+    const BOOL paging = hasPreviousPage || hasNextPage;
+    NSMutableArray<NSNumber *> *itemWidths = [NSMutableArray arrayWithCapacity:candidates.count];
+    CGFloat candidateWidth = 0;
     for (NSDictionary *candidate in candidates) {
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
-        width = MAX(width, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 28);
+        const NSUInteger index = itemWidths.count + 1;
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)index, candidate[@"text"]];
+        CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + (vertical ? 28 : 12);
+        if (!vertical) itemWidth = MIN(180, itemWidth);
+        [itemWidths addObject:@(itemWidth)];
+        candidateWidth = vertical ? MAX(candidateWidth, itemWidth) : candidateWidth + itemWidth;
     }
-    if (!vertical) {
-        width = 20;
-        index = 0;
-        for (NSDictionary *candidate in candidates) {
-            NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, candidate[@"text"]];
-            width += MIN(180, ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 12);
+    const CGFloat availableWidth = MAX(80, visible.size.width - 20 - (!vertical && paging ? 56 : 0));
+    if (vertical) {
+        candidateWidth = MIN(candidateWidth, availableWidth);
+    } else if (candidateWidth > availableWidth && candidateWidth > 0) {
+        const CGFloat scale = availableWidth / candidateWidth;
+        candidateWidth = 0;
+        for (NSUInteger index = 0; index < itemWidths.count; ++index) {
+            const CGFloat scaled = MAX(24, floor(itemWidths[index].doubleValue * scale));
+            itemWidths[index] = @(scaled);
+            candidateWidth += scaled;
         }
     }
-    width = MIN(width, MAX(80, visible.size.width - 20));
+    const CGFloat panelWidth = paging ? (vertical ? MAX(candidateWidth, 64) : candidateWidth + 56) : candidateWidth;
     if (!_panel) {
         _panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         _panel.level = NSPopUpMenuWindowLevel;
@@ -220,17 +233,24 @@
         _panel.contentView.layer.cornerRadius = 8.0;
         _panel.contentView.layer.masksToBounds = YES;
     }
-    CGFloat height = vertical ? candidates.count * rowHeight + 12 : rowHeight + 12;
-    if (!vertical) width = MIN(width, MAX(80, visible.size.width - 20));
-    [_panel setContentSize:NSMakeSize(width, height)];
-    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    const CGFloat navigationHeight = paging && vertical ? 26 : 0;
+    const CGFloat height = vertical ? candidates.count * rowHeight + navigationHeight + 12 : rowHeight + 12;
+    [_panel setContentSize:NSMakeSize(panelWidth, height)];
+    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, height)];
     NSUInteger slot = 0;
+    const CGFloat contentTop = height - 6 - navigationHeight;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
-        if (vertical) button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
-        else { CGFloat x = 6; for (NSUInteger i = 0; i < slot; ++i) x += ceil([NSString stringWithFormat:@"%lu  %@", (unsigned long)(i + 1), candidates[i][@"text"]].length * 10) + 28; button.frame = NSMakeRect(x, 6, MIN(width - x - 6, 180), rowHeight); ++slot; }
+        if (vertical) {
+            button.frame = NSMakeRect(6, contentTop - (++slot * rowHeight), candidateWidth - 12, rowHeight);
+        } else {
+            CGFloat x = 6;
+            for (NSUInteger index = 0; index < slot; ++index) x += itemWidths[index].doubleValue;
+            button.frame = NSMakeRect(x, 6, itemWidths[slot].doubleValue, rowHeight);
+            ++slot;
+        }
         button.font = font;
         button.contentTintColor = [NSColor whiteColor];
         button.bezelStyle = NSBezelStyleTexturedRounded;
@@ -245,9 +265,32 @@
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
+    if (paging) {
+        for (NSUInteger index = 0; index < 2; ++index) {
+            NSButton *button = [NSButton buttonWithTitle:index == 0 ? @"‹" : @"›"
+                                                    target:self
+                                                    action:@selector(changeCandidatePage:)];
+            button.frame = vertical ? NSMakeRect(6 + index * 28, 6, 28, 26)
+                                    : NSMakeRect(candidateWidth + 6 + index * 28, 6, 28, rowHeight);
+            button.bordered = NO;
+            button.contentTintColor = [NSColor whiteColor];
+            button.tag = index == 0 ? -1 : -2;
+            button.enabled = index == 0 ? hasPreviousPage : hasNextPage;
+            button.accessibilityLabel = index == 0 ? @"上一页候选" : @"下一页候选";
+            [content addSubview:button];
+        }
+    }
     _panel.contentView = content;
     [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
     [_panel orderFrontRegardless];
+}
+
+- (void)changeCandidatePage:(NSButton *)button {
+    if (!_session || ![_view[@"page"] isKindOfClass:NSNumber.class] || ![_view[@"page_count"] isKindOfClass:NSNumber.class]) return;
+    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
+    const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
+    if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
+    if (button.tag == -2 && page + 1 < pageCount) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {

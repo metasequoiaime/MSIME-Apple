@@ -639,3 +639,9 @@ Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替
 按固定 Apple `FullWidthInput.h` 迁移 macOS 控制器的全角输入行为。Option + Shift + H 切换并保存 `MSIMEClientFullWidthInput`，重复按键只消费；普通 ASCII 先由 Engine 处理，未处理且组合为空时才将空格或可打印 ASCII 转为全角字符。Command、Control、Option、非 ASCII、Engine 已处理和组合完成失败均排除在回退之外，平台不复制输入算法。
 
 macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖切换持久化、重复事件、Engine 优先、组合完成和修饰键边界。未执行系统输入源安装、真实编辑器或逐像素验收。
+
+### macOS 候选分页按钮与横排测量
+
+候选面板补齐 Apple 风格的 `‹` / `›` 鼠标翻页按钮：多页时显示，首页和末页禁用越界方向，按钮命令复用共享运行时分页状态。横排候选改为按字体实际测量各项宽度，并在屏幕可用宽度不足时按比例压缩，避免按字符数估算造成重叠；竖排保留屏宽约束和候选截断。
+
+macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖上一页/下一页边界按钮、横排项不重叠、完整 tooltip 和失效光标隐藏。Home/End 页内导航、可配置翻页快捷键、候选皮肤和字号设置仍待迁移；未执行系统输入源安装后的真实编辑器验收。
