@@ -57,6 +57,9 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn set_punctuation_lock(&mut self, _lock: u8) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -77,6 +80,10 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_paired_punctuation_enabled(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
         Session::set_punctuation_lock(self, lock).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
@@ -198,6 +205,10 @@ impl Runtime<Session> {
 }
 
 impl<E: InputEngine> Runtime<E> {
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine.set_paired_punctuation_enabled(enabled)
+    }
+
     pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
         self.engine.set_punctuation_lock(lock)
     }

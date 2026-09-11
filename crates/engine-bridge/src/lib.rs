@@ -67,6 +67,10 @@ mod ffi {
             enabled: bool,
         ) -> Result<()>;
         fn set_punctuation_lock(self: Pin<&mut EngineSession>, lock: u8) -> Result<()>;
+        fn set_paired_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
         fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
@@ -149,6 +153,9 @@ impl Session {
     }
     pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), cxx::Exception> {
         self.inner.pin_mut().set_punctuation_lock(lock)
+    }
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_paired_punctuation_enabled(enabled)
     }
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
         self.inner.pin_mut().set_dedicated_english(enabled)
