@@ -64,6 +64,7 @@ class CCompositionProcessorEngine
     }
     void SetRenderedPreedit(std::wstring preedit, size_t prefixLength);
     DWORD_PTR GetRenderedCaretPosition() const;
+    DWORD_PTR GetRenderedCaretPosition(const std::wstring &editingText, size_t caret) const;
 
     DWORD_PTR GetVirtualKeyLength()
     {

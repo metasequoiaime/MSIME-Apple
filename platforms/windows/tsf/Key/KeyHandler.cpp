@@ -4,6 +4,7 @@
 #include "MetasequoiaIME.h"
 #include "CandidateListUIPresenter.h"
 #include "CompositionProcessorEngine.h"
+#include "../Composition/PreeditCaret.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include <debugapi.h>
 #include <minwindef.h>
@@ -49,33 +50,7 @@ WCHAR GetPairedPunctuationClosing(const std::wstring &text)
 DWORD_PTR MapRawCaretToPreedit(const CStringRange &raw, DWORD_PTR rawCaret, const std::wstring &preedit,
                                size_t prefixLength)
 {
-    rawCaret = min(rawCaret, raw.GetLength());
-    size_t lettersBeforeCaret = 0;
-    for (DWORD_PTR i = 0; i < rawCaret; ++i)
-    {
-        if (raw.Get()[i] != L'\'')
-        {
-            ++lettersBeforeCaret;
-        }
-    }
-    size_t displayPosition = min(prefixLength, preedit.size());
-    size_t seenLetters = 0;
-    while (displayPosition < preedit.size() && seenLetters < lettersBeforeCaret)
-    {
-        if (preedit[displayPosition] != L'\'')
-        {
-            ++seenLetters;
-        }
-        ++displayPosition;
-    }
-    if (rawCaret > 0 && raw.Get()[rawCaret - 1] == L'\'')
-    {
-        while (displayPosition < preedit.size() && preedit[displayPosition] == L'\'')
-        {
-            ++displayPosition;
-        }
-    }
-    return displayPosition;
+    return msime::tsf::MapPreeditCaret(raw.ToWString(), rawCaret, preedit, prefixLength);
 }
 } // namespace
 
@@ -514,6 +489,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     HRESULT hr = S_OK;
     PerfTimer timer;
     CMetasequoiaImeArray<CStringRange> readingStrings;
+    // CStringRange borrows its buffer; retain the host text through rendering.
+    std::wstring hostPreedit;
     BOOL isWildcardIncluded = FALSE;
 
     //
@@ -530,14 +507,14 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             const auto &value = result.view.preedit;
             const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
                                                                   value.data(), static_cast<int>(value.size()), nullptr, 0);
-            std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+            hostPreedit.assign(static_cast<size_t>(n > 0 ? n : 0), L'\0');
             if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                           static_cast<int>(value.size()), preedit.data(), n);
+                                           static_cast<int>(value.size()), hostPreedit.data(), n);
             readingStrings.Clear();
-            if (!preedit.empty())
+            if (!hostPreedit.empty())
             {
                 auto *reading = readingStrings.Append();
-                if (reading) reading->Set(preedit.c_str(), preedit.size());
+                if (reading) reading->Set(hostPreedit.c_str(), hostPreedit.size());
             }
         }
     }
@@ -1161,30 +1138,29 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
 {
     if (keyFunction == FUNCTION_MOVE_LEFT || keyFunction == FUNCTION_MOVE_RIGHT)
     {
-        bool hostHandled = false;
+        DWORD_PTR displayCaret = 0;
+        bool usedHost = false;
         if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
         {
             std::string raw, error;
             const uint32_t command = keyFunction == FUNCTION_MOVE_LEFT ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT;
-            if (host->command(command, &raw, &error))
-            {
-                msime::tsf::EngineResult result;
-                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
-                {
-                    hostHandled = true;
-                    const auto &text = result.view.preedit;
-                    const int n = text.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                                                          text.data(), static_cast<int>(text.size()), nullptr, 0);
-                    std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
-                    if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                                   static_cast<int>(text.size()), preedit.data(), n);
-                    pCompositionProcessorEngine->SetRenderedPreedit(
-                        preedit, std::min(result.view.caret, preedit.size()));
-                    if (_pComposition == nullptr) return S_OK;
-                }
-            }
+            msime::tsf::EngineResult result;
+            if (!host->command(command, &raw, &error) ||
+                !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
+            if (!result.handled) return S_OK;
+            // The runtime caret is a byte offset in ASCII editing_text, not a
+            // preedit prefix length. Map it against the text already rendered.
+            for (unsigned char byte : result.view.editing_text)
+                if (byte > 0x7f) return E_FAIL;
+            const std::wstring editing(result.view.editing_text.begin(), result.view.editing_text.end());
+            displayCaret = _pCompositionProcessorEngine->GetRenderedCaretPosition(editing, result.view.caret);
+            usedHost = true;
         }
-        if (!hostHandled) _pCompositionProcessorEngine->MoveCaret(keyFunction == FUNCTION_MOVE_LEFT ? -1 : 1);
+        else
+        {
+            _pCompositionProcessorEngine->MoveCaret(keyFunction == FUNCTION_MOVE_LEFT ? -1 : 1);
+            displayCaret = _pCompositionProcessorEngine->GetRenderedCaretPosition();
+        }
         if (_pComposition == nullptr)
         {
             return S_OK;
@@ -1197,7 +1173,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
         }
         caretRange->Collapse(ec, TF_ANCHOR_START);
         LONG shifted = 0;
-        caretRange->ShiftEnd(ec, static_cast<LONG>(_pCompositionProcessorEngine->GetRenderedCaretPosition()), &shifted,
+        caretRange->ShiftEnd(ec, static_cast<LONG>(displayCaret), &shifted,
                              nullptr);
         caretRange->Collapse(ec, TF_ANCHOR_END);
         TF_SELECTION caretSelection = {};
@@ -1206,7 +1182,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
         caretSelection.style.fInterimChar = FALSE;
         pContext->SetSelection(ec, 1, &caretSelection);
         caretRange->Release();
-        if (Global::IsUiLessMode() && _pCandidateListUIPresenter)
+        if (!usedHost && Global::IsUiLessMode() && _pCandidateListUIPresenter)
         {
             _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
         }
