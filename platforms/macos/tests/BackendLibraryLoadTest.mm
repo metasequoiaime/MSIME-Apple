@@ -13,7 +13,9 @@ int main(int argc, const char *argv[]) {
                                     @"showCommunityResourcesForAccountID:"]) {
             assert([bridge instancesRespondToSelector:NSSelectorFromString(selector)]);
         }
-        assert(NSClassFromString(@"MSIMEBackendAccountWindow"));
+        Class account = NSClassFromString(@"MSIMEBackendAccountWindow");
+        assert(account && [account respondsToSelector:@selector(shared)]);
+        assert([account instancesRespondToSelector:@selector(showAccount)]);
         // Objective-C classes remain registered; retain the library for process lifetime.
     }
     return 0;
