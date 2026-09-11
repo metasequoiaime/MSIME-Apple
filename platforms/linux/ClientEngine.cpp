@@ -1744,7 +1744,6 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->set_content_type = content_type;
   engine->set_surrounding_text = set_surrounding;
   engine->candidate_clicked = candidate_clicked;
-  engine->property_activate = property_activate;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
   engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
   engine->cursor_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_CANDIDATE); };
