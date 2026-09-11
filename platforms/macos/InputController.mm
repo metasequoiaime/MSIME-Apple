@@ -8,6 +8,7 @@
 #import "DictionaryWindowController.h"
 #import "DictionaryRuntime.h"
 #import "AppearancePreferences.h"
+#import "PreferencesWindowController.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -150,9 +151,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self showSystemCharacterPalette];
 }
 - (void)showAppearance:(id)sender {
-    [self ensureAppearance];
-    [_appearance showWindow:sender];
-    [NSApp activateIgnoringOtherApps:YES];
+    (void)sender;
+    [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
 - (void)showDictionary:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
 - (void)prepareDictionary:(id)sender {
