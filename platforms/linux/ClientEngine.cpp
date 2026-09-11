@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <sys/file.h>
 #include <unistd.h>
+#include <vector>
 
 using Json = nlohmann::json;
 struct MsimePreviewEngine;
@@ -37,6 +38,7 @@ std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
+bool launch_desktop_panel(const char *panel);
 struct State;
 bool script_conversion_applies(const Json &context);
 std::string traditional_display(const State &s, const Json &context,
@@ -266,6 +268,70 @@ bool clipboard_remove_index(const std::string &path, size_t index) {
 }
 State &state(IBusEngine *engine);
 void publish_mode(IBusEngine *engine, bool registration = false);
+bool launch_desktop_panel(const char *panel) {
+  const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
+  if (!command || !*command)
+    command = "msime-client-settings";
+  gchar *argv[] = {const_cast<gchar *>(command), nullptr};
+  gchar **environment = g_get_environ();
+  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL", panel, TRUE);
+  GError *error = nullptr;
+  const auto started = g_spawn_async(
+      nullptr, argv, environment, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
+      nullptr, &error);
+  g_strfreev(environment);
+  if (error)
+    g_error_free(error);
+  return started != FALSE;
+}
+
+IBusProperty *toolbar_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const auto toolbar = configured.at("preferences").value(
+      "floating_toolbar", Json::object());
+  const bool available = toolbar.value("enabled", true) && s.focused && !s.blocked;
+  auto items = ibus_prop_list_new();
+  const auto append_toggle = [&](const char *name, const char *label,
+                                 const char *hint, bool available, bool checked) {
+    if (!available)
+      return;
+    ibus_prop_list_append(
+        items, ibus_property_new(
+                   name, PROP_TYPE_TOGGLE, ibus_text_new_from_static_string(label),
+                   "", ibus_text_new_from_static_string(hint), TRUE, TRUE,
+                   checked ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+  };
+  const auto append_action = [&](const char *name, const char *label,
+                                 const char *hint, bool available) {
+    if (!available)
+      return;
+    ibus_prop_list_append(
+        items, ibus_property_new(
+                   name, PROP_TYPE_NORMAL, ibus_text_new_from_static_string(label),
+                   "", ibus_text_new_from_static_string(hint), TRUE, TRUE,
+                   PROP_STATE_UNCHECKED, nullptr));
+  };
+  append_toggle("Toolbar/InputMode", "中英文模式", "切换中文输入与直接输入",
+                available, s.input_enabled);
+  append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
+                available && toolbar.value("fullwidth", true), s.fullwidth);
+  append_toggle("Toolbar/Punctuation", "中文标点", "切换中文或英文标点",
+                available && toolbar.value("punctuation", true), s.chinese_punctuation);
+  append_toggle("Toolbar/CharacterSet", "繁体输出", "切换简体或繁体输出",
+                available && toolbar.value("character_set", true), s.traditional_output);
+  append_action("Toolbar/Emoji", "表情与符号", "打开 Emoji、颜文字和符号面板",
+                available && toolbar.value("emoji", true));
+  append_action("Toolbar/ScreenKeyboard", "屏幕键盘", "打开屏幕键盘面板",
+                available && toolbar.value("screen_keyboard", false));
+  append_action("Toolbar/Settings", "设置", "打开水杉输入法设置",
+                available && toolbar.value("settings", true));
+  return ibus_property_new(
+      "LinuxToolbar", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("工具栏"), "",
+      ibus_text_new_from_static_string("Linux 原生输入法工具栏"), available, TRUE,
+      PROP_STATE_UNCHECKED, items);
+}
+
 struct ClipboardTask {
   std::string path;
   uint64_t generation;
@@ -561,6 +627,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   clipboard_schedule(engine);
+  auto toolbar = toolbar_property(engine);
   const bool japanese_scheme = s.scheme_override
                                    ? *s.scheme_override == "japanese"
                                    : configured.at("preferences").value("scheme", "") == "japanese";
@@ -928,6 +995,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(profile, profile_menu);
   if (registration) {
     auto properties = ibus_prop_list_new();
+    ibus_prop_list_append(properties, toolbar);
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, voice);
@@ -957,6 +1025,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, profile);
     ibus_engine_register_properties(engine, properties);
   } else {
+    ibus_engine_update_property(engine, toolbar);
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, voice);
@@ -1334,6 +1403,29 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   }
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
+  if (property_name.rfind("Toolbar/", 0) == 0) {
+    if (property_name == "Toolbar/Emoji") {
+      launch_desktop_panel("emoji");
+      return;
+    }
+    if (property_name == "Toolbar/ScreenKeyboard") {
+      launch_desktop_panel("keyboard");
+      return;
+    }
+    if (property_name == "Toolbar/Settings") {
+      launch_desktop_panel("settings");
+      return;
+    }
+    const char *target =
+        property_name == "Toolbar/InputMode" ? "InputMode"
+        : property_name == "Toolbar/Fullwidth" ? "CharacterMode"
+        : property_name == "Toolbar/Punctuation" ? "Punctuation"
+        : property_name == "Toolbar/CharacterSet" ? "TraditionalOutput"
+        : nullptr;
+    if (target && (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED))
+      property_activate(engine, target, value);
+    return;
+  }
   const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
                                property_name != "ClipboardHistory/Latest" &&
                                property_name != "ClipboardHistory/Clear" &&

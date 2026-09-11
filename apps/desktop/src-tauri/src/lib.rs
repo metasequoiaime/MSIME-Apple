@@ -1457,6 +1457,42 @@ pub fn run() {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
             });
+            #[cfg(target_os = "linux")]
+            if let Ok(panel) = std::env::var("MSIME_CLIENT_PANEL") {
+                let route = match panel.as_str() {
+                    "keyboard" => Some((
+                        "keyboard-panel",
+                        "keyboard",
+                        "水杉屏幕键盘",
+                        1100.0,
+                        400.0,
+                    )),
+                    "handwriting" => Some((
+                        "handwriting-panel",
+                        "handwriting",
+                        "水杉手写识别板",
+                        980.0,
+                        650.0,
+                    )),
+                    "emoji" => Some((
+                        "emoji-panel",
+                        "emoji",
+                        "Emoji and more",
+                        720.0,
+                        720.0,
+                    )),
+                    _ => None,
+                };
+                if let Some((label, route, title, width, height)) = route {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    open_panel_window(
+                        app.handle(), label, route, title, width, height, None,
+                    )
+                    .map_err(|_| "Cannot open requested panel".to_string())?;
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
