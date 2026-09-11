@@ -27,3 +27,8 @@ include(GNUInstallDirs)
 install(TARGETS msime-client-ibus RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/msime-client-preview.xml
         DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
+
+install(FILES "${MSIME_HOST_LIBRARY}"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+set_target_properties(msime-client-ibus PROPERTIES
+  INSTALL_RPATH "$ORIGIN/../lib/msime-client")
