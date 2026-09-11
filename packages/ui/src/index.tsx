@@ -153,7 +153,7 @@ export interface SettingsClient {
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
-  onWindowStateChanged?: (listener: (maximized: boolean) => void) => Promise<() => void>;
+  onWindowStateChanged?: (listener: (maximized: boolean) => void, onError?: () => void) => Promise<() => void>;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -207,7 +207,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     if (subscribe) {
       void Promise.resolve().then(() => {
         if (!active) return;
-        return subscribe(maximized => { if (active) setWindowMaximized(maximized); });
+        return subscribe(maximized => { if (active) setWindowMaximized(maximized); },
+          () => { if (active) setError("无法读取窗口状态，请重试。"); });
       }).then(value => {
         if (active) unsubscribe = value;
         else value?.();

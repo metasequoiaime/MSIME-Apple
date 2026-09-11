@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
+import { subscribeWindowState } from "./window-state";
 
 const dictionary: DictionaryClient = {
   list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
@@ -36,12 +37,7 @@ const client: SettingsClient = {
     n: "North", s: "South", e: "East", w: "West",
     ne: "NorthEast", nw: "NorthWest", se: "SouthEast", sw: "SouthWest",
   }[edge] as Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0]),
-  onWindowStateChanged: async listener => {
-    const window = getCurrentWindow();
-    listener(await window.isMaximized());
-    const unlisten = await window.onResized(async () => listener(await window.isMaximized()));
-    return unlisten;
-  },
+  onWindowStateChanged: (listener, onError) => subscribeWindowState(getCurrentWindow(), listener, onError),
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
     list: () => invoke<string[]>("list_clipboard_history"),

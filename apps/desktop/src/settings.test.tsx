@@ -141,6 +141,21 @@ test("window state subscription failures are handled", async () => {
   expect(await screen.findByText("无法读取窗口状态，请重试。")).toBeTruthy();
 });
 
+test("window state update errors are shown and detached hosts cannot report errors", async () => {
+  let reportError = () => {};
+  const client: SettingsClient = { load: async () => initial, save: vi.fn(),
+    onWindowStateChanged: async (_listener, onError) => { reportError = onError!; return () => {}; } };
+  const mounted = render(<SettingsPage client={client} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  act(() => reportError());
+  expect(screen.getByText("无法读取窗口状态，请重试。")).toBeTruthy();
+  mounted.rerender(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  await waitFor(() => expect(screen.queryByText("无法读取窗口状态，请重试。")).toBeNull());
+  act(() => reportError());
+  expect(screen.queryByText("无法读取窗口状态，请重试。")).toBeNull();
+});
+
 test("late window subscriptions are disposed and old callbacks ignored", async () => {
   let publish: (value: boolean) => void = () => {};
   let finish: (cleanup: () => void) => void = () => {};
