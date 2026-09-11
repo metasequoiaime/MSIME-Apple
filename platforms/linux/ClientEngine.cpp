@@ -306,6 +306,38 @@ void page(IBusEngine *engine, uint32_t command) {
       apply(engine, msime_client_command(s.session, command));
   });
 }
+void property_activate(IBusEngine *engine, const gchar *name, guint value) {
+  if (std::string(name) != "InputEnabled" ||
+      (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
+    return;
+  guarded(engine, [&] {
+    auto &s = state(engine);
+    s.input_enabled = value == PROP_STATE_CHECKED;
+    if (s.session)
+      apply(engine, msime_client_focus(s.session, s.input_enabled));
+    clear(engine);
+    auto property = ibus_property_new(
+        "InputEnabled", PROP_TYPE_TOGGLE,
+        ibus_text_new_from_static_string("输入启用"), "",
+        ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"),
+        TRUE, TRUE, s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+        nullptr);
+    ibus_engine_update_property(engine, property);
+    g_object_unref(property);
+  });
+}
+void register_properties(IBusEngine *engine) {
+  auto properties = ibus_prop_list_new();
+  auto property = ibus_property_new(
+      "InputEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入启用"), "",
+      ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
+      TRUE, PROP_STATE_CHECKED, nullptr);
+  ibus_prop_list_append(properties, property);
+  ibus_engine_register_properties(engine, properties);
+  g_object_unref(property);
+  g_object_unref(properties);
+}
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimePreviewEngine *>(object);
   delete self->state;
@@ -316,6 +348,7 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
+  register_properties(IBUS_ENGINE(engine));
 }
 static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
@@ -326,6 +359,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->reset = reset;
   engine->set_content_type = content_type;
   engine->candidate_clicked = candidate_clicked;
+  engine->property_activate = property_activate;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
   engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
   engine->cursor_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_CANDIDATE); };
