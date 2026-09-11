@@ -27,6 +27,32 @@ pub struct DictionaryEntry {
     pub revision: i64,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DictionaryChange {
+    pub revision: i64,
+    pub previous: Option<DictionaryEntry>,
+    pub replacement: Option<DictionaryEntry>,
+}
+
+pub fn validate_change_page(
+    after: i64,
+    changes: &[DictionaryChange],
+    next: i64,
+    has_more: bool,
+) -> bool {
+    if after < 0 || next < after {
+        return false;
+    }
+    let mut cursor = after;
+    for change in changes {
+        if change.revision <= cursor {
+            return false;
+        }
+        cursor = change.revision;
+    }
+    cursor == next && (!has_more || !changes.is_empty())
+}
+
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 
 pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
@@ -216,5 +242,17 @@ mod tests {
         );
         assert!(changes_path(-1, 1).is_none());
         assert!(changes_path(0, 101).is_none());
+    }
+
+    #[test]
+    fn validates_monotonic_change_pages() {
+        let change = DictionaryChange {
+            revision: 3,
+            previous: None,
+            replacement: None,
+        };
+        assert!(validate_change_page(1, &[change.clone()], 3, true));
+        assert!(!validate_change_page(3, &[change], 3, false));
+        assert!(!validate_change_page(1, &[], 1, true));
     }
 }
