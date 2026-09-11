@@ -1,5 +1,6 @@
 #import "VoiceSettings.h"
 #import "VoiceInputService.h"
+NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClientVoiceSettingsDidChange";
 @implementation MSIMEVoiceSettings {
     NSPopUpButton *_language;
     NSTextField *_status;
@@ -24,5 +25,5 @@
 }
 - (void)refreshStatus { _status.stringValue = (_service.microphoneAuthorizationStatus == AVAuthorizationStatusAuthorized && _service.speechAuthorizationStatus == SFSpeechRecognizerAuthorizationStatusAuthorized) ? @"已授权" : @"尚未完全授权"; }
 - (void)requestPermission:(id)sender { (void)sender; [_service requestSpeechPermission:^(BOOL granted) { if (granted) [_service requestMicrophonePermission:^(BOOL grantedMicrophone) { (void)grantedMicrophone; [self refreshStatus]; }]; else [self refreshStatus]; }]; }
-- (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; }
+- (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 @end
