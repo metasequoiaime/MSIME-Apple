@@ -13,6 +13,7 @@ public:
   bool character(uint8_t, bool, std::string *, std::string *);
   bool command(uint32_t, std::string *, std::string *);
   bool select(uint64_t, std::size_t, std::string *, std::string *);
+  bool select_edge(uint64_t, std::size_t, uint8_t, std::string *, std::string *);
   bool view(std::string *, std::string *) const;
   bool punctuation(uint8_t, std::string *, std::string *);
   bool focus(bool, std::string *, std::string *);

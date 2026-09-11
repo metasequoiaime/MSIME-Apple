@@ -38,6 +38,12 @@ bool EngineSessionAdapter::select(uint64_t generation, std::size_t index, std::s
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_select(session_, generation, index), out, error);
 }
+bool EngineSessionAdapter::select_edge(uint64_t generation, std::size_t index,
+                                       uint8_t edge, std::string *out,
+                                       std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_select_edge(session_, generation, index, edge), out, error);
+}
 bool EngineSessionAdapter::view(std::string *out, std::string *error) const {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_view(session_), out, error);
