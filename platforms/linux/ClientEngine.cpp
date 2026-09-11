@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <tuple>
+#include <cstdlib>
 #include <stdexcept>
 #include <sys/file.h>
 #include <unistd.h>
@@ -954,6 +955,20 @@ void focus_out(IBusEngine *engine) {
   });
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
+  if (name && (std::string(name).rfind("CandidatePin", 0) == 0 || std::string(name).rfind("CandidateRemove", 0) == 0)) {
+    const bool pin = std::string(name).rfind("CandidatePin", 0) == 0;
+    const auto index = std::strtoul(name + (pin ? 12 : 15), nullptr, 10);
+    guarded(engine, "candidate_property", [&] {
+      auto &s = state(engine);
+      if (s.session) {
+        const auto generation = s.view.value("generation", 0ULL);
+        s.view = response(pin ? msime_client_pin_candidate(s.session, generation, index)
+                              : msime_client_remove_candidate(s.session, generation, index));
+        render(engine, s.view);
+      }
+    });
+    return;
+  }
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
   const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
@@ -1723,6 +1738,15 @@ void register_properties(IBusEngine *engine) {
           : PROP_STATE_UNCHECKED,
       nullptr);
   ibus_prop_list_append(properties, english);
+  for (guint i = 0; i < 9; ++i) {
+    for (const auto &[prefix, label] : {std::pair<const char *, const char *> {"CandidatePin", "固定候选"}, {"CandidateRemove", "删除候选"}}) {
+      const auto name = std::string(prefix) + std::to_string(i);
+      auto item = ibus_property_new(name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_string((std::string(label) + " " + std::to_string(i + 1)).c_str()), "",
+          ibus_text_new_from_static_string("候选操作"), TRUE, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      ibus_prop_list_append(properties, item);
+    }
+  }
   for (const auto &[name, label, key] : {
            std::tuple<const char *, const char *, const char *>{"EmojiCandidates", "Emoji候选", "emoji"},
            {"KaomojiCandidates", "颜文字候选", "kaomoji"}}) {
