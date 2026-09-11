@@ -380,7 +380,7 @@ fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f
         PanelInputTarget::Wayland => None,
     }?;
     let x = (rect.0 + (rect.2 - width) / 2.0).max(0.0);
-    let y = (rect.1 + rect.3 - height - 16.0).max(0.0);
+    let y = (rect.1 + rect.3 + 16.0).max(0.0);
     Some((x, y))
 }
 
