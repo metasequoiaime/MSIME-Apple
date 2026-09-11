@@ -174,6 +174,20 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .handwriting-panel { background: #202027; color: #f5f5f7; }
 .handwriting-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
 .handwriting-panel-body { display: grid; grid-template-columns: minmax(300px, .43fr) minmax(360px, .57fr); gap: 28px; padding: 24px; }
+.voice-panel { min-height: 100vh; background: #202027; color: #f5f5f7; }
+.voice-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
+.voice-panel .native-panel-header button { color: #aeb0b7; }
+.voice-panel-body { display: flex; max-width: 560px; min-height: calc(100vh - 38px); flex-direction: column; align-items: stretch; gap: 14px; margin: 0 auto; padding: 38px 32px 28px; }
+.voice-panel-icon { align-self: center; font-size: 48px; line-height: 1; }
+.voice-panel-body h1 { margin: 0; font-size: 22px; text-align: center; }
+.voice-panel-description, .voice-panel-notice { margin: 0; color: #aeb0b7; font-size: 13px; text-align: center; }
+.voice-panel-language { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #d7d7dc; font-size: 13px; }
+.voice-panel-language select, .voice-panel-body textarea { border: 1px solid #45454f; border-radius: 7px; background: #2b2b33; color: #f5f5f7; }
+.voice-panel-language select { min-width: 190px; padding: 8px; }
+.voice-panel-record, .voice-panel-submit { min-height: 42px; border: 0; border-radius: 8px; font-weight: 600; }
+.voice-panel-record { background: #d88bde; color: #241c26; }
+.voice-panel-submit { background: #3a3945; color: #f5f5f7; }
+.voice-panel-body textarea { min-height: 100px; resize: vertical; padding: 10px; font: inherit; }
 .ink-canvas-section { min-width: 0; }
 .ink-canvas { display: block; width: 100%; aspect-ratio: 1; border: 1px solid #45454f; border-radius: 8px; background: #25262d; touch-action: none; }
 .ink-canvas polyline { fill: none; stroke: #f5f5f7; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }

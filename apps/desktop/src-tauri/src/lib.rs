@@ -838,6 +838,71 @@ async fn recognize_handwriting(
     })
 }
 
+#[derive(serde::Deserialize)]
+struct VoiceRecognitionRequest {
+    language: String,
+}
+
+#[derive(serde::Serialize)]
+struct VoiceRecognitionResult {
+    text: String,
+}
+
+#[tauri::command]
+async fn recognize_voice(
+    request: VoiceRecognitionRequest,
+    options: tauri::State<'_, DictionaryHostOptions>,
+) -> Result<VoiceRecognitionResult, HostActionError> {
+    if request.language.is_empty()
+        || request.language.len() > 64
+        || request.language.chars().any(char::is_control)
+    {
+        return Err(HostActionError {
+            code: "invalid_voice",
+        });
+    }
+    #[cfg(unix)]
+    {
+        let configured = serde_json::from_str::<serde_json::Value>(&options.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("voice_provider_socket")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            });
+        let path = configured
+            .or_else(|| {
+                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                    .and_then(|value| value.into_string().ok())
+            })
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let language = request.language;
+        let text = tauri::async_runtime::spawn_blocking(move || {
+            UnixSocketProvider::new(path).voice(&language, 1)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+        return Ok(VoiceRecognitionResult { text });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (request, options);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
 #[tauri::command]
 fn submit_handwriting_candidate(
     state: tauri::State<'_, PanelInputState>,
@@ -1113,6 +1178,41 @@ fn open_emoji_panel(
 }
 
 #[tauri::command]
+fn open_voice_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (app, state);
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(not(target_os = "linux"))]
+        let _ = &state;
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 620.0, 520.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
+        open_panel_window(
+            &app,
+            "voice-panel",
+            "voice",
+            "水杉语音输入",
+            620.0,
+            520.0,
+            position,
+        )
+    }
+}
+
+#[tauri::command]
 fn close_panel(
     app: tauri::AppHandle,
     label: String,
@@ -1120,7 +1220,7 @@ fn close_panel(
 ) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
-        "keyboard-panel" | "handwriting-panel" | "emoji-panel"
+        "keyboard-panel" | "handwriting-panel" | "emoji-panel" | "voice-panel"
     ) {
         return Err(HostActionError {
             code: "invalid_panel",
@@ -1135,7 +1235,12 @@ fn close_panel(
         .map_err(|_| HostActionError {
             code: "unavailable",
         });
-    if result.is_ok() && matches!(label.as_str(), "keyboard-panel" | "handwriting-panel") {
+    if result.is_ok()
+        && matches!(
+            label.as_str(),
+            "keyboard-panel" | "handwriting-panel" | "voice-panel"
+        )
+    {
         if let Ok(mut target) = state.0.lock() {
             *target = None;
         }
@@ -1481,6 +1586,13 @@ pub fn run() {
                         720.0,
                         720.0,
                     )),
+                    "voice" => Some((
+                        "voice-panel",
+                        "voice",
+                        "水杉语音输入",
+                        620.0,
+                        520.0,
+                    )),
                     _ => None,
                 };
                 if let Some((label, route, title, width, height)) = route {
@@ -1512,11 +1624,13 @@ pub fn run() {
             send_key,
             send_text,
             recognize_handwriting,
+            recognize_voice,
             submit_handwriting_candidate,
             open_external_url,
             open_keyboard_panel,
             open_handwriting_panel,
             open_emoji_panel,
+            open_voice_panel,
             close_panel,
             dictionary_request,
             load_emoji_catalog

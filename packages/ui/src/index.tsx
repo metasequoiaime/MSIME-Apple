@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
-export { EmojiPanel, HandwritingPanel, KeyboardPanel, type EmojiPanelClient, type PanelClient } from "./panels";
+export { EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./panels";
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
@@ -140,6 +140,7 @@ export interface SettingsClient {
   copyText?: (text: string) => Promise<void>;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
+  openVoice?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -648,6 +649,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
+        <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>录音和识别由已配置的 Linux provider 服务完成</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div><p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p></div>
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice_input?.enabled ?? true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: event.target.checked, language: draft.voice_input?.language ?? "zh-CN" } })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(draft.voice_input?.asr_provider ?? "local_whisper")} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: event.target.value, language: draft.voice_input?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice_input?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: draft.voice_input?.asr_provider ?? "local_whisper", language: event.target.value } })} /></label></div>

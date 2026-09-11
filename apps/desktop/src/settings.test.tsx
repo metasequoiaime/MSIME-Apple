@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -462,6 +462,20 @@ test("emoji panel searches, copies items, tracks recent use and reads clipboard 
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
+});
+
+test("voice panel requests recognition and submits the bounded result", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const recognizeVoice = vi.fn().mockResolvedValue({ text: "你好" });
+  const sendText = vi.fn().mockResolvedValue(undefined);
+  const panel = render(<VoicePanel client={{ close, recognizeVoice, sendText }} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+  await waitFor(() => expect(recognizeVoice).toHaveBeenCalledWith("zh-CN"));
+  expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe("你好");
+  fireEvent.click(screen.getByRole("button", { name: "提交到当前窗口" }));
+  await waitFor(() => expect(sendText).toHaveBeenCalledWith("你好"));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
