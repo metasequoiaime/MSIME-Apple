@@ -8,6 +8,8 @@ use msime_client_core::preferences::{
 #[cfg(unix)]
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
 use serde_json::Value;
+#[cfg(unix)]
+use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::Write;
@@ -151,6 +153,122 @@ async fn dictionary_request(
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[derive(serde::Serialize)]
+struct EmojiCatalogItem {
+    text: String,
+    keywords: String,
+}
+
+#[derive(serde::Serialize)]
+struct EmojiCatalogGroup {
+    title: String,
+    icon: String,
+    items: Vec<EmojiCatalogItem>,
+}
+
+#[derive(serde::Serialize)]
+struct EmojiCatalogResponse {
+    emoji: Vec<EmojiCatalogGroup>,
+    kaomoji: Vec<EmojiCatalogGroup>,
+    symbols: Vec<EmojiCatalogGroup>,
+}
+
+#[cfg(unix)]
+fn read_local_emoji_groups(
+    resources: &str,
+    category: &str,
+) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
+    const PAGE_SIZE: u16 = 512;
+    let mut groups = Vec::new();
+    let mut positions = HashMap::new();
+    let mut offset = 0usize;
+    for _ in 0..256 {
+        let page =
+            msime_host_api::local_emoji_catalog_page(resources, "", category, offset, PAGE_SIZE)?;
+        if page.is_empty() {
+            break;
+        }
+        for item in page {
+            if item.text.is_empty() {
+                continue;
+            }
+            let title = if item.group.is_empty() {
+                "All".to_owned()
+            } else {
+                item.group
+            };
+            let index = if let Some(index) = positions.get(&title).copied() {
+                index
+            } else {
+                let index = groups.len();
+                positions.insert(title.clone(), index);
+                groups.push(EmojiCatalogGroup {
+                    title,
+                    icon: String::new(),
+                    items: Vec::new(),
+                });
+                index
+            };
+            let group = &mut groups[index];
+            if group.icon.is_empty() {
+                group.icon = item.text.chars().next().unwrap_or('•').to_string();
+            }
+            group.items.push(EmojiCatalogItem {
+                keywords: if item.annotation.is_empty() {
+                    item.text.clone()
+                } else {
+                    item.annotation
+                },
+                text: item.text,
+            });
+        }
+        offset = offset.saturating_add(PAGE_SIZE as usize);
+    }
+    Ok(groups
+        .into_iter()
+        .filter(|group| !group.items.is_empty())
+        .collect())
+}
+
+#[cfg(not(unix))]
+fn read_local_emoji_groups(
+    _resources: &str,
+    _category: &str,
+) -> Result<Vec<EmojiCatalogGroup>, &'static str> {
+    Err("local emoji catalog unavailable")
+}
+
+#[tauri::command]
+async fn load_emoji_catalog(
+    state: tauri::State<'_, DictionaryHostOptions>,
+) -> Result<EmojiCatalogResponse, CommandError> {
+    let options = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let document: Value =
+            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let resources = document
+            .get("resources")
+            .and_then(Value::as_str)
+            .filter(|value| std::path::Path::new(value).is_absolute())
+            .ok_or(CommandError { code: "storage" })?;
+        Ok(EmojiCatalogResponse {
+            emoji: read_local_emoji_groups(resources, "").map_err(|_| CommandError {
+                code: "unavailable",
+            })?,
+            kaomoji: read_local_emoji_groups(resources, "kaomoji").map_err(|_| CommandError {
+                code: "unavailable",
+            })?,
+            symbols: read_local_emoji_groups(resources, "symbols").map_err(|_| CommandError {
+                code: "unavailable",
+            })?,
+        })
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "unavailable",
+    })?
 }
 
 #[derive(serde::Serialize)]
@@ -992,7 +1110,8 @@ pub fn run() {
             open_handwriting_panel,
             open_emoji_panel,
             close_panel,
-            dictionary_request
+            dictionary_request,
+            load_emoji_catalog
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");

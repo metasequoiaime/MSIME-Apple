@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { EmojiPanel, HandwritingPanel, KeyboardPanel, type EmojiPanelClient, type PanelClient } from "./panels";
+export type { EmojiCatalogGroup } from "./emoji-catalog";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };

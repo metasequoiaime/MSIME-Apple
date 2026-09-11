@@ -90,6 +90,7 @@ mod ffi {
     pub struct EmojiCatalogItem {
         pub text: String,
         pub annotation: String,
+        pub group: String,
     }
     unsafe extern "C++" {
         include!("bridge.h");
@@ -126,6 +127,13 @@ mod ffi {
             category: &str,
             limit: u8,
         ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_page(
+            resources: &str,
+            search: &str,
+            category: &str,
+            offset: usize,
+            limit: u16,
+        ) -> Result<Vec<EmojiCatalogItem>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
@@ -153,8 +161,8 @@ mod ffi {
 }
 
 pub use ffi::{
-    DictionaryEntry, DictionaryKind, DictionaryPage, EngineOptions, EngineResult,
-    EmojiCatalogItem, EngineSnapshot, OnlineQuerySnapshot,
+    DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem, EngineOptions, EngineResult,
+    EngineSnapshot, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -200,6 +208,16 @@ pub fn emoji_catalog(
     limit: u8,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog(resources, search, category, limit)
+}
+
+pub fn emoji_catalog_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_page(resources, search, category, offset, limit)
 }
 
 #[derive(Clone, Copy)]
