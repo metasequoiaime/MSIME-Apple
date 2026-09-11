@@ -42,4 +42,7 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
                                           rust::Str category, std::uint8_t limit);
+rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
+                                               rust::Str category, std::size_t offset,
+                                               std::uint16_t limit);
 }
