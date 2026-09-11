@@ -1,7 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "PreferencesWindowController.h"
-#import "InputSourceRegistration.h"
 #include <cstring>
 
 static bool MSIMEShouldShowPreferences(int argc, const char *argv[])
@@ -16,10 +15,6 @@ static bool MSIMEShouldShowPreferences(int argc, const char *argv[])
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
-        if (MetasequoiaShouldRegisterInputSource(argc, argv)) {
-            OSStatus status = MetasequoiaRegisterAndEnableInputSources(NSBundle.mainBundle.bundleURL, NSBundle.mainBundle.bundleIdentifier, TISRegisterInputSource, TISCreateInputSourceList, TISGetInputSourceProperty, TISEnableInputSource);
-            return status == noErr ? 0 : 1;
-        }
         [NSApplication sharedApplication];
         if (MSIMEShouldShowPreferences(argc, argv))
         {
