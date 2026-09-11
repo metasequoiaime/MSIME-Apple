@@ -115,6 +115,7 @@ CCompositionProcessorEngine::CCompositionProcessorEngine(_In_ CMetasequoiaIME *p
     _pOwnerThreadMgr = nullptr;
     _ownerMsgWndHandle = nullptr;
     _pTextService = pTextService;
+    _hostEngineAdapter = std::make_unique<msime::tsf::EngineSessionAdapter>();
     _keyboardOpen = FALSE;
     _keyboardOpenKnown = FALSE;
     _suppressKeyboardCloseCommit = FALSE;
