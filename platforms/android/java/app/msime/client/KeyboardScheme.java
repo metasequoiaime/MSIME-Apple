@@ -10,7 +10,8 @@ public enum KeyboardScheme {
     SHOUDAO("shuangpin", "shoudao", "twenty_six_key", "首道双拼", "S", "双"),
     WUBI("wubi", null, "twenty_six_key", "86 五笔", "五", "86"),
     JAPANESE("japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
-    JAPANESE_NINE_KEY("japanese", null, "nine_key", "日语 9 键", "あ", "9");
+    JAPANESE_NINE_KEY("japanese", null, "nine_key", "日语 9 键", "あ", "9"),
+    HANDWRITING("quanpin", null, "handwriting", "手写", "写", "手");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -42,6 +43,7 @@ public enum KeyboardScheme {
     public String badge() { return badge; }
 
     public static KeyboardScheme fromPreferences(String scheme, String profile, String touchLayout) {
+        if ("quanpin".equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
         if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
         if ("shuangpin".equals(scheme)) {

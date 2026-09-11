@@ -1,5 +1,7 @@
 import app.msime.client.HandwritingInk;
 import app.msime.client.HandwritingRecognizer;
+import app.msime.client.HandwritingRecognizerFactory;
+import app.msime.client.HandwritingRequestTracker;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,6 +49,26 @@ public final class HandwritingContractSmoke {
         }
         check(!ink.begin(1, 1, 100, 100, 80));
         check(ink.clear() && !ink.hasInk());
-        System.out.println("Android handwriting contract: bounds, revisions, undo and candidates passed");
+
+        HandwritingRequestTracker tracker = new HandwritingRequestTracker();
+        HandwritingRequestTracker.Token token = tracker.begin(7, revision);
+        check(tracker.accepts(token, 7, revision, true));
+        check(!tracker.accepts(token, 8, revision, true));
+        check(!tracker.accepts(token, 7, revision + 1, true));
+        check(!tracker.accepts(token, 7, revision, false));
+        tracker.invalidate();
+        check(!tracker.accepts(token, 7, revision, true));
+
+        HandwritingRecognizer unavailable = HandwritingRecognizerFactory.create(null);
+        check(unavailable.availability() == HandwritingRecognizer.Availability.UNAVAILABLE);
+        boolean[] failed = {false};
+        unavailable.download(new HandwritingRecognizer.DownloadListener() {
+            public void onProgress(int percent) { throw new AssertionError(); }
+            public void onComplete() { throw new AssertionError(); }
+            public void onFailure() { failed[0] = true; }
+        });
+        check(failed[0]);
+        unavailable.close();
+        System.out.println("Android handwriting contract: bounds, revisions, stale work and fallback passed");
     }
 }

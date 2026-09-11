@@ -1602,6 +1602,33 @@ mod tests {
     }
 
     #[test]
+    fn handwriting_layout_is_exposed_only_after_pending_composition_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'n', false));
+        read(msime_client_character(handle, b'i', false));
+        let handwriting = Preferences {
+            touch_keyboard_layout: TouchKeyboardLayout::Handwriting,
+            ..Preferences::default()
+        };
+        let queued = update(handle, 1, &handwriting);
+        assert_eq!(queued["value"]["deferred"], true);
+        assert_eq!(
+            queued["value"]["view"]["touch_keyboard_layout"],
+            "twenty_six_key"
+        );
+        let finished = read(msime_client_command(handle, 9));
+        assert_eq!(finished["value"]["commit"], "ni");
+        assert_eq!(
+            finished["value"]["view"]["touch_keyboard_layout"],
+            "handwriting"
+        );
+        assert_eq!(finished["value"]["view"]["nine_key"], false);
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
         let dir = tempfile::tempdir().unwrap();
         let handle = test_host(dir.path());
@@ -1652,18 +1679,24 @@ mod tests {
             update(handle, 3, &preferences)["value"]["view"]["nine_key"],
             false
         );
+        preferences.touch_keyboard_layout = TouchKeyboardLayout::Handwriting;
+        assert_eq!(
+            update(handle, 4, &preferences)["value"]["view"]["touch_keyboard_layout"],
+            "handwriting"
+        );
+        assert_eq!(read(msime_client_view(handle))["value"]["nine_key"], false);
         assert_eq!(
             read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
             true
         );
         preferences.candidate_page_size = 3;
         assert_eq!(
-            update(handle, 4, &preferences)["value"]["view"]["nine_key"],
+            update(handle, 5, &preferences)["value"]["view"]["nine_key"],
             true
         );
         preferences.scheme = InputScheme::Wubi;
         assert_eq!(
-            update(handle, 5, &preferences)["value"]["view"]["nine_key"],
+            update(handle, 6, &preferences)["value"]["view"]["nine_key"],
             false
         );
         assert_eq!(

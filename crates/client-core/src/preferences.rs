@@ -24,6 +24,7 @@ pub enum TouchKeyboardLayout {
     #[default]
     TwentySixKey,
     NineKey,
+    Handwriting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1227,7 +1228,7 @@ mod tests {
             TouchKeyboardLayout::TwentySixKey
         );
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
-        let saved = store
+        store
             .save(
                 0,
                 Preferences {
@@ -1239,6 +1240,19 @@ mod tests {
         assert_eq!(
             store.load().unwrap().preferences.touch_keyboard_layout,
             TouchKeyboardLayout::NineKey
+        );
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    touch_keyboard_layout: TouchKeyboardLayout::Handwriting,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::Handwriting
         );
         let mut invalid = serde_json::to_value(saved).unwrap();
         invalid["preferences"]["touch_keyboard_layout"] = "future_layout".into();
