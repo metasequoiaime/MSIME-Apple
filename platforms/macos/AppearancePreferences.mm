@@ -45,6 +45,15 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
     return self;
 }
 - (NSURL *)skinsRoot { return _skinsRoot; }
+- (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
+    if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary *merged = [snapshot mutableCopy];
+    merged[@"candidate_orientation"] = self.vertical ? @"vertical" : @"horizontal";
+    merged[@"candidate_font_size"] = @(self.fontSize);
+    merged[@"candidate_page_size"] = @(self.pageSize);
+    merged[@"candidate_skin"] = self.skinID;
+    return merged;
+}
 - (NSImage *)decorationImage { return _decorationImage; }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
 - (void)reloadSkins {

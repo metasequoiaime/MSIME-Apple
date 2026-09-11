@@ -24,6 +24,29 @@ int main(int argc, const char **argv) {
         assert(mkdtemp(temporary));
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        NSDictionary *shared = @{
+            @"scheme": @"quanpin",
+            @"candidate_orientation": @"horizontal",
+            @"candidate_font_size": @16,
+            @"candidate_page_size": @5,
+            @"candidate_skin": @"fluent",
+            @"chinese_punctuation": @NO,
+            @"future_setting": @{ @"enabled": @YES }
+        };
+        preferences.vertical = YES;
+        preferences.fontSize = 20;
+        preferences.pageSize = 7;
+        preferences.skinID = @"graphite";
+        NSDictionary *merged = [preferences sharedPreferencesByMerging:shared];
+        assert(merged);
+        assert([merged[@"scheme"] isEqual:@"quanpin"]);
+        assert([merged[@"candidate_orientation"] isEqual:@"vertical"]);
+        assert([merged[@"candidate_font_size"] isEqual:@20]);
+        assert([merged[@"candidate_page_size"] isEqual:@7]);
+        assert([merged[@"candidate_skin"] isEqual:@"graphite"]);
+        assert([merged[@"chinese_punctuation"] isEqual:@NO]);
+        assert([merged[@"future_setting"] isEqual:shared[@"future_setting"]]);
+        assert(![preferences sharedPreferencesByMerging:(id)@[]]);
         NSWindow *window = preferences.window;
         NSGridView *grid = (id)window.contentView.subviews[0];
         NSScrollView *scroll = (id)window.contentView.subviews[1];

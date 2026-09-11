@@ -11,6 +11,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults skinsRoot:(NSURL *)root;
 - (void)reloadSkins;
 - (NSWindowController *)skinCatalogController;
+/// Merges settings owned by this window into a shared Preferences dictionary.
+/// Settings without a shared-schema field, such as page shortcuts, are retained locally.
+- (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
