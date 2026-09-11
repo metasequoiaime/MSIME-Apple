@@ -2,6 +2,7 @@
 
 use hmac::{Hmac, Mac};
 use serde_json::Value;
+use sha2::Digest;
 use sha2::Sha256;
 use std::io::Read;
 use std::time::{Duration, Instant};
@@ -27,6 +28,10 @@ pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: 
 
 pub fn tencent_tc3_canonical_request(payload_sha256: &str) -> String {
     format!("POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\n{payload_sha256}")
+}
+
+pub fn tencent_tc3_sha256_hex(data: &[u8]) -> String {
+    hex::encode(Sha256::digest(data))
 }
 
 pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
