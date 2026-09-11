@@ -405,6 +405,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <button type="button" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
       </span>}
     </header>}
+    <div className="settings-body">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {pages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
@@ -674,5 +675,5 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();
     }}>重新读取</button>
-  </div></main></div>;
+  </div></main></div></div>;
 }
