@@ -31,6 +31,8 @@ public:
     EngineResult select(std::size_t index);
     EngineResult pin_candidate(std::size_t index);
     EngineResult remove_candidate(std::size_t index);
+    EngineResult fix_candidate_position(std::size_t index, std::uint8_t position);
+    EngineResult clear_candidate_position(std::size_t index);
     EngineResult select_edge(std::size_t index, std::uint8_t edge);
     EngineResult finish(std::size_t index);
     EngineResult punctuation(std::uint8_t value);

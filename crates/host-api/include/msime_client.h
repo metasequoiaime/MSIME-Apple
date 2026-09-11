@@ -128,6 +128,11 @@ char *msime_client_command(uint64_t session, uint32_t command);
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_pin_candidate(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_remove_candidate(uint64_t session, uint64_t generation, size_t index);
+/* Fix a dictionary candidate to slot 1..5 for the current input context. */
+char *msime_client_fix_candidate_position(uint64_t session, uint64_t generation, size_t index,
+                                          uint8_t position);
+/* Clear a previously fixed dictionary candidate position. */
+char *msime_client_clear_candidate_position(uint64_t session, uint64_t generation, size_t index);
 /* Select an entry from View.nine_key_spellings. The generation rejects stale UI. */
 char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };

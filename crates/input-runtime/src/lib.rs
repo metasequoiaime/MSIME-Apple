@@ -105,6 +105,20 @@ pub trait InputEngine {
             "Candidate removal is unsupported".into(),
         ))
     }
+    fn fix_candidate_position(
+        &mut self,
+        _index: usize,
+        _position: u8,
+    ) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Candidate position fixing is unsupported".into(),
+        ))
+    }
+    fn clear_candidate_position(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Candidate position clearing is unsupported".into(),
+        ))
+    }
     fn select_edge(
         &mut self,
         index: usize,
@@ -155,6 +169,18 @@ impl InputEngine for Session {
     }
     fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::remove_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn fix_candidate_position(
+        &mut self,
+        index: usize,
+        position: u8,
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::fix_candidate_position(self, index, position)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn clear_candidate_position(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::clear_candidate_position(self, index)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
@@ -752,6 +778,8 @@ pub enum Action {
     SelectEdge(CandidateId, CandidateEdge),
     PinCandidate(CandidateId),
     RemoveCandidate(CandidateId),
+    FixCandidatePosition(CandidateId, u8),
+    ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
     SelectHighlighted,
     Finish,
@@ -1150,7 +1178,9 @@ impl<E: InputEngine> Runtime<E> {
         if let Action::Select(id)
         | Action::SelectEdge(id, _)
         | Action::PinCandidate(id)
-        | Action::RemoveCandidate(id) = &action
+        | Action::RemoveCandidate(id)
+        | Action::FixCandidatePosition(id, _)
+        | Action::ClearCandidatePosition(id) = &action
         {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
@@ -1233,6 +1263,13 @@ impl<E: InputEngine> Runtime<E> {
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
             Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
             Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
+            Action::FixCandidatePosition(id, position) => {
+                if !(1..=5).contains(&position) {
+                    return Err(RuntimeError::Engine("Candidate position must be between 1 and 5".into()));
+                }
+                self.engine.fix_candidate_position(id.index, position)
+            }
+            Action::ClearCandidatePosition(id) => self.engine.clear_candidate_position(id.index),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),

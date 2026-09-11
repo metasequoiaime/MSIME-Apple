@@ -196,6 +196,15 @@ mod ffi {
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn fix_candidate_position(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+            position: u8,
+        ) -> Result<EngineResult>;
+        fn clear_candidate_position(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+        ) -> Result<EngineResult>;
         fn select_edge(
             self: Pin<&mut EngineSession>,
             index: usize,
@@ -370,6 +379,18 @@ impl Session {
     }
     pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().remove_candidate(index)
+    }
+    pub fn fix_candidate_position(
+        &mut self,
+        index: usize,
+        position: u8,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .fix_candidate_position(index, position)
+    }
+    pub fn clear_candidate_position(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().clear_candidate_position(index)
     }
     pub fn select_edge(
         &mut self,
