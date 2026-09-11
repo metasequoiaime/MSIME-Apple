@@ -131,6 +131,7 @@ export interface SettingsClient {
   openHandwriting?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
+  resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
   onWindowStateChanged?: (listener: (maximized: boolean) => void) => () => void;
   clipboard?: {
     clear(): Promise<void>;
@@ -348,7 +349,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     if (!client.clipboard?.list) return;
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
   }, [client, page]);
-  return <div className="settings-shell">
+  return <div className="settings-shell" onPointerMove={event => {
+    if (!client.resizeWindow || event.buttons !== 1) return;
+    const rect = event.currentTarget.getBoundingClientRect(); const edge = 8;
+    const n = event.clientY - rect.top < edge, s = rect.bottom - event.clientY < edge;
+    const w = event.clientX - rect.left < edge, e = rect.right - event.clientX < edge;
+    const value = n && e ? "ne" : n && w ? "nw" : s && e ? "se" : s && w ? "sw" : n ? "n" : s ? "s" : e ? "e" : w ? "w" : null;
+    if (value) void client.resizeWindow(value);
+  }}>
     {(client.windowControl || client.beginWindowDrag) && <header className="window-titlebar" aria-label="窗口控制"
       onDoubleClick={() => client.windowControl ? void client.windowControl(windowMaximized ? "restore" : "maximize") : undefined}
       onPointerDown={event => { if (event.button === 0 && client.beginWindowDrag) void client.beginWindowDrag(); }}>
