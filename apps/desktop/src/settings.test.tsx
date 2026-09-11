@@ -239,6 +239,45 @@ test("floating toolbar settings use Windows defaults and persist independently",
   } });
 });
 
+test("help, about and feedback pages expose their Windows content and actions", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText };
+  render(<SettingsPage client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  expect(await screen.findByText("快速上手")).toBeDefined();
+  expect(screen.getByText(/Win \+ Space/)).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("Metasequoia IME")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE"));
+
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  expect(await screen.findByText("GitHub Issues")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
+  fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues"));
+});
+
+test("about page validates a newer release before offering its URL", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ version: "v1.2.0", releaseUrl: "https://github.com/metasequoiaime/MSIME-Windows/releases", signed: true }),
+  }));
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/releases"));
+  vi.unstubAllGlobals();
+});
+
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

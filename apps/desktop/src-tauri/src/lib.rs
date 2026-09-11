@@ -79,6 +79,44 @@ struct HostActionError {
     code: &'static str,
 }
 
+fn external_url_is_safe(url: &str) -> bool {
+    url.starts_with("https://")
+        && !url.bytes().any(|byte| {
+            byte <= b' '
+                || matches!(
+                    byte,
+                    b'"' | b'\'' | b'`' | b'&' | b'|' | b'<' | b'>' | b'\\'
+                )
+        })
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), HostActionError> {
+    if !external_url_is_safe(&url) {
+        return Err(HostActionError {
+            code: "invalid_url",
+        });
+    }
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&url).status();
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open").arg(&url).status();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", ""])
+        .arg(&url)
+        .status();
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let result: Result<std::process::ExitStatus, std::io::Error> =
+        Err(std::io::Error::other("unsupported"));
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        _ => Err(HostActionError {
+            code: "unavailable",
+        }),
+    }
+}
+
 fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, HostActionError> {
     store
         .load()
@@ -315,6 +353,7 @@ pub fn run() {
             clear_clipboard_history,
             sync_clipboard_history,
             copy_text,
+            open_external_url,
             dictionary_request
         ])
         .run(tauri::generate_context!())

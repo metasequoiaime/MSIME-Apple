@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };
@@ -10,10 +11,18 @@ const pages = [
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
-  { id: "floating-toolbar", title: "悬浮工具栏", icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "floating-toolbar", title: "悬浮工具栏", icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href },
+  { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
+  { id: "about", title: "关于", icon: new URL("./assets/about.svg", import.meta.url).href },
+  { id: "feedback", title: "反馈", icon: new URL("./assets/feedback.svg", import.meta.url).href },
 ] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
+const appVersion = "0.1.0";
+const releasesPageUrl = "https://github.com/metasequoiaime/MSIME-Windows/releases";
+const updateManifestUrl = "https://msime.app/update.json";
+const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE";
+const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
 
 export type Preferences = {
   local_modes?: LocalModePreferences;
@@ -104,6 +113,8 @@ export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   dictionary?: DictionaryClient;
+  openExternalUrl?: (url: string) => Promise<void>;
+  copyText?: (text: string) => Promise<void>;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -134,6 +145,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [updateStatus, setUpdateStatus] = useState("");
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
+  const [feedbackCopied, setFeedbackCopied] = useState(false);
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [phraseError, setPhraseError] = useState("");
@@ -166,6 +181,41 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  }
+
+  async function openExternalUrl(url: string) {
+    try {
+      if (client.openExternalUrl) {
+        await client.openExternalUrl(url);
+      } else {
+        const opened = window.open(url, "_blank", "noopener,noreferrer");
+        if (!opened) throw new Error("popup blocked");
+      }
+    } catch {
+      setError("无法打开外部链接，请稍后重试。");
+    }
+  }
+
+  async function checkForUpdate() {
+    setUpdateBusy(true); setUpdateStatus(""); setAvailableUpdate(null);
+    try {
+      const response = await fetch(`${updateManifestUrl}?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
+      const manifest = await response.json() as UpdateManifest;
+      const update = validateManifest(manifest, releasesPageUrl);
+      const current = parseVersion(appVersion);
+      if (!update || !current) throw new Error("invalid update manifest");
+      if (compareVersions(update.version, current) > 0) {
+        setAvailableUpdate(update);
+        setUpdateStatus(`发现新版本 v${update.version.display}`);
+      } else {
+        setUpdateStatus("已是最新版本");
+      }
+    } catch {
+      setUpdateStatus("检查失败，请稍后重试");
+    } finally {
+      setUpdateBusy(false);
+    }
   }
 
   const requestId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -229,6 +279,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const clipboardHistory = draft?.clipboard_history ?? false;
   const floatingToolbar = draft?.floating_toolbar ?? defaultFloatingToolbar;
+  const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   useEffect(() => {
     if (!client.clipboard?.list) return;
@@ -431,6 +482,35 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
+        <div className="section document-page help-document">
+          <p>水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。</p>
+          <div className="document-subsection"><div className="section-title">快速上手</div><p>安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。</p></div>
+          <div className="document-subsection"><div className="section-title">基本功能</div>
+            <p>支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右 2.0、首右 plus 和小鹤。</p>
+            <p>语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。</p>
+            <p>更多功能欢迎自由探索～</p>
+          </div>
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
+        <div className="section document-hero about-hero"><div className="about-mark"><img src={logo} alt="水杉 IME" /></div><div><div className="document-eyebrow">Metasequoia IME</div><div className="document-hero-title">水杉 IME</div><p>为现代 Windows 桌面体验打造的开放中文输入法。</p></div></div>
+        <div className="section about-links">
+          <div className="about-link-row about-version-row"><div><div className="about-link-title">当前版本</div><div className="about-version">v{appVersion}</div>{updateStatus && <p className="about-update-status" role="status">{updateStatus}</p>}</div><button type="button" className="secondary about-update-button" disabled={updateBusy} onClick={() => void checkForUpdate()}>{updateBusy ? "正在检查…" : "检查更新"}</button></div>
+          {availableUpdate && <div className="about-update-result"><p>水杉 IME v{availableUpdate.version.display} 已发布。</p>{installerTrust?.warning && <p className="about-update-warning">{installerTrust.warning}</p>}{installerTrust?.verify && <p>下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code></p>}<button type="button" className="secondary" onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}>前往下载</button></div>}
+          <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(licenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
+          <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
+        <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
+        <div className="feedback-list">
+          <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><code>github.com/metasequoiaime/MSIME-Windows/issues</code></div><button type="button" className="secondary" onClick={() => void openExternalUrl("https://github.com/metasequoiaime/MSIME-Windows/issues")}>查看 Issues</button></div>
+          <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><button type="button" className="secondary" onClick={() => { if (!client.copyText) return; void client.copyText("829919142").then(() => { setFeedbackCopied(true); window.setTimeout(() => setFeedbackCopied(false), 1600); }); }}>{feedbackCopied ? "已复制" : "复制群号"}</button></div>
+          <div className="section feedback-card"><div className="feedback-icon">TG</div><div className="feedback-body"><div className="feedback-title">Telegram 群组</div><p>面向国际用户和开发者的即时讨论频道。</p><code>t.me/msimegroup</code></div><button type="button" className="secondary" onClick={() => void openExternalUrl("https://t.me/msimegroup")}>打开群组</button></div>
+        </div>
+        <div className="section document-note"><strong>提交问题时建议附上</strong><span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span></div>
       </fieldset>
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
