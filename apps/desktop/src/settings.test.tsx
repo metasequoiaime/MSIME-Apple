@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { HandwritingPanel, KeyboardPanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -329,6 +329,30 @@ test("native panel views support close, modifier, drawing and undo interactions"
   expect(screen.getByRole("status").textContent).toContain("识别结果");
   fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
   expect(screen.getByText("请在左侧书写，松开鼠标后自动识别")).toBeDefined();
+  panel.unmount();
+});
+
+test("emoji panel searches, copies items, tracks recent use and reads clipboard history", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const list = vi.fn().mockResolvedValue(["fixture clipboard entry"]);
+  const panel = render(<EmojiPanel client={{ close, copyText, clipboard: { list } }} />);
+
+  expect(screen.getByRole("heading", { name: "Emoji" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "😀" }));
+  fireEvent.click(screen.getByRole("button", { name: "😂" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith("😂"));
+  expect(screen.getByRole("status").textContent).toContain("已复制：😂");
+
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "laugh" } });
+  expect(screen.getByRole("button", { name: "😂" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(await screen.findByText("fixture clipboard entry")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "fixture clipboard entry" }));
+  await waitFor(() => expect(copyText).toHaveBeenLastCalledWith("fixture clipboard entry"));
+  expect(list).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
 });
 

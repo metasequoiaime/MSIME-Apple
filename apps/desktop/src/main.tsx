@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { HandwritingPanel, KeyboardPanel, SettingsPage, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
+import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type EmojiPanelClient, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 const dictionary: DictionaryClient = {
@@ -26,12 +26,18 @@ const client: SettingsClient = {
   },
   dictionary,
 };
-const panelClients: Record<string, PanelClient> = {
+const panelClients: { keyboard: PanelClient; handwriting: PanelClient; emoji: EmojiPanelClient } = {
   keyboard: { close: () => invoke("close_panel", { label: "keyboard-panel" }) },
   handwriting: { close: () => invoke("close_panel", { label: "handwriting-panel" }) },
+  emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), copyText: text => invoke("copy_text", { text }), clipboard: {
+    list: () => invoke<string[]>("list_clipboard_history"),
+    sync: () => invoke<string[]>("sync_clipboard_history"),
+    copy: text => invoke("copy_text", { text }),
+  } },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
 const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
   : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
+  : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />
   : <SettingsPage client={client} />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);

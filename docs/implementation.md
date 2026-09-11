@@ -698,6 +698,12 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 本地验证：Rust workspace 测试、fmt、clippy，桌面 UI 测试、TypeScript/Vite 构建，Windows x64/i686 交叉检查，以及键盘/手写面板的全新 MinGW GUI 构建通过；PE 子系统为 Windows GUI，导入检查包含 USER32/GDI32。未执行 Windows 原生桌面、真实 Windows Ink、焦点/DPI/多显示器、TSF 候选提交、安装器或签名验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
 
+### Windows 表情与符号面板共享 UI
+
+依据参考仓库 `server/src/emoji-panel` 的七个入口，新增可注入的 `EmojiPanelClient` 契约和共享 React 面板。面板提供最近使用、Emoji、贴纸占位、GIF 占位、颜文字、符号和剪贴板入口，支持搜索、分组网格、复制反馈、剪贴板读取/同步以及宿主能力缺失时的明确降级。Tauri 增加独立 `emoji-panel` 窗口和关闭路由；复制及剪贴板访问继续由桌面宿主注入，未把输入算法或平台 API 放进共享 UI。
+
+本地验证：桌面 UI 28 项测试、TypeScript 类型检查、Vite production build、Rust fmt 和 `cargo check --locked -p msime-desktop` 通过。当前共享层使用精简内置目录作为浏览器/未打包资源的回退；Windows 原生 `others.db` 全量目录读取、持续剪贴板监听、跨进程同步、TSF 提交、贴纸/GIF 数据源和系统级验收仍待后续切片，不能据此声称 Emoji 面板完整 Windows 接入完成，CI 保持禁用。
+
 ### macOS 语音输入服务
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。

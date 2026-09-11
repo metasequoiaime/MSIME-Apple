@@ -224,8 +224,16 @@ fn open_handwriting_panel(app: tauri::AppHandle) -> Result<(), HostActionError> 
 }
 
 #[tauri::command]
+fn open_emoji_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    open_panel_window(&app, "emoji-panel", "emoji", "Emoji and more", 720.0, 720.0)
+}
+
+#[tauri::command]
 fn close_panel(app: tauri::AppHandle, label: String) -> Result<(), HostActionError> {
-    if !matches!(label.as_str(), "keyboard-panel" | "handwriting-panel") {
+    if !matches!(
+        label.as_str(),
+        "keyboard-panel" | "handwriting-panel" | "emoji-panel"
+    ) {
         return Err(HostActionError {
             code: "invalid_panel",
         });
@@ -479,6 +487,7 @@ pub fn run() {
             open_external_url,
             open_keyboard_panel,
             open_handwriting_panel,
+            open_emoji_panel,
             close_panel,
             dictionary_request
         ])
