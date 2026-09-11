@@ -2193,11 +2193,21 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     s.voice_space_consumed = true;
     return TRUE;
   }
-  if (character_set_toggle && s.view.value("scheme", 0) != 3) {
-    s.traditional_output = !s.traditional_output;
-    s.traditional_output_override = s.traditional_output;
-    render(engine, s.view);
-    publish_mode(engine);
+  if (character_set_toggle) {
+    const auto configured_scheme = configured.at("preferences").value(
+        "scheme", std::string("quanpin"));
+    const auto active_scheme = s.scheme_override.value_or(configured_scheme);
+    if (active_scheme == "japanese")
+      return FALSE;
+    guarded(engine, "toggle_character_set", [&] {
+      s.open();
+      if (!s.session)
+        return;
+      s.traditional_output = !s.traditional_output;
+      s.traditional_output_override = s.traditional_output;
+      render(engine, s.view);
+      publish_mode(engine);
+    });
     return TRUE;
   }
   if (fullwidth_toggle) {
