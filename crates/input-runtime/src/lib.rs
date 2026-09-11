@@ -616,16 +616,17 @@ impl UnixSocketProvider {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream.set_read_timeout(Some(match cancelled {
-            Some(_) => std::time::Duration::from_millis(100),
-            None => std::time::Duration::from_secs(30),
-        })).ok()?;
+        stream
+            .set_read_timeout(Some(match cancelled {
+                Some(_) => std::time::Duration::from_millis(100),
+                None => std::time::Duration::from_secs(30),
+            }))
+            .ok()?;
         let mut request = json!({
             "version": 1,
             "kind": "voice",
             "query": {"language": language, "generation": generation}
-        })
-        ;
+        });
         if let Some(query) = request.get_mut("query").and_then(Value::as_object_mut) {
             if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
                 query.insert("options".to_owned(), options.clone());
@@ -663,7 +664,10 @@ impl UnixSocketProvider {
                     if matches!(
                         error.kind(),
                         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) => continue,
+                    ) =>
+                {
+                    continue
+                }
                 Err(_) => return None,
             }
         }
@@ -1338,7 +1342,9 @@ impl<E: InputEngine> Runtime<E> {
             Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
             Action::FixCandidatePosition(id, position) => {
                 if !(1..=5).contains(&position) {
-                    return Err(RuntimeError::Engine("Candidate position must be between 1 and 5".into()));
+                    return Err(RuntimeError::Engine(
+                        "Candidate position must be between 1 and 5".into(),
+                    ));
                 }
                 self.engine.fix_candidate_position(id.index, position)
             }
