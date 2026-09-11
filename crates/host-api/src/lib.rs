@@ -421,6 +421,7 @@ pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *m
     })
 }
 
+#[no_mangle]
 pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
