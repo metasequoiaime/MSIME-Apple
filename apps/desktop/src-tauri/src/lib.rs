@@ -513,7 +513,7 @@ fn check_for_updates() -> Result<bool, HostActionError> {
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?;
-    let manifest = client
+    let response = client
         .get("https://msime.app/update.json")
         .send()
         .map_err(|_| HostActionError {
@@ -522,11 +522,23 @@ fn check_for_updates() -> Result<bool, HostActionError> {
         .error_for_status()
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?
-        .bytes()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
         })?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !content_type
+        .to_ascii_lowercase()
+        .starts_with("application/json")
+    {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let manifest = response.bytes().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
     if manifest.len() > 64 * 1024 {
         return Err(HostActionError {
             code: "unavailable",
