@@ -76,6 +76,20 @@ pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Opti
     )
 }
 
+pub fn parse_tencent_tmt_response(response: &str, expected: usize) -> Option<Vec<String>> {
+    let root: Value = serde_json::from_str(response).ok()?;
+    let values = root.get("Response")?.get("TargetTextList")?.as_array()?;
+    if values.len() != expected || values.iter().any(|value| value.as_str().is_none()) {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect(),
+    )
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
@@ -380,5 +394,16 @@ mod tests {
         assert_eq!(value["ProjectId"], 0);
         assert_eq!(value["SourceTextList"][0], "你好");
         assert!(tencent_tmt_payload("zh", "en", &["字".repeat(41)]).is_none());
+    }
+
+    #[test]
+    fn parses_tencent_tmt_response_with_exact_batch_size() {
+        assert_eq!(
+            parse_tencent_tmt_response(r#"{"Response":{"TargetTextList":["a","b"]}}"#, 2),
+            Some(vec!["a".into(), "b".into()])
+        );
+        assert!(
+            parse_tencent_tmt_response(r#"{"Response":{"TargetTextList":["a"]}}"#, 2).is_none()
+        );
     }
 }
