@@ -37,6 +37,7 @@
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
     _activeClient = sender;
+    _verticalCandidates = YES;
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
