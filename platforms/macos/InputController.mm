@@ -9,6 +9,7 @@
 #import "DictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
+#import "AccountWindowController.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -151,6 +152,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"个人词典…" action:@selector(showDictionary:) keyEquivalent:@""];
     dictionary.target = self;
     [menu addItem:dictionary];
+    NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
     NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
     prepare.target = self;
     [menu addItem:prepare];
@@ -169,6 +171,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [menu addItem:voiceSettings];
     return menu;
 }
+- (void)showAccount:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户标识"; NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"查看"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMEAccountWindowController sharedController] showForAccountID:field.stringValue]; }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
