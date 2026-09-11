@@ -682,6 +682,45 @@ mod tests {
     }
 
     #[test]
+    fn ai_assistant_legacy_defaults_and_candidate_limit_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ai_assistant");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.ai_assistant,
+            AiAssistantPreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    ai_assistant: AiAssistantPreferences {
+                        candidate_limit: 10,
+                        ..AiAssistantPreferences::default()
+                    },
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+        for limit in [0, 11] {
+            let mut invalid = saved.preferences.clone();
+            invalid.ai_assistant.candidate_limit = limit;
+            assert!(matches!(
+                store.save(saved.revision, invalid),
+                Err(PreferencesError::InvalidAiAssistant)
+            ));
+        }
+    }
+
+    #[test]
     fn mixed_input_legacy_roundtrip_and_bounds() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
