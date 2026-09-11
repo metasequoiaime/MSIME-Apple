@@ -1700,9 +1700,13 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
-    if (!s.session || index >= s.view.at("candidates").size())
+    const auto candidates = s.view.value("candidates", Json::array());
+    if (!s.session || !candidates.is_array() || index >= candidates.size())
       return;
-    auto id = s.view.at("candidates").at(index).at("id");
+    const auto &entry = candidates.at(index);
+    if (!entry.is_object() || !entry.contains("id") || !entry.at("id").is_object())
+      return;
+    auto id = entry.at("id");
     if (id.at("session").get<uint64_t>() != s.session)
       return;
     apply(engine,
