@@ -17,8 +17,7 @@ if [[ -n "${MSIME_MINGW_RUNTIME_DIR:-}" ]]; then runtime_dirs+=("$MSIME_MINGW_RU
 files=(windows-registration-inbox.exe windows-focus-router.exe windows-main-frame.exe
        windows-focus-gate.exe windows-input-queue.exe windows-session-smoke.exe
        windows-reply-codec.exe windows-reply-composer.exe windows-server-smoke.exe
-       windows-pipe-io.exe windows-preview-config.exe msime-client-server.exe
-       msime-client-keyboard-panel.exe msime_host_api.dll)
+       windows-pipe-io.exe windows-preview-config.exe msime-client-server.exe msime_host_api.dll)
 [[ -f "$output/windows-server-smoke.exe" && -f "$output/msime_host_api.dll" ]] || { echo "Run build-cross.sh first" >&2; exit 1; }
 cmake -E copy_if_different "$output/tests/native-pipe/windows-pipe-io.exe" "$output/windows-pipe-io.exe"
 seen='|'
