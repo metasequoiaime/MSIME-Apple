@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
+export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
 export { EmojiPanel, HandwritingPanel, KeyboardPanel, type EmojiPanelClient, type PanelClient } from "./panels";
 export type { EmojiCatalogGroup } from "./emoji-catalog";
 
