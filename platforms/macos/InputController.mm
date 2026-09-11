@@ -48,6 +48,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
+    BOOL _preferencesSaving;
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
@@ -69,6 +70,30 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self syncPunctuation];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
+    [self persistAppearancePreferences];
+}
+- (void)persistAppearancePreferences {
+    if (_preferencesSaving || !_preferencesDirectory || !_session) return;
+    _preferencesSaving = YES;
+    NSString *directory = [_preferencesDirectory copy];
+    MSIMEAppearancePreferences *appearance = _appearance;
+    __weak MSIMEInputController *weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *loadError = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&loadError];
+        NSDictionary *preferences = snapshot ? [appearance sharedPreferencesByMerging:snapshot[@"preferences"]] : nil;
+        uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+        NSError *saveError = nil;
+        if (preferences) {
+            [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:@{ @"format_version": @1, @"revision": @(revision), @"preferences": preferences } error:&saveError];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *controller = weakSelf;
+            if (!controller) return;
+            controller->_preferencesSaving = NO;
+            if (preferences && !saveError) [controller reloadPreferences];
+        });
+    });
 }
 - (void)syncPageSize {
     if (!_session) return;
