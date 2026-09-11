@@ -113,6 +113,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
   }
   @MainActor static func main() async throws {
+    try windowAccountIsolation()
     try await fileTransfer()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
@@ -177,5 +178,31 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.code = "123456"; model.target = "synthetic@example.invalid"; model.close()
     try require(model.code.isEmpty && model.target.isEmpty && model.challenge == nil)
     print("PASS: native account model login, disabled provider, rename, failed deletion, logout and credential cleanup")
+  }
+
+  @MainActor static func windowAccountIsolation() throws {
+    final class Window {
+      var visible = true
+      var closed = false
+    }
+    let cache = BackendAccountWindowCache<Window>()
+    var creations = 0
+    func open(_ surface: String, _ account: String) -> Window {
+      cache.window(for: surface, accountID: account, reusable: { $0.visible },
+        close: { $0.closed = true; $0.visible = false },
+        create: { creations += 1; return Window() })
+    }
+    let dictionary = open("dictionary", "synthetic-a")
+    try require(open("dictionary", "synthetic-a") === dictionary && creations == 1)
+    let clipboard = open("clipboard", "synthetic-a")
+    try require(!dictionary.closed && !clipboard.closed && creations == 2)
+    let otherAccount = open("dictionary", "synthetic-b")
+    try require(otherAccount !== dictionary && dictionary.closed && clipboard.closed)
+    try require(creations == 3)
+    otherAccount.visible = false
+    let reopened = open("dictionary", "synthetic-b")
+    try require(reopened !== otherAccount && otherAccount.closed && creations == 4)
+    let returned = open("dictionary", "synthetic-a")
+    try require(returned !== dictionary && reopened.closed && creations == 5)
   }
 }
