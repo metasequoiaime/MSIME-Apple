@@ -15,3 +15,12 @@ BOOL MSIMEStoreKeychainToken(NSString *accountID, NSString *token, NSError **err
     if (status == errSecItemNotFound) { NSMutableDictionary *item = [query mutableCopy]; item[(__bridge id)kSecValueData] = data; status = SecItemAdd((__bridge CFDictionaryRef)item, NULL); }
     if (status != errSecSuccess) { if (error) *error = [NSError errorWithDomain:@"MSIMEAccount" code:status userInfo:nil]; return NO; } return YES;
 }
+
+BOOL MSIMERemoveKeychainToken(NSString *accountID, NSError **error) {
+    if (accountID.length == 0 || [accountID rangeOfCharacterFromSet:[NSCharacterSet controlCharacterSet]].location != NSNotFound) { if (error) *error = [NSError errorWithDomain:@"MSIMEAccount" code:400 userInfo:nil]; return NO; }
+    NSDictionary *query = @{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"com.metasequoia.msime.account",(__bridge id)kSecAttrAccount:accountID};
+    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
+    if (status == errSecItemNotFound) status = errSecSuccess;
+    if (status != errSecSuccess && error) *error = [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil];
+    return status == errSecSuccess;
+}
