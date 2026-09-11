@@ -20,6 +20,8 @@ let package = Package(
         "BackendDictionaryClient.swift",
         "BackendPreferencesClient.swift",
         "BackendSnapshotClient.swift",
+        "BackendSkinArtworkClient.swift",
+        "IOSPreferencePlan.swift",
       ]
     ),
     .testTarget(
