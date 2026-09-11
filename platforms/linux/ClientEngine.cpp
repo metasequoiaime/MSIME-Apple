@@ -1441,8 +1441,8 @@ Json voice_provider_options(const Json &preferences) {
       options[key] = voice.at(key);
   }
   constexpr const char *string_keys[] = {
-      "commit_mode", "asr_provider", "asr_endpoint", "asr_model",
-      "polish_provider", "polish_endpoint", "polish_model",
+      "commit_mode", "asr_provider", "asr_model", "polish_provider",
+      "polish_model",
       "polish_prompt_id", "polish_prompt"};
   for (const auto *key : string_keys) {
     if (!voice.contains(key) || !voice.at(key).is_string())
