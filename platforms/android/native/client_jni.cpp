@@ -80,6 +80,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_createRaw(JNIEnv
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_focusRaw(JNIEnv *env, jclass, jlong handle, jboolean focused) {
     return response(env, msime_client_focus(static_cast<uint64_t>(handle), focused == JNI_TRUE));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setNineKeyModeRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
+    return response(env, msime_client_set_nine_key_mode(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_characterRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jboolean shift) {
     if (ascii < 0 || ascii > 127) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Engine character must be ASCII");
@@ -110,6 +113,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_removeCandidateR
         return nullptr;
     }
     return response(env, msime_client_remove_candidate(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_chooseNineKeySpellingRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
+    if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid nine-key spelling index");
+        return nullptr;
+    }
+    return response(env, msime_client_choose_nine_key_spelling(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_viewRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_view(static_cast<uint64_t>(handle)));

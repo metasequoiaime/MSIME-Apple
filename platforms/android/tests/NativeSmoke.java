@@ -42,6 +42,20 @@ public final class NativeSmoke {
             if (!matcher.find()) throw new AssertionError(created);
             long handle = Long.parseLong(matcher.group(1));
             success(NativeClient.focus(handle, true));
+            String nineKey = NativeClient.setNineKeyMode(handle, true);
+            success(nineKey);
+            if (!nineKey.contains("\"nine_key\":true")) throw new AssertionError(nineKey);
+            String digit = NativeClient.character(handle, '6', false);
+            success(digit);
+            if (!digit.contains("\"handled\":true") || !digit.contains("\"nine_key_spellings\":[")) {
+                throw new AssertionError(digit);
+            }
+            var nineGeneration = Pattern.compile("\"generation\":(\\d+)").matcher(digit);
+            if (!nineGeneration.find()) throw new AssertionError(digit);
+            success(NativeClient.chooseNineKeySpelling(handle,
+                Long.parseLong(nineGeneration.group(1)), 0));
+            success(NativeClient.command(handle, 3));
+            success(NativeClient.setNineKeyMode(handle, false));
             success(NativeClient.character(handle, 'U', true));
             for (char value : "1f332".toCharArray()) success(NativeClient.character(handle, value, false));
             String snapshot = "{\"format_version\":1,\"revision\":1,\"preferences\":{\"scheme\":\"quanpin\",\"candidate_page_size\":2,\"learning\":false,\"chinese_punctuation\":false}}";
@@ -66,7 +80,7 @@ public final class NativeSmoke {
             if (!punctuation.contains("\"handled\":false")) throw new AssertionError(punctuation);
             success(NativeClient.destroy(handle));
             if (!NativeClient.view(handle).contains("\"ok\":false")) throw new AssertionError("stale handle accepted");
-            System.out.println("JNI consumer: supplementary UTF-8 paths, preferences CAS and input commit passed");
+            System.out.println("JNI consumer: nine-key, UTF-8 paths, preferences CAS and input commit passed");
         } finally {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);

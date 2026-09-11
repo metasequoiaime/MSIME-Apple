@@ -9,12 +9,12 @@ use msime_client_core::preferences::{
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{
-    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, OnlineQuery, Runtime,
-    Transition, TranslationQuery,
-};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
+use msime_input_runtime::{
+    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, NineKeySpellingId,
+    OnlineQuery, Runtime, Transition, TranslationQuery,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -36,6 +36,7 @@ struct HostSession {
     punctuation_override: Option<bool>,
     english_mode: bool,
     page_size_override: Option<u8>,
+    nine_key_mode: bool,
     voice: VoiceSessionState,
 }
 
@@ -83,6 +84,12 @@ impl HostSession {
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
         }
+        let retain_nine_key_mode = self.nine_key_mode && options.scheme == 0;
+        if retain_nine_key_mode {
+            engine
+                .set_nine_key_enabled(true)
+                .map_err(|e| e.to_string())?;
+        }
         engine
             .set_dedicated_english(self.english_mode)
             .map_err(|e| e.to_string())?;
@@ -95,6 +102,7 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
+        self.nine_key_mode = retain_nine_key_mode;
         Ok(())
     }
 
@@ -262,7 +270,7 @@ pub fn prepare_host_configuration(
             state_root
                 .to_str()
                 .ok_or("non-UTF-8 state path")?
-            .to_owned(),
+                .to_owned(),
         ),
         clipboard_history_path: None,
         online_provider_socket: None,
@@ -575,6 +583,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     punctuation_override: None,
                     english_mode: default_english,
                     page_size_override: None,
+                    nine_key_mode: false,
                     voice: VoiceSessionState::default(),
                 },
             )
@@ -755,6 +764,21 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
+/// Enable Engine-owned quanpin nine-key digit handling after composition is idle.
+#[no_mangle]
+pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_nine_key_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+            session.nine_key_mode = enabled;
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_set_character_width(handle: u64, fullwidth: bool) -> *mut c_char {
     response(|| {
@@ -847,6 +871,23 @@ pub extern "C" fn msime_client_remove_candidate(
     dispatch(
         handle,
         Action::RemoveCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
+/// Select one spelling from View.nine_key_spellings for the exact view generation.
+#[no_mangle]
+pub extern "C" fn msime_client_choose_nine_key_spelling(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::ChooseNineKeySpelling(NineKeySpellingId {
             session: handle,
             generation,
             index,
@@ -1052,10 +1093,7 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null()
-            || socket_path.is_null()
-            || query_length > 16_384
-            || socket_length > 4096
+        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
         {
             return Err("invalid emoji provider buffer".into());
         }
@@ -1102,10 +1140,9 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid emoji query document")?;
-        let resources = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(resources, resources_length)
-        })
-        .map_err(|_| "resources path is not UTF-8")?;
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
         if !std::path::Path::new(resources).is_absolute() {
             return Err("resources path must be absolute".into());
         }
@@ -1147,11 +1184,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null()
-            || socket_path.is_null()
-            || query_length > 4096
-            || socket_length > 4096
-        {
+        if query.is_null() || socket_path.is_null() || query_length > 4096 || socket_length > 4096 {
             return Err("invalid voice provider buffer".into());
         }
         #[derive(Deserialize)]
@@ -1385,6 +1418,67 @@ mod tests {
         assert_eq!(
             read(msime_client_character(handle, b';', false))["value"]["view"]["editing_text"],
             "b;"
+        );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let enabled = read(msime_client_set_nine_key_mode(handle, true));
+        assert_eq!(enabled["value"]["nine_key"], true);
+        let typed = read(msime_client_character(handle, b'6', false));
+        assert_eq!(typed["value"]["handled"], true);
+        let view = &typed["value"]["view"];
+        let generation = view["generation"].as_u64().unwrap();
+        assert!(!view["nine_key_spellings"].as_array().unwrap().is_empty());
+        assert_eq!(
+            read(msime_client_choose_nine_key_spelling(
+                handle,
+                generation - 1,
+                0
+            ))["ok"],
+            false
+        );
+        let selected = read(msime_client_choose_nine_key_spelling(handle, generation, 0));
+        assert_eq!(selected["value"]["handled"], true);
+        assert_eq!(
+            read(msime_client_set_nine_key_mode(handle, false))["ok"],
+            false
+        );
+        read(msime_client_command(handle, 3));
+        assert_eq!(
+            read(msime_client_set_nine_key_mode(handle, false))["value"]["nine_key"],
+            false
+        );
+
+        let mut preferences = Preferences {
+            candidate_page_size: 4,
+            ..Preferences::default()
+        };
+        assert_eq!(
+            update(handle, 1, &preferences)["value"]["view"]["nine_key"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
+            true
+        );
+        preferences.learning = false;
+        assert_eq!(
+            update(handle, 2, &preferences)["value"]["view"]["nine_key"],
+            true
+        );
+        preferences.scheme = InputScheme::Wubi;
+        assert_eq!(
+            update(handle, 3, &preferences)["value"]["view"]["nine_key"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_set_nine_key_mode(handle, true))["ok"],
+            false
         );
         read(msime_client_destroy(handle));
     }

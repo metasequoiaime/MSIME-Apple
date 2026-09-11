@@ -14,7 +14,7 @@
 
 “更多”菜单的“本地输入”子菜单接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。
 
-键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示共享 Engine 已支持的全拼 26 键、小鹤/自然码/微软/首道双拼、86 五笔和日语 26 键。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme` 和 `shuangpin_profile`，保存成功后才更新当前会话；冲突或存储失败保留原方案。Android 尚无相应 Engine 契约的中日文九键、手写和 AI 回复不会提前显示为可用方案。
+键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示共享 Engine 已支持的全拼 26 键、小鹤/自然码/微软/首道双拼、86 五笔和日语 26 键。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme` 和 `shuangpin_profile`，保存成功后才更新当前会话；冲突或存储失败保留原方案。共享 host/JNI 现已提供 Engine 所有的全拼九键模式、拼音消歧列表和带 generation 的选择契约，但 Android 九键布局及持久化尚未接入，因此方案面板仍不提前显示九键；日语九键、手写和 AI 回复也仍待后续切片。
 
 中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
 

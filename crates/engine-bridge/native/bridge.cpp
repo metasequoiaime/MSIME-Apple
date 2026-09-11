@@ -131,6 +131,9 @@ EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
+    output.nine_key = nine_key_;
+    for (const auto& spelling : value.nine_key_spellings)
+        output.nine_key_spellings.push_back(rust::String(spelling));
     output.microsoft_shuangpin = microsoft_shuangpin_;
     output.scheme = static_cast<std::uint8_t>(value.scheme);
     output.shuangpin_profile = rust::String(shuangpin_profile_);
@@ -252,6 +255,13 @@ rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
     return result_for(session_.character(static_cast<char>(value), shift));
+}
+void EngineSession::set_nine_key_enabled(bool enabled) {
+    session_.set_nine_key_enabled(enabled);
+    nine_key_ = enabled;
+}
+EngineResult EngineSession::choose_nine_key_spelling(std::size_t index) {
+    return result_for(session_.choose_nine_key_spelling(index));
 }
 EngineResult EngineSession::command(std::uint8_t value) {
     using metasequoia::Command;
