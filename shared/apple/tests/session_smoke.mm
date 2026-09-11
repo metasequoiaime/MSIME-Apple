@@ -37,6 +37,13 @@ int main() {
         assert(![MSIMEClientSession prepareHostWithResourcesDirectory:@"relative/resources" stateRoot:root error:&error] && error);
         error = nil;
         assert(![MSIMEClientSession prepareHostWithResourcesDirectory:@"" stateRoot:root error:&error] && error);
+        error = nil;
+        NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:0 snapshot:@{@"format_version": @1, @"revision": @0, @"preferences": options[@"preferences"]} error:&error];
+        assert(saved && !error && [saved[@"revision"] isEqual:@1]);
+        error = nil;
+        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:0 snapshot:@{@"format_version": @1, @"revision": @0, @"preferences": options[@"preferences"]} error:&error] && error);
+        error = nil;
+        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:1 snapshot:@{@"format_version": @2, @"revision": @1, @"preferences": options[@"preferences"]} error:&error] && error);
         NSDictionary *invalidDictionary = [MSIMEClientSession dictionaryRequest:@{@"options": options, @"action": @{@"operation": @"unknown"}} error:&error];
         assert(!invalidDictionary && error);
         error = nil;
