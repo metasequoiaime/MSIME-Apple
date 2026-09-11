@@ -25,6 +25,32 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
+struct SkinDirectoryState(PathBuf);
+
+#[derive(serde::Serialize)]
+struct SkinCatalogResponse {
+    directory: String,
+    #[serde(flatten)]
+    catalog: msime_client_core::skin_catalog::SkinCatalog,
+}
+
+fn read_skin_catalog(root: PathBuf) -> SkinCatalogResponse {
+    SkinCatalogResponse {
+        directory: root.to_string_lossy().into_owned(),
+        catalog: msime_client_core::skin_catalog::scan(root),
+    }
+}
+
+#[tauri::command]
+async fn scan_skin_catalog(
+    directory: tauri::State<'_, SkinDirectoryState>,
+) -> Result<SkinCatalogResponse, CommandError> {
+    // The host chooses the root; the webview cannot request arbitrary folders.
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_skin_catalog(root))
+        .await
+        .map_err(|_| CommandError { code: "storage" })
+}
 
 #[derive(Clone)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -1758,6 +1784,7 @@ pub fn run() {
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
             #[cfg(target_os = "linux")]
             start_linux_preferences_monitor(app.handle(), preferences.clone());
@@ -1860,6 +1887,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_preferences,
+            scan_skin_catalog,
             save_preferences,
             list_clipboard_history,
             clear_clipboard_history,
@@ -1890,6 +1918,51 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn skin_catalog_response_uses_host_root_and_preserves_scan_results() {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        let folder = root.join("sample");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("skin.toml"),
+            r#"schema_version = 1
+id = 'sample'
+name = 'Sample'
+version = '1'
+base = 'fluent'
+[supports]
+layouts = ['vertical']
+themes = ['light']
+[candidate_window]
+[candidate_window.decoration]
+"#,
+        )
+        .unwrap();
+        std::fs::create_dir(root.join("Bad")).unwrap();
+        let result = serde_json::to_value(super::read_skin_catalog(root.clone())).unwrap();
+        assert_eq!(result["directory"], root.to_string_lossy().as_ref());
+        assert_eq!(result["packages"][0]["id"], "sample");
+        assert_eq!(result["packages"].as_array().unwrap().len(), 1);
+        assert_eq!(result["issues"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["packages"][0]["layouts"],
+            serde_json::json!(["vertical"])
+        );
+        assert_eq!(result["issues"][0]["folder"], "Bad");
+        assert!(result.get("catalog").is_none());
+    }
+
+    #[test]
+    fn scanning_missing_skin_directory_does_not_create_it() {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        let result = super::read_skin_catalog(root.clone());
+        assert!(result.catalog.packages.is_empty());
+        assert!(result.catalog.issues.is_empty());
+        assert!(!root.exists());
+    }
+
     #[cfg(target_os = "linux")]
     use super::*;
 
