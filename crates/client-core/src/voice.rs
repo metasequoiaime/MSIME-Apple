@@ -135,4 +135,14 @@ mod tests {
         };
         assert_eq!(recognize(&Stub, &r).unwrap().text, "你好");
     }
+
+    #[test]
+    fn protocol_roundtrips_json() {
+        let value = VoicePreferences::default();
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(
+            serde_json::from_str::<VoicePreferences>(&encoded).unwrap(),
+            value
+        );
+    }
 }
