@@ -57,6 +57,7 @@ struct State {
   bool chinese_punctuation = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
+  bool paired_punctuation = true;
   char last_smart_punctuation = 0;
   gint64 last_smart_punctuation_time = 0;
   std::string punctuation_lock = "follow";
@@ -142,6 +143,7 @@ struct State {
         options.at("preferences").value("chinese_punctuation", true));
     smart_punctuation = options.at("preferences").value("smart_punctuation", true);
     smart_punctuation_repeat = options.at("preferences").value("smart_punctuation_repeat", true);
+    paired_punctuation = options.at("preferences").value("paired_punctuation", true);
     punctuation_lock = configured.value("punctuation_lock", "follow");
     if (punctuation_lock == "chinese")
       chinese_punctuation = true;
@@ -867,7 +869,7 @@ bool apply(IBusEngine *engine, char *raw) {
   if (commit.is_string()) {
     auto text = commit.get<std::string>();
     auto &s = state(engine);
-    if (s.smart_punctuation && text.size() == 1 &&
+    if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
       s.last_smart_punctuation_time = g_get_monotonic_time();
@@ -1453,7 +1455,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       handled = true;
       return;
     }
-    if (s.smart_punctuation_repeat && s.last_smart_punctuation == key &&
+    if (s.smart_punctuation_repeat && s.paired_punctuation && s.last_smart_punctuation == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <= 500000 &&
         s.view.at("editing_text").get<std::string>().empty()) {

@@ -94,6 +94,8 @@ pub struct Preferences {
     pub smart_punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub smart_punctuation_repeat: bool,
+    #[serde(default = "enabled_by_default")]
+    pub paired_punctuation: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -536,6 +538,7 @@ impl Default for Preferences {
             chinese_punctuation: true,
             smart_punctuation: true,
             smart_punctuation_repeat: true,
+            paired_punctuation: true,
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
