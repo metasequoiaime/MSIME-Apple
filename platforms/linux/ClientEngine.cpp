@@ -1817,7 +1817,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
 }
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
-  if (button != 1 || flags || !state(engine).focused || state(engine).blocked ||
+  if ((button != 1 && button != 2) || flags || !state(engine).focused || state(engine).blocked ||
       !state(engine).input_enabled)
     return;
   guarded(engine, "candidate_clicked", [&] {
