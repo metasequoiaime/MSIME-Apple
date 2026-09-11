@@ -17,5 +17,6 @@ struct HostOptionsPaths {
 HostOptionsPaths make_host_options_paths(const std::filesystem::path &install_root,
                                          const std::filesystem::path &user_data_root);
 std::string host_options_json(const HostOptionsPaths &paths);
+std::string default_host_options_json();
 
 } // namespace msime::tsf

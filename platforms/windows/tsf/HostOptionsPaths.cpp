@@ -1,6 +1,8 @@
 #include "HostOptionsPaths.h"
 
 #include <nlohmann/json.hpp>
+#include <windows.h>
+#include <shlobj.h>
 
 namespace msime::tsf {
 
@@ -16,6 +18,17 @@ std::string host_options_json(const HostOptionsPaths &paths) {
                         {"user_data", native(paths.user_data)}, {"cache", native(paths.cache)},
                         {"dictionaries", native(paths.dictionaries)}}
       .dump();
+}
+
+std::string default_host_options_json() {
+  wchar_t module[MAX_PATH]{};
+  if (!GetModuleFileNameW(nullptr, module, MAX_PATH)) return {};
+  std::filesystem::path install_root = std::filesystem::path(module).parent_path().parent_path();
+  wchar_t app_data[MAX_PATH]{};
+  if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, app_data)))
+    return {};
+  return host_options_json(make_host_options_paths(
+      install_root, std::filesystem::path(app_data) / "MetasequoiaIME"));
 }
 
 } // namespace msime::tsf
