@@ -29,6 +29,25 @@ struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
 struct SkinDirectoryState(PathBuf);
 
+fn read_skin_toolbar_stylesheet_at(
+    root: PathBuf,
+    id: &str,
+) -> Result<Option<String>, CommandError> {
+    msime_client_core::skin_catalog::read_toolbar_stylesheet(root, id)
+        .map_err(|_| CommandError { code: "storage" })
+}
+
+#[tauri::command]
+async fn read_skin_toolbar_stylesheet(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    id: String,
+) -> Result<Option<String>, CommandError> {
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_skin_toolbar_stylesheet_at(root, &id))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SkinImageResponse {
@@ -1972,6 +1991,7 @@ pub fn run() {
             load_preferences,
             scan_skin_catalog,
             read_skin_image,
+            read_skin_toolbar_stylesheet,
             open_skin_directory,
             save_preferences,
             list_clipboard_history,
@@ -2004,6 +2024,20 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn toolbar_stylesheet_command_errors_do_not_expose_paths() {
+        let state = tempfile::tempdir().unwrap();
+        let result =
+            super::read_skin_toolbar_stylesheet_at(state.path().join("skins"), "../sample");
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("expected error"),
+        };
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({ "code": "storage" })
+        );
+    }
+    #[test]
     fn skin_image_command_contract_filters_non_images_and_paths() {
         let state = tempfile::tempdir().unwrap();
         let root = state.path().join("skins");
@@ -2012,6 +2046,19 @@ mod tests {
         std::fs::write(folder.join("skin.toml"), "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
         std::fs::write(folder.join("preview.png"), [0, 1, 255]).unwrap();
         std::fs::write(folder.join("toolbar.css"), b".sample {}").unwrap();
+        assert!(matches!(
+            super::read_skin_toolbar_stylesheet_at(root.clone(), "sample"),
+            Ok(None)
+        ));
+        let manifest = std::fs::read_to_string(folder.join("skin.toml")).unwrap();
+        std::fs::write(
+            folder.join("skin.toml"),
+            format!("toolbar_stylesheet = 'toolbar.css'\n{manifest}"),
+        )
+        .unwrap();
+        assert!(
+            matches!(super::read_skin_toolbar_stylesheet_at(root.clone(), "sample"), Ok(Some(css)) if css == ".sample {}")
+        );
         let result = super::read_skin_image_at(root.clone(), "sample", "preview.png")
             .ok()
             .unwrap();
