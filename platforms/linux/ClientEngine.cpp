@@ -256,6 +256,10 @@ struct State {
       chinese_punctuation = true;
     else if (punctuation_lock == "english")
       chinese_punctuation = false;
+    if (!smart_punctuation || !smart_punctuation_repeat || !paired_punctuation) {
+      last_smart_punctuation = 0;
+      last_smart_punctuation_time = 0;
+    }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
     auto display_preferences = preferences;
