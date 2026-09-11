@@ -424,6 +424,9 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                               : Json::array();
   size_t slot = 0;
   for (const auto &candidate : candidates) {
+    if (!candidate.is_object() || !candidate.contains("id") ||
+        !candidate.at("id").is_object())
+      continue;
     ++slot;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"}}) {
