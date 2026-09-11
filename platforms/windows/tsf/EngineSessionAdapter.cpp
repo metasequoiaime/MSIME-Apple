@@ -28,6 +28,8 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
         if (candidate.contains("id")) {
           const auto &raw_id = candidate.at("id");
           id = raw_id.is_string() ? raw_id.get<std::string>() : raw_id.dump();
+          if (parsed.view.generation == 0 && raw_id.is_object())
+            parsed.view.generation = raw_id.value("generation", uint64_t{0});
         }
         parsed.view.candidates.push_back({std::move(id),
                                           candidate.value("text", "")});
