@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { ExternalSkins } from "../../../packages/ui/src/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
 import geometryCss from "../../../packages/ui/src/external-skin-geometry.css?raw";
+import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin-image";
+import desktopConfig from "../src-tauri/tauri.conf.json";
 
 afterEach(cleanup);
 const catalog: SkinCatalog = {
@@ -17,6 +19,86 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
 } };
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
+
+const imageCatalog: SkinCatalog = { ...catalog, packages: [{ ...catalog.packages[0],
+  preview: "images/top.png", decorationTopDip: 32, decorationWidthDip: 150 }] };
+const imageData: SkinImage = { contentType: "image/png", bytes: [0, 1, 255] };
+
+test("image data URLs preserve bytes and reject non-image or invalid payloads", () => {
+  expect(skinImageUrl(imageData)).toBe("data:image/png;base64,AAH/");
+  for (const image of [{ contentType: "text/html", bytes: [] }, { contentType: "image/png;bad", bytes: [] },
+    { ...imageData, bytes: [-1] }, { ...imageData, bytes: [256] }, { ...imageData, bytes: [1.5] },
+    { ...imageData, bytes: [NaN] }, { ...imageData, bytes: new Array(8 * 1024 * 1024 + 1) }]) {
+    expect(() => skinImageUrl(image)).toThrow("invalid image");
+  }
+});
+
+test("one host image read feeds both preview layouts and refresh reloads unchanged manifests", async () => {
+  const readImage = vi.fn().mockResolvedValue(imageData);
+  const mounted = render(<ExternalSkins {...props} scan={async () => imageCatalog} readImage={readImage} />);
+  expect(readImage).not.toHaveBeenCalled();
+  refresh();
+  const card = await screen.findByRole("article");
+  await waitFor(() => expect(card.querySelectorAll("img.skin-decoration-image")).toHaveLength(2));
+  expect(readImage).toHaveBeenCalledExactlyOnceWith("sample", "images/top.png");
+  expect(card.querySelector("img.skin-decoration-image")?.getAttribute("src")).toBe(skinImageUrl(imageData));
+  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  expect(readImage).toHaveBeenCalledTimes(1);
+  refresh();
+  await waitFor(() => expect(readImage).toHaveBeenCalledTimes(2));
+  mounted.unmount();
+});
+
+test("settings forwards image reader and existing CSP permits image data without broader sources", async () => {
+  const readSkinImage = vi.fn().mockResolvedValue(imageData);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), scanSkinCatalog: async () => imageCatalog, readSkinImage }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  refresh();
+  await waitFor(() => expect(readSkinImage).toHaveBeenCalledExactlyOnceWith("sample", "images/top.png"));
+  const imgDirective = desktopConfig.app.security.csp.split(";").find(value => value.trim().startsWith("img-src"));
+  expect(imgDirective?.trim()).toBe("img-src 'self' data:");
+});
+
+test("image read and decode failures retain base preview and can be retried", async () => {
+  const readImage = vi.fn().mockRejectedValueOnce(new Error("private diagnostic")).mockResolvedValue(imageData);
+  render(<ExternalSkins {...props} scan={async () => imageCatalog} readImage={readImage} />);
+  refresh();
+  await screen.findByText("皮肤图片加载失败，保留基础预览。可刷新皮肤重试。");
+  expect(screen.queryByText("private diagnostic")).toBeNull();
+  refresh();
+  const card = screen.getByRole("article");
+  await waitFor(() => expect(card.querySelector("img.skin-decoration-image")).not.toBeNull());
+  fireEvent.error(card.querySelector("img.skin-decoration-image")!);
+  expect(card.querySelector("img.skin-decoration-image")).toBeNull();
+  expect(card.querySelectorAll(".candidate .container")).toHaveLength(2);
+  refresh();
+  await waitFor(() => expect(card.querySelectorAll("img.skin-decoration-image")).toHaveLength(2));
+});
+
+test("old image response cannot replace current resource after catalog refresh", async () => {
+  let finish!: (image: SkinImage) => void;
+  const readImage = vi.fn().mockImplementationOnce(() => new Promise<SkinImage>(resolve => { finish = resolve; }))
+    .mockResolvedValue({ ...imageData, bytes: [2] });
+  render(<ExternalSkins {...props} scan={async () => imageCatalog} readImage={readImage} />);
+  refresh();
+  await waitFor(() => expect(readImage).toHaveBeenCalledTimes(1));
+  refresh();
+  const card = screen.getByRole("article");
+  await waitFor(() => expect(card.querySelector("img.skin-decoration-image")?.getAttribute("src")).toContain("Ag=="));
+  await act(async () => finish(imageData));
+  expect(card.querySelector("img.skin-decoration-image")?.getAttribute("src")).toContain("Ag==");
+});
+
+test("images are not requested without decoration and optional hosts remain usable", async () => {
+  const readImage = vi.fn();
+  const scan = async () => ({ ...imageCatalog, packages: [{ ...imageCatalog.packages[0], decorationTopDip: 0, decorationWidthDip: 0 }] });
+  const mounted = render(<ExternalSkins {...props} scan={scan} readImage={readImage} />);
+  refresh(); await screen.findByRole("article");
+  expect(readImage).not.toHaveBeenCalled();
+  mounted.rerender(<ExternalSkins {...props} scan={async () => imageCatalog} />);
+  refresh();
+  await screen.findByText("当前宿主不支持皮肤图片预览。");
+});
 
 test("decorated previews preserve upstream geometry in both layouts without decorating toolbar", async () => {
   render(<ExternalSkins {...props} scan={async () => ({ ...catalog, packages: [{ ...catalog.packages[0],

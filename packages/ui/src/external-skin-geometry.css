@@ -1,6 +1,6 @@
 /* Windows 04a8df56 skin.ts candidatePreviewCss / skin.css, GPL-3.0.
-   Resource delivery is separate; reserve the upstream geometry without loading
-   an untrusted path as an image. The future resource layer supplies the image. */
+   Reserve the upstream geometry; the sibling image element receives bytes from
+   the bounded host image reader, never a manifest-supplied URL. */
 .skin-card.external-skin-decorated,
 .external-skin-decorated .skin-card-preview,
 .external-skin-decorated .skin-preview-stage { overflow: visible; }
@@ -24,4 +24,14 @@
   position: relative;
   z-index: 1;
   min-width: max(7em, var(--msime-skin-min-width, 0px));
+}
+.external-skin-decorated .skin-decoration-image {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  width: var(--msime-skin-decoration-width, 0px);
+  height: 118px;
+  object-fit: contain;
+  pointer-events: none;
 }

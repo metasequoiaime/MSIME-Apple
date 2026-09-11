@@ -141,3 +141,14 @@ unimplemented, so the ornament background is explicitly `none` for now.
 Sparse light palettes now layer over dark palette rules as upstream does,
 instead of dropping all unspecified dark fields. Tests cover geometry bindings,
 CSSOM declarations, refresh/reset and palette layering, not native pixel layout.
+
+External decoration images now load through the host-owned `read_skin_image`
+command using the bounded core resource reader. The host returns image MIME
+types and bytes only; the shared UI creates an image data URL accepted by the
+existing desktop img-src CSP, without broadening it. Both preview orientations
+share one request and use an image element with the pinned 118px, right-aligned,
+contain geometry in place of upstream's background URL. SVG bytes are never
+inserted as markup. Missing/invalid images retain the base preview; refresh
+reloads unchanged filenames and discards late responses. This supersedes the
+earlier image-delivery limitation above. External toolbar CSS, native candidate
+resource delivery and browser/native visual verification remain unfinished.

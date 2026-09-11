@@ -29,6 +29,43 @@ struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
 struct SkinDirectoryState(PathBuf);
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkinImageResponse {
+    content_type: &'static str,
+    bytes: Vec<u8>,
+}
+
+fn read_skin_image_at(
+    root: PathBuf,
+    id: &str,
+    relative: &str,
+) -> Result<SkinImageResponse, CommandError> {
+    let resource = msime_client_core::skin_catalog::read_resource(root, id, relative)
+        .map_err(|_| CommandError { code: "storage" })?;
+    if !resource.content_type.starts_with("image/") {
+        return Err(CommandError {
+            code: "invalid_resource",
+        });
+    }
+    Ok(SkinImageResponse {
+        content_type: resource.content_type,
+        bytes: resource.bytes,
+    })
+}
+
+#[tauri::command]
+async fn read_skin_image(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    id: String,
+    relative: String,
+) -> Result<SkinImageResponse, CommandError> {
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_skin_image_at(root, &id, &relative))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
 #[tauri::command]
 async fn open_skin_directory(
     directory: tauri::State<'_, SkinDirectoryState>,
@@ -1901,6 +1938,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_preferences,
             scan_skin_catalog,
+            read_skin_image,
             open_skin_directory,
             save_preferences,
             list_clipboard_history,
@@ -1932,6 +1970,26 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn skin_image_command_contract_filters_non_images_and_paths() {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        let folder = root.join("sample");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("skin.toml"), "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
+        std::fs::write(folder.join("preview.png"), [0, 1, 255]).unwrap();
+        std::fs::write(folder.join("toolbar.css"), b".sample {}").unwrap();
+        let result = super::read_skin_image_at(root.clone(), "sample", "preview.png")
+            .ok()
+            .unwrap();
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["contentType"], "image/png");
+        assert_eq!(json["bytes"], serde_json::json!([0, 1, 255]));
+        assert!(super::read_skin_image_at(root.clone(), "sample", "toolbar.css").is_err());
+        assert!(super::read_skin_image_at(root.clone(), "sample", "../preview.png").is_err());
+        assert!(super::read_skin_image_at(root, "../sample", "preview.png").is_err());
+    }
+
     #[test]
     fn skin_catalog_response_uses_host_root_and_preserves_scan_results() {
         let state = tempfile::tempdir().unwrap();
