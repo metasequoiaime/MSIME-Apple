@@ -14,6 +14,7 @@
 #import "CandidateAppearance.h"
 #import "CandidateChrome.h"
 #import "PreferencesWindowController.h"
+#import "FloatingToolbarPanel.h"
 #include "CandidateSkin.h"
 
 @interface MSIMECandidatePanel : NSPanel
@@ -23,7 +24,7 @@
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 
-@interface MSIMEInputController : IMKInputController
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 @end
 
 @implementation MSIMEInputController {
@@ -35,6 +36,7 @@
     NSUInteger _voiceGeneration;
     id _voiceMouseMonitor;
     MetasequoiaShuangpinKeymapPanel *_keymapPanel;
+    MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
@@ -42,9 +44,12 @@
     NSUInteger _candidateFontSize;
     NSString *_candidateSkin;
     BOOL _fullWidthInput;
+    BOOL _chinesePunctuation;
     BOOL _traditionalOutput;
     BOOL _englishMode;
     BOOL _inputModeShortcutEnabled;
+    BOOL _floatingToolbarEnabled;
+    BOOL _toolbarHiddenByUser;
     NSString *_resolvedSkinID;
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
@@ -75,11 +80,39 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     }
 }
 
+- (void)applyView:(NSDictionary *)view {
+    if (![view isKindOfClass:NSDictionary.class] || !_activeClient) return;
+    _view = view;
+    [self renderCandidates];
+}
+
+- (void)refreshToolbar {
+    if (!_toolbar) return;
+    [_toolbar updateEnglishInputMode:_englishMode
+             chinesePunctuationEnabled:_chinesePunctuation
+                      fullWidthEnabled:_fullWidthInput
+       traditionalChineseOutputEnabled:_traditionalOutput];
+    [_toolbar setVisible:_floatingToolbarEnabled && !_toolbarHiddenByUser forDelegate:self];
+}
+
+- (void)syncCharacterWidth {
+    if (!_session) return;
+    NSDictionary *view = [_session setCharacterWidthFull:_fullWidthInput error:nil];
+    if (view) [self applyView:view];
+}
+
+- (void)syncChinesePunctuation {
+    if (!_session) return;
+    NSDictionary *view = [_session setChinesePunctuationEnabled:_chinesePunctuation error:nil];
+    if (view) [self applyView:view];
+}
+
 - (void)setEnglishInputMode:(BOOL)enabled {
     if (enabled == _englishMode) return;
     if (!_session) {
         _englishMode = enabled;
         [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"MSIMEClientEnglishMode"];
+        [self refreshToolbar];
         return;
     }
     if (enabled && _activeClient && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
@@ -95,6 +128,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [self apply:transition];
     if (!enabled && _activeClient) [self apply:[_session setFocused:YES error:nil]];
     if (enabled) [_panel orderOut:nil];
+    [self refreshToolbar];
 }
 
 - (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
@@ -106,6 +140,10 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 - (void)showPreferences:(id)sender { (void)sender; [[MSIMEPreferencesWindowController sharedController] showAndActivate]; }
 - (void)openCharacterPalette:(id)sender { (void)sender; [[NSApplication sharedApplication] orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; }
+- (void)openWebsite:(id)sender {
+    (void)sender;
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app"]];
+}
 
 - (void)cancelVoiceInput {
     ++_voiceGeneration;
@@ -219,8 +257,14 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     _activeClient = sender;
     _fullWidthInput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientFullWidthInput"];
     _englishMode = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientEnglishMode"];
+    _chinesePunctuation = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientChinesePunctuation"] == nil ||
+                          [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientChinesePunctuation"];
+    _floatingToolbarEnabled = YES;
+    _toolbarHiddenByUser = NO;
     _inputModeShortcutEnabled = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientInputModeShortcut"] == nil ||
                                 [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientInputModeShortcut"];
+    _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [_toolbar activateForDelegate:self visible:_floatingToolbarEnabled];
     _verticalCandidates = YES;
     _candidateFontSize = 18;
     _candidateSkin = @"fluent";
@@ -234,8 +278,18 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         NSData *data = [NSData dataWithContentsOfFile:path];
         NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         if ([options isKindOfClass:NSDictionary.class]) {
-            _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
             NSDictionary *preferences = options[@"preferences"];
+            if ([preferences isKindOfClass:NSDictionary.class]) {
+                if ([preferences[@"chinese_punctuation"] isKindOfClass:NSNumber.class]) {
+                    _chinesePunctuation = [preferences[@"chinese_punctuation"] boolValue];
+                    [[NSUserDefaults standardUserDefaults] setBool:_chinesePunctuation forKey:@"MSIMEClientChinesePunctuation"];
+                }
+                NSDictionary *toolbar = preferences[@"floating_toolbar"];
+                if ([toolbar isKindOfClass:NSDictionary.class] && [toolbar[@"enabled"] isKindOfClass:NSNumber.class]) {
+                    _floatingToolbarEnabled = [toolbar[@"enabled"] boolValue];
+                }
+            }
+            _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
             if ([preferences isKindOfClass:NSDictionary.class]) {
                 if ([preferences[@"traditional_chinese_output"] isKindOfClass:NSNumber.class]) {
                     _traditionalOutput = [preferences[@"traditional_chinese_output"] boolValue];
@@ -261,7 +315,10 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
     }
+    [self refreshToolbar];
     if (_session) {
+        [self syncCharacterWidth];
+        [self syncChinesePunctuation];
         if (_englishMode) [self apply:[_session setEnglishMode:YES error:nil]];
         else [self apply:[_session setFocused:YES error:nil]];
     }
@@ -301,16 +358,23 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
                     const std::string normalized = msime::mac::NormalizeSkinId([(NSString *)skin UTF8String] ?: "");
                     controller->_candidateSkin = [NSString stringWithUTF8String:normalized.c_str()];
                 }
+                NSDictionary *toolbar = presentation[@"floating_toolbar"];
+                if ([toolbar isKindOfClass:NSDictionary.class] &&
+                    [toolbar[@"enabled"] isKindOfClass:NSNumber.class]) {
+                    controller->_floatingToolbarEnabled = [toolbar[@"enabled"] boolValue];
+                }
             }
             [controller refreshResolvedSkins];
             controller->_view = result[@"view"];
             [controller renderCandidates];
+            [controller refreshToolbar];
         }
     }];
 }
 
 - (void)deactivateServer:(id)sender {
     [self cancelVoiceInput];
+    [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
@@ -318,6 +382,67 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [_panel orderOut:nil];
     _activeClient = nil;
     [super deactivateServer:sender];
+}
+
+- (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [self setEnglishInputMode:!_englishMode];
+}
+
+- (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    if (_session && _activeClient && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+        [(NSString *)_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    _chinesePunctuation = !_chinesePunctuation;
+    [[NSUserDefaults standardUserDefaults] setBool:_chinesePunctuation forKey:@"MSIMEClientChinesePunctuation"];
+    [self syncChinesePunctuation];
+    [self refreshToolbar];
+}
+
+- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    _fullWidthInput = !_fullWidthInput;
+    [[NSUserDefaults standardUserDefaults] setBool:_fullWidthInput forKey:@"MSIMEClientFullWidthInput"];
+    [self syncCharacterWidth];
+    [self refreshToolbar];
+}
+
+- (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    _traditionalOutput = !_traditionalOutput;
+    [[NSUserDefaults standardUserDefaults] setBool:_traditionalOutput forKey:@"MSIMEClientTraditionalChineseOutput"];
+    [self refreshToolbar];
+    [self renderCandidates];
+}
+
+- (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [self openCharacterPalette:nil];
+}
+
+- (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [self showPreferences:nil];
+}
+
+- (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [self checkForUpdates:nil];
+}
+
+- (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://msime.app"]];
+}
+
+- (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    _toolbarHiddenByUser = YES;
+    [self refreshToolbar];
 }
 
 - (void)dealloc { [_preferencesTimer invalidate]; [_voiceService cancel]; if (_voiceMouseMonitor) [NSEvent removeMonitor:_voiceMouseMonitor]; }
@@ -349,6 +474,8 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         if (!event.isARepeat) {
             _fullWidthInput = !_fullWidthInput;
             [[NSUserDefaults standardUserDefaults] setBool:_fullWidthInput forKey:@"MSIMEClientFullWidthInput"];
+            [self syncCharacterWidth];
+            [self refreshToolbar];
         }
         return YES;
     }

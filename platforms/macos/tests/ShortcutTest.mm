@@ -28,6 +28,16 @@
         @"view": @{@"focused": @(focused), @"editing_text": @"", @"caret_position": @0, @"candidates": @[]},
     };
 }
+- (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
+    (void)error;
+    return @{@"handled": @NO, @"commit": NSNull.null,
+             @"view": @{ @"full_width": @(fullwidth), @"editing_text": @"", @"caret_position": @0, @"candidates": @[] }};
+}
+- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error;
+    return @{@"handled": @NO, @"commit": NSNull.null,
+             @"view": @{ @"chinese_punctuation": @(enabled), @"editing_text": @"", @"caret_position": @0, @"candidates": @[] }};
+}
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
