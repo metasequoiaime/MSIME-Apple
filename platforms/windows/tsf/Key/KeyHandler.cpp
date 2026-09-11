@@ -1260,7 +1260,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     std::wstring pendingPunctuationCommitText = prefetchedText;
     const bool hasPendingPunctuationCommitText = !pendingPunctuationCommitText.empty();
     std::wstring punctuationStr;
-    if (!hasPendingPunctuationCommitText && _candidateMode == CANDIDATE_NONE)
+    if (!hasPendingPunctuationCommitText)
     {
         if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
         {
