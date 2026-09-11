@@ -1012,8 +1012,17 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   auto &s = state(engine);
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
   const auto length = static_cast<guint>(s.surrounding_text.size());
-  s.surrounding_cursor = std::min(cursor, length);
-  s.surrounding_anchor = std::min(anchor, length);
+  auto utf8_boundary = [&](guint offset) {
+    auto value = std::min(offset, length);
+    // IBus offsets are bytes; never split a UTF-8 sequence when forwarding
+    // surrounding text to the engine.
+    while (value > 0 && value < length &&
+           (static_cast<unsigned char>(s.surrounding_text[value]) & 0xc0) == 0x80)
+      --value;
+    return value;
+  };
+  s.surrounding_cursor = utf8_boundary(cursor);
+  s.surrounding_anchor = utf8_boundary(anchor);
 }
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
