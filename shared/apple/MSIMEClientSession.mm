@@ -112,6 +112,8 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data) return nil;
     return decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
+- (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
+- (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
 - (BOOL)closeWithError:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return NO;
     NSDictionary *result = decode(msime_client_destroy(_handle), error);
