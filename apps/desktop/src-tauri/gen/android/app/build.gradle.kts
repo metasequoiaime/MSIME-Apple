@@ -59,7 +59,8 @@ android {
         java.srcDir(clientRoot.resolve("platforms/android/java"))
         res.setSrcDirs(listOf("src/main/res-msime", clientRoot.resolve("platforms/android/res"), clientRoot.resolve("apps/desktop/src-tauri/icons/android")))
         assets.srcDir(clientRoot.resolve("target/android/tauri-assets"))
-        jniLibs.srcDir(clientRoot.resolve("target/android/jniLibs"))
+        // Tauri supplies libc++_shared from the pinned NDK; this directory contains only MSIME libs.
+        jniLibs.srcDir(clientRoot.resolve("target/android/tauri-jniLibs"))
     }
     buildFeatures {
         buildConfig = true

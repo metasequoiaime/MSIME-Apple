@@ -95,6 +95,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button schemeButton;
     private Button layoutSettingsButton;
     private Button voiceShortcutButton;
+    private Button aiPolishShortcutButton;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
@@ -131,9 +132,22 @@ public final class MSIMEInputService extends InputMethodService {
     private VoiceResultStore voiceResultStore;
     private VoiceResultStore.Entry voiceResultEntry;
     private EditorContextSnapshot voiceTarget;
+    private ScrollView aiPolishScroll;
+    private LinearLayout aiPolishContainer;
+    private LinearLayout aiPolishPanel;
+    private LinearLayout aiPolishActions;
+    private AiPolishConfiguration aiPolishConfiguration;
+    private AiPolishConfiguration aiRequestConfiguration;
+    private AiPolishClient.Operation aiOperation;
+    private EditorContextSnapshot aiTarget;
+    private String aiSourceText = "";
+    private String aiOutputText = "";
+    private String aiError = "";
+    private boolean aiBusy;
     private long editorContextRevision;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
+    private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
 
@@ -184,6 +198,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyCandidateAppearance(preferences);
                 applyTouchGeometry(preferences);
                 applyVoicePreferences(preferences);
+                applyAiPreferences(preferences);
                 applyClipboardPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
@@ -205,7 +220,13 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() { stop(true); connection = null; super.onFinishInput(); }
-    @Override public void onDestroy() { stop(false); preferencesWorker.shutdown(); connection = null; super.onDestroy(); }
+    @Override public void onDestroy() {
+        stop(false);
+        preferencesWorker.shutdown();
+        aiPolishClient.close();
+        connection = null;
+        super.onDestroy();
+    }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     private void stop(boolean finish) {
@@ -229,6 +250,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeSchemePicker();
         closeLayoutSettings();
         closeVoiceResult();
+        closeAiPolish();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -261,6 +283,32 @@ public final class MSIMEInputService extends InputMethodService {
         voiceLanguage = voice == null ? "zh-CN" : voice.optString("language", "zh-CN");
     }
 
+    private void applyAiPreferences(JSONObject preferences) {
+        AiPolishConfiguration next = null;
+        JSONObject ai = preferences == null ? null : preferences.optJSONObject("ai_assistant");
+        if (ai != null && ai.optBoolean("enabled", false)) {
+            try {
+                String endpoint = ai.optString("endpoint", "");
+                String origin = AiPolishConfiguration.credentialOrigin(endpoint);
+                JSONObject tokens = ai.optJSONObject("tokens");
+                String token = tokens == null ? "" : tokens.optString(origin, "");
+                String prompt = ai.optString("prompt", "");
+                if (prompt.trim().isEmpty()) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
+                next = new AiPolishConfiguration(endpoint, ai.optString("model", ""), prompt, token);
+            } catch (IllegalArgumentException ignored) {
+                // Invalid settings disable this entry; never log endpoints, models or credentials.
+            }
+        }
+        AiPolishConfiguration previous = aiPolishConfiguration;
+        aiPolishConfiguration = next;
+        if (aiPolishContainer != null && aiPolishContainer.getVisibility() == View.VISIBLE
+                && aiRequestConfiguration != null && !aiRequestConfiguration.equals(next)) {
+            cancelAiRequest();
+            aiError = "AI 配置已变化，请返回键盘后重新打开。";
+            renderAiPolish();
+        } else if (previous != null && !previous.equals(next)) render();
+    }
+
     private void applyClipboardPreference(JSONObject preferences) {
         clipboardHistoryEnabled = preferences != null
             && preferences.optBoolean("clipboard_history", false);
@@ -284,6 +332,7 @@ public final class MSIMEInputService extends InputMethodService {
         String previousSkin = skin.id();
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
+        AiPolishConfiguration previousAi = aiPolishConfiguration;
         boolean previousClipboard = clipboardHistoryEnabled;
         KeyboardScheme previousScheme = selectedScheme;
         try {
@@ -297,6 +346,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
+                || (previousAi == null ? aiPolishConfiguration != null
+                    : !previousAi.equals(aiPolishConfiguration))
                 || previousClipboard != clipboardHistoryEnabled
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
@@ -344,6 +395,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
+        applyAiPreferences(preferences);
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
@@ -444,6 +496,12 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd, int composingStart, int composingEnd) {
         super.onUpdateSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
         if (oldStart != newStart || oldEnd != newEnd) editorContextRevision++;
+        if (aiPolishContainer != null && aiPolishContainer.getVisibility() == View.VISIBLE
+                && aiTarget != null && !aiTargetMatches()) {
+            cancelAiRequest();
+            aiError = "输入位置已变化，请返回键盘后重新选择文字。";
+            renderAiPolish();
+        }
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
@@ -557,6 +615,10 @@ public final class MSIMEInputService extends InputMethodService {
             layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (voiceResultPanel != null)
             voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (aiPolishPanel != null)
+            aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (aiPolishContainer != null)
+            aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
     }
@@ -629,11 +691,29 @@ public final class MSIMEInputService extends InputMethodService {
         voiceTarget = null;
     }
 
+    private void cancelAiRequest() {
+        if (aiOperation != null) aiOperation.cancel();
+        aiOperation = null;
+        aiBusy = false;
+    }
+
+    private void closeAiPolish() {
+        cancelAiRequest();
+        if (aiPolishContainer != null) aiPolishContainer.setVisibility(View.GONE);
+        aiTarget = null;
+        aiRequestConfiguration = null;
+        aiSourceText = "";
+        aiOutputText = "";
+        aiError = "";
+    }
+
     private boolean voiceInsertionReady() {
         return session != 0 && connection != null && view != null
             && view.optString("editing_text", "").isEmpty()
             && view.optString("local_mode", "none").equals("none");
     }
+
+    private boolean aiPolishReady() { return voiceInsertionReady(); }
 
     private String editorContext(boolean before) {
         if (connection == null) return null;
@@ -656,6 +736,155 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean voiceTargetMatches() {
         return voiceTarget != null && voiceTarget.matches(connection, editorContextRevision,
             editorContext(true), selectedEditorText(), editorContext(false));
+    }
+
+    private boolean aiTargetMatches() {
+        return aiTarget != null && aiTarget.matches(connection, editorContextRevision,
+            editorContext(true), selectedEditorText(), editorContext(false));
+    }
+
+    private void showAiPolish() {
+        if (aiPolishConfiguration == null) {
+            Toast.makeText(this, "请先在共享设置中启用并配置 AI 辅助", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String selected = selectedEditorText();
+        if (!aiPolishReady() || !AiPolishConfiguration.acceptableText(selected)) {
+            Toast.makeText(this, "请先完成当前输入，再选择一万字以内的文字", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeVoiceResult();
+        closeAiPolish();
+        aiRequestConfiguration = aiPolishConfiguration;
+        aiSourceText = selected;
+        aiTarget = new EditorContextSnapshot(connection, editorContextRevision, editorContext(true),
+            selected, editorContext(false));
+        renderAiPolish();
+        aiPolishContainer.setVisibility(View.VISIBLE);
+    }
+
+    private void sendAiPolish() {
+        if (aiBusy || aiRequestConfiguration == null || !aiTargetMatches()
+                || !aiRequestConfiguration.equals(aiPolishConfiguration)) {
+            aiError = "输入位置或 AI 配置已变化，请返回键盘后重试。";
+            renderAiPolish();
+            return;
+        }
+        aiBusy = true;
+        aiError = "";
+        renderAiPolish();
+        try {
+            aiOperation = aiPolishClient.request(aiRequestConfiguration, aiSourceText,
+                (generation, result, failure) -> main.post(
+                    () -> finishAiPolish(generation, result, failure)));
+        } catch (AiPolishClient.Failure error) {
+            aiBusy = false;
+            aiError = error.reason() == AiPolishClient.Reason.BUSY
+                ? "已有 AI 请求正在处理，请稍后重试。" : "无法启动 AI 请求，请检查配置。";
+            renderAiPolish();
+        }
+    }
+
+    private void finishAiPolish(long generation, String result, AiPolishClient.Failure failure) {
+        if (aiOperation == null || aiOperation.generation() != generation
+                || aiPolishContainer == null
+                || aiPolishContainer.getVisibility() != View.VISIBLE) return;
+        aiOperation = null;
+        aiBusy = false;
+        if (!aiTargetMatches() || aiRequestConfiguration == null
+                || !aiRequestConfiguration.equals(aiPolishConfiguration)) {
+            aiError = "输入位置或 AI 配置已变化，请返回键盘后重试。";
+        } else if (failure != null) {
+            aiError = failure.reason() == AiPolishClient.Reason.INVALID
+                ? "服务返回的文字为空或超过一万字。"
+                : "AI 请求失败，请检查网络、地址、模型和密钥。";
+        } else {
+            aiOutputText = result;
+            aiError = "";
+        }
+        renderAiPolish();
+    }
+
+    private void replaceAiSelection() {
+        if (aiOutputText.isEmpty() || !aiPolishReady() || !aiTargetMatches()
+                || aiRequestConfiguration == null
+                || !aiRequestConfiguration.equals(aiPolishConfiguration)) {
+            aiError = "输入位置或 AI 配置已变化，请返回键盘后重试。";
+            renderAiPolish();
+            return;
+        }
+        boolean committed;
+        try { committed = connection.commitText(aiOutputText, 1); }
+        catch (RuntimeException error) { committed = false; }
+        if (committed) closeAiPolish();
+        else {
+            aiError = "编辑器拒绝替换，请返回键盘后重试。";
+            renderAiPolish();
+        }
+    }
+
+    private void renderAiPolish() {
+        if (aiPolishPanel == null || aiPolishActions == null) return;
+        aiPolishPanel.removeAllViews();
+        aiPolishActions.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("AI 润色");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        button(header, "返回键盘", this::closeAiPolish);
+        aiPolishPanel.addView(header);
+        if (!aiError.isEmpty()) {
+            TextView error = new TextView(this);
+            error.setText(aiError);
+            error.setTextColor(Color.RED);
+            error.setContentDescription("AI 润色状态");
+            aiPolishPanel.addView(error);
+        }
+        if (aiRequestConfiguration != null) {
+            TextView destination = new TextView(this);
+            destination.setText("发送到 " + aiRequestConfiguration.destination() + " · "
+                + aiRequestConfiguration.model());
+            destination.setContentDescription("AI 请求目标和模型");
+            aiPolishPanel.addView(destination);
+        }
+        TextView label = new TextView(this);
+        label.setText(aiOutputText.isEmpty() ? "待发送的选中文字" : "润色结果");
+        aiPolishPanel.addView(label);
+        TextView content = new TextView(this);
+        content.setText(aiOutputText.isEmpty() ? aiSourceText : aiOutputText);
+        content.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        content.setContentDescription(aiOutputText.isEmpty() ? "待润色文字" : "AI 润色结果");
+        aiPolishPanel.addView(content);
+        if (aiBusy) {
+            TextView progress = new TextView(this);
+            progress.setText("正在请求…");
+            aiPolishPanel.addView(progress);
+            Button cancel = button(aiPolishActions, "取消请求", () -> {
+                cancelAiRequest();
+                renderAiPolish();
+            });
+            cancel.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        } else if (aiOutputText.isEmpty()) {
+            Button send = button(aiPolishActions, "发送选中文字", this::sendAiPolish);
+            send.setEnabled(aiTargetMatches() && aiRequestConfiguration != null
+                && aiRequestConfiguration.equals(aiPolishConfiguration));
+            send.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        } else {
+            Button replace = button(aiPolishActions, "替换选中文字", this::replaceAiSelection);
+            replace.setEnabled(aiTargetMatches() && aiRequestConfiguration != null
+                && aiRequestConfiguration.equals(aiPolishConfiguration));
+            replace.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        applySkin();
     }
 
     private void startVoiceRecognition() {
@@ -719,6 +948,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
         closeSchemePicker();
         closeLayoutSettings();
+        closeAiPolish();
         renderVoiceResult();
         voiceResultScroll.setVisibility(View.VISIBLE);
     }
@@ -805,6 +1035,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
         closeSchemePicker();
         closeVoiceResult();
+        closeAiPolish();
         renderLayoutSettingsState();
         layoutSettingsScroll.setVisibility(View.VISIBLE);
     }
@@ -905,6 +1136,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
         closeLayoutSettings();
         closeVoiceResult();
+        closeAiPolish();
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -1100,6 +1332,8 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         closeSchemePicker();
         closeLayoutSettings();
+        closeVoiceResult();
+        closeAiPolish();
         renderClipboardHistory();
         clipboardScroll.setVisibility(View.VISIBLE);
     }
@@ -1153,6 +1387,8 @@ public final class MSIMEInputService extends InputMethodService {
         MenuItem voiceInput = menu.add("语音输入");
         voiceInput.setEnabled(voiceInputEnabled && VoiceRecognitionActivity.available(this));
         MenuItem voiceResult = menu.add("语音结果");
+        MenuItem aiPolish = menu.add("AI 润色");
+        aiPolish.setEnabled(aiPolishConfiguration != null && aiPolishReady());
         MenuItem sound = menu.add("按键音");
         sound.setCheckable(true).setChecked(soundEnabled);
         MenuItem haptics = menu.add("按键振动");
@@ -1180,6 +1416,10 @@ public final class MSIMEInputService extends InputMethodService {
             }
             if (item == voiceResult) {
                 showVoiceResult();
+                return true;
+            }
+            if (item == aiPolish) {
+                showAiPolish();
                 return true;
             }
             if (item == sound) soundEnabled = !soundEnabled;
@@ -1935,6 +2175,10 @@ public final class MSIMEInputService extends InputMethodService {
         voiceShortcutButton.setContentDescription("打开语音结果");
         voiceShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        aiPolishShortcutButton = button(candidateHeader, "AI", this::showAiPolish);
+        aiPolishShortcutButton.setContentDescription("打开 AI 润色");
+        aiPolishShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         expandCandidates = new Button(this);
         expandCandidates.setAllCaps(false);
         expandCandidates.setText("展开");
@@ -2118,6 +2362,27 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultScroll.setVisibility(View.GONE);
         keyboardRoot.addView(voiceResultScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        aiPolishContainer = new LinearLayout(this);
+        aiPolishContainer.setOrientation(LinearLayout.VERTICAL);
+        aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
+        aiPolishPanel = new LinearLayout(this);
+        aiPolishPanel.setOrientation(LinearLayout.VERTICAL);
+        aiPolishPanel.setPadding(24, 16, 24, 16);
+        aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        aiPolishPanel.setContentDescription("AI 润色面板");
+        aiPolishScroll = new ScrollView(this);
+        aiPolishScroll.setFillViewport(true);
+        aiPolishScroll.addView(aiPolishPanel);
+        aiPolishContainer.addView(aiPolishScroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        aiPolishActions = new LinearLayout(this);
+        aiPolishActions.setOrientation(LinearLayout.VERTICAL);
+        aiPolishActions.setPadding(24, 0, 24, 16);
+        aiPolishContainer.addView(aiPolishActions, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        aiPolishContainer.setVisibility(View.GONE);
+        keyboardRoot.addView(aiPolishContainer, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
         return keyboardRoot;
@@ -2147,6 +2412,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (voiceShortcutButton != null) {
             voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled ? View.VISIBLE : View.GONE);
             voiceShortcutButton.setEnabled(voiceInsertionReady());
+        }
+        if (aiPolishShortcutButton != null) {
+            aiPolishShortcutButton.setVisibility(
+                aiPolishConfiguration == null ? View.GONE : View.VISIBLE);
+            aiPolishShortcutButton.setEnabled(aiPolishReady());
         }
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
