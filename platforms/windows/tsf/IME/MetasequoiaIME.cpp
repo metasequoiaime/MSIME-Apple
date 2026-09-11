@@ -1423,6 +1423,14 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
 
     // Apply configured default CN/EN whenever switching back to this IME
     _pCompositionProcessorEngine->InitializeMetasequoiaIMECompartment(pThreadMgr, tfClientId);
+    {
+        ITfDocumentMgr *document = nullptr;
+        if (SUCCEEDED(pThreadMgr->GetFocus(&document)))
+        {
+            _SyncHostDocumentFocus(document);
+            if (document) document->Release();
+        }
+    }
     _InitMinttyKeyboardHook();
 
     // The first connect timer can run before the engine exists. Re-arm after
@@ -1452,6 +1460,7 @@ ExitError:
 
 STDAPI CMetasequoiaIME::Deactivate()
 {
+    _SyncHostContextFocus(nullptr);
     _UninitMinttyKeyboardHook();
     Global::HostUiLessMode = false;
     Global::CandidateUiLessMode = false;
@@ -2328,6 +2337,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         {
             KillTimer(hWnd, TIMER_DEFERRED_FOCUS_LOSS);
             pIME->_focusLossDeferPending = false;
+            pIME->_SyncHostContextFocus(nullptr);
             if (Global::g_connected)
             {
                 // The document focus did not return within the deferral

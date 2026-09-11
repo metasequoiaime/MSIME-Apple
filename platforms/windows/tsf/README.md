@@ -17,5 +17,7 @@ empty, unreadable or oversized files do not create a session; malformed schema
 and invalid preferences are rejected by the shared host. This does not install
 or register the TIP, or provide automatic resource updates.
 
-Native focus wiring, preference monitoring, full DLL builds and installed-editor
-validation remain separate requirements; initialization is not platform completion.
+Native focus is routed through activation, document/top-context changes, deferred
+loss and deactivation; repeated same-context notifications are deduplicated because
+runtime focus resets composition. Preference monitoring, full DLL builds and
+installed-editor focus validation remain outstanding; initialization is not platform completion.

@@ -5,6 +5,37 @@
 #include "CandidateListUIPresenter.h"
 #include "Ipc.h"
 
+void CMetasequoiaIME::_SyncHostContextFocus(_In_opt_ ITfContext *context)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (host && host->valid())
+    {
+        const bool changed = context && (!_hostFocusContext || !_IsSameComObject(context, _hostFocusContext));
+        const bool success = _hostFocusState.update(context != nullptr, changed, [&](bool focused) {
+            std::string raw, error;
+            return host->focus(focused, &raw, &error);
+        });
+        if (!success) context = nullptr;
+    }
+    else context = nullptr;
+    // Retain COM identity through transient NULL focus and pointer reuse.
+    if (context) context->AddRef();
+    if (_hostFocusContext) _hostFocusContext->Release();
+    _hostFocusContext = context;
+}
+
+void CMetasequoiaIME::_SyncHostDocumentFocus(_In_opt_ ITfDocumentMgr *document)
+{
+    ITfContext *context = nullptr;
+    if (document && FAILED(document->GetTop(&context)))
+    {
+        _SyncHostContextFocus(nullptr);
+        return;
+    }
+    _SyncHostContextFocus(context);
+    if (context) context->Release();
+}
+
 //+---------------------------------------------------------------------------
 //
 // ITfThreadMgrEventSink::OnInitDocumentMgr
@@ -96,7 +127,9 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
         PostMessage(_msgWndHandle, WM_ConnectNamedpipe, 0, 0);
         _focusLostToWindowsTextInputHost = false;
     }
-    else if (!pDocMgrFocus && Global::g_connected)
+    else if (!pDocMgrFocus && (Global::g_connected ||
+             (_pCompositionProcessorEngine && _pCompositionProcessorEngine->GetHostEngineAdapter() &&
+              _pCompositionProcessorEngine->GetHostEngineAdapter()->valid())))
     {
         if (!_focusLossDeferPending)
         {
@@ -106,7 +139,11 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
             // If focus does not return within FOCUS_LOSS_DEFER_MS, the timer
             // performs the normal MarkNamedpipeFocusLost + disconnect.
             _focusLossDeferPending = true;
-            SetTimer(_msgWndHandle, TIMER_DEFERRED_FOCUS_LOSS, FOCUS_LOSS_DEFER_MS, nullptr);
+            if (!_msgWndHandle || !SetTimer(_msgWndHandle, TIMER_DEFERRED_FOCUS_LOSS, FOCUS_LOSS_DEFER_MS, nullptr))
+            {
+                _focusLossDeferPending = false;
+                _SyncHostContextFocus(nullptr);
+            }
         }
     }
 
@@ -129,6 +166,7 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
         }
     }
 
+    if (pDocMgrFocus) _SyncHostDocumentFocus(pDocMgrFocus);
     _InitTextEditSink(pDocMgrFocus);
 
     _UpdateLanguageBarOnSetFocus(pDocMgrFocus);
@@ -230,6 +268,7 @@ void CMetasequoiaIME::_HandleFocusedContextStackChange(_In_opt_ ITfContext *chan
         return;
     }
     const bool topContextChanged = newTopContext != _pTextEditSinkContext;
+    _SyncHostContextFocus(newTopContext);
     newTopContext->Release();
     if (!topContextChanged)
     {

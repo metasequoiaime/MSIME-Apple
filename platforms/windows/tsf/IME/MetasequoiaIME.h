@@ -1,4 +1,5 @@
 #pragma once
+#include "../HostFocusState.h"
 
 #include "KeyHandlerEditSession.h"
 #include "MetasequoiaIMEBaseStructure.h"
@@ -432,6 +433,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     BOOL _InitThreadMgrEventSink();
     void _UninitThreadMgrEventSink();
     void _HandleFocusedContextStackChange(_In_opt_ ITfContext *changedContext);
+    void _SyncHostContextFocus(_In_opt_ ITfContext *context);
+    void _SyncHostDocumentFocus(_In_opt_ ITfDocumentMgr *document);
 
     BOOL _InitTextEditSink(_In_opt_ ITfDocumentMgr *pDocMgr);
 
@@ -478,6 +481,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     DWORD _threadMgrEventSinkCookie;
 
     ITfContext *_pTextEditSinkContext;
+    ITfContext *_hostFocusContext = nullptr;
+    msime::tsf::HostFocusState _hostFocusState;
     DWORD _textEditSinkCookie;
 
     // The cookie of ActiveLanguageProfileNotifySink
