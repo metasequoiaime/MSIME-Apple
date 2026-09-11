@@ -2,6 +2,7 @@
 
 pub mod clipboard;
 pub mod cloud;
+pub mod cloud_dictionary;
 pub mod dictionary_access;
 mod file_lock;
 pub mod preferences;
