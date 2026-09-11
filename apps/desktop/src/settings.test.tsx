@@ -417,6 +417,27 @@ test("conflicts preserve edits and require an explicit reload", async () => {
   confirm.mockRestore();
 });
 
+test("applies external preference revisions when clean and preserves dirty edits", async () => {
+  let changed: ((snapshot: Snapshot) => void) | undefined;
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    onPreferencesChanged: vi.fn(async listener => {
+      changed = listener;
+      return () => { changed = undefined; };
+    }),
+  };
+  render(<SettingsPage client={client} />);
+  const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;
+  await waitFor(() => expect(changed).toBeDefined());
+  changed?.({ ...initial, revision: 8, preferences: { ...initial.preferences, candidate_page_size: 9 } });
+  await waitFor(() => expect(size.value).toBe("9"));
+  fireEvent.change(size, { target: { value: "7" } });
+  changed?.({ ...initial, revision: 9, preferences: { ...initial.preferences, candidate_page_size: 5 } });
+  expect(size.value).toBe("7");
+  expect(await screen.findByText("设置已被其他窗口修改。请重新读取后再保存。")).toBeDefined();
+});
+
 test("failed initial load never enables saving fabricated defaults", async () => {
   const client: SettingsClient = { load: vi.fn().mockRejectedValue({ code: "format" }), save: vi.fn() };
   render(<SettingsPage client={client} />);

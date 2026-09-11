@@ -55,13 +55,13 @@ int main() {
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
-        assert([panel.frameAutosaveName isEqualToString:@"MSIMEFloatingToolbarFrame"]);
+        assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
 
-        NSButton *inputMode = FindButton(panel.contentView, @"MSIMEFloatingToolbarInputMode");
-        NSButton *punctuation = FindButton(panel.contentView, @"MSIMEFloatingToolbarPunctuation");
-        NSButton *fullWidth = FindButton(panel.contentView, @"MSIMEFloatingToolbarFullWidth");
-        NSButton *traditional = FindButton(panel.contentView, @"MSIMEFloatingToolbarTraditionalOutput");
-        NSButton *settings = FindButton(panel.contentView, @"MSIMEFloatingToolbarSettings");
+        NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
+        NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");
+        NSButton *fullWidth = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarFullWidth");
+        NSButton *traditional = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
+        NSButton *settings = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarSettings");
         assert(inputMode && punctuation && fullWidth && traditional && settings);
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
@@ -88,6 +88,7 @@ int main() {
                delegate.updateRequests == 1 && delegate.websiteRequests == 1 && delegate.hideRequests == 1);
 
         NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(panel);
+        [menu update];
         assert(menu.numberOfItems == 7);
         assert([menu itemAtIndex:0].action == @selector(openCharacterPalette:) &&
                [menu itemAtIndex:1].action == @selector(openSettings:) &&

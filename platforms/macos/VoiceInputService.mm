@@ -13,7 +13,15 @@
     AVAudioInputNode *input = _audioEngine.inputNode;
     AVAudioFormat *format = [input inputFormatForBus:0];
     NSError *tapError = nil;
-    [input installTapOnBus:0 bufferSize:1024 format:format error:&tapError block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
+    if (@available(macOS 27.0, *)) {
+        [input installTapOnBus:0 bufferSize:1024 format:format error:&tapError block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
+    } else {
+        // Keep capture available on the supported macOS 13–26 hosts.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
+#pragma clang diagnostic pop
+    }
     if (tapError) { _audioEngine = nil; if (error) *error = tapError; return NO; }
     NSError *startError = nil;
     if (![_audioEngine startAndReturnError:&startError]) { [input removeTapOnBus:0]; _audioEngine = nil; if (error) *error = startError; return NO; }

@@ -161,6 +161,8 @@ pub struct Candidate {
     pub text: String,
     /// Engine-derived display suffix, never part of selection or committed text.
     pub annotation: String,
+    /// Engine candidate source, stable for the lifetime of this view.
+    pub source: u8,
     pub highlighted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
@@ -789,6 +791,12 @@ impl<E: InputEngine> Runtime<E> {
                         .get(index)
                         .cloned()
                         .unwrap_or_default(),
+                    source: self
+                        .cached
+                        .candidate_sources
+                        .get(index)
+                        .copied()
+                        .unwrap_or_default(),
                     highlighted: index == self.highlighted,
                     translation: self.translations.get(text).cloned(),
                 })
@@ -882,6 +890,7 @@ impl<E: InputEngine> Runtime<E> {
             EngineSnapshot {
                 scheme: 255,
                 candidate_annotations: Vec::new(),
+                candidate_sources: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
@@ -901,6 +910,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.local_mode == previous.local_mode
             && self.cached.candidates == previous.candidates
             && self.cached.candidate_annotations == previous.candidate_annotations
+            && self.cached.candidate_sources == previous.candidate_sources
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -1103,6 +1113,7 @@ mod tests {
                     .enumerate()
                     .map(|(index, _)| format!("({index})"))
                     .collect(),
+                candidate_sources: vec![0; self.words.len()],
                 microsoft_shuangpin: false,
                 shuangpin_profile: "xiaohe".into(),
                 answered_by_pinyin_fallback: false,

@@ -17,6 +17,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "linux")]
+use tauri::Emitter;
 use tauri::Manager;
 #[cfg(not(target_os = "windows"))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -39,6 +41,8 @@ struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 enum PanelInputTarget {
     X11(String),
     Sway(u64),
+    Ydotool,
+    Wayland,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -122,6 +126,30 @@ fn sync_linux_runtime_options(
         let _ = (runtime, preferences);
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn start_linux_preferences_monitor(
+    app: &tauri::AppHandle,
+    store: std::sync::Arc<PreferencesStore>,
+) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("msime-preferences-monitor".to_owned())
+        .spawn(move || {
+            let mut revision = store.load().ok().map(|snapshot| snapshot.revision);
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(750));
+                let Ok(snapshot) = store.load() else {
+                    continue;
+                };
+                if revision == Some(snapshot.revision) {
+                    continue;
+                }
+                revision = Some(snapshot.revision);
+                let _ = app.emit("preferences-changed", snapshot);
+            }
+        });
 }
 
 #[cfg(target_os = "linux")]
@@ -296,7 +324,102 @@ fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f64, f64, f64)> {
+    if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+        let rect = value.get("rect")?;
+        return Some((
+            rect.get("x")?.as_f64()?,
+            rect.get("y")?.as_f64()?,
+            rect.get("width")?.as_f64()?,
+            rect.get("height")?.as_f64()?,
+        ));
+    }
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(serde_json::Value::as_array) {
+            for node in nodes {
+                if let Some(rect) = sway_rect_for_container(node, id) {
+                    return Some(rect);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
+    let mut fields = std::collections::HashMap::new();
+    for line in value.lines() {
+        let (key, value) = line.split_once('=')?;
+        fields.insert(key, value.parse::<f64>().ok()?);
+    }
+    Some((
+        *fields.get("X")?,
+        *fields.get("Y")?,
+        *fields.get("WIDTH")?,
+        *fields.get("HEIGHT")?,
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f64, f64)> {
+    let target = state.0.lock().ok()?.clone()?;
+    let rect = match target {
+        PanelInputTarget::X11(window) => std::process::Command::new("xdotool")
+            .args(["getwindowgeometry", "--shell", window.as_str()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| parse_xdotool_geometry(&String::from_utf8_lossy(&output.stdout))),
+        PanelInputTarget::Sway(id) => std::process::Command::new("swaymsg")
+            .args(["-t", "get_tree", "-r"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+            .and_then(|tree| sway_rect_for_container(&tree, id)),
+        PanelInputTarget::Wayland => None,
+    }?;
+    let x = (rect.0 + (rect.2 - width) / 2.0).max(0.0);
+    let y = (rect.1 + rect.3 + 16.0).max(0.0);
+    Some((x, y))
+}
+
+#[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
+    let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
+    if wayland_session {
+        if let Ok(output) = std::process::Command::new("swaymsg")
+            .args(["-t", "get_tree", "-r"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(tree) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(target) = focused_sway_container(&tree).map(PanelInputTarget::Sway)
+                    {
+                        return Ok(target);
+                    }
+                }
+            }
+        }
+        let ydotool_ready = std::process::Command::new("ydotool")
+            .args(["type", "--key-delay", "0", ""])
+            .output()
+            .ok()
+            .is_some_and(|output| output.status.success());
+        if ydotool_ready {
+            return Ok(PanelInputTarget::Ydotool);
+        }
+        if std::process::Command::new("wtype")
+            .arg("--version")
+            .output()
+            .ok()
+            .is_some_and(|output| output.status.success())
+        {
+            return Ok(PanelInputTarget::Wayland);
+        }
+    }
     if let Ok(output) = std::process::Command::new("xdotool")
         .arg("getactivewindow")
         .output()
@@ -342,6 +465,82 @@ fn remember_panel_input_target(
         *target = Some(capture_panel_input_target()?);
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
+    let code = match virtual_key {
+        0x08 => 14,
+        0x09 => 15,
+        0x0d => 28,
+        0x20 => 57,
+        0x2e => 111,
+        0x14 => 58,
+        0xc0 => 41,
+        0xbd => 12,
+        0xbb => 13,
+        0xdb => 26,
+        0xdd => 27,
+        0xdc => 43,
+        0xba => 39,
+        0xde => 40,
+        0xbc => 51,
+        0xbe => 52,
+        0xbf => 53,
+        0x30 => 11,
+        0x31 => 2,
+        0x32 => 3,
+        0x33 => 4,
+        0x34 => 5,
+        0x35 => 6,
+        0x36 => 7,
+        0x37 => 8,
+        0x38 => 9,
+        0x39 => 10,
+        0x41 => 30,
+        0x42 => 48,
+        0x43 => 46,
+        0x44 => 32,
+        0x45 => 18,
+        0x46 => 33,
+        0x47 => 34,
+        0x48 => 35,
+        0x49 => 23,
+        0x4a => 36,
+        0x4b => 37,
+        0x4c => 38,
+        0x4d => 50,
+        0x4e => 49,
+        0x4f => 24,
+        0x50 => 25,
+        0x51 => 16,
+        0x52 => 19,
+        0x53 => 31,
+        0x54 => 20,
+        0x55 => 22,
+        0x56 => 47,
+        0x57 => 17,
+        0x58 => 45,
+        0x59 => 21,
+        0x5a => 44,
+        _ => return None,
+    };
+    Some(code)
+}
+
+#[cfg(target_os = "linux")]
+fn run_ydotool(args: &[String]) -> Result<(), HostActionError> {
+    std::process::Command::new("ydotool")
+        .args(args)
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .success()
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
 }
 
 #[cfg(target_os = "linux")]
@@ -398,6 +597,9 @@ fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
+    if matches!(target, PanelInputTarget::Ydotool) {
+        return run_ydotool(args);
+    }
     if let PanelInputTarget::Sway(id) = target {
         let id = id.to_string();
         let status = std::process::Command::new("swaymsg")
@@ -457,6 +659,42 @@ fn send_panel_key(
             code: "unavailable",
         });
     }
+    if let PanelInputTarget::Ydotool = target {
+        let code = ydotool_key_code(request.virtual_key).ok_or(HostActionError {
+            code: "invalid_key",
+        })?;
+        let mut args = Vec::new();
+        let mut modifiers = Vec::new();
+        if request.include_sticky_modifiers {
+            if request.modifiers.ctrl {
+                modifiers.push(29u16);
+            }
+            if request.modifiers.alt {
+                modifiers.push(56u16);
+            }
+            if request.modifiers.win {
+                modifiers.push(125u16);
+            }
+        }
+        for modifier in &modifiers {
+            args.push(format!("{modifier}:1"));
+        }
+        if request.shift {
+            args.push("42:1".to_owned());
+        }
+        args.push(format!("{code}:1"));
+        args.push(format!("{code}:0"));
+        if request.shift {
+            args.push("42:0".to_owned());
+        }
+        for modifier in modifiers.iter().rev() {
+            args.push(format!("{modifier}:0"));
+        }
+        let mut command_args = Vec::with_capacity(args.len() + 1);
+        command_args.push("key".to_owned());
+        command_args.extend(args);
+        return run_ydotool(&command_args);
+    }
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
@@ -507,6 +745,14 @@ fn send_panel_text(
         return status.success().then_some(()).ok_or(HostActionError {
             code: "unavailable",
         });
+    }
+    if let PanelInputTarget::Ydotool = target {
+        return run_ydotool(&[
+            "type".to_owned(),
+            "--key-delay".to_owned(),
+            "0".to_owned(),
+            text.to_owned(),
+        ]);
     }
     run_wtype(&target, &["--".to_owned(), text.to_owned()])
 }
@@ -608,6 +854,22 @@ fn submit_handwriting_candidate(
     }
 }
 
+#[tauri::command]
+fn send_text(
+    state: tauri::State<'_, PanelInputState>,
+    text: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    return send_panel_text(&state, &text);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, text);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
 fn external_url_is_safe(url: &str) -> bool {
     url.starts_with("https://")
         && !url.bytes().any(|byte| {
@@ -654,6 +916,7 @@ fn open_panel_window(
     title: &'static str,
     width: f64,
     height: f64,
+    position: Option<(f64, f64)>,
 ) -> Result<(), HostActionError> {
     if let Some(window) = app.get_webview_window(label) {
         window
@@ -664,23 +927,27 @@ fn open_panel_window(
             })?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         label,
         WebviewUrl::App(format!("index.html?panel={route}").into()),
     )
-    .title(title)
-    .inner_size(width, height)
-    .min_inner_size(width, height)
-    .resizable(false)
-    .decorations(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .build()
-    .map(|_| ())
-    .map_err(|_| HostActionError {
-        code: "unavailable",
-    })
+    .title(title);
+    if let Some((x, y)) = position {
+        builder = builder.position(x, y);
+    }
+    builder
+        .inner_size(width, height)
+        .min_inner_size(width, height)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()
+        .map(|_| ())
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
 }
 
 #[tauri::command]
@@ -715,7 +982,12 @@ fn open_keyboard_panel(
         #[cfg(not(target_os = "linux"))]
         let _ = &state;
         #[cfg(target_os = "linux")]
-        let _ = remember_panel_input_target(&state, true);
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 1100.0, 400.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
         open_panel_window(
             &app,
             "keyboard-panel",
@@ -723,6 +995,7 @@ fn open_keyboard_panel(
             "水杉屏幕键盘",
             1100.0,
             400.0,
+            position,
         )
     }
 }
@@ -759,7 +1032,12 @@ fn open_handwriting_panel(
         #[cfg(not(target_os = "linux"))]
         let _ = &state;
         #[cfg(target_os = "linux")]
-        let _ = remember_panel_input_target(&state, true);
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 980.0, 650.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
         open_panel_window(
             &app,
             "handwriting-panel",
@@ -767,6 +1045,7 @@ fn open_handwriting_panel(
             "水杉手写识别板",
             980.0,
             650.0,
+            position,
         )
     }
 }
@@ -774,11 +1053,12 @@ fn open_handwriting_panel(
 #[tauri::command]
 fn open_emoji_panel(
     app: tauri::AppHandle,
-    state: tauri::State<'_, DictionaryHostOptions>,
+    options: tauri::State<'_, DictionaryHostOptions>,
+    input: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        let _ = (app, input);
         let executable = std::env::var_os("MSIME_CLIENT_EMOJI_PANEL")
             .map(std::path::PathBuf::from)
             .or_else(|| {
@@ -790,7 +1070,7 @@ fn open_emoji_panel(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        let resources = serde_json::from_str::<serde_json::Value>(&state.0)
+        let resources = serde_json::from_str::<serde_json::Value>(&options.0)
             .ok()
             .and_then(|value| {
                 value
@@ -810,8 +1090,25 @@ fn open_emoji_panel(
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = state;
-        open_panel_window(&app, "emoji-panel", "emoji", "Emoji and more", 720.0, 720.0)
+        #[cfg(not(target_os = "linux"))]
+        let _ = (&options, &input);
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = &options;
+            let _ = remember_panel_input_target(&input, true);
+            panel_position(&input, 720.0, 720.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
+        open_panel_window(
+            &app,
+            "emoji-panel",
+            "emoji",
+            "Emoji and more",
+            720.0,
+            720.0,
+            position,
+        )
     }
 }
 
@@ -1126,6 +1423,8 @@ pub fn run() {
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
             app.manage(preferences.clone());
+            #[cfg(target_os = "linux")]
+            start_linux_preferences_monitor(app.handle(), preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
             #[cfg(target_os = "linux")]
@@ -1169,6 +1468,7 @@ pub fn run() {
             copy_text,
             remember_input_target,
             send_key,
+            send_text,
             recognize_handwriting,
             submit_handwriting_candidate,
             open_external_url,
