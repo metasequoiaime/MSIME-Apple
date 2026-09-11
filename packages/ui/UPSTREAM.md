@@ -152,3 +152,19 @@ inserted as markup. Missing/invalid images retain the base preview; refresh
 reloads unchanged filenames and discards late responses. This supersedes the
 earlier image-delivery limitation above. External toolbar CSS, native candidate
 resource delivery and browser/native visual verification remain unfinished.
+
+Palette delivery now uses constructed, adopted stylesheets instead of inline
+`<style>` text. A real Chromium fixture using the desktop CSP reproduced the
+old inline block and verified the compiled `skin-palette.ts` helper applies
+scoped colours, preserves light override order, and removes only its own sheet.
+Theme changes/unmount clean up sheets; unsupported browsers show a fallback
+notice without weakening CSP. Native WebView acceptance remains outstanding.
+
+Manual browser regression (no CI changes): compile `src/skin-palette.ts` with
+the desktop TypeScript compiler (`--ignoreConfig --target ES2022 --module ESNext
+--lib ES2022,DOM --skipLibCheck --outDir <temporary-directory>`), serve that
+directory on a loopback HTTP port, then run `scripts/test-skin-palette-csp.py`
+with `--url http://127.0.0.1:<port>`, `--csp` from the desktop Tauri config and
+optionally `--executable <installed-chromium>`. Python Playwright is required.
+Stop the temporary server afterward. The fixture is synthetic and does not
+launch the native input method or access user input data.
