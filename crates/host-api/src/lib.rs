@@ -9,7 +9,9 @@ use msime_client_core::preferences::{
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-use msime_input_runtime::{Action, CandidateId, CharacterWidth, HandwritingQuery, Runtime, Transition};
+use msime_input_runtime::{
+    Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, Runtime, Transition,
+};
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use serde::{Deserialize, Serialize};
@@ -962,6 +964,41 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
         Ok(UnixSocketProvider::new(path)
             .handwriting(query)
             .map(|candidates| json!({"candidates": candidates}))
+            .unwrap_or(Value::Null))
+    })
+}
+
+/// Query a user-owned Linux emoji catalog over a Unix socket.
+/// The response is `{items:[{text,annotation}]}` or null when unavailable.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_emoji_provider_request(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 16_384
+            || socket_length > 4096
+        {
+            return Err("invalid emoji provider buffer".into());
+        }
+        let query = serde_json::from_slice::<EmojiPanelQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid emoji query document")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(UnixSocketProvider::new(path)
+            .emoji(query)
+            .map(|items| json!({"items": items}))
             .unwrap_or(Value::Null))
     })
 }
