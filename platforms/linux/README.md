@@ -31,3 +31,9 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
+
+## Windows parity gaps
+
+The Windows mode panel exposes fullwidth/halfwidth character output. The shared `input-runtime` currently has no character-mode state or command, so Linux does not publish a cosmetic IBus toggle. This must be implemented in the shared runtime and Host API before exposing a session property.
+
+Container acceptance also requires the locked Engine dictionary source `googlepinyinime-rev/src/share/dictbuilder.cpp`; without it, full daemon compilation cannot be validated.
