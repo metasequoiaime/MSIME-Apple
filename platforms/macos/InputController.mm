@@ -158,6 +158,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
     palette.target = self;
     [menu addItem:palette];
+    NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
+    emoji.target = self;
+    [menu addItem:emoji];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
@@ -205,6 +208,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
     [shared performSelector:@selector(showHandwriting)];
+}
+- (void)showEmoji:(id)sender {
+    (void)sender;
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
