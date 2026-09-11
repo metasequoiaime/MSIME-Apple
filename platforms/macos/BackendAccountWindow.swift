@@ -220,6 +220,13 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   @objc func showAccount() { showWindow(nil); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); model.load() }
+  @objc func showCloudClipboard() {
+    Task { @MainActor in
+      await BackendClipboardEntry.open(account: .shared,
+        present: { BackendWindowBridge.shared.showClipboard(forAccountID: $0) },
+        signIn: { self.showAccount() })
+    }
+  }
   func windowWillClose(_ notification: Notification) { model.close() }
 }
 

@@ -122,6 +122,10 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let client = BackendAccountClient(configuration: configuration)
     let storage = MemoryCredentials()
     let session = BackendAccountSession(api: client, storage: storage)
+    var clipboardAccount: String?
+    var signInRequests = 0
+    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    try require(clipboardAccount == nil && signInRequests == 1)
     var windowClosures = 0
     let model = MacAccountModel(client: client, account: session, closeAccountWindows: { windowClosures += 1 })
     model.load(); try await finished(model)
@@ -134,6 +138,8 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.challenge != nil && model.resendAt > Date())
     model.code = "123456"; model.codeLogin(); try await finished(model)
     try require(model.user?.id == "synthetic-user" && model.code.isEmpty && model.target.isEmpty)
+    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    try require(clipboardAccount == "synthetic-user" && signInRequests == 1)
     model.name = "新昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
     model.logout(delete: true); try await finished(model)
@@ -180,6 +186,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.logout(all: true); try await finished(model)
     try require(model.user == nil && storage.load() == nil)
     try require(windowClosures == 1)
+    clipboardAccount = nil
+    await BackendClipboardEntry.open(account: session, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    try require(clipboardAccount == nil && signInRequests == 2)
     try await session.signIn(challenge: "synthetic", credential: "123456")
     model.load(); try await finished(model)
     AccountFixture.failLogout = true
