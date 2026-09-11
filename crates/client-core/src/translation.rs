@@ -70,12 +70,14 @@ pub fn translate_batch_cached(
         Err(_) => return results,
     };
     let started = Instant::now();
+    let scope = format!("{}\0{}\0", source, target);
     let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
         if text.chars().count() > MAX_SOURCE_CHARS {
             continue;
         }
-        if let Some(value) = cache.get(text) {
+        let cache_key = format!("{scope}{text}");
+        if let Some(value) = cache.get(&cache_key) {
             results[index] = value;
         } else {
             pending.push((index, text));
@@ -102,7 +104,7 @@ pub fn translate_batch_cached(
             _ => continue,
         };
         let value = read_translation_response(response);
-        cache.remember(text.clone(), value.clone());
+        cache.remember(format!("{scope}{text}"), value.clone());
         results[index] = value;
     }
     results
