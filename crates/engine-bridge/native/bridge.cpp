@@ -104,6 +104,8 @@ EngineResult EngineSession::command(std::uint8_t value) {
     }
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
+EngineResult EngineSession::pin_candidate(std::size_t index) { return result_for(session_.pin(index)); }
+EngineResult EngineSession::remove_candidate(std::size_t index) { return result_for(session_.remove(index)); }
 EngineResult EngineSession::select_edge(std::size_t index, std::uint8_t edge) {
     if (edge > 1) throw std::invalid_argument("Invalid candidate edge");
     return result_for(session_.select_edge(index, edge == 0 ? metasequoia::CandidateEdge::FirstHan
