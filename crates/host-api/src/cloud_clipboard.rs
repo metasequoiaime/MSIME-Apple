@@ -1,0 +1,74 @@
+use serde_json::Value;
+
+pub fn validate_request(request: &Value) -> Result<(), &'static str> {
+    let operation = request
+        .get("operation")
+        .and_then(Value::as_str)
+        .ok_or("invalid cloud clipboard request")?;
+    match operation {
+        "list" => {
+            let search = request.get("search").and_then(Value::as_str).unwrap_or("");
+            if search.len() > 1024 || search.chars().any(char::is_control) {
+                return Err("invalid cloud clipboard request");
+            }
+        }
+        "add" => {
+            let text = request
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or("invalid cloud clipboard request")?;
+            if text.is_empty()
+                || text.len() > 4000
+                || text.contains('\0')
+                || text.chars().any(|character| {
+                    character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+                })
+            {
+                return Err("invalid cloud clipboard request");
+            }
+        }
+        "delete" => {
+            let id = request
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or("invalid cloud clipboard request")?;
+            if id.is_empty()
+                || id.len() > 256
+                || !id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+            {
+                return Err("invalid cloud clipboard request");
+            }
+        }
+        "set_enabled" => {
+            if !request.get("enabled").is_some_and(Value::is_boolean) {
+                return Err("invalid cloud clipboard request");
+            }
+        }
+        _ => return Err("invalid cloud clipboard request"),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_list_add_delete_and_toggle_requests() {
+        assert!(validate_request(&json!({"operation":"list","search":"水"})).is_ok());
+        assert!(validate_request(&json!({"operation":"add","text":"line\nfeed"})).is_ok());
+        assert!(validate_request(&json!({"operation":"delete","id":"entry-1"})).is_ok());
+        assert!(validate_request(&json!({"operation":"set_enabled","enabled":true})).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsafe_or_unknown_requests() {
+        assert!(validate_request(&json!({"operation":"list","search":"bad\n"})).is_err());
+        assert!(validate_request(&json!({"operation":"add","text":"bad\u{0007}"})).is_err());
+        assert!(validate_request(&json!({"operation":"delete","id":"bad/id"})).is_err());
+        assert!(validate_request(&json!({"operation":"unknown"})).is_err());
+    }
+}

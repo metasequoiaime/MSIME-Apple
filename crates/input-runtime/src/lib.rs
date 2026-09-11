@@ -571,6 +571,34 @@ impl UnixSocketProvider {
         let response = serde_json::from_str::<Value>(&line).ok()?;
         response.is_object().then_some(response)
     }
+
+    /// Forward one account-backed cloud clipboard operation to the
+    /// user-owned service. The provider owns authentication and retention.
+    pub fn cloud_clipboard(&self, request: Value) -> Option<Value> {
+        let encoded = json!({
+            "version": 1,
+            "kind": "cloud_clipboard",
+            "request": request,
+        })
+        .to_string();
+        if encoded.len() > 65_536 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        if line.len() > 65_536 {
+            return None;
+        }
+        let response = serde_json::from_str::<Value>(&line).ok()?;
+        response.is_object().then_some(response)
+    }
 }
 
 /// Bounded provider worker. Provider code runs off the host/IBus thread and

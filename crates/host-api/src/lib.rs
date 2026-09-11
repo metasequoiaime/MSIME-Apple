@@ -2,6 +2,7 @@
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
 use msime_client_core::dictionary_access::DictionaryAccess;
+pub mod cloud_clipboard;
 pub mod cloud_dictionary;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
@@ -1056,6 +1057,40 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
         msime_input_runtime::UnixSocketProvider::new(path)
             .cloud_dictionary(request)
             .ok_or_else(|| "cloud dictionary provider unavailable".to_owned())
+    })
+}
+
+/// Forward one validated account-backed cloud clipboard operation to a
+/// user-owned Linux provider.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
+    request: *const u8,
+    request_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null()
+            || socket_path.is_null()
+            || request_length > 65_536
+            || socket_length > 4096
+        {
+            return Err("invalid cloud clipboard provider buffer".into());
+        }
+        let request_bytes = unsafe { std::slice::from_raw_parts(request, request_length) };
+        let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
+            .map_err(|_| "invalid cloud clipboard request")?;
+        cloud_clipboard::validate_request(&request).map_err(|error| error.to_owned())?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        msime_input_runtime::UnixSocketProvider::new(path)
+            .cloud_clipboard(request)
+            .ok_or_else(|| "cloud clipboard provider unavailable".to_owned())
     })
 }
 
