@@ -60,3 +60,11 @@ two-pixel Manhattan movement threshold, no second double-click press, and no
 drag/maximize on resize edges. The shared React host uses pointer cancellation,
 leave and window blur to discard pending gestures. Native drag delivery and
 maximized-window restore-on-drag still require actual platform verification.
+
+Independent built-in card light/dark preview switches follow `src/modules/skin.ts`
+at `04a8df56f86312474a069f4335a1b58da7afaa9e`. `src/skin-preview.css` adapts the
+six WeChat/Graphite/Willow color-variable rules from that commit's
+`src/styles/modules/skin.css` with scoped selectors; Fluent uses shared upstream
+variables. License: GPL-3.0. Preview state is UI-only, separate from saved skin
+selection. Candidate markup, toolbar previews and external skin catalog parity
+remain incomplete; these palette changes are not full visual parity.

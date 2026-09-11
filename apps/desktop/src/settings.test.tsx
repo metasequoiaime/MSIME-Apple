@@ -456,6 +456,34 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("skin preview switches are independent, reversible and do not change saved selection", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  const cards = screen.getAllByRole("article");
+  expect(cards).toHaveLength(4);
+  for (const card of cards) {
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
+    fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+    expect((screen.getByRole("radio", { name: /Fluent/ }) as HTMLInputElement).checked).toBe(true);
+    for (const other of cards.filter(item => item !== card))
+      expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
+    fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
+  }
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("radio", { name: /微信绿/ }));
+  const wechat = mounted.container.querySelector(".skin-wechat")!.closest("article")!;
+  fireEvent.click(within(wechat).getByRole("button", { name: "预览浅色" }));
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  expect(wechat.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_skin: "wechat" });
+});
+
 test("floating toolbar settings use Windows defaults and persist independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);

@@ -195,6 +195,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [windowMaximized, setWindowMaximized] = useState(false);
+  const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -487,16 +488,21 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
-        <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；预览会随当前选择更新。</div>
+        <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。</div>
         <div className="skin-grid">
-          {skinOptions.map(([id, title, description]) => <label className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
+          {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
+            <label className="skin-card-select">
             <input type="radio" name="candidate-skin" value={id} checked={(draft.candidate_skin ?? "fluent") === id} onChange={() => setDraft({ ...draft, candidate_skin: id })} />
-            <div className={`skin-card-preview skin-${id}`} aria-hidden="true">
+            <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
               <div className="skin-candidate skin-candidate-horizontal"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span><span className="skin-number">3</span><span>明天</span></div>
               <div className="skin-candidate skin-candidate-vertical"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span></div>
             </div>
-            <div className="skin-card-body"><span className="skin-card-title">{title}</span><span className="skin-card-description">{description}</span></div>
-          </label>)}
+            <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
+            </label>
+            <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? "dark") === "dark" ? "light" : "dark" }))}>
+              {(skinPreviewThemes[id] ?? "dark") === "dark" ? "预览浅色" : "预览深色"}
+            </button>
+          </article>)}
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
