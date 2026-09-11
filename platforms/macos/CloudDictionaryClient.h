@@ -7,3 +7,5 @@ FOUNDATION_EXPORT NSString *MSIMEReadDictionaryImportFile(NSURL *url, NSError **
 FOUNDATION_EXPORT BOOL MSIMESaveDictionaryExportFile(NSData *data, NSURL *url, NSError **error);
 FOUNDATION_EXPORT void MSIMEImportCloudDictionary(NSString *kind, NSString *format, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
 FOUNDATION_EXPORT void MSIMEExportCloudDictionary(NSString *kind, NSString *format, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
+FOUNDATION_EXPORT void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString *code, NSUInteger offset, NSString *scheme, NSString *profile, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
+FOUNDATION_EXPORT void MSIMEEditCloudDictionaryCatalog(NSString *kind, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);

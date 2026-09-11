@@ -36,6 +36,21 @@ void MSIMEExportCloudDictionary(NSString *kind, NSString *format, NSString *bear
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) { NSInteger status = [(NSHTTPURLResponse *)response statusCode]; dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(data, status, error); }); }] resume];
 }
 
+void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString *code, NSUInteger offset, NSString *scheme, NSString *profile, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (kind.length == 0 || code.length > 256 || [code rangeOfString:@"\0"].location != NSNotFound || offset > 1000000 || scheme.length == 0 || profile.length == 0 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSURLComponents *c = [NSURLComponents componentsWithString:[NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/catalog", kind]];
+    c.queryItems = @[[NSURLQueryItem queryItemWithName:@"q" value:code], [NSURLQueryItem queryItemWithName:@"offset" value:[NSString stringWithFormat:@"%lu", (unsigned long)offset]], [NSURLQueryItem queryItemWithName:@"limit" value:@"100"], [NSURLQueryItem queryItemWithName:@"scheme" value:scheme], [NSURLQueryItem queryItemWithName:@"profile" value:profile]];
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:c.URL]; [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
+}
+
+void MSIMEEditCloudDictionaryCatalog(NSString *kind, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (kind.length == 0 || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/edit", kind]; NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]]; r.HTTPMethod = @"POST"; r.HTTPBody = body;
+    [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
+}
+
 NSString *MSIMEReadDictionaryImportFile(NSURL *url, NSError **error) {
     if (!url || ![url isFileURL]) { if (error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
     NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:error];
