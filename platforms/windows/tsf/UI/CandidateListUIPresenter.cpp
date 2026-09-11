@@ -923,6 +923,7 @@ void CCandidateListUIPresenter::_EndCandidateList()
 
     PerfTimer clearStateTimer;
     _candidateState.Clear();
+    _engineIndices.clear();
     _candidateWindowVisible = FALSE;
     _lastUiLessCandidatePage.clear();
     double clearStateElapsedMs = clearStateTimer.ElapsedMs();
