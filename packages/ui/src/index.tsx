@@ -84,6 +84,14 @@ export interface DictionaryClient {
   list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
 }
+export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
+export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
+export interface CloudDictionaryClient {
+  list(kind: CloudDictionaryKind, search: string, offset: number): Promise<{ entries: CloudDictionaryEntry[]; has_more: boolean; offset: number }>;
+  add(kind: CloudDictionaryKind, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
+  update(entry: CloudDictionaryEntry, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
+  remove(entry: CloudDictionaryEntry): Promise<void>;
+}
 
 function parseFontList(text: string): string[] {
   return text.split(",").map(font => font.trim()).filter(Boolean);
