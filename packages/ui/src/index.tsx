@@ -72,6 +72,7 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   dictionary?: DictionaryClient;
   cloudDictionary?: CloudDictionaryClient;
+  cloudClipboard?: CloudClipboardClient;
   screen_keyboard?: { open(): Promise<void> };
   handwriting?: { open(): Promise<void> };
   clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void>; list?(): Promise<string[]>; sync?(): Promise<string[]> };
@@ -88,6 +89,8 @@ export interface DictionaryClient {
 }
 export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
 export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
+export type CloudClipboardItem = { id: string; text: string; created_at: string };
+export interface CloudClipboardClient { get(search: string): Promise<{ enabled: boolean; items: CloudClipboardItem[] }>; setEnabled(enabled: boolean): Promise<void>; add(text: string): Promise<void>; remove(id?: string): Promise<void>; }
 export type CloudDictionaryCatalog = { entries: CloudDictionaryEntry[]; offset: number; has_more: boolean; revision: number; normalized: string };
 export type CloudDictionaryChange = { revision: number; previous?: CloudDictionaryEntry; replacement?: CloudDictionaryEntry; reset?: boolean };
 export type CloudCandidate = { code: string; word: string; weight: number; canonical_pinyin?: string };
