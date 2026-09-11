@@ -25,6 +25,7 @@ target_include_directories(msime-voice-worker-test PRIVATE .)
 
 include(GNUInstallDirs)
 install(TARGETS msime-client-ibus RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS msime-client-ibus-launcher DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/msime-client-preview.xml
         DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
 
