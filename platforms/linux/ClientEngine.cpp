@@ -71,6 +71,15 @@ void clear(IBusEngine *engine) {
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
 }
+void publish_input_enabled(IBusEngine *engine, bool enabled) {
+  auto property = ibus_property_new(
+      "InputEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入启用"), "",
+      ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
+      TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_engine_update_property(engine, property);
+  g_object_unref(property);
+}
 void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
@@ -195,6 +204,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
       clear(engine);
+      publish_input_enabled(engine, s.input_enabled);
       handled = true;
       return;
     }
@@ -316,14 +326,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (s.session)
       apply(engine, msime_client_focus(s.session, s.input_enabled));
     clear(engine);
-    auto property = ibus_property_new(
-        "InputEnabled", PROP_TYPE_TOGGLE,
-        ibus_text_new_from_static_string("输入启用"), "",
-        ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"),
-        TRUE, TRUE, s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
-        nullptr);
-    ibus_engine_update_property(engine, property);
-    g_object_unref(property);
+    publish_input_enabled(engine, s.input_enabled);
   });
 }
 void register_properties(IBusEngine *engine) {
