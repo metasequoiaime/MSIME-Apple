@@ -296,15 +296,20 @@ static NSHashTable *LiveDictionaryControllers()
     }
 }
 
-// The account model answers for a whole page at once, so one reply fills several cache entries. A
-// reply for a composition that has already moved on is dropped rather than drawn over the new one.
+// The account model answers for a whole page at once, so one reply fills several cache entries.
+//
+// The generation decides whether to redraw, not whether to keep: it rises on every keystroke, and a
+// round trip outlives several of them, so discarding a late reply threw away every translation the
+// request had already paid for. The cache is keyed by language and word, which nothing about a
+// later composition invalidates, so the words are kept and only the redraw waits for the page they
+// belong to.
 - (void)candidateTranslationsDidArrive:(NSNotification *)notification
 {
     NSDictionary *info = notification.userInfo;
     NSDictionary<NSString *, NSString *> *translations = info[@"translations"];
-    if (![translations isKindOfClass:[NSDictionary class]] ||
-        [info[@"generation"] unsignedLongLongValue] != _translationGeneration || _session == nullptr)
+    if (![translations isKindOfClass:[NSDictionary class]] || _session == nullptr)
         return;
+    const BOOL current = [info[@"generation"] unsignedLongLongValue] == _translationGeneration;
     const auto &languageEntry =
         metasequoia::mac::CandidateTranslationLanguageAt(static_cast<std::size_t>(MetasequoiaInputInteger(
             @"translationLanguage", 0, 0, metasequoia::mac::kCandidateTranslationLanguageCount - 1)));
@@ -315,7 +320,7 @@ static NSHashTable *LiveDictionaryControllers()
         if ([word isKindOfClass:[NSString class]] && [translation isKindOfClass:[NSString class]] && translation.length)
             _translationCache[[NSString stringWithFormat:@"%@|%@", language, word]] = translation;
     }
-    if (!_sessionSnapshot.preedit.empty())
+    if (current && !_sessionSnapshot.preedit.empty())
         [self rebuildCandidatePanelPreservingSelection:YES];
 }
 
@@ -1144,11 +1149,12 @@ static NSHashTable *LiveDictionaryControllers()
         void (^completion)(NSString *, NSError *) = ^(NSString *text, NSError *error) {
           dispatch_async(dispatch_get_main_queue(), ^{
             MetasequoiaInputController *strongSelf = weakSelf;
-            if (!strongSelf || error || !text.length || !strongSelf->_session ||
-                strongSelf->_translationGeneration != generation)
+            if (!strongSelf || error || !text.length || !strongSelf->_session)
                 return;
+            // Kept whatever the generation says, for the reason above; only the redraw waits.
             strongSelf->_translationCache[key] = text;
-            [strongSelf rebuildCandidatePanelPreservingSelection:YES];
+            if (strongSelf->_translationGeneration == generation)
+                [strongSelf rebuildCandidatePanelPreservingSelection:YES];
           });
         };
         if (viaDeepLX)

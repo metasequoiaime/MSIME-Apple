@@ -769,6 +769,18 @@ int main()
         // Signed out, the row also carries the way to sign in: the entry lives on another page, and
         // naming a requirement without a route to it is how this sent someone hunting for a button
         // that was never on that page.
+        // A popup's -state is not its selection. The language popup was wired to the checkbox action,
+        // which stored 0 whichever item was chosen, so the language silently stayed English.
+        NSPopUpButton *languagePopup = (NSPopUpButton *)translationLanguageView;
+        const NSInteger spanish = [languagePopup.itemTitles indexOfObject:@"西班牙语"];
+        [languagePopup selectItemAtIndex:spanish];
+        require([NSApp sendAction:languagePopup.action to:languagePopup.target from:languagePopup] &&
+                    MetasequoiaInputInteger(@"translationLanguage", 0, 0, languagePopup.numberOfItems - 1) == spanish,
+                "Choosing a translation language did not store which one.");
+        [languagePopup selectItemAtIndex:0];
+        require([NSApp sendAction:languagePopup.action to:languagePopup.target from:languagePopup],
+                "Restoring the translation language was not acted on.");
+
         NSView *signInView = FindViewWithAccessibilityLabel(controller.window.contentView, @"登录水杉账号");
         require([signInView isKindOfClass:[NSButton class]],
                 "The account provider named a requirement without offering the way to meet it.");

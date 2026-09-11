@@ -1362,7 +1362,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _translationLanguageButton.accessibilityLabel = @"候选翻译目标语言";
     _translationLanguageButton.identifier = @"translationLanguage";
     _translationLanguageButton.target = self;
-    _translationLanguageButton.action = @selector(inputBehaviorChanged:);
+    _translationLanguageButton.action = @selector(translationLanguageChanged:);
     _translationSecretIdField = [NSTextField textFieldWithString:@""];
     _translationSecretIdField.placeholderString = @"SecretId";
     _translationSecretIdField.identifier = @"translationSecretId";
@@ -2320,6 +2320,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)translationProviderChanged:(NSPopUpButton *)sender
 {
     MetasequoiaSetInputBehavior(@"translationProvider", sender.indexOfSelectedItem);
+    [self refreshInputBehaviorControls];
+}
+
+// A popup's -state is not its selection: inputBehaviorChanged: stores whether a checkbox is on, so
+// a popup wired to it stored 0 whichever item was chosen, and the language silently stayed English.
+- (void)translationLanguageChanged:(NSPopUpButton *)sender
+{
+    MetasequoiaSetInputBehavior(@"translationLanguage", sender.indexOfSelectedItem);
     [self refreshInputBehaviorControls];
 }
 
