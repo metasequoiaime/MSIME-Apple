@@ -566,7 +566,9 @@ fn check_for_updates_blocking() -> Result<bool, HostActionError> {
         let url = manifest
             .get("releaseUrl")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("https://github.com/metasequoiaime/MSIME-Client/releases");
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         if !is_allowed_external_url(url) {
             return Err(HostActionError {
                 code: "invalid_url",
