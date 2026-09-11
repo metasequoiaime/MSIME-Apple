@@ -285,6 +285,38 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
     }
 
     candidateString.Set(pCandidateString, candidateLen);
+
+    if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        std::string viewRaw, error;
+        msime::tsf::EngineResult view;
+        const UINT index = _pCandidateListUIPresenter->_GetSelectedCandidateIndex();
+        if (host->view(&viewRaw, &error) &&
+            msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) &&
+            view.view.generation != 0)
+        {
+            std::string raw;
+            if (host->select(view.view.generation, index, &raw, &error))
+            {
+                msime::tsf::EngineResult selected;
+                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error) &&
+                    selected.has_commit && !selected.commit.empty())
+                {
+                    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
+                                                      static_cast<int>(selected.commit.size()), nullptr, 0);
+                    std::wstring commit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+                    if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),
+                                                   static_cast<int>(selected.commit.size()), commit.data(), n);
+                    CStringRange selectedText;
+                    selectedText.Set(commit.c_str(), commit.size());
+                    hrReturn = _AddCharAndFinalize(ec, pContext, &selectedText);
+                    _DeleteCandidateList(FALSE, pContext);
+                    return hrReturn;
+                }
+            }
+        }
+    }
+
     hrReturn = _HandleCandidateFinalize(ec, pContext, requestId, prefetchedText);
 
 Exit:
