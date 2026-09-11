@@ -247,7 +247,12 @@ impl OnlineProviderWorker {
         let join = thread::Builder::new()
             .name("msime-online-provider".into())
             .spawn(move || {
-                while let Ok(query) = incoming.recv() {
+                while let Ok(mut query) = incoming.recv() {
+                    // Coalesce bursts from one composition: Windows waits for
+                    // input to settle instead of querying every intermediate text.
+                    while let Ok(newest) = incoming.try_recv() {
+                        query = newest;
+                    }
                     if let Some((text, source)) = provider(query.clone()) {
                         if text.is_empty() || source > 1 {
                             continue;
