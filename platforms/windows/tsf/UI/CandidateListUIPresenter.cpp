@@ -344,6 +344,34 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
         return S_OK;
     }
 
+    if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+    {
+        uint32_t command = UINT32_MAX;
+        switch (keyFunction)
+        {
+        case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
+        case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
+        case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE_ON_PAGE; break;
+        case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE_ON_PAGE; break;
+        case FUNCTION_MOVE_UP: command = MSIME_PREVIOUS_CANDIDATE; break;
+        case FUNCTION_MOVE_DOWN: command = MSIME_NEXT_CANDIDATE; break;
+        default: break;
+        }
+        if (command != UINT32_MAX)
+        {
+            std::string raw, error;
+            if (host->command(command, &raw, &error))
+            {
+                msime::tsf::EngineResult result;
+                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
+                {
+                    _pCandidateListUIPresenter->AdviseUIChangedByArrowKey(keyFunction);
+                    return S_OK;
+                }
+            }
+        }
+    }
+
     if (Global::IsUiLessMode() && _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId))
     {
         return S_OK;
