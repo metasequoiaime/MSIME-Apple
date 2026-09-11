@@ -62,4 +62,12 @@ bool EngineSessionAdapter::english_mode(bool value, std::string *out, std::strin
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_set_english_mode(session_, value), out, error);
 }
+bool EngineSessionAdapter::paired_punctuation(bool value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_paired_punctuation(session_, value), out, error);
+}
+bool EngineSessionAdapter::punctuation_lock(uint8_t value, std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_set_punctuation_lock(session_, value), out, error);
+}
 }
