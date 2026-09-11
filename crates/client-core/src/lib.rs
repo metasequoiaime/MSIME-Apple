@@ -1,5 +1,6 @@
 //! Shared client business logic. Independent of UI frameworks and IME hosts.
 
+pub mod ai;
 pub mod clipboard;
 pub mod dictionary_access;
 mod file_lock;
