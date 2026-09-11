@@ -1,3 +1,5 @@
+mod update_body;
+
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
@@ -542,14 +544,9 @@ fn check_for_updates_blocking() -> Result<bool, HostActionError> {
             code: "unavailable",
         });
     }
-    let manifest = response.bytes().map_err(|_| HostActionError {
+    let manifest = update_body::read_manifest(response).map_err(|_| HostActionError {
         code: "unavailable",
     })?;
-    if manifest.len() > 64 * 1024 {
-        return Err(HostActionError {
-            code: "unavailable",
-        });
-    }
     let manifest: serde_json::Value =
         serde_json::from_slice(&manifest).map_err(|_| HostActionError {
             code: "unavailable",
