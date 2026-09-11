@@ -28,6 +28,7 @@ const logo = new URL("./assets/msime.svg", import.meta.url).href;
 export type Preferences = {
   voice_input?: VoiceInputPreferences;
   ai_assistant?: AiAssistantPreferences;
+  custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   floating_toolbar?: { enabled: boolean; scale_percent: number; font_size: number; fullwidth?: boolean; punctuation?: boolean; character_set?: boolean; emoji?: boolean; screen_keyboard?: boolean; settings?: boolean };
   theme?: "dark" | "light" | "system";
   settings_theme?: "follow" | "dark" | "light";
@@ -66,6 +67,7 @@ const voicePromptPresets: Record<string, string> = { cleanup: "去掉口语填�
 export type AiAssistantPreferences = { enabled: boolean; provider: string; model: string; token: string; tokens?: Record<string, string>; endpoint: string; candidate_limit: number; prompt_id: string; prompt: string; prompt_custom_1?: string; prompt_custom_2?: string; prompt_custom_3?: string };
 const aiProviderDefaults: Record<string, { model: string; endpoint: string }> = { deepseek: { model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions" }, openai: { model: "gpt-4o-mini", endpoint: "https://api.openai.com/v1/chat/completions" }, siliconflow: { model: "Qwen/Qwen3-8B", endpoint: "https://api.siliconflow.cn/v1/chat/completions" }, groq: { model: "llama-3.3-70b-versatile", endpoint: "https://api.groq.com/openai/v1/chat/completions" } };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: aiProviderDefaults.deepseek.model, token: "", tokens: {}, endpoint: aiProviderDefaults.deepseek.endpoint, candidate_limit: 3, prompt_id: "custom_1", prompt: "", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 export type ExternalSkinSummary = { id: string; name: string; version?: string; author?: string; description?: string; compatible: boolean; issues?: string[] };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
@@ -311,6 +313,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const voice = draft?.voice_input ?? defaultVoiceInput;
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => setDraft({ ...draft!, voice_input: { ...voice, ...patch } });
   const updateAi = (patch: Partial<AiAssistantPreferences>) => setDraft({ ...draft!, ai_assistant: { ...ai, ...patch } });
@@ -336,6 +339,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><div className="section-header"><span className="section-title">设置界面主题<small>可覆盖全局主题，仅影响当前设置界面</small></span><CustomDropdown ariaLabel="设置界面主题" value={draft.settings_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, settings_theme: value as Preferences["settings_theme"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选窗口主题<small>可覆盖全局主题，仅影响候选窗口</small></span><CustomDropdown ariaLabel="候选窗口主题" value={draft.candidate_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, candidate_theme: value as Preferences["candidate_theme"] })} /></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选词翻译<small>允许宿主在候选窗口旁显示在线翻译结果。</small></span><input aria-label="候选词翻译" className="toggle" type="checkbox" checked={draft.candidate_translations ?? true} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">自定义翻译服务<small>使用兼容 DeepLX 的 HTTPS 服务翻译候选词。</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label><label className="field"><span>Endpoint</span><input aria-label="自定义翻译 Endpoint" type="url" value={customTranslation.endpoint} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, endpoint: event.target.value } })} placeholder="https://example.com/translate" /></label><label className="field"><span>API Key</span><input aria-label="自定义翻译 API Key" type="password" value={customTranslation.api_key} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: event.target.value } })} /></label></div>
         <div className="section"><div className="section-header"><span className="section-title">候选项排列方式</span><CustomDropdown value={draft.candidate_layout ?? "vertical"} options={[["horizontal", "横向"], ["vertical", "纵向"]]} onChange={value => setDraft({ ...draft, candidate_layout: value as Preferences["candidate_layout"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选窗预编辑</span><CustomDropdown value={draft.candidate_preedit_style ?? "pinyin"} options={[["pinyin", "拼音分词"], ["empty", "不显示"]]} onChange={value => setDraft({ ...draft, candidate_preedit_style: value as Preferences["candidate_preedit_style"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">行内预编辑</span><CustomDropdown ariaLabel="行内预编辑" value={draft.tsf_preedit_style ?? "raw"} options={[["raw", "原始按键"], ["pinyin", "拼音分词"], ["empty", "不显示"]]} onChange={value => setDraft({ ...draft, tsf_preedit_style: value as Preferences["tsf_preedit_style"] })} /></div></div>
