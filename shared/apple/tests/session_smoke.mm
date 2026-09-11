@@ -41,9 +41,11 @@ int main() {
         NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:0 snapshot:@{@"format_version": @1, @"revision": @0, @"preferences": options[@"preferences"]} error:&error];
         assert(saved && !error && [saved[@"revision"] isEqual:@1]);
         error = nil;
-        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:0 snapshot:@{@"format_version": @1, @"revision": @0, @"preferences": options[@"preferences"]} error:&error] && error);
+        NSDictionary *stale = @{ @"format_version": @1, @"revision": @0, @"preferences": options[@"preferences"] };
+        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:0 snapshot:stale error:&error] && error);
         error = nil;
-        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:1 snapshot:@{@"format_version": @2, @"revision": @1, @"preferences": options[@"preferences"]} error:&error] && error);
+        NSDictionary *unsupported = @{ @"format_version": @2, @"revision": @1, @"preferences": options[@"preferences"] };
+        assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:1 snapshot:unsupported error:&error] && error);
         NSDictionary *invalidDictionary = [MSIMEClientSession dictionaryRequest:@{@"options": options, @"action": @{@"operation": @"unknown"}} error:&error];
         assert(!invalidDictionary && error);
         error = nil;
