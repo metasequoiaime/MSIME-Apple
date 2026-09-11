@@ -48,6 +48,17 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* Snapshot lifecycle. Version is a redacted SHA-256 binding the canonical
+ * resource/user/cache/dictionary paths and one consistent Engine journal.
+ * Prepare/discard are native-only; a prepared handle is not active until a
+ * future activation transaction publishes it. The prepare callback returns
+ * one UTF-8 JSON record into the supplied buffer, 0 only at verified EOF, and
+ * a negative value for cancellation, truncation, or checksum failure. */
+typedef intptr_t (*msime_client_snapshot_next)(void *context, uint8_t *buffer, size_t capacity);
+char *msime_client_snapshot_version(const uint8_t *options, size_t length);
+char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,
+                                     msime_client_snapshot_next next, void *context);
+char *msime_client_snapshot_discard(uint64_t handle);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.
