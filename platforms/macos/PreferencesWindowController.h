@@ -10,5 +10,8 @@
 - (NSDictionary<NSString *, id> *)cloudSettingsSnapshot;
 - (BOOL)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
++ (NSDictionary<NSString *, id> *)cloudSettingsSnapshot;
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
 @end
 #define MetasequoiaPreferencesWindowController MSIMEPreferencesWindowController
