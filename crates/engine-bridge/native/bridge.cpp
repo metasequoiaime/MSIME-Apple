@@ -28,6 +28,8 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.learning = value.learning;
     options.autocorrect_types = value.autocorrect ? (quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor) : 0u;
     options.chinese_punctuation = value.chinese_punctuation;
+    options.paired_punctuation = value.paired_punctuation;
+    options.punctuation_lock = value.punctuation_lock;
     options.helpcode = value.helpcode;
     options.helpcode_schema = std::string(value.helpcode_schema);
     const std::string frequency(value.frequency_mode);
