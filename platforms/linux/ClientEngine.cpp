@@ -102,7 +102,7 @@ void publish_punctuation(IBusEngine *engine, bool enabled) {
   g_object_unref(property);
 }
 void publish_expressive(IBusEngine *engine, const State &s) {
-  const auto preferences = configured.at("preferences").at("mixed_input");
+  const auto preferences = configured.at("preferences").value("mixed_input", Json::object());
   const auto value = [&](const std::optional<bool> &override_value,
                          const char *key, bool fallback) {
     return override_value.value_or(preferences.value(key, fallback));
@@ -427,7 +427,7 @@ void register_properties(IBusEngine *engine) {
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
       ibus_text_new_from_static_string("在中文方案中补充英文候选"), TRUE, TRUE,
-      configured.at("preferences").at("mixed_input").value("english", true)
+      configured.at("preferences").value("mixed_input", Json::object()).value("english", true)
           ? PROP_STATE_CHECKED
           : PROP_STATE_UNCHECKED,
       nullptr);
@@ -439,7 +439,7 @@ void register_properties(IBusEngine *engine) {
     auto item = ibus_property_new(
         name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
         ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
-        configured.at("preferences").at("mixed_input").value(key, false)
+        configured.at("preferences").value("mixed_input", Json::object()).value(key, false)
             ? PROP_STATE_CHECKED
             : PROP_STATE_UNCHECKED,
         nullptr);
