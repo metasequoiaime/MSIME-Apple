@@ -1,6 +1,7 @@
 #include "Private.h"
 #include "MetasequoiaIME.h"
 #include "CompositionProcessorEngine.h"
+#include "PreeditCaret.h"
 #include "TfInputProcessorProfile.h"
 #include "Globals.h"
 #include "FanyDefines.h"
@@ -404,32 +405,12 @@ void CCompositionProcessorEngine::SetRenderedPreedit(std::wstring preedit, size_
 
 DWORD_PTR CCompositionProcessorEngine::GetRenderedCaretPosition() const
 {
-    size_t lettersBeforeCaret = 0;
-    for (DWORD_PTR i = 0; i < min(_caretPosition, _keystrokeBuffer.GetLength()); ++i)
-    {
-        if (_keystrokeBuffer.Get()[i] != L'\'')
-        {
-            ++lettersBeforeCaret;
-        }
-    }
-    size_t displayPosition = _renderedPreeditPrefixLength;
-    size_t seenLetters = 0;
-    while (displayPosition < _renderedPreedit.size() && seenLetters < lettersBeforeCaret)
-    {
-        if (_renderedPreedit[displayPosition] != L'\'')
-        {
-            ++seenLetters;
-        }
-        ++displayPosition;
-    }
-    if (_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'')
-    {
-        while (displayPosition < _renderedPreedit.size() && _renderedPreedit[displayPosition] == L'\'')
-        {
-            ++displayPosition;
-        }
-    }
-    return displayPosition;
+    return GetRenderedCaretPosition(_keystrokeBuffer.ToWString(), _caretPosition);
+}
+
+DWORD_PTR CCompositionProcessorEngine::GetRenderedCaretPosition(const std::wstring &editingText, size_t caret) const
+{
+    return msime::tsf::MapPreeditCaret(editingText, caret, _renderedPreedit, _renderedPreeditPrefixLength);
 }
 
 //+---------------------------------------------------------------------------
