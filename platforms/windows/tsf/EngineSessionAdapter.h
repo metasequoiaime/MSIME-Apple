@@ -21,6 +21,7 @@ public:
   bool english_mode(bool, std::string *, std::string *);
   bool paired_punctuation(bool, std::string *, std::string *);
   bool punctuation_lock(uint8_t, std::string *, std::string *);
+  bool update_preferences(const std::string &, std::string *, std::string *);
 private:
   bool response(char *, std::string *, std::string *) const;
   uint64_t session_ = 0;

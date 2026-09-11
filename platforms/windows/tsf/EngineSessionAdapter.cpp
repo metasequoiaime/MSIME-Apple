@@ -70,4 +70,10 @@ bool EngineSessionAdapter::punctuation_lock(uint8_t value, std::string *out, std
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }
   return response(msime_client_set_punctuation_lock(session_, value), out, error);
 }
+bool EngineSessionAdapter::update_preferences(const std::string &snapshot,
+                                              std::string *out, std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  return response(msime_client_update_preferences(
+      session_, reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size()), out, error);
+}
 }
