@@ -10,6 +10,7 @@
 #import "CandidatePlacement.h"
 #import "FullWidthInput.h"
 #import "InputModeRouting.h"
+#import "InputMenu.h"
 #import "CandidateAppearance.h"
 #import "CandidateChrome.h"
 #import "PreferencesWindowController.h"
@@ -171,18 +172,8 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 - (NSMenu *)menu {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
-    NSMenuItem *chinese = [[NSMenuItem alloc] initWithTitle:@"中文输入"
-                                                       action:@selector(selectChineseMode:)
-                                                keyEquivalent:@""];
-    chinese.target = self;
-    chinese.state = _englishMode ? NSControlStateValueOff : NSControlStateValueOn;
-    [menu addItem:chinese];
-    NSMenuItem *english = [[NSMenuItem alloc] initWithTitle:@"英文输入"
-                                                       action:@selector(selectEnglishMode:)
-                                                keyEquivalent:@""];
-    english.target = self;
-    english.state = _englishMode ? NSControlStateValueOn : NSControlStateValueOff;
-    [menu addItem:english];
+    [menu addItem:CreateInputModeItem(@"中文输入", @selector(selectChineseMode:), self, !_englishMode)];
+    [menu addItem:CreateInputModeItem(@"英文输入", @selector(selectEnglishMode:), self, _englishMode)];
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *preview = [[NSMenuItem alloc] initWithTitle:@"候选预览…"
                                                         action:@selector(showCandidatePreview:)
