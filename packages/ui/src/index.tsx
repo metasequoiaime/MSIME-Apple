@@ -129,6 +129,7 @@ export interface SettingsClient {
   copyText?: (text: string) => Promise<void>;
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
+  windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -344,6 +345,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
   }, [client, page]);
   return <div className="settings-shell">
+    {client.windowControl && <header className="window-titlebar" aria-label="窗口控制">
+      <span>水杉 IME</span><span className="window-controls">
+        <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>−</button>
+        <button type="button" aria-label="最大化" onClick={() => void client.windowControl!("maximize")}>□</button>
+        <button type="button" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
+      </span>
+    </header>}
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {pages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}

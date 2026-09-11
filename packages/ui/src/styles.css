@@ -250,3 +250,4 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .toggle::after { display: none; }
   .sidebar .item.active { outline: 1px solid Highlight; }
 }
+ .window-titlebar{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 10px;background:#f5f7fb;color:#253047;font-size:13px;border-bottom:1px solid #dfe4ee;user-select:none}.window-controls{display:flex;gap:2px}.window-controls button{width:32px;height:26px;border:0;background:transparent;color:inherit;font-size:16px;border-radius:4px}.window-controls button:hover{background:#e4e9f2}.window-controls button:last-child:hover{background:#d9534f;color:#fff}
