@@ -33,6 +33,14 @@ pub enum PunctuationLock {
     English,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateOrientation {
+    Horizontal,
+    #[default]
+    Vertical,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -43,6 +51,10 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
     pub candidate_page_size: u8,
+    #[serde(default = "default_candidate_font_size")]
+    pub candidate_font_size: u8,
+    #[serde(default)]
+    pub candidate_orientation: CandidateOrientation,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
     pub autocorrect: bool,
@@ -169,6 +181,10 @@ fn enabled_by_default() -> bool {
     true
 }
 
+fn default_candidate_font_size() -> u8 {
+    18
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -176,6 +192,8 @@ impl Default for Preferences {
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             candidate_page_size: 5,
+            candidate_font_size: default_candidate_font_size(),
+            candidate_orientation: CandidateOrientation::default(),
             learning: true,
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
@@ -265,6 +283,9 @@ impl Preferences {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !matches!(self.candidate_font_size, 16 | 18 | 20) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
         let paging = match self.word_character.keys {
             WordCharacterKeys::Brackets => self.navigation.brackets,
             WordCharacterKeys::MinusEqual => self.navigation.minus_equal,
@@ -298,6 +319,8 @@ impl Default for PreferencesSnapshot {
 pub enum PreferencesError {
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
+    #[error("candidate font size must be 16, 18, or 20")]
+    InvalidCandidateFontSize,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
@@ -712,6 +735,11 @@ mod tests {
             store.load().unwrap().preferences.shuangpin_profile,
             ShuangpinProfile::Xiaohe
         );
+        assert_eq!(store.load().unwrap().preferences.candidate_font_size, 18);
+        assert_eq!(
+            store.load().unwrap().preferences.candidate_orientation,
+            CandidateOrientation::Vertical
+        );
         assert_eq!(fs::read_to_string(store.path()).unwrap(), legacy);
         let mut revision = 7;
         for profile in [
@@ -794,6 +822,18 @@ mod tests {
                     }
                 ),
                 Err(PreferencesError::InvalidPageSize)
+            ));
+        }
+        for size in [0, 15, 21, 255] {
+            assert!(matches!(
+                store.save(
+                    1,
+                    Preferences {
+                        candidate_font_size: size,
+                        ..Preferences::default()
+                    }
+                ),
+                Err(PreferencesError::InvalidCandidateFontSize)
             ));
         }
         assert_eq!(store.load().unwrap(), initial);

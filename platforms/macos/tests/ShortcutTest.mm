@@ -107,6 +107,11 @@ int main() {
         assert(!MSIMEValidCaret(NSMakeRect(0, 0, INFINITY, 20)));
         assert(!MSIMEValidCaret(NSMakeRect(0, 0, 1, -1)));
         assert(MSIMEValidCaret(NSMakeRect(-500, -200, 0, 20)));
+        assert(metasequoia::mac::NormalizeCandidateFontSize(16) == 16);
+        assert(metasequoia::mac::NormalizeCandidateFontSize(20) == 20);
+        assert(metasequoia::mac::NormalizeCandidateFontSize(17) == 18);
+        assert(metasequoia::mac::IsVerticalCandidateOrientation(@"vertical"));
+        assert(!metasequoia::mac::IsVerticalCandidateOrientation(@"horizontal"));
         NSRect bounds = NSMakeRect(0, 0, 1000, 800);
         assert(NSEqualPoints(MSIMECandidateOrigin(NSMakeRect(100, 500, 1, 20), NSMakeSize(200, 100), bounds), NSMakePoint(100, 396)));
         assert(NSEqualPoints(MSIMECandidateOrigin(NSMakeRect(950, 20, 1, 20), NSMakeSize(200, 100), bounds), NSMakePoint(800, 44)));

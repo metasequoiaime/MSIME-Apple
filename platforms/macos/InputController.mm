@@ -6,6 +6,7 @@
 #import "CandidatePlacement.h"
 #import "FullWidthInput.h"
 #import "InputModeRouting.h"
+#import "CandidateAppearance.h"
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -34,6 +35,7 @@
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
     BOOL _verticalCandidates;
+    NSUInteger _candidateFontSize;
     BOOL _fullWidthInput;
     BOOL _englishMode;
     BOOL _inputModeShortcutEnabled;
@@ -90,6 +92,7 @@
     _inputModeShortcutEnabled = [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientInputModeShortcut"] == nil ||
                                 [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientInputModeShortcut"];
     _verticalCandidates = YES;
+    _candidateFontSize = 18;
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
@@ -100,6 +103,17 @@
         NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         if ([options isKindOfClass:NSDictionary.class]) {
             _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
+            NSDictionary *preferences = options[@"preferences"];
+            if ([preferences isKindOfClass:NSDictionary.class]) {
+                id orientation = preferences[@"candidate_orientation"];
+                if ([orientation isKindOfClass:NSString.class]) {
+                    _verticalCandidates = metasequoia::mac::IsVerticalCandidateOrientation(orientation);
+                }
+                id fontSize = preferences[@"candidate_font_size"];
+                if ([fontSize isKindOfClass:NSNumber.class]) {
+                    _candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
+                }
+            }
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -130,6 +144,17 @@
         controller->_preferencesLoading = NO;
         // Failed loads retain the old configuration; never synthesize defaults here.
         if (result && !error && controller->_activeClient) {
+            NSDictionary *presentation = result[@"presentation"];
+            if ([presentation isKindOfClass:NSDictionary.class]) {
+                id orientation = presentation[@"candidate_orientation"];
+                if ([orientation isKindOfClass:NSString.class]) {
+                    controller->_verticalCandidates = metasequoia::mac::IsVerticalCandidateOrientation(orientation);
+                }
+                id fontSize = presentation[@"candidate_font_size"];
+                if ([fontSize isKindOfClass:NSNumber.class]) {
+                    controller->_candidateFontSize = metasequoia::mac::NormalizeCandidateFontSize([fontSize unsignedIntegerValue]);
+                }
+            }
             controller->_view = result[@"view"];
             [controller renderCandidates];
         }
@@ -246,7 +271,7 @@
     screen = screen ?: NSScreen.mainScreen;
     if (!screen) { [_panel orderOut:nil]; return; }
     NSRect visible = screen.visibleFrame;
-    NSFont *font = [NSFont systemFontOfSize:18];
+    NSFont *font = [NSFont systemFontOfSize:(CGFloat)metasequoia::mac::NormalizeCandidateFontSize(_candidateFontSize)];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const BOOL vertical = _verticalCandidates;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];

@@ -20,6 +20,8 @@ export type Preferences = {
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
+  candidate_font_size?: 16 | 18 | 20;
+  candidate_orientation?: "horizontal" | "vertical";
   learning: boolean;
   autocorrect?: boolean;
   quanpin_helpcode?: HelpcodePreferences;
@@ -111,6 +113,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
+        <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_orientation ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_orientation: event.target.value as Preferences["candidate_orientation"] })}>
+          <option value="vertical">竖排</option><option value="horizontal">横排</option>
+        </select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
+          <option value="16">小</option><option value="18">标准</option><option value="20">大</option>
+        </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>

@@ -651,3 +651,9 @@ macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，Sh
 按固定 Apple `InputModeRouting.h` / `InputMenu.h` 接入 Shift + Space 中英切换。快捷键默认开启，重复事件只消费，Command、Control、Option 竞争修饰键不触发；当前模式保存于 `MSIMEClientEnglishMode`，英文模式旁路普通按键，切回中文时恢复共享会话焦点。菜单以中文/英文单选项反映当前状态，`MSIMEClientInputModeShortcut` 可关闭快捷键。
 
 macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖无会话切换、英文旁路、菜单状态和切回后的 Engine 通路。仍未执行系统输入源安装后的真实编辑器验收；完整设置窗口及其他 Apple 功能继续迁移。
+
+### macOS 候选显示偏好
+
+共享 Preferences 新增候选字号（16/18/20）和横/竖布局，旧配置缺失时分别使用 18 点和竖排默认值；设置页与 macOS 候选面板消费同一份快照，每页数量继续由共享运行时控制。仅展示字段变化不会重建 Engine；需要重建的输入配置仍在组合期间延迟，读取失败保留旧显示和输入配置。
+
+client-core、host-api、设置页测试以及 macOS 原生 CMake/CTest、全 workspace fmt/clippy 均通过。未执行系统输入源安装后的真实编辑器或逐像素验收，候选皮肤、完整设置窗口和其他 Apple 功能仍待迁移。

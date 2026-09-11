@@ -28,11 +28,25 @@ struct HostSession {
 }
 
 impl HostSession {
+    fn engine_preferences_equal(&self, next: &Preferences) -> bool {
+        let mut current = self.applied.clone();
+        current.candidate_font_size = next.candidate_font_size;
+        current.candidate_orientation = next.candidate_orientation;
+        current == *next
+    }
+
     fn apply_pending(&mut self) -> Result<(), String> {
         let Some(snapshot) = &self.requested else {
             return Ok(());
         };
-        if snapshot.preferences == self.applied || !self.runtime.is_idle() {
+        if snapshot.preferences == self.applied {
+            return Ok(());
+        }
+        if self.engine_preferences_equal(&snapshot.preferences) {
+            self.applied = snapshot.preferences.clone();
+            return Ok(());
+        }
+        if !self.runtime.is_idle() {
             return Ok(());
         }
         let mut options = self.options.clone();
@@ -120,9 +134,15 @@ impl HostSession {
         self.requested = Some(snapshot);
         self.apply_pending()?;
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
-        Ok(
-            json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view() }),
-        )
+        Ok(json!({
+            "revision": snapshot.revision,
+            "deferred": snapshot.preferences != self.applied,
+            "presentation": {
+                "candidate_font_size": snapshot.preferences.candidate_font_size,
+                "candidate_orientation": snapshot.preferences.candidate_orientation,
+            },
+            "view": self.runtime.view()
+        }))
     }
 }
 
@@ -638,6 +658,29 @@ mod tests {
         });
         preferences.mixed_input.minimum_prefix = 9;
         assert_eq!(update(handle, 2, &preferences)["ok"], false);
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn presentation_changes_apply_without_rebuilding_the_engine() {
+        use msime_client_core::preferences::CandidateOrientation;
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        let preferences = Preferences {
+            candidate_font_size: 20,
+            candidate_orientation: CandidateOrientation::Horizontal,
+            ..Preferences::default()
+        };
+        let result = update(handle, 1, &preferences);
+        assert_eq!(result["value"]["deferred"], false);
+        assert_eq!(result["value"]["presentation"]["candidate_font_size"], 20);
+        assert_eq!(
+            result["value"]["presentation"]["candidate_orientation"],
+            "horizontal"
+        );
+        SESSIONS.with(|sessions| {
+            assert_eq!(sessions.borrow()[&handle].options.scheme, 0);
+        });
         read(msime_client_destroy(handle));
     }
     #[test]

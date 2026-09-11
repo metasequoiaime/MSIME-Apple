@@ -137,6 +137,18 @@ test("helpcode schemes save independently and retain disabled selections", async
 });
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
+test("candidate appearance settings persist and use legacy defaults", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
+  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
+  fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_orientation: "horizontal", candidate_font_size: 20 });
+});
+
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
