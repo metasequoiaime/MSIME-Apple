@@ -11,6 +11,7 @@
 using Json = nlohmann::json;
 namespace {
 Json configured;
+void register_properties(IBusEngine *engine);
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       raw, msime_client_string_free);
@@ -190,6 +191,7 @@ template <class F> void guarded(IBusEngine *engine, F action) noexcept {
 void focus_in(IBusEngine *engine) {
   guarded(engine, [&] {
     auto &s = state(engine);
+    register_properties(engine);
     s.focused = true;
     s.open();
     if (s.session)
@@ -460,7 +462,6 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
-  register_properties(IBUS_ENGINE(engine));
 }
 static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
