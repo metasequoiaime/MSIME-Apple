@@ -178,14 +178,15 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [menu addItem:CreateInputModeItem(@"中文输入", @selector(selectChineseMode:), self, !_englishMode)];
     [menu addItem:CreateInputModeItem(@"英文输入", @selector(selectEnglishMode:), self, _englishMode)];
     [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showPreferences:) keyEquivalent:@""]];
     NSMenuItem *preview = [[NSMenuItem alloc] initWithTitle:@"候选预览…"
                                                         action:@selector(showCandidatePreview:)
                                                  keyEquivalent:@""];
     preview.target = self;
     [menu addItem:preview];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""]];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""]];
+    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showPreferences:) keyEquivalent:@""]];
+
     NSMenuItem *keymap = [[NSMenuItem alloc] initWithTitle:@"双拼键位参考" action:nil keyEquivalent:@""];
     NSMenu *profiles = [[NSMenu alloc] initWithTitle:keymap.title];
     profiles.autoenablesItems = NO;
