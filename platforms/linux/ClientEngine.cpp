@@ -235,6 +235,92 @@ struct State {
     if (word_character_override)
       word_character.enabled = *word_character_override;
   }
+  void refresh_host_preferences(const Json &preferences) {
+    navigation = msime::linux_host::NavigationBindings::read(preferences);
+    word_character = msime::linux_host::WordCharacterBinding::read(preferences);
+    if (word_character_override)
+      word_character.enabled = *word_character_override;
+    number_row_selection = number_row_override.value_or(
+        preferences.value("number_row_selection", true));
+    smart_punctuation = smart_punctuation_override.value_or(
+        preferences.value("smart_punctuation", true));
+    smart_punctuation_repeat = smart_repeat_override.value_or(
+        preferences.value("smart_punctuation_repeat", true));
+    paired_punctuation = paired_punctuation_override.value_or(
+        preferences.value("paired_punctuation", true));
+    punctuation_lock = punctuation_lock_override.value_or(
+        preferences.value("punctuation_lock", "follow"));
+    chinese_punctuation = punctuation_override.value_or(
+        preferences.value("chinese_punctuation", true));
+    if (punctuation_lock == "chinese")
+      chinese_punctuation = true;
+    else if (punctuation_lock == "english")
+      chinese_punctuation = false;
+    traditional_output = traditional_output_override.value_or(
+        preferences.value("traditional_chinese_output", false));
+    auto display_preferences = preferences;
+    if (layout_override)
+      display_preferences["candidate_layout"] = *layout_override;
+    if (theme_override)
+      display_preferences["candidate_theme"] = *theme_override;
+    if (skin_override)
+      display_preferences["candidate_skin"] = *skin_override;
+    candidate_text_color = ::candidate_text_color(display_preferences);
+    candidate_background_color = ::candidate_background_color(display_preferences);
+    candidate_orientation = ::candidate_orientation(display_preferences);
+    preedit_style = preedit_override.value_or(::preedit_style(display_preferences));
+    candidate_preedit_style = preferences.value("candidate_preedit_style", "pinyin");
+    if (candidate_preedit_style != "empty")
+      candidate_preedit_style = "pinyin";
+    const auto voice = preferences.value("voice_input", Json::object());
+    voice_enabled = voice.value("enabled", true);
+    voice_language = voice.value("language", std::string("zh-cn"));
+    voice_hotkey_ralt = voice.value("hotkey_ralt", true);
+    voice_hotkey_ctrl_win = voice.value("hotkey_ctrl_win", false);
+    voice_hotkey_rctrl_ralt = voice.value("hotkey_rctrl_ralt", false);
+    voice_hotkey_hold_space_lock = voice.value("hotkey_hold_space_lock", true);
+    voice_hotkey_ctrl_f9 = voice.value("hotkey_ctrl_f9", true);
+  }
+  void apply_session_overrides(Json &options) const {
+    auto &preferences = options["preferences"];
+    if (paired_punctuation_override)
+      preferences["paired_punctuation"] = *paired_punctuation_override;
+    if (punctuation_lock_override)
+      preferences["punctuation_lock"] = *punctuation_lock_override;
+    if (scheme_override)
+      preferences["scheme"] = *scheme_override;
+    if (shuangpin_profile_override)
+      preferences["shuangpin_profile"] = *shuangpin_profile_override;
+    if (candidate_page_size_override)
+      preferences["candidate_page_size"] = *candidate_page_size_override;
+    if (layout_override)
+      preferences["candidate_layout"] = *layout_override;
+    if (preedit_override)
+      preferences["tsf_preedit_style"] = *preedit_override;
+    if (theme_override)
+      preferences["candidate_theme"] = *theme_override;
+    if (skin_override)
+      preferences["candidate_skin"] = *skin_override;
+    if (autocorrect_override)
+      preferences["autocorrect"] = *autocorrect_override;
+    if (frequency_mode_override)
+      preferences["frequency"]["mode"] = *frequency_mode_override;
+    const auto active_scheme = preferences.value("scheme", "quanpin");
+    if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
+      if (helpcode_override)
+        preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
+      if (helpcode_schema_override)
+        preferences[active_scheme + "_helpcode"]["schema"] = *helpcode_schema_override;
+    }
+    if (english_override)
+      preferences["mixed_input"]["english"] = *english_override;
+    if (emoji_override)
+      preferences["mixed_input"]["emoji"] = *emoji_override;
+    if (kaomoji_override)
+      preferences["mixed_input"]["kaomoji"] = *kaomoji_override;
+    if (private_input)
+      preferences["learning"] = false;
+  }
 };
 bool script_conversion_applies(const Json &context) {
   return context.is_object() && context.value("scheme", 255) != 3 &&
@@ -2358,18 +2444,17 @@ gboolean reload_preferences(gpointer data) {
                              auto snapshot = response(raw.release());
                              if (snapshot.is_null())
                                return;
-                             if (s.private_input)
-                               snapshot["preferences"]["learning"] = false;
+                             configured["preferences"] = snapshot.at("preferences");
+                             s.apply_session_overrides(snapshot);
+                             s.refresh_host_preferences(snapshot.at("preferences"));
+                             if (s.voice_active && !s.voice_enabled)
+                               voice_cancel(IBUS_ENGINE(source));
                              const auto encoded = snapshot.dump();
                              auto updated = response(msime_client_update_preferences(
                                  s.session,
                                  reinterpret_cast<const uint8_t *>(encoded.data()),
                                  encoded.size()));
                              s.view = updated.at("view");
-                             s.candidate_preedit_style = snapshot.at("preferences").value(
-                                 "candidate_preedit_style", "pinyin");
-                             if (s.candidate_preedit_style != "empty")
-                               s.candidate_preedit_style = "pinyin";
                              render(IBUS_ENGINE(source), s.view);
                              publish_mode(IBUS_ENGINE(source));
                            } catch (...) {
