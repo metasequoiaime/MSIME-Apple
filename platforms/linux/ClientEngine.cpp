@@ -89,6 +89,11 @@ struct State {
       translation_provider_socket;
   std::string voice_provider_socket, voice_language = "zh-cn";
   bool voice_enabled = true;
+  bool voice_hotkey_ralt = true;
+  bool voice_hotkey_ctrl_win = false;
+  bool voice_hotkey_rctrl_ralt = false;
+  bool voice_hotkey_hold_space_lock = true;
+  bool voice_hotkey_ctrl_f9 = true;
   bool voice_active = false;
   uint64_t voice_generation = 0;
   std::shared_ptr<std::atomic_bool> alive =
@@ -174,6 +179,12 @@ struct State {
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
     voice_language = voice_preferences.value("language", std::string("zh-cn"));
+    voice_hotkey_ralt = voice_preferences.value("hotkey_ralt", true);
+    voice_hotkey_ctrl_win = voice_preferences.value("hotkey_ctrl_win", false);
+    voice_hotkey_rctrl_ralt = voice_preferences.value("hotkey_rctrl_ralt", false);
+    voice_hotkey_hold_space_lock =
+        voice_preferences.value("hotkey_hold_space_lock", true);
+    voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
     if (english_override)
@@ -1418,6 +1429,18 @@ void voice_start(IBusEngine *engine) {
       });
   publish_mode(engine);
 }
+bool voice_hotkey(const State &s, guint key, guint modifiers) {
+  if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
+    return s.voice_hotkey_ctrl_f9;
+  if (key == IBUS_Alt_R && modifiers == (IBUS_MOD1_MASK | IBUS_CONTROL_MASK))
+    return s.voice_hotkey_rctrl_ralt;
+  if (key == IBUS_Alt_R && modifiers == IBUS_MOD1_MASK)
+    return s.voice_hotkey_ralt;
+  if ((key == IBUS_Super_L || key == IBUS_Super_R) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_MOD4_MASK))
+    return s.voice_hotkey_ctrl_win;
+  return false;
+}
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
@@ -2080,6 +2103,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     }
     if (!s.input_enabled)
       return;
+    if (voice_hotkey(s, key, modifiers) && s.voice_enabled &&
+        !s.voice_provider_socket.empty()) {
+      if (s.voice_active)
+        voice_cancel(engine);
+      else
+        voice_start(engine);
+      handled = true;
+      return;
+    }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
     // Apply configured candidate bindings before punctuation can consume them.
