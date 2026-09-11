@@ -52,6 +52,7 @@ class CCompositionProcessorEngine
     {
         return _hostEngineAdapter.get();
     }
+    bool InitializeHostSession(const std::string &options, std::string *error);
     void RemoveVirtualKey(DWORD_PTR dwIndex);
     BOOL RemoveVirtualKeyBeforeCaret();
     BOOL RemoveVirtualKeyAtCaret();

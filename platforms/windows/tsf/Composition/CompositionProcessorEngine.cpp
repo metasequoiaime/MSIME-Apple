@@ -200,6 +200,14 @@ CCompositionProcessorEngine::~CCompositionProcessorEngine()
     _ownerMsgWndHandle = nullptr;
 }
 
+bool CCompositionProcessorEngine::InitializeHostSession(const std::string &options,
+                                                         std::string *error)
+{
+    if (!_hostEngineAdapter)
+        _hostEngineAdapter = std::make_unique<msime::tsf::EngineSessionAdapter>();
+    return _hostEngineAdapter->create(options, error);
+}
+
 //+---------------------------------------------------------------------------
 //
 // SetupLanguageProfile
