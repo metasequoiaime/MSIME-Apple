@@ -40,6 +40,7 @@ export type Preferences = {
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
   cloud_candidates?: boolean;
+  candidate_translations?: boolean;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -334,6 +335,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><div className="section-header"><span className="section-title">主题模式<small>设置界面和候选预览的颜色主题</small></span><CustomDropdown ariaLabel="主题模式" value={draft.theme ?? "dark"} options={[["dark", "深色"], ["light", "浅色"], ["system", "跟随系统"]]} onChange={value => setDraft({ ...draft, theme: value as Preferences["theme"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">设置界面主题<small>可覆盖全局主题，仅影响当前设置界面</small></span><CustomDropdown ariaLabel="设置界面主题" value={draft.settings_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, settings_theme: value as Preferences["settings_theme"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选窗口主题<small>可覆盖全局主题，仅影响候选窗口</small></span><CustomDropdown ariaLabel="候选窗口主题" value={draft.candidate_theme ?? "follow"} options={[["follow", "跟随全局"], ["dark", "深色"], ["light", "浅色"]]} onChange={value => setDraft({ ...draft, candidate_theme: value as Preferences["candidate_theme"] })} /></div></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选词翻译<small>允许宿主在候选窗口旁显示在线翻译结果。</small></span><input aria-label="候选词翻译" className="toggle" type="checkbox" checked={draft.candidate_translations ?? true} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label></div>
         <div className="section"><div className="section-header"><span className="section-title">候选项排列方式</span><CustomDropdown value={draft.candidate_layout ?? "vertical"} options={[["horizontal", "横向"], ["vertical", "纵向"]]} onChange={value => setDraft({ ...draft, candidate_layout: value as Preferences["candidate_layout"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选窗预编辑</span><CustomDropdown value={draft.candidate_preedit_style ?? "pinyin"} options={[["pinyin", "拼音分词"], ["empty", "不显示"]]} onChange={value => setDraft({ ...draft, candidate_preedit_style: value as Preferences["candidate_preedit_style"] })} /></div></div>
         <div className="section"><div className="section-header"><span className="section-title">行内预编辑</span><CustomDropdown ariaLabel="行内预编辑" value={draft.tsf_preedit_style ?? "raw"} options={[["raw", "原始按键"], ["pinyin", "拼音分词"], ["empty", "不显示"]]} onChange={value => setDraft({ ...draft, tsf_preedit_style: value as Preferences["tsf_preedit_style"] })} /></div></div>

@@ -90,6 +90,8 @@ pub struct Preferences {
     /// Fetch one additional candidate from the configured cloud provider.
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
+    #[serde(default = "enabled_by_default")]
+    pub candidate_translations: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -507,6 +509,7 @@ impl Default for Preferences {
             local_modes: LocalModePreferences::default(),
             clipboard_history: true,
             cloud_candidates: true,
+            candidate_translations: true,
         }
     }
 }
