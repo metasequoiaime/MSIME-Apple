@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use crate::voice::VoicePreferences;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +85,8 @@ pub struct Preferences {
     pub clipboard_history: bool,
     #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
+    #[serde(default)]
+    pub voice: VoicePreferences,
 }
 
 /// Settings for the optional host-provided floating toolbar.
@@ -284,6 +287,7 @@ impl Default for Preferences {
             local_modes: LocalModePreferences::default(),
             clipboard_history: false,
             floating_toolbar: FloatingToolbarPreferences::default(),
+            voice: VoicePreferences::default(),
         }
     }
 }
