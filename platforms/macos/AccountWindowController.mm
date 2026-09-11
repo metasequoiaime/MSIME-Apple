@@ -34,7 +34,17 @@
     [self.window center]; [self showWindow:nil]; [NSApp activateIgnoringOtherApps:YES];
 }
 
-- (void)showSettings:(id)sender { (void)sender; [[MSIMEPreferencesWindowController sharedController] showAndActivate]; }
+- (void)showSettings:(id)sender {
+    (void)sender;
+    Class bridgeClass = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id bridge = nil;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    if ([bridgeClass respondsToSelector:@selector(shared)]) bridge = [bridgeClass performSelector:@selector(shared)];
+    if (bridge && [bridge respondsToSelector:@selector(showSettingsForAccountID:)])
+        [bridge performSelector:@selector(showSettingsForAccountID:) withObject:_accountID];
+#pragma clang diagnostic pop
+}
 
 - (void)login:(id)sender { (void)sender; MSIMEAuthChallenge(nil, ^(NSData *data, NSInteger status, NSError *error) { if (status < 200 || status >= 300 || error) return; NSDictionary *challenge = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil]; NSString *value = challenge[@"challenge"]; if (![value isKindOfClass:NSString.class]) return; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"输入登录凭据"; NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0, 0, 260, 24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"登录"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] != NSAlertFirstButtonReturn) return; MSIMEAuthLogin(value, field.stringValue, nil, ^(NSData *result, NSInteger resultStatus, NSError *resultError) { if (resultStatus < 200 || resultStatus >= 300 || resultError) return; NSDictionary *tokens = [NSJSONSerialization JSONObjectWithData:result options:0 error:nil]; NSString *access = tokens[@"access_token"]; if ([access isKindOfClass:NSString.class]) { NSError *storeError = nil; MSIMEStoreKeychainToken(self->_accountID, access, &storeError); } }); }); }
 @end
