@@ -1,21 +1,16 @@
 #!/usr/bin/env sh
 set -eu
-# An explicit override must fail visibly if invalid. Only an absent user
-# configuration falls back to the system configuration supplied by IBus.
 if [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
   config=$MSIME_IBUS_OPTIONS
+elif [ -n "${1:-}" ]; then
+  config=$1
 else
   config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
-  if [ ! -e "$config" ]; then
-    config=${1:-/etc/msime-client/runtime-options.json}
-  fi
 fi
 if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
 fi
-# Resolve both the launcher and options path before handing control to IBus;
-# daemon working directories are not stable across desktop environments.
 config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
 config="$config_dir/$(basename -- "$config")"
 launcher_path=$0
