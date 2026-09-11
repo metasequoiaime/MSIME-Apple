@@ -360,6 +360,34 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   delete items;
   publish_mode(IBUS_ENGINE(source));
 }
+std::string candidate_action_name(const char *action, const Json &id) {
+  return std::string(action) + "/" + std::to_string(id.at("session").get<uint64_t>()) +
+         "/" + std::to_string(id.at("generation").get<uint64_t>()) +
+         "/" + std::to_string(id.at("index").get<size_t>());
+}
+IBusProperty *candidate_actions(IBusEngine *engine) {
+  const auto &s = state(engine);
+  auto items = ibus_prop_list_new();
+  const auto candidates = s.view.value("candidates", Json::array());
+  size_t slot = 0;
+  for (const auto &candidate : candidates) {
+    ++slot;
+    for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
+                                       std::pair{"CandidateRemove", "删除候选"}}) {
+      const auto name = candidate_action_name(action, candidate.at("id"));
+      const auto title = std::string(label) + " " + std::to_string(slot);
+      ibus_prop_list_append(items, ibus_property_new(
+          name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
+          ibus_text_new_from_static_string("操作当前页候选"), TRUE, TRUE,
+          PROP_STATE_UNCHECKED, nullptr));
+    }
+  }
+  return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("候选操作"), "",
+      ibus_text_new_from_static_string("固定或删除当前页候选"),
+      s.session && s.focused && !s.blocked && s.input_enabled && !candidates.empty(),
+      TRUE, PROP_STATE_UNCHECKED, items);
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   clipboard_schedule(engine);
@@ -704,6 +732,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(profile, profile_menu);
   if (registration) {
     auto properties = ibus_prop_list_new();
+    ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
@@ -728,6 +757,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, profile);
     ibus_engine_register_properties(engine, properties);
   } else {
+    ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
@@ -808,6 +838,7 @@ void publish_expressive(IBusEngine *engine, const State &s) {
     }
 }
 void render(IBusEngine *engine, const Json &view) {
+  ibus_engine_update_property(engine, candidate_actions(engine));
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
@@ -955,16 +986,25 @@ void focus_out(IBusEngine *engine) {
   });
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
-  if (name && (std::string(name).rfind("CandidatePin", 0) == 0 || std::string(name).rfind("CandidateRemove", 0) == 0)) {
-    const bool pin = std::string(name).rfind("CandidatePin", 0) == 0;
-    const auto index = std::strtoul(name + (pin ? 12 : 15), nullptr, 10);
+  const std::string candidate_name = name ? name : "";
+  if (candidate_name.rfind("CandidatePin", 0) == 0 ||
+      candidate_name.rfind("CandidateRemove", 0) == 0) {
     guarded(engine, "candidate_property", [&] {
       auto &s = state(engine);
-      if (s.session) {
-        const auto generation = s.view.value("generation", 0ULL);
-        s.view = response(pin ? msime_client_pin_candidate(s.session, generation, index)
-                              : msime_client_remove_candidate(s.session, generation, index));
-        render(engine, s.view);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+        return;
+      for (const auto &candidate : s.view.at("candidates")) {
+        const auto &id = candidate.at("id");
+        const bool pin = candidate_name == candidate_action_name("CandidatePin", id);
+        if (!pin && candidate_name != candidate_action_name("CandidateRemove", id))
+          continue;
+        if (id.at("session").get<uint64_t>() != s.session)
+          return;
+        const auto generation = id.at("generation").get<uint64_t>();
+        const auto index = id.at("index").get<size_t>();
+        apply(engine, pin ? msime_client_pin_candidate(s.session, generation, index)
+                          : msime_client_remove_candidate(s.session, generation, index));
+        return;
       }
     });
     return;
@@ -1585,181 +1625,8 @@ void page(IBusEngine *engine, uint32_t command) {
       apply(engine, msime_client_command(s.session, command));
   });
 }
-void property_activate(IBusEngine *engine, const gchar *name, guint value) {
-  if (!name || (std::string(name) != "InputEnabled" &&
-       std::string(name) != "EnglishCandidates" &&
-       std::string(name) != "EmojiCandidates" &&
-       std::string(name) != "KaomojiCandidates" &&
-       std::string(name) != "ChinesePunctuation" &&
-       std::string(name) != "CharacterWidth" &&
-       std::string(name) != "EnglishMode" &&
-       std::string(name) != "PunctuationChineseLock" &&
-       std::string(name) != "PunctuationEnglishLock" &&
-       std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") ||
-       std::string(name) != "PairedPunctuation" &&
-       std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") ||
-      ((std::string(name) != "CandidatePin" && std::string(name) != "CandidateRemove") &&
-       value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
-    return;
-  guarded(engine, "property_activate", [&] {
-    auto &s = state(engine);
-    if ((std::string(name) == "CandidatePin" || std::string(name) == "CandidateRemove") && s.session) {
-      const auto generation = s.view.value("generation", 0ULL);
-      s.view = response(std::string(name) == "CandidatePin"
-          ? msime_client_pin_candidate(s.session, generation, value)
-          : msime_client_remove_candidate(s.session, generation, value));
-      render(engine, s.view);
-      return;
-    }
-    if (std::string(name) == "PairedPunctuation") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.session) {
-        s.view = response(msime_client_set_paired_punctuation(s.session, enabled));
-        render(engine, s.view);
-      }
-      return;
-    }
-    if (std::string(name) == "PunctuationChineseLock" ||
-        std::string(name) == "PunctuationEnglishLock") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      if (enabled && s.session) {
-        s.view = response(msime_client_set_punctuation_lock(
-            s.session, std::string(name) == "PunctuationChineseLock" ? 1 : 2));
-        render(engine, s.view);
-      } else if (!enabled && s.session) {
-        s.view = response(msime_client_set_punctuation_lock(s.session, 0));
-        render(engine, s.view);
-      }
-      return;
-    }
-    if (std::string(name) == "EnglishMode") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.session) {
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-        s.view = response(msime_client_set_english_mode(s.session, enabled));
-      }
-      return;
-    }
-    if (std::string(name) == "CharacterWidth") {
-      const bool fullwidth = value == PROP_STATE_CHECKED;
-      if (s.session) {
-        auto result = response(msime_client_set_character_width(s.session, fullwidth));
-        s.view = result;
-      }
-      publish_character_width(engine, fullwidth);
-      return;
-    }
-    if (std::string(name) == "ChinesePunctuation") {
-      s.chinese_punctuation = value == PROP_STATE_CHECKED;
-      if (s.session) {
-        // The mode setter returns a View, not a commit Transition.
-        s.view = response(msime_client_set_chinese_punctuation(
-            s.session, s.chinese_punctuation));
-        render(engine, s.view);
-      }
-      publish_punctuation(engine, s.chinese_punctuation);
-      return;
-    }
-    if (std::string(name) == "EnglishCandidates" ||
-        std::string(name) == "EmojiCandidates" ||
-        std::string(name) == "KaomojiCandidates") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
-      if (std::string(name) == "EnglishCandidates")
-        s.english_override = enabled;
-      else if (std::string(name) == "EmojiCandidates")
-        s.emoji_override = enabled;
-      else
-        s.kaomoji_override = enabled;
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
-      clear(engine);
-      publish_expressive(engine, s);
-      return;
-    }
-    s.input_enabled = value == PROP_STATE_CHECKED;
-    if (s.session)
-      apply(engine, msime_client_focus(s.session, s.input_enabled));
-    clear(engine);
-    publish_input_enabled(engine, s.input_enabled);
-  });
-}
 void register_properties(IBusEngine *engine) {
-  auto properties = ibus_prop_list_new();
-  auto property = ibus_property_new(
-      "InputEnabled", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("输入启用"), "",
-      ibus_text_new_from_static_string("启用或停用当前 Linux 输入会话"), TRUE,
-      TRUE, PROP_STATE_CHECKED, nullptr);
-  ibus_prop_list_append(properties, property);
-  auto punctuation = ibus_property_new(
-      "ChinesePunctuation", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("中文标点"), "",
-      ibus_text_new_from_static_string("启用中文标点转换"), TRUE, TRUE,
-      configured.at("preferences").value("chinese_punctuation", true)
-          ? PROP_STATE_CHECKED
-          : PROP_STATE_UNCHECKED,
-      nullptr);
-  ibus_prop_list_append(properties, punctuation);
-  auto width = ibus_property_new(
-      "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
-      ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
-      PROP_STATE_UNCHECKED, nullptr);
-  ibus_prop_list_append(properties, width);
-  auto english_mode = ibus_property_new(
-      "EnglishMode", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("英文模式"), "",
-      ibus_text_new_from_static_string("使用 Engine 专用英文输入模式"), TRUE, TRUE,
-      PROP_STATE_UNCHECKED, nullptr);
-  ibus_prop_list_append(properties, english_mode);
-  auto paired = ibus_property_new(
-      "PairedPunctuation", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("成对标点"), "",
-      ibus_text_new_from_static_string("启用引号和书名号成对转换"), TRUE, TRUE,
-      PROP_STATE_CHECKED, nullptr);
-  ibus_prop_list_append(properties, paired);
-  for (const auto &[name, label] : {
-           std::tuple<const char *, const char *>
-               {"PunctuationChineseLock", "强制中文标点"},
-           {"PunctuationEnglishLock", "强制英文标点"}}) {
-    auto item = ibus_property_new(
-        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("锁定当前会话的标点语言"), TRUE, TRUE,
-        PROP_STATE_UNCHECKED, nullptr);
-    ibus_prop_list_append(properties, item);
-  }
-  auto english = ibus_property_new(
-      "EnglishCandidates", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("英文候选"), "",
-      ibus_text_new_from_static_string("在中文方案中补充英文候选"), TRUE, TRUE,
-      configured.at("preferences").value("mixed_input", Json::object()).value("english", true)
-          ? PROP_STATE_CHECKED
-          : PROP_STATE_UNCHECKED,
-      nullptr);
-  ibus_prop_list_append(properties, english);
-  for (guint i = 0; i < 9; ++i) {
-    for (const auto &[prefix, label] : {std::pair<const char *, const char *> {"CandidatePin", "固定候选"}, {"CandidateRemove", "删除候选"}}) {
-      const auto name = std::string(prefix) + std::to_string(i);
-      auto item = ibus_property_new(name.c_str(), PROP_TYPE_NORMAL,
-          ibus_text_new_from_string((std::string(label) + " " + std::to_string(i + 1)).c_str()), "",
-          ibus_text_new_from_static_string("候选操作"), TRUE, TRUE, PROP_STATE_UNCHECKED, nullptr);
-      ibus_prop_list_append(properties, item);
-    }
-  }
-  for (const auto &[name, label, key] : {
-           std::tuple<const char *, const char *, const char *>{"EmojiCandidates", "Emoji候选", "emoji"},
-           {"KaomojiCandidates", "颜文字候选", "kaomoji"}}) {
-    auto item = ibus_property_new(
-        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("在中文方案中补充表达候选"), TRUE, TRUE,
-        configured.at("preferences").value("mixed_input", Json::object()).value(key, false)
-            ? PROP_STATE_CHECKED
-            : PROP_STATE_UNCHECKED,
-        nullptr);
-    ibus_prop_list_append(properties, item);
-  }
-  ibus_engine_register_properties(engine, properties);
+  publish_mode(engine, true);
 }
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimePreviewEngine *>(object);

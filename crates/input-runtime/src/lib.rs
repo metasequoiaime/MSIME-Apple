@@ -80,8 +80,12 @@ pub trait InputEngine {
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
-    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { self.select(index) }
-    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { self.select(index) }
+    fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine("Candidate pinning is unsupported".into()))
+    }
+    fn remove_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine("Candidate removal is unsupported".into()))
+    }
     fn select_edge(
         &mut self,
         index: usize,
