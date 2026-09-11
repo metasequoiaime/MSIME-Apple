@@ -22,3 +22,8 @@ target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
 add_executable(msime-voice-worker-test tests/voice_worker.cpp)
 target_compile_options(msime-voice-worker-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-voice-worker-test PRIVATE .)
+
+include(GNUInstallDirs)
+install(TARGETS msime-client-ibus RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES data/msime-client-preview.xml
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
