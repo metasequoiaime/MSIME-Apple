@@ -68,6 +68,7 @@ if ($Tsf64ReleaseDirectory) {
 $webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
+$iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $pinyinTable = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\tables\pinyin.txt')
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
 $appIcon = Join-Path $RepoRoot (Join-Path $ServerDirectory 'src\resource\MetasequoiaIME.ico')
@@ -185,6 +186,8 @@ else {
 }
 
 $targetHtml = Join-Path $targetAppData 'html'
+$targetIcons = Join-Path $targetAppData 'icons'
+Copy-DirectoryContents -Source $iconSource -Destination $targetIcons
 if (Test-Path -LiteralPath $targetHtml) {
     Remove-Item -LiteralPath $targetHtml -Recurse -Force
 }
