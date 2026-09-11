@@ -17,6 +17,57 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
 
+test("open directory is explicit, path-free and independent of scanning and selection", async () => {
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  const scan = vi.fn().mockResolvedValue(catalog);
+  const onSelect = vi.fn();
+  render(<ExternalSkins {...props} openDirectory={openDirectory} scan={scan} onSelect={onSelect} />);
+  expect(openDirectory).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  await screen.findByRole("button", { name: "打开目录" });
+  expect(openDirectory).toHaveBeenCalledWith();
+  expect(scan).not.toHaveBeenCalled();
+  expect(onSelect).not.toHaveBeenCalled();
+});
+
+test("settings forwards the open directory capability", async () => {
+  const openSkinDirectory = vi.fn().mockResolvedValue(undefined);
+  const save = vi.fn();
+  render(<SettingsPage client={{ load: async () => initial, save, openSkinDirectory }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  await screen.findByRole("button", { name: "打开目录" });
+  expect(openSkinDirectory).toHaveBeenCalledWith();
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("directory opener is disabled when unavailable and retries sanitized failures", async () => {
+  const mounted = render(<ExternalSkins {...props} />);
+  expect((screen.getByRole("button", { name: "打开目录" }) as HTMLButtonElement).disabled).toBe(true);
+  const openDirectory = vi.fn().mockImplementationOnce(() => { throw new Error("private diagnostic"); }).mockResolvedValue(undefined);
+  mounted.rerender(<ExternalSkins {...props} openDirectory={openDirectory} />);
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法打开皮肤目录，请重试。");
+  expect(screen.queryByText("private diagnostic")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  await screen.findByRole("button", { name: "打开目录" });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(openDirectory).toHaveBeenCalledTimes(2);
+});
+
+test("opening deduplicates requests and ignores late failures after host replacement", async () => {
+  let reject!: (error: Error) => void;
+  const openDirectory = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+  const mounted = render(<ExternalSkins {...props} openDirectory={openDirectory} />);
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  fireEvent.click(screen.getByRole("button", { name: "正在打开…" }));
+  expect(openDirectory).toHaveBeenCalledTimes(1);
+  mounted.rerender(<ExternalSkins {...props} openDirectory={async () => {}} />);
+  await act(async () => reject(new Error("synthetic")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect((screen.getByRole("button", { name: "打开目录" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
 test("catalog is scanned only on request and displays host directory, metadata and diagnostics", async () => {
   const scan = vi.fn().mockResolvedValue(catalog);
   render(<ExternalSkins {...props} scan={scan} />);

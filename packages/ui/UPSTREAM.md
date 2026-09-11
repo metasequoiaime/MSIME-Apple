@@ -116,3 +116,14 @@ This is still partial external-skin migration: opening the directory, loading
 external CSS/images, decoration geometry, native runtime resource delivery and
 native visual parity remain unfinished. Cards with external resources explicitly
 label the preview limitation. No arbitrary stylesheet or image URL is loaded.
+
+The external catalog now exposes the pinned upstream `openSkinDirectory` action
+as a host-injected, argument-free `open_skin_directory` command. Like
+`server/src/settings/settings_app.cpp` at the same Windows commit, explicit
+opening creates the host's skin directory first. Scanning remains read-only.
+Windows uses ShellExecuteW (with COM initialized on a dedicated thread); macOS
+and Linux pass one absolute path argument to their directory opener, never a
+shell command. Failures are sanitized, existing files are preserved, and the
+UI guards duplicate requests and stale completions. Native file-manager
+interaction is not covered by the automated tests. External resource loading
+and native visual parity remain unfinished.

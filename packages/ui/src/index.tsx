@@ -149,6 +149,7 @@ const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
   scanSkinCatalog?: () => Promise<SkinCatalog>;
+  openSkinDirectory?: () => Promise<void>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
@@ -519,7 +520,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>
           </article>)}
         </div>
-        <ExternalSkins scan={client.scanSkinCatalog} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
+        <ExternalSkins scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
         <div className="section floating-toolbar-card">
