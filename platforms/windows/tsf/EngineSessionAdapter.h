@@ -9,6 +9,7 @@ struct EngineCandidate {
   std::string id;
   std::string text;
   bool highlighted = false;
+  std::size_t index = 0;
 };
 struct EngineView {
   std::string preedit;
