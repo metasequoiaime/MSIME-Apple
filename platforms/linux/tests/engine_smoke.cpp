@@ -196,6 +196,21 @@ int main(int argc, char **argv) {
             "Chinese punctuation not applied");
     auto committed = seen.committed;
     phrase();
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_UNCHECKED));
+    require(seen.preedit_visible && seen.preedit == "nihao" &&
+                seen.lookup_visible && seen.committed == committed,
+            "Punctuation toggle lost composition or committed input");
+    invoke("Reset");
+    require(!key(','), "English punctuation should pass through when idle");
+    require(seen.committed == committed, "English punctuation emitted a commit");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_CHECKED));
+    require(key(','), "Restored Chinese punctuation was not consumed");
+    require(seen.committed == committed + "，",
+            "Restored punctuation mode did not reach the session");
+    committed = seen.committed;
+    phrase();
     require(key(IBUS_KP_Page_Down), "Keypad paging not consumed");
     auto numbered = seen.candidates.front();
     require(key(IBUS_KP_1) && seen.committed == committed + numbered,
