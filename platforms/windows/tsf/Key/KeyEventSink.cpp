@@ -14,7 +14,7 @@
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
 #include <chrono>
-#include "../../../vendor/MetasequoiaImeEngine/contracts/ipc_negotiation.h"
+#include "../../../../vendor/MSIME-Engine/contracts/ipc_negotiation.h"
 
 // 0xF003, 0xF004 are the keys that the touch keyboard sends for next/previous
 #define THIRDPARTY_NEXTPAGE static_cast<WORD>(0xF003)
