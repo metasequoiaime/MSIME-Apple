@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+enum MacHandwritingProvider {
+  static func recognize(_ strokes: [MacInkStroke], language: String = "zh-CN", socketPath: String) throws -> [String] {
+    let payload: [[String: Any]] = strokes.map { ["points": $0.points.map { ["x": Float($0.x), "y": Float($0.y)] }] }
+    let request: NSDictionary = ["language": language, "strokes": payload, "socket_path": socketPath]
+    guard let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
+          let result = type.perform(NSSelectorFromString("handwritingProviderRequest:"), with: request)?.takeUnretainedValue() as? NSDictionary else { throw NSError(domain: "MSIMEHandwriting", code: 503) }
+    if let error = result["error"] as? NSError { throw error }
+    return (result["candidates"] as? [String]) ?? []
+  }
+}
+
 struct MacInkStroke: Identifiable {
   let id = UUID()
   var points: [CGPoint]
