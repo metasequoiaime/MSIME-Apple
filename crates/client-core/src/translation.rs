@@ -1,9 +1,14 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
 
 use serde_json::Value;
+use std::io::Read;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
+const BATCH_BUDGET: Duration = Duration::from_secs(6);
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
     pub api_key: String,
@@ -24,8 +29,9 @@ pub fn translate_batch(
         return results;
     }
     let client = match reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_millis(2500))
-        .timeout(Duration::from_millis(2500))
+        .connect_timeout(REQUEST_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
     {
         Ok(client) => client,
@@ -33,14 +39,18 @@ pub fn translate_batch(
     };
     let started = Instant::now();
     for (index, text) in texts.iter().enumerate() {
-        if started.elapsed() >= Duration::from_secs(6) {
+        let timeout = request_timeout(started.elapsed());
+        if timeout.is_zero() {
             break;
         }
-        let mut request = client.post(&config.endpoint).json(&serde_json::json!({
-            "text": text,
-            "source_lang": source.to_ascii_uppercase(),
-            "target_lang": target.to_ascii_uppercase(),
-        }));
+        let mut request = client
+            .post(&config.endpoint)
+            .timeout(timeout)
+            .json(&serde_json::json!({
+                "text": text,
+                "source_lang": source.to_ascii_uppercase(),
+                "target_lang": target.to_ascii_uppercase(),
+            }));
         if !config.api_key.is_empty() {
             request = request.bearer_auth(&config.api_key);
         }
@@ -48,13 +58,25 @@ pub fn translate_batch(
             Ok(response) if response.status().is_success() => response,
             _ => continue,
         };
-        let body = match response.bytes() {
-            Ok(body) if body.len() <= 1024 * 1024 => body,
-            _ => continue,
-        };
-        results[index] = parse_translation_response(std::str::from_utf8(&body).unwrap_or_default());
+        results[index] = read_translation_response(response);
     }
     results
+}
+
+fn request_timeout(elapsed: Duration) -> Duration {
+    BATCH_BUDGET.saturating_sub(elapsed).min(REQUEST_TIMEOUT)
+}
+
+fn read_translation_response(reader: impl Read) -> Option<String> {
+    let mut body = Vec::new();
+    reader
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
+        .read_to_end(&mut body)
+        .ok()?;
+    if body.len() > MAX_RESPONSE_BYTES {
+        return None;
+    }
+    parse_translation_response(std::str::from_utf8(&body).ok()?)
 }
 
 pub fn is_supported_endpoint(endpoint: &str) -> bool {
@@ -105,6 +127,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn response_limit_is_enforced_while_reading() {
+        struct Endless {
+            read: usize,
+        }
+        impl Read for Endless {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                buffer.fill(b' ');
+                self.read += buffer.len();
+                Ok(buffer.len())
+            }
+        }
+        let mut endless = Endless { read: 0 };
+        assert!(read_translation_response(&mut endless).is_none());
+        assert_eq!(endless.read, MAX_RESPONSE_BYTES + 1);
+        let mut boundary = br#"{"data":"synthetic"}"#.to_vec();
+        boundary.resize(MAX_RESPONSE_BYTES, b' ');
+        assert_eq!(
+            read_translation_response(boundary.as_slice()).as_deref(),
+            Some("synthetic")
+        );
+        boundary.push(b' ');
+        assert!(read_translation_response(boundary.as_slice()).is_none());
+        assert!(read_translation_response(&b"\xff"[..]).is_none());
+    }
+
+    #[test]
+    fn request_timeout_respects_remaining_batch_budget() {
+        assert_eq!(request_timeout(Duration::ZERO), REQUEST_TIMEOUT);
+        assert_eq!(
+            request_timeout(Duration::from_millis(5500)),
+            Duration::from_millis(500)
+        );
+        assert_eq!(request_timeout(BATCH_BUDGET), Duration::ZERO);
+        assert_eq!(request_timeout(Duration::from_secs(7)), Duration::ZERO);
+    }
+
+    #[test]
     fn accepts_supported_endpoints_only() {
         assert!(is_supported_endpoint("https://translate.example/api"));
         assert!(is_supported_endpoint("http://localhost:8080/translate"));
@@ -131,15 +190,28 @@ mod tests {
 
     #[test]
     fn translates_batch_with_deeplx_contract() {
-        use std::io::{Read, Write};
+        use std::io::{BufRead, BufReader, Write};
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut buffer = [0_u8; 4096];
-            let size = stream.read(&mut buffer).unwrap();
-            let request = String::from_utf8_lossy(&buffer[..size]);
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut request = String::new();
+            let mut content_length = None;
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" { break; }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    content_length = Some(value.trim().parse::<usize>().unwrap());
+                }
+                request.push_str(&line);
+            }
+            let mut body = vec![0; content_length.unwrap()];
+            reader.read_exact(&mut body).unwrap();
+            request.push_str(std::str::from_utf8(&body).unwrap());
             assert!(request
                 .to_ascii_lowercase()
                 .contains("authorization: bearer test-key"));
