@@ -166,6 +166,10 @@ struct State {
     if (translation_provider_socket.empty())
       translation_provider_socket = online_provider_socket;
     voice_provider_socket = options.value("voice_provider_socket", std::string{});
+    if (voice_provider_socket.empty()) {
+      if (const auto *socket = g_getenv("MSIME_VOICE_PROVIDER_SOCKET"))
+        voice_provider_socket = socket;
+    }
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
     voice_language = voice_preferences.value("language", std::string("zh-cn"));
