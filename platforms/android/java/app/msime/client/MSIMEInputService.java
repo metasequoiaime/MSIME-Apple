@@ -2,6 +2,8 @@ package app.msime.client;
 
 import android.inputmethodservice.InputMethodService;
 import android.app.AlertDialog;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -54,6 +56,10 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView candidatePage;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
+    private ScrollView clipboardScroll;
+    private LinearLayout clipboardPanel;
+    private ClipboardHistoryStore clipboardHistory;
+    private boolean clipboardHistoryEnabled;
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
@@ -118,6 +124,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : preferences.optJSONObject("local_modes");
                 if (localModes == null) localModes = new JSONObject();
                 applyCandidateAppearance(preferences);
+                applyClipboardPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -147,6 +154,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (connection != null) bridge.abandon(sink());
         view = null;
+        closeCandidatePanel();
+        closeClipboardHistory();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -164,6 +173,12 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optInt("candidate_preedit_font_size", candidateFontSize));
     }
 
+    private void applyClipboardPreference(JSONObject preferences) {
+        clipboardHistoryEnabled = preferences != null
+            && preferences.optBoolean("clipboard_history", false);
+        if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clear();
+    }
+
     private String candidateAppearanceKey() {
         return (candidateHorizontal ? "horizontal" : "vertical") + ":"
             + candidateFontSize + ":" + candidatePreeditFontSize;
@@ -175,6 +190,7 @@ public final class MSIMEInputService extends InputMethodService {
         String previousNotice = preferencesNotice;
         String previousSkin = skin.id();
         String previousAppearance = candidateAppearanceKey();
+        boolean previousClipboard = clipboardHistoryEnabled;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
             JSONObject snapshot = value(response);
@@ -191,12 +207,18 @@ public final class MSIMEInputService extends InputMethodService {
             int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
             int nextPreeditFontSize = CandidateAppearance.fontSize(
                 preferences.optInt("candidate_preedit_font_size", nextFontSize));
+            boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
             JSONObject result = value(NativeClient.updatePreferences(session, snapshot.toString()));
             skin = nextSkin;
             localModes = nextLocalModes;
             candidateHorizontal = nextHorizontal;
             candidateFontSize = nextFontSize;
             candidatePreeditFontSize = nextPreeditFontSize;
+            clipboardHistoryEnabled = nextClipboard;
+            if (!clipboardHistoryEnabled && clipboardHistory != null) {
+                clipboardHistory.clear();
+                closeClipboardHistory();
+            }
             view = result.getJSONObject("view");
             preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
         } catch (JSONException | LinkageError error) {
@@ -205,6 +227,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
                 || !previousAppearance.equals(candidateAppearanceKey())
+                || previousClipboard != clipboardHistoryEnabled
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
 
@@ -388,10 +411,121 @@ public final class MSIMEInputService extends InputMethodService {
         shift = previousShift;
     }
 
+    private void closeClipboardHistory() {
+        if (clipboardScroll != null) clipboardScroll.setVisibility(View.GONE);
+    }
+
+    private void insertClipboardText(String text) {
+        if (connection == null || !ClipboardHistoryPolicy.acceptable(text)) return;
+        command(9);
+        connection.commitText(text, 1);
+        closeClipboardHistory();
+    }
+
+    private void captureClipboardText() {
+        if (!clipboardHistoryEnabled || clipboardHistory == null) return;
+        try {
+            ClipboardManager manager = getSystemService(ClipboardManager.class);
+            if (manager == null || !manager.hasPrimaryClip() || manager.getPrimaryClip() == null
+                    || manager.getPrimaryClip().getItemCount() == 0
+                    || manager.getPrimaryClipDescription() == null
+                    || !(manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                        || manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
+                Toast.makeText(this, "剪贴板中没有可保存的文本", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            CharSequence value = manager.getPrimaryClip().getItemAt(0).getText();
+            if (value == null || !ClipboardHistoryPolicy.acceptable(value.toString())) {
+                Toast.makeText(this, "剪贴板文本为空或过长", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            clipboardHistory.add(value.toString());
+            renderClipboardHistory();
+        } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
+            Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void manageClipboardItem(Button anchor, ClipboardHistory.Item item) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        MenuItem pin = popup.getMenu().add(item.pinned() ? "取消固定" : "固定");
+        MenuItem remove = popup.getMenu().add("删除");
+        popup.setOnMenuItemClickListener(selected -> {
+            if (clipboardHistory == null) return false;
+            if (selected == pin) clipboardHistory.togglePinned(item.id());
+            else if (selected == remove) clipboardHistory.remove(item.id());
+            else return false;
+            renderClipboardHistory();
+            return true;
+        });
+        popup.show();
+    }
+
+    private void confirmClearClipboardHistory() {
+        new AlertDialog.Builder(this)
+            .setTitle("清空剪贴板历史")
+            .setMessage("将删除全部历史，包括固定项。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("清空", (dialog, which) -> {
+                if (clipboardHistory != null) clipboardHistory.clear();
+                renderClipboardHistory();
+            })
+            .show();
+    }
+
+    private void showClipboardHistory() {
+        if (!clipboardHistoryEnabled || clipboardScroll == null) return;
+        closeCandidatePanel();
+        renderClipboardHistory();
+        clipboardScroll.setVisibility(View.VISIBLE);
+    }
+
+    private void renderClipboardHistory() {
+        if (clipboardPanel == null || clipboardHistory == null) return;
+        clipboardPanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        TextView title = new TextView(this);
+        title.setText("剪贴板历史");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        button(header, "清空", this::confirmClearClipboardHistory);
+        button(header, "返回", this::closeClipboardHistory);
+        clipboardPanel.addView(header);
+        Button capture = button(clipboardPanel, "保存当前剪贴板", this::captureClipboardText);
+        capture.setContentDescription("保存当前剪贴板文本");
+        try {
+            java.util.List<ClipboardHistory.Item> items = clipboardHistory.load();
+            TextView status = new TextView(this);
+            status.setText(items.isEmpty() ? "暂无历史 · 记录仅保存在本机"
+                : items.size() + "/" + ClipboardHistoryPolicy.LIMIT + " 条 · 点按插入");
+            clipboardPanel.addView(status);
+            for (ClipboardHistory.Item item : items) {
+                LinearLayout row = new LinearLayout(this);
+                Button insert = button(row, item.text(), () -> insertClipboardText(item.text()));
+                insert.setContentDescription((item.pinned() ? "已固定；" : "") + "点按插入剪贴板记录");
+                Button manage = button(row, item.pinned() ? "已固定" : "管理", () -> {});
+                manage.setOnClickListener(ignored -> manageClipboardItem(manage, item));
+                row.getChildAt(0).setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                row.getChildAt(1).setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                clipboardPanel.addView(row);
+            }
+        } catch (IllegalStateException error) {
+            TextView status = new TextView(this);
+            status.setText("历史记录无法读取，请清空后重试");
+            clipboardPanel.addView(status);
+        }
+        applySkin();
+    }
+
     private void showFeedbackMenu() {
         if (moreButton == null) return;
         PopupMenu popup = new PopupMenu(this, moreButton);
         Menu menu = popup.getMenu();
+        MenuItem clipboard = menu.add("剪贴板历史");
+        clipboard.setEnabled(clipboardHistoryEnabled);
         MenuItem sound = menu.add("按键音");
         sound.setCheckable(true).setChecked(soundEnabled);
         MenuItem haptics = menu.add("按键振动");
@@ -409,6 +543,10 @@ public final class MSIMEInputService extends InputMethodService {
             item.setEnabled(supportsLocalTools() && localModeEnabled(mode));
         }
         popup.setOnMenuItemClickListener(item -> {
+            if (item == clipboard) {
+                showClipboardHistory();
+                return true;
+            }
             if (item == sound) soundEnabled = !soundEnabled;
             else if (item == haptics) hapticsEnabled = !hapticsEnabled;
             else if (item == light) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.LIGHT;
@@ -598,6 +736,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public View onCreateInputView() {
         loadFeedbackPreferences();
+        clipboardHistory = new ClipboardHistoryStore(this);
+        if (!clipboardHistoryEnabled) clipboardHistory.clear();
         keyboardRoot = new FrameLayout(this);
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
@@ -701,6 +841,16 @@ public final class MSIMEInputService extends InputMethodService {
         ScrollView expandedScroll = new ScrollView(this);
         expandedScroll.addView(expandedCandidates);
         keyboardRoot.addView(expandedScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        clipboardPanel = new LinearLayout(this);
+        clipboardPanel.setOrientation(LinearLayout.VERTICAL);
+        clipboardPanel.setPadding(24, 16, 24, 16);
+        clipboardPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        clipboardPanel.setContentDescription("剪贴板历史");
+        clipboardScroll = new ScrollView(this);
+        clipboardScroll.addView(clipboardPanel);
+        clipboardScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(clipboardScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         render();
         return keyboardRoot;
