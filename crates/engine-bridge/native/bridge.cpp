@@ -1,5 +1,6 @@
 #include "bridge.h"
 #include <metasequoia/personal_dictionary.h>
+#include <metasequoia/dictionary_state.h>
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <stdexcept>
 
@@ -73,6 +74,20 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
     return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true};
+}
+EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, rust::Str content_id,
+                                     const rust::Vec<DictionaryStateRecord>& records) {
+    std::size_t index = 0;
+    auto next = [&](metasequoia::DictionaryStateRecord& out) {
+        if (index == records.size()) return false;
+        const auto& r = records[index++];
+        if (r.kind == 0) out = metasequoia::DictionaryStateEntry{static_cast<metasequoia::PersonalDictionaryKind>(r.kind), std::string(r.key), std::string(r.value), r.weight, std::string(r.display), r.deleted, r.user_inserted};
+        else if (r.kind == 1) out = metasequoia::DictionaryStatePosition{std::string(r.context), std::string(r.key), std::string(r.value), r.position};
+        else out = metasequoia::DictionaryStateSelection{std::string(r.context), std::string(r.key), std::string(r.value), r.count};
+        return true;
+    };
+    auto paths = metasequoia::stage_dictionary_state(std::filesystem::u8path(std::string(resources)), std::filesystem::u8path(std::string(generation)), std::string(content_id), next);
+    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, "ziranma", true, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true};
 }
 rust::String validate_personal_dictionary(std::uint8_t kind, rust::Str key, rust::Str value) {
     metasequoia::PersonalDictionaryEntry entry;

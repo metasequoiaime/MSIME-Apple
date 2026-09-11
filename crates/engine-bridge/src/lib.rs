@@ -4,6 +4,19 @@
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
     #[derive(Clone)]
+    pub struct DictionaryStateRecord {
+        pub kind: u8,
+        pub context: String,
+        pub key: String,
+        pub value: String,
+        pub weight: i64,
+        pub display: String,
+        pub deleted: bool,
+        pub user_inserted: bool,
+        pub position: i32,
+        pub count: i32,
+    }
+    #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
         pub user_data: String,
@@ -60,6 +73,8 @@ mod ffi {
             cache: &str,
             content_id: &str,
         ) -> Result<EngineOptions>;
+        fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
+            records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
@@ -81,7 +96,7 @@ mod ffi {
     }
 }
 
-pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
+pub use ffi::{DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot};
 
 /// Validate a personal dictionary entry using the pinned Engine contract.
 pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
@@ -97,6 +112,10 @@ pub fn prepare_options(
     content_id: &str,
 ) -> Result<EngineOptions, cxx::Exception> {
     ffi::prepare_options(resources, user_data, cache, content_id)
+}
+pub fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
+                              records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions, cxx::Exception> {
+    ffi::stage_dictionary_state(resources, generation, content_id, records)
 }
 
 #[derive(Clone, Copy)]

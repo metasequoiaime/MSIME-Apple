@@ -5,6 +5,10 @@
 
 namespace msime {
 struct EngineOptions;
+struct DictionaryStateRecord;
+EngineOptions stage_dictionary_state(rust::Str resources, rust::Str generation, rust::Str content_id,
+                                     const rust::Vec<DictionaryStateRecord> &records);
+struct EngineOptions;
 struct EngineSnapshot;
 struct EngineResult;
 class EngineSession {
