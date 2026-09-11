@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
+import { SkinToolbarPreview } from "./skin-toolbar-preview";
 export { candidateTemplate, candidateThemeStylesheet, type CandidateAppearance, type CandidateOrientation, type CandidateTheme } from "./candidate-themes";
 import { compareVersions, describeInstallerTrust, parseVersion, validateManifest, type UpdateManifest, type ValidatedUpdate } from "./update-manifest";
 export { serializeWindowHostMessage, type WindowControl, type WindowHostMessage, type WindowResizeEdge } from "./window-host";
@@ -497,6 +498,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
               <SkinCandidatePreview orientation="horizontal" />
               <SkinCandidatePreview orientation="vertical" />
+              <SkinToolbarPreview />
             </div>
             <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
             </label>
