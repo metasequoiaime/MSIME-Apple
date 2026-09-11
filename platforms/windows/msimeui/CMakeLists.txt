@@ -123,6 +123,8 @@ add_executable(msimeui-handwriting-demo WIN32
 )
 
 target_link_libraries(msimeui-handwriting-demo PRIVATE msimeui windowsapp.lib)
+install(TARGETS msimeui-demo msimeui-emoji-panel msimeui-keyboard-demo
+                msimeui-handwriting-demo RUNTIME DESTINATION bin)
 
 # C++/WinRT needs C++20 coroutines. Under C++17 it falls back to
 # <experimental/coroutine>, which recent MSVC STL versions reject outright.
