@@ -12,6 +12,8 @@ pub trait AccountSession {
     type Error;
     fn identity(&self) -> impl Future<Output = Result<AccountIdentity, Self::Error>> + Send;
     fn bearer_token(&self) -> impl Future<Output = Result<String, Self::Error>> + Send;
+    /// Refreshes the access token and returns the replacement bearer token.
+    fn refresh(&self) -> impl Future<Output = Result<String, Self::Error>> + Send;
 }
 
 pub fn validate_identity(identity: &AccountIdentity) -> Result<(), &'static str> {
