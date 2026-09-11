@@ -1,7 +1,12 @@
 use msime_client_core::clipboard::ClipboardHistoryStore;
+use msime_client_core::panels::{
+    HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
+};
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+#[cfg(unix)]
+use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
 use std::sync::Arc;
 use tauri::Manager;
 #[cfg(not(target_os = "windows"))]
@@ -9,6 +14,20 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
 struct DictionaryHostOptions(Arc<String>);
+
+#[derive(Default)]
+struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug)]
+enum PanelInputTarget {
+    X11(String),
+    Sway(u64),
+}
+
+#[cfg(not(target_os = "linux"))]
+#[derive(Clone, Debug)]
+struct PanelInputTarget;
 
 #[derive(serde::Serialize)]
 struct CommandError {
@@ -79,6 +98,338 @@ async fn dictionary_request(
 #[derive(serde::Serialize)]
 struct HostActionError {
     code: &'static str,
+}
+
+#[cfg(target_os = "linux")]
+fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
+    if value.get("focused").and_then(serde_json::Value::as_bool) == Some(true) {
+        if let Some(id) = value.get("id").and_then(serde_json::Value::as_u64) {
+            return Some(id);
+        }
+    }
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(serde_json::Value::as_array) {
+            for node in nodes {
+                if let Some(id) = focused_sway_container(node) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
+    if let Ok(output) = std::process::Command::new("xdotool")
+        .arg("getactivewindow")
+        .output()
+    {
+        if output.status.success() {
+            let id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Ok(PanelInputTarget::X11(id));
+            }
+        }
+    }
+    let output = std::process::Command::new("swaymsg")
+        .args(["-t", "get_tree", "-r"])
+        .output()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    if !output.status.success() {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let tree: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    focused_sway_container(&tree)
+        .map(PanelInputTarget::Sway)
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn remember_panel_input_target(
+    state: &tauri::State<'_, PanelInputState>,
+    replace: bool,
+) -> Result<(), HostActionError> {
+    let mut target = state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    if replace || target.is_none() {
+        *target = Some(capture_panel_input_target()?);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn xdotool_key_name(virtual_key: u16) -> Option<String> {
+    let name = match virtual_key {
+        0x08 => "BackSpace",
+        0x09 => "Tab",
+        0x0d => "Return",
+        0x20 => "space",
+        0x2e => "Delete",
+        0x14 => "Caps_Lock",
+        0xc0 => "grave",
+        0xbd => "minus",
+        0xbb => "equal",
+        0xdb => "bracketleft",
+        0xdd => "bracketright",
+        0xdc => "backslash",
+        0xba => "semicolon",
+        0xde => "apostrophe",
+        0xbc => "comma",
+        0xbe => "period",
+        0xbf => "slash",
+        0x30..=0x39 => return char::from_u32(virtual_key as u32).map(|value| value.to_string()),
+        0x41..=0x5a => {
+            return char::from_u32(virtual_key as u32)
+                .map(|value| value.to_ascii_lowercase().to_string());
+        }
+        _ => return None,
+    };
+    Some(name.to_owned())
+}
+
+#[cfg(target_os = "linux")]
+fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
+    let key = xdotool_key_name(request.virtual_key)?;
+    let mut parts: Vec<String> = Vec::new();
+    if request.include_sticky_modifiers {
+        if request.modifiers.ctrl {
+            parts.push("ctrl".to_owned());
+        }
+        if request.modifiers.alt {
+            parts.push("alt".to_owned());
+        }
+        if request.modifiers.win {
+            parts.push("super".to_owned());
+        }
+    }
+    if request.shift {
+        parts.push("shift".to_owned());
+    }
+    parts.push(key);
+    Some(parts.join("+"))
+}
+
+#[cfg(target_os = "linux")]
+fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
+    if let PanelInputTarget::Sway(id) = target {
+        let id = id.to_string();
+        let status = std::process::Command::new("swaymsg")
+            .arg(format!("[con_id={id}] focus"))
+            .status()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        if !status.success() {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
+    }
+    std::process::Command::new("wtype")
+        .args(args)
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .success()
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn send_panel_key(
+    state: &tauri::State<'_, PanelInputState>,
+    request: KeyboardInputRequest,
+) -> Result<(), HostActionError> {
+    request.validate().map_err(|_| HostActionError {
+        code: "invalid_key",
+    })?;
+    let target = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .clone()
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    if let PanelInputTarget::X11(window) = &target {
+        let key = xdotool_key_args(&request).ok_or(HostActionError {
+            code: "invalid_key",
+        })?;
+        let status = std::process::Command::new("xdotool")
+            .args(["key", "--window", window.as_str(), key.as_str()])
+            .status()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return status.success().then_some(()).ok_or(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
+        code: "invalid_key",
+    })?;
+    let mut args = Vec::new();
+    if request.include_sticky_modifiers {
+        if request.modifiers.ctrl {
+            args.extend(["-M".to_owned(), "ctrl".to_owned()]);
+        }
+        if request.modifiers.alt {
+            args.extend(["-M".to_owned(), "alt".to_owned()]);
+        }
+        if request.modifiers.win {
+            args.extend(["-M".to_owned(), "logo".to_owned()]);
+        }
+    }
+    if request.shift {
+        args.extend(["-M".to_owned(), "shift".to_owned()]);
+    }
+    args.extend(["-k".to_owned(), key.to_owned()]);
+    run_wtype(&target, &args)
+}
+
+#[cfg(target_os = "linux")]
+fn send_panel_text(
+    state: &tauri::State<'_, PanelInputState>,
+    text: &str,
+) -> Result<(), HostActionError> {
+    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
+        code: "invalid_text",
+    })?;
+    let target = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .clone()
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    if let PanelInputTarget::X11(window) = &target {
+        let status = std::process::Command::new("xdotool")
+            .args(["type", "--window", window.as_str(), "--delay", "0", text])
+            .status()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return status.success().then_some(()).ok_or(HostActionError {
+            code: "unavailable",
+        });
+    }
+    run_wtype(&target, &["--".to_owned(), text.to_owned()])
+}
+
+#[tauri::command]
+fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    return remember_panel_input_target(&state, false);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = state;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn send_key(
+    state: tauri::State<'_, PanelInputState>,
+    request: KeyboardInputRequest,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    return send_panel_key(&state, request);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, request);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
+async fn recognize_handwriting(
+    request: HandwritingRecognitionRequest,
+) -> Result<HandwritingRecognitionResult, HostActionError> {
+    request.validate().map_err(|_| HostActionError {
+        code: "invalid_stroke",
+    })?;
+    #[cfg(unix)]
+    {
+        let path = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let query = HandwritingQuery {
+            language: request.language,
+            strokes: request
+                .strokes
+                .into_iter()
+                .map(|stroke| {
+                    stroke
+                        .points
+                        .into_iter()
+                        .map(|point| HandwritingPoint {
+                            x: point.x,
+                            y: point.y,
+                        })
+                        .collect()
+                })
+                .collect(),
+        };
+        let candidates = tauri::async_runtime::spawn_blocking(move || {
+            UnixSocketProvider::new(path).handwriting(query)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+        let result = HandwritingRecognitionResult { candidates };
+        result.validate().map_err(|_| HostActionError {
+            code: "invalid_stroke",
+        })?;
+        return Ok(result);
+    }
+    #[cfg(not(unix))]
+    Err(HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[tauri::command]
+fn submit_handwriting_candidate(
+    state: tauri::State<'_, PanelInputState>,
+    candidate: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    return send_panel_text(&state, &candidate);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, candidate);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
 }
 
 fn external_url_is_safe(url: &str) -> bool {
@@ -157,10 +508,13 @@ fn open_panel_window(
 }
 
 #[tauri::command]
-fn open_keyboard_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+fn open_keyboard_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        let _ = (app, state);
         let executable = std::env::var_os("MSIME_CLIENT_KEYBOARD_PANEL")
             .map(std::path::PathBuf::from)
             .or_else(|| {
@@ -181,21 +535,28 @@ fn open_keyboard_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
         return Ok(());
     }
     #[cfg(not(target_os = "windows"))]
-    open_panel_window(
-        &app,
-        "keyboard-panel",
-        "keyboard",
-        "水杉屏幕键盘",
-        1100.0,
-        400.0,
-    )
+    {
+        #[cfg(target_os = "linux")]
+        let _ = remember_panel_input_target(&state, true);
+        open_panel_window(
+            &app,
+            "keyboard-panel",
+            "keyboard",
+            "水杉屏幕键盘",
+            1100.0,
+            400.0,
+        )
+    }
 }
 
 #[tauri::command]
-fn open_handwriting_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
+fn open_handwriting_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        let _ = (app, state);
         let executable = std::env::var_os("MSIME_CLIENT_HANDWRITING_PANEL")
             .map(std::path::PathBuf::from)
             .or_else(|| {
@@ -216,14 +577,18 @@ fn open_handwriting_panel(app: tauri::AppHandle) -> Result<(), HostActionError> 
         return Ok(());
     }
     #[cfg(not(target_os = "windows"))]
-    open_panel_window(
-        &app,
-        "handwriting-panel",
-        "handwriting",
-        "水杉手写识别板",
-        980.0,
-        650.0,
-    )
+    {
+        #[cfg(target_os = "linux")]
+        let _ = remember_panel_input_target(&state, true);
+        open_panel_window(
+            &app,
+            "handwriting-panel",
+            "handwriting",
+            "水杉手写识别板",
+            980.0,
+            650.0,
+        )
+    }
 }
 
 #[tauri::command]
@@ -271,7 +636,11 @@ fn open_emoji_panel(
 }
 
 #[tauri::command]
-fn close_panel(app: tauri::AppHandle, label: String) -> Result<(), HostActionError> {
+fn close_panel(
+    app: tauri::AppHandle,
+    label: String,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
         "keyboard-panel" | "handwriting-panel" | "emoji-panel"
@@ -280,14 +649,21 @@ fn close_panel(app: tauri::AppHandle, label: String) -> Result<(), HostActionErr
             code: "invalid_panel",
         });
     }
-    app.get_webview_window(&label)
+    let result = app
+        .get_webview_window(&label)
         .ok_or(HostActionError {
             code: "unavailable",
         })?
         .close()
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })
+        });
+    if result.is_ok() && matches!(label.as_str(), "keyboard-panel" | "handwriting-panel") {
+        if let Ok(mut target) = state.0.lock() {
+            *target = None;
+        }
+    }
+    result
 }
 
 fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, HostActionError> {
@@ -508,6 +884,7 @@ pub fn run() {
             let _ = clipboard.load();
             app.manage(std::sync::Arc::new(PreferencesStore::new(&directory)));
             app.manage(ClipboardHistoryState(std::sync::Mutex::new(clipboard)));
+            app.manage(PanelInputState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
             let host_options = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -526,6 +903,10 @@ pub fn run() {
             clear_clipboard_history,
             sync_clipboard_history,
             copy_text,
+            remember_input_target,
+            send_key,
+            recognize_handwriting,
+            submit_handwriting_candidate,
             open_external_url,
             open_keyboard_panel,
             open_handwriting_panel,
