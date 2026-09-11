@@ -34,7 +34,7 @@ const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PR
 
 export type Preferences = {
   ai_assistant?: { enabled: boolean; provider: string; model: string; endpoint: string; candidate_limit: number; prompt_custom_1: string; prompt_custom_2: string; prompt_custom_3: string };
-  voice?: { enabled: boolean; provider: "local_whisper" | "cloud"; language: string };
+  voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
   cloud_candidates?: boolean;
@@ -64,6 +64,7 @@ export type Preferences = {
   punctuation_lock?: "follow" | "chinese" | "english";
   traditional_chinese_output?: boolean;
 };
+export type VoiceInputPreferences = { enabled: boolean; language: string; asr_provider?: string; [key: string]: unknown };
 const defaultAiAssistant = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
@@ -647,9 +648,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
-        <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice?.enabled ?? true} onChange={event => setDraft({ ...draft, voice: { enabled: event.target.checked, provider: draft.voice?.provider ?? "local_whisper", language: draft.voice?.language ?? "zh-CN" } })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={draft.voice?.provider ?? "local_whisper"} onChange={event => setDraft({ ...draft, voice: { enabled: draft.voice?.enabled ?? true, provider: event.target.value as "local_whisper" | "cloud", language: draft.voice?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice: { enabled: draft.voice?.enabled ?? true, provider: draft.voice?.provider ?? "local_whisper", language: event.target.value } })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice_input?.enabled ?? true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: event.target.checked, language: draft.voice_input?.language ?? "zh-CN" } })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(draft.voice_input?.asr_provider ?? "local_whisper")} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: event.target.value, language: draft.voice_input?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice_input?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: draft.voice_input?.asr_provider ?? "local_whisper", language: event.target.value } })} /></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
         <div className="section"><label className="section-header"><span className="section-title">启用 AI 联想<small>在全拼和双拼输入时异步生成候选项</small></span><input aria-label="启用 AI 联想" className="toggle" type="checkbox" checked={draft.ai_assistant?.enabled ?? false} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" }), enabled: event.target.checked } })} /></label></div>
