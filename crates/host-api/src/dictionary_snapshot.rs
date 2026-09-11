@@ -195,6 +195,12 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         (&active.dictionaries, &staged.dictionaries),
     ];
     let mut moved = Vec::new();
+    let rollback = |moved: &[(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)]| {
+        for (old, saved, replacement) in moved.iter().rev() {
+            let _ = std::fs::rename(old, replacement);
+            let _ = std::fs::rename(saved, old);
+        }
+    };
     for (current, replacement) in pairs {
         let current = Path::new(current);
         let replacement = Path::new(replacement);
@@ -207,21 +213,17 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             suffix
         ));
         if std::fs::rename(current, &backup).is_err() {
-            for (old, saved) in moved.iter().rev() {
-                let _ = std::fs::rename(saved, old);
-            }
+            rollback(&moved);
             return Err("snapshot activation failed");
         }
         if std::fs::rename(replacement, current).is_err() {
             let _ = std::fs::rename(&backup, current);
-            for (old, saved) in moved.iter().rev() {
-                let _ = std::fs::rename(saved, old);
-            }
+            rollback(&moved);
             return Err("snapshot activation failed");
         }
-        moved.push((current.to_path_buf(), backup));
+        moved.push((current.to_path_buf(), backup, replacement.to_path_buf()));
     }
-    for (_, backup) in moved {
+    for (_, backup, _) in moved {
         let _ = std::fs::remove_dir_all(backup);
     }
     entries.remove(&handle);

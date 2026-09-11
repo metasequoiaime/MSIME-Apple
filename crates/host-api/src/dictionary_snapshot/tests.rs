@@ -62,6 +62,18 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
             source_version: expected.clone(),
         },
     );
+    let wrong = "0".repeat(64);
+    assert!(activate(123, &wrong).is_err());
+    for name in ["user", "cache", "dictionaries"] {
+        assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+    }
+    fs::remove_dir_all(staged.join("cache")).unwrap();
+    assert!(activate(123, &expected).is_err());
+    for name in ["user", "cache", "dictionaries"] {
+        assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"old");
+    }
+    fs::create_dir_all(staged.join("cache")).unwrap();
+    fs::write(staged.join("cache").join("marker"), b"new").unwrap();
     assert_eq!(
         activate(123, &expected).unwrap(),
         serde_json::json!({"activated": true})

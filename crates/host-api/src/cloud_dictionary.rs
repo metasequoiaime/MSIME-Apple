@@ -130,7 +130,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
         CloudDictionaryRequest::Export { kind, format } => {
-            if valid_kind(kind) && matches!(format, "standard" | "windows") {
+            if valid_kind(kind) && matches!(format.as_str(), "standard" | "windows") {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
