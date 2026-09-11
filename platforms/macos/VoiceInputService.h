@@ -16,6 +16,8 @@ typedef void (^MSIMEVoiceAudioBuffer)(AVAudioPCMBuffer *buffer);
 - (void)stopTranscription;
 - (AVAuthorizationStatus)microphoneAuthorizationStatus;
 - (void)requestMicrophonePermission:(void (^)(BOOL granted))completion;
+- (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus;
+- (void)requestSpeechPermission:(void (^)(BOOL granted))completion;
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion;
 @property(nonatomic, readonly, getter=isActive) BOOL active;
 @end
