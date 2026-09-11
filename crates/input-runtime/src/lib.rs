@@ -57,6 +57,7 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError>;
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
@@ -71,6 +72,10 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_dedicated_english(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -185,6 +190,10 @@ impl Runtime<Session> {
 }
 
 impl<E: InputEngine> Runtime<E> {
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        self.engine.set_dedicated_english(enabled)
+    }
+
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
