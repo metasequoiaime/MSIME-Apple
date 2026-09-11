@@ -21,6 +21,13 @@
 #import "VoiceSettings.h"
 #include "WubiCommitPolicy.h"
 
+static BOOL MSIMEScriptConversionApplies(id value) {
+    if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
+    if ([value[@"scheme"] integerValue] < 0 || [value[@"scheme"] integerValue] > 2) return NO;
+    NSString *mode = value[@"local_mode"];
+    return ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"unicode"];
+}
+
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
     NSString *text = candidate[@"text"];

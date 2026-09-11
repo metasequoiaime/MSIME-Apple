@@ -3,6 +3,7 @@
 #import "InputSourceRegistration.h"
 #import "PreferencesWindowController.h"
 #include <cstring>
+#include <dlfcn.h>
 
 static bool MSIMEShouldShowPreferences(int argc, const char *argv[]) {
     for (int index = 1; index < argc; ++index) {
@@ -24,6 +25,8 @@ int main(int argc, const char *argv[]) {
             return status == noErr ? 0 : 1;
         }
         [NSApplication sharedApplication];
+        NSString *swiftBackend = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"MSIMEBackend.dylib"];
+        if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;
         if (MSIMEShouldShowPreferences(argc, argv)) {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             [[MSIMEPreferencesWindowController sharedController] showAndActivate];

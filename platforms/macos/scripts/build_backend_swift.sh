@@ -1,14 +1,17 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 output=${1:-"$root/.build/macos/libMSIMEBackend.dylib"}
 module_dir=$(dirname "$output")
 mkdir -p "$module_dir"
-backend_sources=$(find "$root/shared/backend" -maxdepth 1 -name '*.swift' ! -name 'Package.swift' -print)
-backend_ui_sources=$(find "$root/shared/backend-ui" -maxdepth 1 -name '*.swift' -print)
-mac_sources=$(find "$root/platforms/macos" -maxdepth 1 -name 'Backend*.swift' -print)
+sources=()
+for source in "$root"/shared/backend/*.swift "$root"/shared/backend-ui/*.swift "$root"/platforms/macos/Backend*.swift; do
+  if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
+done
+swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 
 exec xcrun swiftc -parse-as-library -emit-library -emit-module \
   -module-name MSIMEBackend -emit-module-path "${output%.dylib}.swiftmodule" \
-  -o "$output" $backend_sources $backend_ui_sources $mac_sources
+  -target "$swift_target" -Xlinker -install_name -Xlinker "@rpath/$(basename "$output")" \
+  -o "$output" "${sources[@]}"

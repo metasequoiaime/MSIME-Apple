@@ -24,3 +24,4 @@
 - (NSColor *)previewAccentColor;
 - (CGFloat)previewContentHeight;
 @end
+#define MetasequoiaCandidatePreviewView MSIMECandidatePreviewView
