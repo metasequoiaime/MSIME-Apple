@@ -38,6 +38,7 @@ add_test(NAME msime-tsf-engine-response COMMAND msime-tsf-engine-response-test)
 if(NOT WIN32)
   return()
 endif()
+enable_language(RC)
 
 add_library(msime-tsf SHARED
   Candidate/EnumTfCandidates.cpp Candidate/SearchCandidateProvider.cpp

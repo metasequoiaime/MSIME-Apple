@@ -13,3 +13,9 @@ foreach(symbol DllGetClassObject DllCanUnloadNow DllRegisterServer DllUnregister
     message(FATAL_ERROR "Missing undecorated COM entry: ${symbol}")
   endif()
 endforeach()
+if(MODE STREQUAL "objdump")
+  # RT_GROUP_ICON = 14: one group per original ICO, not one per bitmap size.
+  if(NOT exports MATCHES "Entry: ID: 0x00000e[^\n]*\n[^\n]*IDs: 13")
+    message(FATAL_ERROR "Expected thirteen embedded TSF icon groups")
+  endif()
+endif()

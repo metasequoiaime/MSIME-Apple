@@ -3,10 +3,12 @@ project(TsfExportContract LANGUAGES CXX)
 if(NOT WIN32)
   message(FATAL_ERROR "Use a Windows toolchain for the PE export contract test")
 endif()
+enable_language(RC)
 enable_testing()
 # Exercise the exact production definition file without pretending to build
 # the complete TIP or providing stub definitions for its native dependencies.
-add_library(tsf-export-fixture SHARED exports.cpp ../../IME/MetasequoiaIME.def)
+add_library(tsf-export-fixture SHARED exports.cpp ../../IME/MetasequoiaIME.def ../../IME/MetasequoiaIME.rc)
+target_include_directories(tsf-export-fixture PRIVATE ../.. ../../Header)
 if(MINGW)
   target_link_options(tsf-export-fixture PRIVATE -Wl,--enable-stdcall-fixup)
 endif()
