@@ -51,6 +51,12 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
+        options.paired_punctuation = snapshot.preferences.paired_punctuation;
+        options.punctuation_lock = match snapshot.preferences.punctuation_lock {
+            msime_client_core::preferences::PunctuationLock::Follow => 0,
+            msime_client_core::preferences::PunctuationLock::Chinese => 1,
+            msime_client_core::preferences::PunctuationLock::English => 2,
+        };
         // Build and validate first; errors leave the original session usable.
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         if let Some(enabled) = self.punctuation_override {
