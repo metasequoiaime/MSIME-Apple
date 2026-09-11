@@ -253,4 +253,13 @@ mod tests {
         server.join().unwrap();
         assert_eq!(result, vec![Some("你好".into())]);
     }
+
+    #[test]
+    fn tencent_tc3_signature_is_deterministic_and_message_bound() {
+        let first = tencent_tc3_derive("secret", "20240101", "tmt", "request");
+        assert_eq!(first, tencent_tc3_derive("secret", "20240101", "tmt", "request"));
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, tencent_tc3_derive("secret", "20240101", "tmt", "other"));
+        assert_ne!(first, tencent_tc3_derive("different", "20240101", "tmt", "request"));
+    }
 }
