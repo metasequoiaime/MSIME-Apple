@@ -10,7 +10,10 @@ fi
 config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
 config="$config_dir/$(basename -- "$config")"
 launcher_path=$0
+link_depth=0
 while [ -L "$launcher_path" ]; do
+  link_depth=$((link_depth + 1))
+  [ "$link_depth" -le 32 ] || { echo "MSIME launcher symlink chain is too deep: $0" >&2; exit 1; }
   link=$(readlink "$launcher_path")
   case "$link" in
     /*) launcher_path=$link ;;
