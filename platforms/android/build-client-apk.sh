@@ -6,12 +6,22 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 resource_dir=${1:?usage: build-client-apk.sh <verified-resource-directory> [arm64-v8a|x86_64]}
 abi=${2:-arm64-v8a}
-case "$abi" in arm64-v8a) tauri_target=aarch64 ;; x86_64) tauri_target=x86_64 ;; *) echo "Unsupported ABI" >&2; exit 1 ;; esac
+case "$abi" in
+  arm64-v8a) tauri_target=aarch64; dependency_triplet=arm64-msime-android ;;
+  x86_64) tauri_target=x86_64; dependency_triplet=x64-msime-android ;;
+  *) echo "Unsupported ABI" >&2; exit 1 ;;
+esac
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 [[ -n "$android_sdk" ]] || { echo "Android SDK required" >&2; exit 1; }
 [[ -f "$android_sdk/platforms/android-36/android.jar" && -x "$android_sdk/build-tools/35.0.0/apksigner" ]] || { echo "Android API 36 and build-tools 35 required" >&2; exit 1; }
+android_ndk=${MSIME_ANDROID_NDK:-$android_sdk/ndk/28.2.13676358}
+android_dependencies="$repo_root/target/android-deps/$abi/$dependency_triplet"
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
 bash platforms/android/build-native.sh "$abi"
+tauri_jni="$repo_root/target/android/tauri-jniLibs/$abi"
+mkdir -p "$tauri_jni"
+cp "$repo_root/target/android/jniLibs/$abi/libmsime_android.so" \
+  "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" "$tauri_jni/"
 assets="$repo_root/target/android/tauri-assets"
 mkdir -p "$assets/dictionary"
 cp resources/desktop-dictionary.lock.json "$assets/"
@@ -20,7 +30,8 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
-ANDROID_HOME="$android_sdk" NDK_HOME="${MSIME_ANDROID_NDK:-$android_sdk/ndk/28.2.13676358}" \
+ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" MSIME_ANDROID_NDK="$android_ndk" \
+  MSIME_ANDROID_DEPS="$android_dependencies" \
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected Tauri APK not produced" >&2; exit 1; }

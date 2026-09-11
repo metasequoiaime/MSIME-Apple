@@ -45,7 +45,7 @@ const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LI
 const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
 
 export type Preferences = {
-  ai_assistant?: { enabled: boolean; provider: string; model: string; endpoint: string; candidate_limit: number; prompt_custom_1: string; prompt_custom_2: string; prompt_custom_3: string };
+  ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
@@ -82,6 +82,20 @@ export type Preferences = {
   punctuation_lock?: "follow" | "chinese" | "english";
   traditional_chinese_output?: boolean;
 };
+export type AiAssistantPreferences = {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  endpoint: string;
+  candidate_limit: number;
+  token?: string;
+  tokens?: Record<string, string>;
+  prompt_id?: string;
+  prompt?: string;
+  prompt_custom_1: string;
+  prompt_custom_2: string;
+  prompt_custom_3: string;
+};
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
@@ -93,7 +107,16 @@ export type VoiceInputPreferences = {
   hotkey_hold_space_lock?: boolean;
   [key: string]: unknown;
 };
-const defaultAiAssistant = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+
+export function aiCredentialOrigin(endpoint: string): string | null {
+  if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
+  try {
+    const url = new URL(endpoint.trim());
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) return null;
+    return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
+  } catch { return null; }
+}
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
@@ -407,6 +430,15 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
+  const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const aiOrigin = aiCredentialOrigin(ai.endpoint);
+  const aiToken = aiOrigin ? ai.tokens?.[aiOrigin] ?? "" : "";
+  const updateAi = (patch: Partial<AiAssistantPreferences>) => {
+    if (draft) setDraft({ ...draft, ai_assistant: { ...ai, ...patch } });
+  };
+  const updateAiToken = (value: string) => {
+    if (aiOrigin) updateAi({ token: "", tokens: { ...(ai.tokens ?? {}), [aiOrigin]: value } });
+  };
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
@@ -775,14 +807,16 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
-        <div className="section"><label className="section-header"><span className="section-title">启用 AI 联想<small>在全拼和双拼输入时异步生成候选项</small></span><input aria-label="启用 AI 联想" className="toggle" type="checkbox" checked={draft.ai_assistant?.enabled ?? false} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" }), enabled: event.target.checked } })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">服务提供商</span><select aria-label="AI 服务提供商" value={draft.ai_assistant?.provider ?? "deepseek"} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), provider: event.target.value } })}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">SiliconFlow</option><option value="groq">Groq</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={draft.ai_assistant?.model ?? "deepseek-v4-flash"} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), model: event.target.value } })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" value={draft.ai_assistant?.endpoint ?? defaultAiAssistant.endpoint} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), endpoint: event.target.value } })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={draft.ai_assistant?.candidate_limit ?? 3} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), candidate_limit: Number(event.target.value) } })} /></label></div>
-        <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={draft.ai_assistant?.prompt_custom_1 ?? ""} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), prompt_custom_1: event.target.value } })} /></div>
-        <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={draft.ai_assistant?.prompt_custom_2 ?? ""} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), prompt_custom_2: event.target.value } })} /></div>
-        <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={draft.ai_assistant?.prompt_custom_3 ?? ""} onChange={event => setDraft({ ...draft, ai_assistant: { ...(draft.ai_assistant ?? defaultAiAssistant), prompt_custom_3: event.target.value } })} /></div>
+        <div className="section"><label className="section-header"><span className="section-title">启用 AI 辅助<small>为拼音联想和 Android 选中文字润色提供共享配置</small></span><input aria-label="启用 AI 辅助" className="toggle" type="checkbox" checked={ai.enabled} onChange={event => updateAi({ enabled: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">服务提供商</span><select aria-label="AI 服务提供商" value={ai.provider} onChange={event => updateAi({ provider: event.target.value })}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">SiliconFlow</option><option value="groq">Groq</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">模型</span><input aria-label="AI 模型" value={ai.model} onChange={event => updateAi({ model: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">接口地址</span><input aria-label="AI 接口地址" type="url" value={ai.endpoint} onChange={event => updateAi({ endpoint: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">API Token<small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small></span><input aria-label="AI API Token" type="password" autoComplete="off" disabled={!aiOrigin} value={aiToken} onChange={event => updateAiToken(event.target.value)} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选数量</span><input aria-label="AI 候选数量" type="number" min="1" max="10" value={ai.candidate_limit} onChange={event => updateAi({ candidate_limit: Math.max(1, Math.min(10, Number(event.target.value) || 3)) })} /></label></div>
+        <div className="section"><label className="section-title">AI 润色提示词<small>Android 只发送选中文字，并要求服务仅返回修改结果</small></label><textarea aria-label="AI 润色提示词" value={ai.prompt ?? defaultAiAssistant.prompt} onChange={event => updateAi({ prompt: event.target.value })} /></div>
+        <div className="section"><label className="section-title">自定义提示词一<small>发送给 AI 联想服务的额外提示词</small></label><textarea aria-label="自定义提示词一" value={ai.prompt_custom_1} onChange={event => updateAi({ prompt_custom_1: event.target.value })} /></div>
+        <div className="section"><label className="section-title">自定义提示词二</label><textarea aria-label="自定义提示词二" value={ai.prompt_custom_2} onChange={event => updateAi({ prompt_custom_2: event.target.value })} /></div>
+        <div className="section"><label className="section-title">自定义提示词三</label><textarea aria-label="自定义提示词三" value={ai.prompt_custom_3} onChange={event => updateAi({ prompt_custom_3: event.target.value })} /></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
         <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>

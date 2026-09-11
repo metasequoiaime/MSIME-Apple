@@ -5,7 +5,7 @@ import minimizeIcon from "../../../packages/ui/src/assets/minimize.svg";
 import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
-import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -249,6 +249,41 @@ test("voice settings persist under the shared voice_input contract", async () =>
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     voice_input: { enabled: false, asr_provider: "doubao", language: "en-US" },
+  });
+});
+
+test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
+  expect(aiCredentialOrigin("https://Fixture.Invalid/v1/chat/completions")).toBe("https://fixture.invalid:443");
+  expect(aiCredentialOrigin("https://fixture.invalid:444/v1/chat/completions")).toBe("https://fixture.invalid:444");
+  expect(aiCredentialOrigin("http://fixture.invalid/v1/chat/completions")).toBeNull();
+  const firstOrigin = "https://fixture.invalid:443";
+  const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, ai_assistant: {
+    enabled: true, provider: "openai", model: "fixture-model",
+    endpoint: "https://fixture.invalid/v1/chat/completions", candidate_limit: 3,
+    tokens: { [firstOrigin]: "first-origin-fixture" }, prompt_id: "polish",
+    prompt: "保持原意", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "",
+  } } };
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
+  const endpoint = await screen.findByLabelText("AI 接口地址") as HTMLInputElement;
+  const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
+  expect(token.value).toBe("first-origin-fixture");
+  fireEvent.change(endpoint, { target: { value: "https://fixture.invalid/v2/chat/completions" } });
+  expect(token.value).toBe("first-origin-fixture");
+  fireEvent.change(endpoint, { target: { value: "https://other.invalid/v1/chat/completions" } });
+  expect(token.value).toBe("");
+  fireEvent.change(token, { target: { value: "second-origin-fixture" } });
+  fireEvent.change(endpoint, { target: { value: "https://fixture.invalid/v1/chat/completions" } });
+  expect(token.value).toBe("first-origin-fixture");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  const saved = vi.mocked(client.save).mock.calls[0][1].ai_assistant!;
+  expect(saved.token).toBe("");
+  expect(saved.tokens).toEqual({
+    [firstOrigin]: "first-origin-fixture",
+    "https://other.invalid:443": "second-origin-fixture",
   });
 });
 

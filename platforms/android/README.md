@@ -2,13 +2,15 @@
 
 `NativeClient` 提供 Java/Kotlin 到共享运行时的 JNI 传输。UTF-8 字节数组保留非 BMP 字符，避免 JNI modified UTF-8 损坏候选或资源路径。JNI 负责释放 C API 响应；上层解析 ok/value，负责会话线程和生命周期。
 
-`MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。没有输入日志或网络权限。
+`MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；网络权限只供用户明确启用并确认发送的 AI 请求使用。
 
 软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
 
 键盘工具栏的“设置”面板以固定来源 `MSIME-Apple@2b0250f` 复刻 Apple 的按键间距、行间距和顶部语音入口控制：间距分别支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 偏好。拖动时只更新 Android 键位 margin，不重建 Engine 或丢失当前组词；松手及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。26 键、全拼九键、日语九键和手写工具键消费同一几何设置。
 
 语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”菜单始终提供语音输入和语音结果入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。系统识别器可用性、Activity 返回后的键盘恢复和真实编辑器插入仍需设备产品验收。
+
+AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且编辑器存在非空选区时显示入口，输入和输出各限制 10,000 个 Unicode 码点。全屏面板明确展示 HTTPS 目标 origin、模型和待发送文字，用户再次点按后才发起 Chat Completions 请求；单线程请求队列容量为 1，关闭面板或点击取消会中断任务并断开连接，响应限制为 1 MiB。请求前、响应后及最终替换前均校验 InputConnection、选区 generation、光标前后文本和完整 AI 配置；过期结果不会展示，结果也绝不自动插入。操作按钮固定在面板底部，长文本不遮挡取消或替换。共享设置按规范化的 endpoint origin（HTTPS 主机和端口）保存 Token，同主机不同路径可复用，主机或端口变化时不会沿用；日志、测试和诊断不包含选区、结果、Token 或原始响应。当前仅完成源码、JVM 契约和构建检查，真实服务、外部编辑器选区与设备生命周期仍需 Android 原生产品验收。
 
 候选区独立显示当前组合文本、当前页和候选按钮；候选超过一个时可展开当前页的无障碍候选面板，面板内可直接选择或收起，翻页仍通过共享运行时的命令完成。Android 宿主不复制候选算法或分页规则，展开面板明确标注“当前页”，避免把当前页误报为完整候选列表。
 
