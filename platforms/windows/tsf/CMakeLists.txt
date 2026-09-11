@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 enable_testing()
+add_executable(msime-tsf-prepared-options-test tests/prepared_options.cpp PreparedHostOptions.cpp)
+target_compile_features(msime-tsf-prepared-options-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-prepared-options COMMAND msime-tsf-prepared-options-test)
 add_executable(msime-tsf-module-path-test tests/module_path.cpp)
 target_compile_features(msime-tsf-module-path-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-module-path COMMAND msime-tsf-module-path-test)
@@ -52,7 +55,7 @@ add_library(msime-tsf SHARED
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
   EngineSessionAdapter.cpp EngineSessionAdapter.h EngineResponse.cpp
-  HostOptionsPaths.cpp HostOptionsPaths.h
+  HostOptionsPaths.cpp HostOptionsPaths.h PreparedHostOptions.cpp
   IME/MetasequoiaIME.rc
 )
 
@@ -68,7 +71,7 @@ target_include_directories(msime-tsf PRIVATE
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
-target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf)
+target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 msctf shell32 uuid)
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built msime-host library for the TSF DLL")
 if(MSIME_HOST_LIBRARY)
   target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
