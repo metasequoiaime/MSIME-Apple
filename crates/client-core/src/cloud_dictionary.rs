@@ -64,6 +64,22 @@ pub fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
     }
 }
 
+pub fn entry_path(entry: &DictionaryEntry) -> Option<String> {
+    if entry.revision <= 0
+        || entry.id.len() != 64
+        || !entry.id.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let kind = match entry.kind {
+        DictionaryKind::Pinyin => "pinyin",
+        DictionaryKind::Wubi => "wubi",
+        DictionaryKind::Quick => "quick",
+        DictionaryKind::English => "english",
+    };
+    Some(format!("/v1/users/me/dictionaries/{kind}/{}", entry.id))
+}
+
 fn encode(value: &str) -> String {
     value
         .bytes()
@@ -158,5 +174,28 @@ mod tests {
             Some("/v1/users/me/dictionaries/quick/import".into())
         );
         assert!(mutation_path(DictionaryKind::Pinyin, "delete").is_none());
+    }
+
+    #[test]
+    fn validates_versioned_entry_path() {
+        let entry = DictionaryEntry {
+            id: "a".repeat(64),
+            kind: DictionaryKind::Pinyin,
+            value: DictionaryValue {
+                code: "ni".into(),
+                word: "你".into(),
+                weight: 1,
+            },
+            revision: 2,
+        };
+        assert_eq!(
+            entry_path(&entry).unwrap(),
+            format!("/v1/users/me/dictionaries/pinyin/{}", "a".repeat(64))
+        );
+        assert!(entry_path(&DictionaryEntry {
+            revision: 0,
+            ..entry
+        })
+        .is_none());
     }
 }
