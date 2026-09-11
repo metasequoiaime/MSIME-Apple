@@ -33,7 +33,8 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
             parsed.view.generation = raw_id.value("generation", uint64_t{0});
         }
         parsed.view.candidates.push_back({std::move(id),
-                                          candidate.value("text", "")});
+                                          candidate.value("text", ""),
+                                          candidate.value("highlighted", false)});
       }
     }
     if (out) *out = std::move(parsed);

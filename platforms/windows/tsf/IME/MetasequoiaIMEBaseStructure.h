@@ -246,6 +246,7 @@ struct CCandidateListItem
     // across UI events without reconstructing identity from display text.
     uint64_t _EngineGeneration = 0;
     uint32_t _EngineIndex = 0;
+    bool _EngineHighlighted = false;
 
     CCandidateListItem &CCandidateListItem::operator=(const CCandidateListItem &rhs)
     {
@@ -253,6 +254,7 @@ struct CCandidateListItem
         _FindKeyCode = rhs._FindKeyCode; // e.g. nihao
         _EngineGeneration = rhs._EngineGeneration;
         _EngineIndex = rhs._EngineIndex;
+        _EngineHighlighted = rhs._EngineHighlighted;
         return *this;
     }
 };
