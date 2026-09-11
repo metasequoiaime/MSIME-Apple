@@ -1621,9 +1621,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
     // A modifier already held when Shift arrives makes this a chord.
-    // Ignore Caps/Num Lock so they do not disable the bare-Shift shortcut.
-    s.pure_shift_candidate = s.focused && !s.blocked &&
-                             chord_modifiers == 0 && !(flags & IBUS_SHIFT_MASK);
+    // Ignore Caps/Num Lock; IBus includes Shift in the modifier mask for
+    // the Shift key event itself.
+    s.pure_shift_candidate = s.focused && !s.blocked && chord_modifiers == 0;
     return FALSE;
   }
   if (!(flags & IBUS_RELEASE_MASK))
