@@ -58,6 +58,10 @@ add_executable(candidate-panel-test tests/CandidatePanelTests.mm CandidatePanel.
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
+add_executable(candidate-pagination-test tests/CandidatePaginationTest.cpp)
+target_include_directories(candidate-pagination-test PRIVATE .)
+target_compile_options(candidate-pagination-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-pagination COMMAND candidate-pagination-test)
 # The current client host uses the host-api adapter. DictionaryRuntime.mm is
 # the retained Apple snapshot adapter for MetasequoiaInputController, not this host.
 add_executable(dictionary-runtime-test tests/DictionaryRuntimeTest.mm ClientDictionaryRuntime.mm)
