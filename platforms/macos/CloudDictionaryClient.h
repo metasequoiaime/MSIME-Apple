@@ -10,3 +10,4 @@ FOUNDATION_EXPORT void MSIMEExportCloudDictionary(NSString *kind, NSString *form
 FOUNDATION_EXPORT void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString *code, NSUInteger offset, NSString *scheme, NSString *profile, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
 FOUNDATION_EXPORT void MSIMEEditCloudDictionaryCatalog(NSString *kind, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
 FOUNDATION_EXPORT void MSIMEFetchCloudDictionaryChanges(long long after, NSUInteger limit, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);
+FOUNDATION_EXPORT void MSIMESendCloudCandidateRequest(NSString *path, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion);

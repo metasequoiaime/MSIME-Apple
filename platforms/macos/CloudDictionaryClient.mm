@@ -70,3 +70,10 @@ NSString *MSIMEReadDictionaryImportFile(NSURL *url, NSError **error) {
 BOOL MSIMESaveDictionaryExportFile(NSData *data, NSURL *url, NSError **error) {
     return data && url && [url isFileURL] && data.length <= 384 * 1024 * 1024 && [data writeToURL:url options:NSDataWritingAtomic error:error];
 }
+
+void MSIMESendCloudCandidateRequest(NSString *path, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
+    if (path.length == 0 || ![path hasPrefix:@"/v1/users/me/dictionary/"] || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[@"https://api.msime.app" stringByAppendingString:path]]]; r.HTTPMethod = @"POST"; r.HTTPBody = body;
+    [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); }] resume];
+}
