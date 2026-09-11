@@ -855,6 +855,61 @@ fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, H
         })
 }
 
+#[cfg(target_os = "linux")]
+fn linux_clipboard_text() -> Result<String, HostActionError> {
+    let output = std::process::Command::new("wl-paste")
+        .arg("--no-newline")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .or_else(|| {
+            std::process::Command::new("xclip")
+                .args(["-selection", "clipboard", "-o"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+        })
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    String::from_utf8(output.stdout)
+        .map(|text| text.trim_end_matches(['\r', '\n']).to_owned())
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn write_linux_clipboard(text: &str) -> bool {
+    fn write_with(mut child: std::process::Child, text: &str) -> bool {
+        let Some(mut input) = child.stdin.take() else {
+            return false;
+        };
+        if std::io::Write::write_all(&mut input, text.as_bytes()).is_err() {
+            return false;
+        }
+        drop(input);
+        child.wait().map(|status| status.success()).unwrap_or(false)
+    }
+
+    if let Ok(child) = std::process::Command::new("wl-copy")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+    {
+        if write_with(child, text) {
+            return true;
+        }
+    }
+    let Ok(child) = std::process::Command::new("xclip")
+        .args(["-selection", "clipboard"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+    else {
+        return false;
+    };
+    write_with(child, text)
+}
+
 #[tauri::command]
 fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
@@ -899,9 +954,7 @@ fn sync_clipboard_history(
     #[cfg(target_os = "macos")]
     let output = std::process::Command::new("pbpaste").output();
     #[cfg(target_os = "linux")]
-    let output = std::process::Command::new("xclip")
-        .args(["-selection", "clipboard", "-o"])
-        .output();
+    let output = linux_clipboard_text();
     #[cfg(target_os = "windows")]
     let output = std::process::Command::new("powershell")
         .args(["-NoProfile", "-Command", "Get-Clipboard"])
@@ -909,20 +962,25 @@ fn sync_clipboard_history(
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let output: Result<std::process::Output, std::io::Error> =
         Err(std::io::Error::other("unsupported"));
-    let output = output.map_err(|_| HostActionError {
-        code: "unavailable",
-    })?;
-    if !output.status.success() {
-        return Err(HostActionError {
+    #[cfg(target_os = "linux")]
+    let text = output?;
+    #[cfg(not(target_os = "linux"))]
+    let text = {
+        let output = output.map_err(|_| HostActionError {
             code: "unavailable",
-        });
-    }
-    let text = String::from_utf8(output.stdout)
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .trim_end_matches(['\r', '\n'])
-        .to_owned();
+        })?;
+        if !output.status.success() {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .trim_end_matches(['\r', '\n'])
+            .to_owned()
+    };
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
@@ -966,32 +1024,7 @@ fn copy_text(
             .success()
     };
     #[cfg(target_os = "linux")]
-    let result = {
-        use std::io::Write;
-        let mut child = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .stdin
-            .take()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-            .write_all(text.as_bytes())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .wait()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .success()
-    };
+    let result = write_linux_clipboard(&text);
     #[cfg(target_os = "windows")]
     let result = {
         use std::io::Write;
