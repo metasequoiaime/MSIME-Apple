@@ -18,7 +18,11 @@ pub struct TranslationCache {
 
 impl TranslationCache {
     pub fn new(negative_ttl: Duration) -> Self {
-        Self { positive: HashMap::new(), negative: HashMap::new(), negative_ttl }
+        Self {
+            positive: HashMap::new(),
+            negative: HashMap::new(),
+            negative_ttl,
+        }
     }
 
     pub fn get(&mut self, key: &str) -> Option<Option<String>> {
@@ -26,7 +30,9 @@ impl TranslationCache {
             return Some(Some(value.clone()));
         }
         if let Some(expires) = self.negative.get(key).copied() {
-            if expires > Instant::now() { return Some(None); }
+            if expires > Instant::now() {
+                return Some(None);
+            }
             self.negative.remove(key);
         }
         None
@@ -38,8 +44,13 @@ impl TranslationCache {
             self.negative.clear();
         }
         match value {
-            Some(value) => { self.positive.insert(key, (value, Instant::now())); }
-            None => { self.negative.insert(key, Instant::now() + self.negative_ttl); }
+            Some(value) => {
+                self.positive.insert(key, (value, Instant::now()));
+            }
+            None => {
+                self.negative
+                    .insert(key, Instant::now() + self.negative_ttl);
+            }
         }
     }
 }
