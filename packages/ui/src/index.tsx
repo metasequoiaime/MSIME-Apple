@@ -93,6 +93,10 @@ export interface CloudDictionaryClient {
   add(kind: CloudDictionaryKind, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
   update(entry: CloudDictionaryEntry, value: Omit<CloudDictionaryEntry, "id" | "kind" | "revision">): Promise<void>;
   remove(entry: CloudDictionaryEntry): Promise<void>;
+  import(kind: CloudDictionaryKind, text: string, format: "standard" | "windows" | "hans"): Promise<number>;
+  export(kind: CloudDictionaryKind, format: "standard" | "windows"): Promise<string>;
+  import(kind: CloudDictionaryKind, text: string, format: "standard" | "hans"): Promise<number>;
+  export(kind: CloudDictionaryKind, format: "standard" | "hans"): Promise<string>;
 }
 
 function parseFontList(text: string): string[] {
