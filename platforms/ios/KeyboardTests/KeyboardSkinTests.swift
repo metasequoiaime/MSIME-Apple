@@ -1,0 +1,259 @@
+import XCTest
+import UIKit
+
+final class KeyboardSkinTests: XCTestCase {
+  // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
+  // whatever the app group was left holding. See InputSchemeTestSupport.
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+  }
+
+  func testCuratedDesignsRemainReadableAndRoundTrip() throws {
+    for (name, design) in CustomKeyboardSkin.templates {
+      XCTAssertTrue(design.hasReadableText, name)
+      XCTAssertEqual(design, design.normalized, name)
+      XCTAssertEqual(try JSONDecoder().decode(CustomKeyboardSkin.self, from: JSONEncoder().encode(design)), design)
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(CustomKeyboardSkin.readableText(on: design.actionBackground), design.actionBackground), 4.5, name)
+    }
+  }
+
+  func testCustomSkinPersistenceValidationAndContrast() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let previous = defaults.object(forKey: CustomKeyboardSkinStore.key)
+    defer {
+      if let previous { defaults.set(previous, forKey: CustomKeyboardSkinStore.key) }
+      else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+    }
+    var design = CustomKeyboardSkin()
+    design.cornerRadius = 100
+    design.borderWidth = -4
+    design.pattern = 99
+    design.keyBackground = 0x132536
+    design.keyForeground = 0xFFFFFF
+    design.actionBackground = 0xFFFFFF
+    CustomKeyboardSkinStore.save(design)
+    let stored = CustomKeyboardSkinStore.current
+    XCTAssertEqual(stored.cornerRadius, 20)
+    XCTAssertEqual(stored.borderWidth, 0)
+    XCTAssertEqual(stored.pattern, 0)
+    XCTAssertEqual(stored.keyBackground, 0x132536)
+    XCTAssertEqual(CustomKeyboardSkin.rgb(KeyboardSkin.custom.actionForeground), 0)
+    XCTAssertEqual(CustomKeyboardSkin.rgb(CustomKeyboardSkin.color(0x123456)), 0x123456)
+    defaults.set(Data("invalid".utf8), forKey: CustomKeyboardSkinStore.key)
+    XCTAssertEqual(CustomKeyboardSkinStore.current, CustomKeyboardSkin())
+    XCTAssertTrue(CustomKeyboardSkinStore.current.hasReadableText)
+    for background: UInt32 in [0, 0x808080, 0xFFFFFF, 0xFF8800] {
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(CustomKeyboardSkin.readableText(on: background), background), 4.5)
+    }
+  }
+  func testLegacyDesignsAndLibraryRoundTrip() throws {
+    let legacy = Data(#"{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}"#.utf8)
+    let old = try JSONDecoder().decode(CustomKeyboardSkin.self, from: legacy)
+    XCTAssertNil(old.gradientEnd)
+    XCTAssertNil(old.photo)
+    let previous = CustomSkinLibrary.designs
+    defer { CustomSkinLibrary.save(previous) }
+    var design = CustomKeyboardSkin.templates[2].1
+    design.photoShade = .infinity
+    design.photoPosition = -4
+    design.photo = Data(repeating: 0, count: 512_001)
+    design.patternOpacity = 2
+    let item = SavedKeyboardSkin(name: "  我的夜色  ", design: design)
+    CustomSkinLibrary.save([item])
+    let restored = try XCTUnwrap(CustomSkinLibrary.designs.first)
+    XCTAssertEqual(restored.id, item.id)
+    XCTAssertEqual(restored.name, "我的夜色")
+    XCTAssertEqual(restored.design.gradientEnd, design.gradientEnd)
+    XCTAssertEqual(restored.design.photoShade, 0.25)
+    XCTAssertEqual(restored.design.photoPosition, 0)
+    XCTAssertNil(restored.design.photo)
+    XCTAssertEqual(restored.design.patternOpacity, 0.5)
+    CustomSkinLibrary.save([])
+    XCTAssertTrue(CustomSkinLibrary.designs.isEmpty)
+  }
+
+  @MainActor
+  func testGradientAndPhotoRenderInKeyboardBackdrop() throws {
+    let previous = KeyboardFeedbackPreference.defaults.object(forKey: CustomKeyboardSkinStore.key)
+    defer {
+      if let previous { KeyboardFeedbackPreference.defaults.set(previous, forKey: CustomKeyboardSkinStore.key) }
+      else { KeyboardFeedbackPreference.defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+    }
+    let view = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 260))
+    func render(_ design: CustomKeyboardSkin) -> UIImage {
+      CustomKeyboardSkinStore.save(design)
+      view.skin = .custom
+      return UIGraphicsImageRenderer(bounds: view.bounds).image { view.layer.render(in: $0.cgContext) }
+    }
+    var design = CustomKeyboardSkin()
+    let plain = render(design)
+    design.gradientEnd = 0x224466
+    let gradient = render(design)
+    XCTAssertNotEqual(plain.pngData(), gradient.pngData())
+    let photo = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { context in
+      UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+    }
+    design.photo = try XCTUnwrap(photo.jpegData(compressionQuality: 0.8))
+    let wallpaper = render(design)
+    XCTAssertNotEqual(gradient.pngData(), wallpaper.pngData())
+    design.photoShade = 0.8
+    XCTAssertNotEqual(wallpaper.pngData(), render(design).pngData())
+    design.photo = nil
+    design.photoShade = nil
+    XCTAssertEqual(gradient.pngData(), render(design).pngData())
+  }
+
+  @MainActor
+  func testPhotoImportBoundsAndSavedKeyboardSelection() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
+    let library = CustomSkinLibrary.designs
+    defer {
+      if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+      CustomSkinLibrary.save(library)
+    }
+    let format = UIGraphicsImageRendererFormat(); format.scale = 1
+    let original = UIGraphicsImageRenderer(size: CGSize(width: 2400, height: 800), format: format).image {
+      UIColor.blue.setFill(); $0.fill(CGRect(x: 0, y: 0, width: 2400, height: 800))
+    }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try XCTUnwrap(original.pngData()).write(to: url)
+    let data = try XCTUnwrap(SkinPhotoData.thumbnail(at: url))
+    let image = try XCTUnwrap(UIImage(data: data))
+    XCTAssertLessThanOrEqual(max(image.size.width, image.size.height), 1024)
+    XCTAssertLessThanOrEqual(data.count, 512_000)
+    try Data("not an image".utf8).write(to: url)
+    XCTAssertNil(SkinPhotoData.thumbnail(at: url))
+    var design = CustomKeyboardSkin.templates[2].1
+    design.photo = data; design.keyOpacity = 0.45
+    let item = SavedKeyboardSkin(name: "照片夜色", design: design)
+    CustomSkinLibrary.save([item])
+    var selection: KeyboardSkin?
+    let picker = KeyboardSkinPickerView(selected: .forest, onSelect: { selection = $0 }, onClose: {})
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    let button = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "savedSkinCard-" + item.id.uuidString } as? UIButton)
+    button.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(selection, .custom)
+    XCTAssertEqual(CustomKeyboardSkinStore.current, design)
+    XCTAssertEqual(KeyboardSkin.custom.keyBackground.cgColor.alpha, 0.45, accuracy: 0.001)
+  }
+
+  private func luminance(_ color: UIColor, style: UIUserInterfaceStyle) -> Double {
+    let resolved = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
+    func linear(_ value: CGFloat) -> Double {
+      let v = Double(value)
+      return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+  }
+
+  @MainActor
+  func testChangingDesignUpdatesActualKeyboardKeys() throws {
+    let previous = KeyboardSkinPreference.selected
+    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.compositionRowHeight)
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    for skin in [KeyboardSkin.typewriter, .candy, .midnight, .blueprint, .forest, .custom] {
+      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" } as? UIButton)
+      if skin == .custom {
+        let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
+        XCTAssertEqual(surface.design, CustomKeyboardSkinStore.current)
+        XCTAssertEqual(surface.fillColor, skin.actionBackground)
+        continue
+      }
+      XCTAssertEqual(key.configuration?.background.cornerRadius, skin.cornerRadius)
+      XCTAssertEqual(key.configuration?.background.strokeWidth, skin.borderWidth)
+      XCTAssertEqual(key.layer.shadowOpacity, skin.shadowOpacity)
+      XCTAssertEqual(key.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
+        skin.actionBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+    }
+  }
+
+  @MainActor
+  func testThemedKeySurfacesReachRealKeyboardWithoutChangingLayout() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
+    let selection = KeyboardSkinPreference.selected
+    let scheme = InputSchemePreference.scheme
+    let enabledSchemes = InputSchemePreference.enabledSchemes
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .quanpin
+    defer {
+      InputSchemePreference.enabledSchemes = enabledSchemes
+      InputSchemePreference.scheme = scheme
+      if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+      defaults.set(selection.rawValue, forKey: KeyboardSkinPreference.key)
+    }
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
+    // Compare the same letter-key layout even after UI tests select nine keys. The nine-key
+    // sidebar deliberately uses flat punctuation buttons without individual skin surfaces.
+    var referenceFrames: [CGRect]?
+    for (name, template) in CustomKeyboardSkin.templates.prefix(4) {
+      var design = template
+      design.monospaced = false // Typography is independent of key geometry.
+      CustomKeyboardSkinStore.save(design)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.compositionRowHeight)
+      controller.view.layoutIfNeeded()
+      func visible(_ view: UIView) -> Bool {
+        if view.isHidden { return false }
+        return view.superview.map(visible) ?? true
+      }
+      let keys = descendants(controller.view).compactMap { $0 as? KeyboardKeyButton }.filter(visible)
+      XCTAssertGreaterThan(keys.count, 20)
+      let frames = keys.map { $0.convert($0.bounds, to: controller.view) }
+      if let referenceFrames { XCTAssertEqual(frames, referenceFrames) } else { referenceFrames = frames }
+      for key in keys {
+        let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
+        XCTAssertEqual(surface.design.keyShape, design.keyShape)
+        XCTAssertEqual(surface.design.keyMaterial, design.keyMaterial)
+      }
+      let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }
+      let attachment = XCTAttachment(image: image)
+      attachment.name = "实际键盘-" + name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+  }
+
+  func testSkinTextContrastInBothAppearances() {
+    for skin in KeyboardSkin.allCases where skin != .custom {
+      for style in [UIUserInterfaceStyle.light, .dark] {
+        for (foreground, background) in [(skin.keyForeground, skin.keyBackground),
+          (skin.actionForeground, skin.actionBackground), (skin.accent, skin.keyBackground)] {
+          let a = luminance(foreground, style: style), b = luminance(background, style: style)
+          XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), 4.5, "\(skin) \(style)")
+        }
+      }
+    }
+  }
+
+  private func packed(_ color: UIColor) -> UInt32 {
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    let channel = { (value: CGFloat) in UInt32((value * 255).rounded()) }
+    return channel(red) << 16 | channel(green) << 8 | channel(blue)
+  }
+
+  func testSchemePickerAccentStaysReadableInBothAppearances() {
+    // The picker used to carry its own orange, which measured 2.6:1 against white in light mode
+    // and 2.1:1 in dark -- below the large-text floor. Both shades of forest are on opposite sides
+    // of that line, so the foreground has to follow the appearance rather than be picked once.
+    for style in [UIUserInterfaceStyle.light, .dark] {
+      let traits = UITraitCollection(userInterfaceStyle: style)
+      let background = packed(MetasequoiaTheme.forestUIColor.resolvedColor(with: traits))
+      let foreground = packed(MetasequoiaTheme.onForestUIColor.resolvedColor(with: traits))
+      XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(foreground, background), 4.5,
+                                  "\(style) 下选中态文字对比度不足")
+    }
+  }
+}
