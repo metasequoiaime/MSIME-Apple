@@ -396,9 +396,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name) == "ChinesePunctuation") {
       s.chinese_punctuation = value == PROP_STATE_CHECKED;
-      if (s.session && s.view.value("focused", false))
-        apply(engine, msime_client_set_chinese_punctuation(
-                         s.session, s.chinese_punctuation));
+      if (s.session) {
+        // The mode setter returns a View, not a commit Transition.
+        s.view = response(msime_client_set_chinese_punctuation(
+            s.session, s.chinese_punctuation));
+        render(engine, s.view);
+      }
       publish_punctuation(engine, s.chinese_punctuation);
       return;
     }
