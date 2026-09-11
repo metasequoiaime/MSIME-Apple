@@ -11,6 +11,9 @@ param(
     [string]$UiHtmlDirectory = 'ui-html',
     [string]$HelpCodeDirectory = 'vendor/MetasequoiaImeEngine/helpcode',
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
+    [string]$ServerReleaseDirectory = '',
+    [string]$Tsf32ReleaseDirectory = '',
+    [string]$Tsf64ReleaseDirectory = '',
     # THIRD_PARTY_NOTICES.txt used to sit next to the tip's sources. In the consolidated repository
     # the notice covers the whole product and lives at the root, one level above windows/, so where
     # to read it is no longer answered by where the tip is.
@@ -44,11 +47,20 @@ function Reset-Directory {
 }
 
 $serverRelease = Join-Path $RepoRoot (Join-Path $ServerDirectory 'build-release\bin\Release')
+if ($ServerReleaseDirectory) { $serverRelease = Join-Path $RepoRoot $ServerReleaseDirectory }
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 $tsf32Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.dll')
 $tsf64Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.dll')
 $tsf32Pdb = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.pdb')
 $tsf64Pdb = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.pdb')
+if ($Tsf32ReleaseDirectory) {
+    $tsf32Release = Join-Path (Join-Path $RepoRoot $Tsf32ReleaseDirectory) 'MetasequoiaImeTsf.dll'
+    $tsf32Pdb = Join-Path (Join-Path $RepoRoot $Tsf32ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
+}
+if ($Tsf64ReleaseDirectory) {
+    $tsf64Release = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.dll'
+    $tsf64Pdb = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
+}
 $webviewRoot = Join-Path $RepoRoot (Join-Path $UiHtmlDirectory 'webview2')
 $serverConfig = Join-Path $RepoRoot (Join-Path $ServerDirectory 'assets\config\config.toml')
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
