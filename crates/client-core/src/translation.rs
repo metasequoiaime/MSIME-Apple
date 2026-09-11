@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
 const BATCH_BUDGET: Duration = Duration::from_secs(6);
+const MAX_SOURCE_CHARS: usize = 40;
 
 /// Tencent TC3 signing primitive. The caller owns credential lifetime.
 pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: &str) -> String {
@@ -71,6 +72,9 @@ pub fn translate_batch_cached(
     let started = Instant::now();
     let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
+        if text.chars().count() > MAX_SOURCE_CHARS {
+            continue;
+        }
         if let Some(value) = cache.get(text) {
             results[index] = value;
         } else {
@@ -302,6 +306,19 @@ mod tests {
         assert_eq!(
             tencent_tc3_canonical_request("payload-hash"),
             "POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\npayload-hash"
+        );
+    }
+
+    #[test]
+    fn translation_inputs_over_source_limit_are_not_requested() {
+        let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(1));
+        let config = TranslationConfig {
+            endpoint: "ftp://invalid".into(),
+            api_key: String::new(),
+        };
+        assert_eq!(
+            translate_batch_cached(&config, &["字".repeat(41)], "zh", "en", &mut cache),
+            vec![None]
         );
     }
 }
