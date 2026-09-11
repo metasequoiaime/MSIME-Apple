@@ -24,6 +24,15 @@ pub enum ChineseScheme {
     Wubi,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PunctuationLock {
+    #[default]
+    Follow,
+    Chinese,
+    English,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -42,6 +51,10 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
+    #[serde(default = "enabled_by_default")]
+    pub paired_punctuation: bool,
+    #[serde(default)]
+    pub punctuation_lock: PunctuationLock,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -168,6 +181,8 @@ impl Default for Preferences {
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
