@@ -1,4 +1,9 @@
 //! Safe discovery and validation of external candidate-skin manifests.
+//!
+//! `read_resource` supplies bytes for host resource delivery analogous to the
+//! Windows `candidate-skins` virtual-folder mapping (settings_app.cpp at
+//! 04a8df56f86312474a069f4335a1b58da7afaa9e). It does not register a protocol,
+//! authorize a webview origin, sanitize CSS/SVG, or execute resource content.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -310,6 +315,106 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     })
 }
 
+/// Maximum bytes returned for one skin asset, including stylesheets and fonts.
+pub const MAX_RESOURCE_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResourceError {
+    InvalidPath,
+    InvalidPackage,
+    UnsupportedType,
+    Unavailable,
+    TooLarge,
+}
+
+/// Untrusted resource data. Hosts must set the content type, disable MIME
+/// sniffing, and isolate styles/SVG rather than inserting them as page markup.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SkinResource {
+    pub content_type: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+/// Read an asset from a currently valid package under a host-selected root.
+/// Paths are decoded relative names, never URLs. Canonical containment rejects
+/// symlink escapes, but is not a sandbox against concurrent hostile filesystem
+/// mutation; hosts must not use this API to expose attacker-writable trees
+/// across a privilege boundary.
+pub fn read_resource(
+    root: impl AsRef<Path>,
+    id: &str,
+    relative: &str,
+) -> Result<SkinResource, ResourceError> {
+    if !safe_id(id) || !safe_resource(relative, 256) {
+        return Err(ResourceError::InvalidPath);
+    }
+    let content_type = match relative
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "css" => "text/css; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => return Err(ResourceError::UnsupportedType),
+    };
+    let root = root.as_ref();
+    let directory = root.join(id);
+    // Match scan(): symlinked package directories are not catalog entries.
+    if !fs::symlink_metadata(&directory)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+        || load(root, id).is_err()
+    {
+        return Err(ResourceError::InvalidPackage);
+    }
+    let directory = directory
+        .canonicalize()
+        .map_err(|_| ResourceError::Unavailable)?;
+    let target = directory
+        .join(relative)
+        .canonicalize()
+        .map_err(|_| ResourceError::Unavailable)?;
+    if !target.starts_with(&directory) {
+        return Err(ResourceError::InvalidPath);
+    }
+    if !target.is_file() {
+        return Err(ResourceError::Unavailable);
+    }
+    let input = fs::File::open(&target).map_err(|_| ResourceError::Unavailable)?;
+    let metadata = input.metadata().map_err(|_| ResourceError::Unavailable)?;
+    if !metadata.is_file() {
+        return Err(ResourceError::Unavailable);
+    }
+    if metadata.len() > MAX_RESOURCE_BYTES as u64 {
+        return Err(ResourceError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    input
+        .take(MAX_RESOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ResourceError::Unavailable)?;
+    if bytes.len() > MAX_RESOURCE_BYTES {
+        return Err(ResourceError::TooLarge);
+    }
+    Ok(SkinResource {
+        content_type,
+        bytes,
+    })
+}
+
 pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
     let root = root.as_ref();
     let mut out = SkinCatalog::default();
@@ -340,6 +445,158 @@ mod tests {
     use tempfile::tempdir;
     fn manifest(id: &str) -> String {
         format!("schema_version = 1\nid = '{id}'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n")
+    }
+
+    fn resource_package(root: &Path) -> std::path::PathBuf {
+        let skin = root.join("sample");
+        fs::create_dir_all(skin.join("images")).unwrap();
+        fs::write(skin.join("skin.toml"), manifest("sample")).unwrap();
+        skin
+    }
+
+    #[test]
+    fn resource_reader_preserves_bytes_and_assigns_supported_content_types() {
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        for (extension, content_type) in [
+            ("css", "text/css; charset=utf-8"),
+            ("PNG", "image/png"),
+            ("jpg", "image/jpeg"),
+            ("jpeg", "image/jpeg"),
+            ("gif", "image/gif"),
+            ("webp", "image/webp"),
+            ("svg", "image/svg+xml"),
+            ("ico", "image/x-icon"),
+            ("bmp", "image/bmp"),
+            ("avif", "image/avif"),
+            ("woff", "font/woff"),
+            ("woff2", "font/woff2"),
+            ("ttf", "font/ttf"),
+            ("otf", "font/otf"),
+        ] {
+            let relative = format!("images/sample.{extension}");
+            fs::write(skin.join(&relative), [0, 1, 255]).unwrap();
+            let result = read_resource(root.path(), "sample", &relative).unwrap();
+            assert_eq!(result.content_type, content_type);
+            assert_eq!(result.bytes, [0, 1, 255]);
+        }
+    }
+
+    #[test]
+    fn resource_reader_rejects_paths_urls_and_non_asset_types() {
+        let root = tempdir().unwrap();
+        resource_package(root.path());
+        for relative in [
+            "",
+            "../sample.png",
+            "/sample.png",
+            "C:/sample.png",
+            "images\\sample.png",
+            "images//sample.png",
+            "./sample.png",
+            "%2e%2e/sample.png",
+            "https://example.invalid/a.png",
+            "sample.png?x=1",
+        ] {
+            assert_eq!(
+                read_resource(root.path(), "sample", relative),
+                Err(ResourceError::InvalidPath)
+            );
+        }
+        assert_eq!(
+            read_resource(root.path(), "../sample", "sample.png"),
+            Err(ResourceError::InvalidPath)
+        );
+        for relative in [
+            "skin.toml",
+            "code.js",
+            "page.html",
+            "settings.json",
+            "program.exe",
+            "unknown",
+        ] {
+            assert_eq!(
+                read_resource(root.path(), "sample", relative),
+                Err(ResourceError::UnsupportedType)
+            );
+        }
+    }
+
+    #[test]
+    fn resource_reader_requires_current_valid_manifest() {
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        fs::write(skin.join("sample.png"), b"synthetic").unwrap();
+        assert!(read_resource(root.path(), "sample", "sample.png").is_ok());
+        fs::write(skin.join("skin.toml"), "invalid").unwrap();
+        assert_eq!(
+            read_resource(root.path(), "sample", "sample.png"),
+            Err(ResourceError::InvalidPackage)
+        );
+        assert_eq!(
+            read_resource(root.path(), "absent", "sample.png"),
+            Err(ResourceError::InvalidPackage)
+        );
+    }
+
+    #[test]
+    fn resource_reader_rejects_missing_directory_and_oversized_assets() {
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        assert_eq!(
+            read_resource(root.path(), "sample", "absent.png"),
+            Err(ResourceError::Unavailable)
+        );
+        fs::create_dir(skin.join("directory.png")).unwrap();
+        assert_eq!(
+            read_resource(root.path(), "sample", "directory.png"),
+            Err(ResourceError::Unavailable)
+        );
+        let file = fs::File::create(skin.join("large.png")).unwrap();
+        file.set_len(MAX_RESOURCE_BYTES as u64).unwrap();
+        assert_eq!(
+            read_resource(root.path(), "sample", "large.png")
+                .unwrap()
+                .bytes
+                .len(),
+            MAX_RESOURCE_BYTES
+        );
+        file.set_len(MAX_RESOURCE_BYTES as u64 + 1).unwrap();
+        assert_eq!(
+            read_resource(root.path(), "sample", "large.png"),
+            Err(ResourceError::TooLarge)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_reader_rejects_symlink_escapes_and_package_aliases() {
+        use std::os::unix::fs::symlink;
+        let root = tempdir().unwrap();
+        let skin = resource_package(root.path());
+        let outside = tempdir().unwrap();
+        fs::write(outside.path().join("sample.png"), b"synthetic").unwrap();
+        symlink(outside.path().join("sample.png"), skin.join("escape.png")).unwrap();
+        symlink(outside.path(), skin.join("escape")).unwrap();
+        for relative in ["escape.png", "escape/sample.png"] {
+            assert_eq!(
+                read_resource(root.path(), "sample", relative),
+                Err(ResourceError::InvalidPath)
+            );
+        }
+        symlink(&skin, root.path().join("alias")).unwrap();
+        assert_eq!(
+            read_resource(root.path(), "alias", "escape.png"),
+            Err(ResourceError::InvalidPackage)
+        );
+        fs::write(skin.join("images/local.png"), b"local").unwrap();
+        symlink(skin.join("images/local.png"), skin.join("local.png")).unwrap();
+        assert_eq!(
+            read_resource(root.path(), "sample", "local.png")
+                .unwrap()
+                .bytes,
+            b"local"
+        );
     }
 
     fn scan_manifest(body: &str) -> SkinCatalog {
