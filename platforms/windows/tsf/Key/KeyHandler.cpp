@@ -469,7 +469,14 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
                     workerResult = _AddCharAndFinalize(ec, pContext, &commit);
                 }
                 if (SUCCEEDED(workerResult))
-                    goto Exit;
+                {
+                    if (result.has_commit)
+                        goto Exit;
+                    // The host result owns candidate generation; let the
+                    // worker refresh the TSF candidate UI from that view.
+                    workerResult = _HandleCompositionInputWorker(pCompositionProcessorEngine, ec, pContext, requestId);
+                    if (SUCCEEDED(workerResult)) goto Exit;
+                }
             }
         }
     }
