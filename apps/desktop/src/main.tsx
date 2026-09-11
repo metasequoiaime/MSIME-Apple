@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { EmojiPanel, HandwritingPanel, KeyboardPanel, SettingsPage, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 
@@ -20,6 +21,14 @@ const client: SettingsClient = {
   copyText: text => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),
+  windowControl: async action => {
+    const window = getCurrentWindow();
+    if (action === "minimize") return window.minimize();
+    if (action === "close") return window.close();
+    if (action === "restore") return window.unmaximize();
+    return window.maximize();
+  },
+  beginWindowDrag: () => getCurrentWindow().startDragging(),
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
     list: () => invoke<string[]>("list_clipboard_history"),
