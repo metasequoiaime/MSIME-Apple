@@ -1,15 +1,6 @@
 #!/usr/bin/env sh
 set -eu
-# An explicit override must fail visibly if invalid. Only an absent user
-# configuration falls back to the system configuration supplied by IBus.
-if [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
-  config=$MSIME_IBUS_OPTIONS
-else
-  config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
-  if [ ! -e "$config" ]; then
-    config=${1:-/etc/msime-client/runtime-options.json}
-  fi
-fi
+config=${MSIME_IBUS_OPTIONS:-${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json}
 if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
