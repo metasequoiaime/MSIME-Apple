@@ -1,6 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
-#import "AppearancePreferences.h"
+#import "PreferencesWindowController.h"
 #include <cstring>
 
 static bool MSIMEShouldShowPreferences(int argc, const char *argv[])
@@ -19,8 +19,7 @@ int main(int argc, const char *argv[])
         if (MSIMEShouldShowPreferences(argc, argv))
         {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-            [[MSIMEAppearancePreferences sharedPreferences] showWindow:nil];
-            [NSApp activateIgnoringOtherApps:YES];
+            [[MSIMEPreferencesWindowController sharedController] showAndActivate];
             [NSApp run];
             return 0;
         }

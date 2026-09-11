@@ -8,7 +8,7 @@
 #import "InputModeRouting.h"
 #import "CandidateAppearance.h"
 #import "CandidateChrome.h"
-#import "AppearancePreferences.h"
+#import "PreferencesWindowController.h"
 #include "CandidateSkin.h"
 
 @interface MSIMECandidatePanel : NSPanel
@@ -39,7 +39,6 @@
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     NSImage *_skinDecoration;
-    MSIMEAppearancePreferences *_previewPreferences;
 }
 
 static NSColor *MSIMESkinColor(msime::mac::Rgba color)
@@ -91,9 +90,8 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 - (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showCandidatePreview:(id)sender {
-    if (!_previewPreferences) _previewPreferences = [MSIMEAppearancePreferences sharedPreferences];
-    [_previewPreferences showWindow:sender];
-    [NSApp activateIgnoringOtherApps:YES];
+    (void)sender;
+    [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
 
 - (NSMenu *)menu {
