@@ -398,9 +398,14 @@ impl Preferences {
             return Err(PreferencesError::InvalidFrequency);
         }
         if !(1..=10).contains(&self.ai_assistant.candidate_limit)
-            || self.ai_assistant.provider.is_empty()
+            || !matches!(
+                self.ai_assistant.provider.as_str(),
+                "deepseek" | "openai" | "siliconflow" | "groq"
+            )
+            || self.ai_assistant.model.is_empty()
             || self.ai_assistant.model.len() > 256
             || self.ai_assistant.endpoint.len() > 2048
+            || !self.ai_assistant.endpoint.starts_with("https://")
         {
             return Err(PreferencesError::InvalidAiAssistant);
         }
@@ -713,6 +718,18 @@ mod tests {
         for limit in [0, 11] {
             let mut invalid = saved.preferences.clone();
             invalid.ai_assistant.candidate_limit = limit;
+            assert!(matches!(
+                store.save(saved.revision, invalid),
+                Err(PreferencesError::InvalidAiAssistant)
+            ));
+        }
+        for (provider, endpoint) in [
+            ("unknown", "https://ai.example"),
+            ("openai", "http://ai.example"),
+        ] {
+            let mut invalid = saved.preferences.clone();
+            invalid.ai_assistant.provider = provider.into();
+            invalid.ai_assistant.endpoint = endpoint.into();
             assert!(matches!(
                 store.save(saved.revision, invalid),
                 Err(PreferencesError::InvalidAiAssistant)
