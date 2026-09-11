@@ -33,6 +33,12 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        NSDictionary *activeOptions = [MSIMEClientSession activeHostOptions];
+        assert([activeOptions[@"api_version"] isEqual:@1]);
+        error = nil;
+        assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:[@"0" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0] error:&error]);
+        assert(error);
+        error = nil;
         NSDictionary *initialPreferences = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(initialPreferences && !error && [initialPreferences[@"revision"] isEqual:@0]);
         error = nil;
