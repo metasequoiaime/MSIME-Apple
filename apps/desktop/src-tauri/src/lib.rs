@@ -392,6 +392,45 @@ fn list_clipboard_history(
 }
 
 #[tauri::command]
+fn sync_clipboard_history(
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<Vec<String>, HostActionError> {
+    #[cfg(target_os = "macos")]
+    let output = std::process::Command::new("pbpaste").output();
+    #[cfg(target_os = "linux")]
+    let output = std::process::Command::new("xclip")
+        .args(["-selection", "clipboard", "-o"])
+        .output();
+    #[cfg(target_os = "windows")]
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Get-Clipboard"])
+        .output();
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let output: Result<std::process::Output, std::io::Error> =
+        Err(std::io::Error::other("unsupported"));
+    let output = output.map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    if !output.status.success() {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let text = String::from_utf8(output.stdout).map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let mut history = state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    history
+        .push(text.trim_end_matches(['\r', '\n']).to_owned())
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    Ok(history.entries().to_vec())
+}
+
+#[tauri::command]
 fn set_diagnostic_log(
     state: tauri::State<'_, DiagnosticState>,
     scope: String,
@@ -1053,6 +1092,7 @@ pub fn run() {
             get_diagnostic_log,
             clear_clipboard_history,
             list_clipboard_history,
+            sync_clipboard_history,
             select_skin,
             selected_skin,
             fetch_cloud_candidate

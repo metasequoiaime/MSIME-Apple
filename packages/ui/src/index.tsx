@@ -93,7 +93,7 @@ export interface SettingsClient {
   dictionary?: DictionaryClient;
   screen_keyboard?: { open(): Promise<void> };
   handwriting?: { open(): Promise<void> };
-  clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void>; list?(): Promise<string[]> };
+  clipboard?: { clear(): Promise<void>; copy?(text: string): Promise<void>; list?(): Promise<string[]>; sync?(): Promise<string[]> };
   about?: { openExternalUrl(url: string): Promise<void> };
   update?: { check(): Promise<{ found: boolean; version?: string; installer_name?: string; installer_sha256?: string; signed?: boolean }> };
   diagnostics?: { server(enabled: boolean): Promise<void>; tsf(enabled: boolean): Promise<void>; state?(scope: "server" | "tsf"): Promise<boolean> };
@@ -539,7 +539,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div> : <div className="section"><div className="section-title">用户词库</div><p className="notice">当前宿主未提供词库管理接口。</p></div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>{client.clipboard?.list && <div className="help-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}</div>
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={draft.clipboard_history ?? true} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>{client.clipboard?.sync && <button type="button" className="secondary" onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}{client.clipboard?.list && <div className="help-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}</div>
         <div className="section"><label className="section-header"><span className="section-title">云候选<small>输入组合期间向云端请求一个额外候选；请求不包含已上屏文本。</small></span><input aria-label="云候选" className="toggle" type="checkbox" checked={draft.cloud_candidates ?? true} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
