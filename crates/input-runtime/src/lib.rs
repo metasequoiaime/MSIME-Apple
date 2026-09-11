@@ -468,6 +468,42 @@ impl UnixSocketProvider {
         }
         Some(reply.items)
     }
+
+    /// Run one bounded voice capture/ASR request through the user-owned
+    /// service. The service owns PipeWire/ALSA access, credentials and the
+    /// recognizer; the input host only receives bounded UTF-8 text.
+    pub fn voice(&self, language: &str, generation: u64) -> Option<String> {
+        if language.len() > 64 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        let request = json!({
+            "version": 1,
+            "kind": "voice",
+            "query": {"language": language, "generation": generation}
+        })
+        .to_string();
+        if request.len() > 4096
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.text.is_empty() || reply.text.len() > 4096 {
+            return None;
+        }
+        Some(reply.text)
+    }
 }
 
 /// Bounded provider worker. Provider code runs off the host/IBus thread and

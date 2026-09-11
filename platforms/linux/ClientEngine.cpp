@@ -1,6 +1,7 @@
 #include "ClientEngine.h"
 #include "NavigationBindings.h"
 #include "WordCharacterBinding.h"
+#include "VoiceAction.h"
 #include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
@@ -42,6 +43,8 @@ struct State {
   bool focused = false;
   bool blocked = false;
   bool private_input = false;
+  guint preferences_timer = 0;
+  bool preferences_loading = false;
   bool input_enabled = true;
   bool chinese_punctuation = true;
   bool properties_registered = false;
@@ -72,6 +75,12 @@ struct State {
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   std::string clipboard_history_path, online_provider_socket;
+  std::string voice_provider_socket, voice_language = "zh-cn";
+  bool voice_enabled = true;
+  bool voice_active = false;
+  uint64_t voice_generation = 0;
+  std::shared_ptr<std::atomic_bool> alive =
+      std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
@@ -86,10 +95,15 @@ struct State {
   guint surrounding_cursor = 0;
   guint surrounding_anchor = 0;
   ~State() {
-    voice_worker.cancel();
+    alive->store(false);
     close();
   }
   void close() {
+    if (voice_active && session)
+      msime_client_string_free(msime_client_voice_cancel(session));
+    voice_active = false;
+    voice_generation = 0;
+    voice_worker.cancel();
     invalidate_providers();
     ++clipboard_generation;
     clipboard_loading = false;
@@ -128,6 +142,10 @@ struct State {
     }
     clipboard_history_path = options.value("clipboard_history_path", std::string{});
     online_provider_socket = options.value("online_provider_socket", std::string{});
+    voice_provider_socket = options.value("voice_provider_socket", std::string{});
+    const auto voice_preferences = preferences.value("voice_input", Json::object());
+    voice_enabled = voice_preferences.value("enabled", true);
+    voice_language = voice_preferences.value("language", std::string("zh-cn"));
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -557,6 +575,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_property_set_symbol(
       property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
+  auto voice = ibus_property_new(
+      "VoiceInput", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("语音输入"), "",
+      ibus_text_new_from_static_string("通过用户管理的 Linux 语音服务录音并识别"),
+      s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
+          !s.voice_provider_socket.empty(),
+      TRUE, s.voice_active ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
@@ -878,6 +903,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
+    ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, smart_repeat);
@@ -905,6 +931,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   } else {
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
+    ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
@@ -1098,6 +1125,101 @@ template <class F> void guarded(IBusEngine *engine, const char *operation, F act
     publish_mode(engine);
   }
 }
+struct VoiceResult {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t generation;
+  std::string text;
+};
+void voice_cancel(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.voice_active && s.session)
+    msime_client_string_free(msime_client_voice_cancel(s.session));
+  s.voice_active = false;
+  s.voice_generation = 0;
+  s.voice_worker.cancel();
+  publish_mode(engine);
+}
+void voice_start(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
+      !s.focused || s.blocked || !s.input_enabled || s.voice_active)
+    return;
+  const auto started = response(msime_client_voice_start(s.session));
+  const auto generation = started.get<uint64_t>();
+  s.voice_active = true;
+  s.voice_generation = generation;
+  const auto socket = s.voice_provider_socket;
+  const auto language = s.voice_language;
+  const auto alive = s.alive;
+  s.voice_worker.run(
+      [socket, language, generation](const std::atomic_bool &cancelled) {
+        if (cancelled.load())
+          return std::string{};
+        const auto query = Json{{"language", language}, {"generation", generation}}.dump();
+        auto *raw = msime_client_voice_provider_request(
+            reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+            reinterpret_cast<const uint8_t *>(socket.data()), socket.size());
+        std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+            raw, msime_client_string_free);
+        if (cancelled.load() || !raw)
+          return std::string{};
+        try {
+          const auto document = Json::parse(raw);
+          if (!document.value("ok", false))
+            return std::string{};
+          const auto value = document.at("value");
+          if (!value.is_object())
+            return std::string{};
+          return msime_voice_bound_result(value.value("text", std::string{}));
+        } catch (...) {
+          return std::string{};
+        }
+      },
+      [engine, alive, generation](std::string text) {
+        auto *result = new VoiceResult{engine, alive, generation, std::move(text)};
+        g_main_context_invoke(
+            nullptr,
+            +[](gpointer data) -> gboolean {
+              std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
+              if (!result->alive->load())
+                return G_SOURCE_REMOVE;
+              auto &s = state(result->engine);
+              if (!s.voice_active || s.voice_generation != result->generation ||
+                  !s.session || !s.focused || s.blocked || !s.input_enabled) {
+                return G_SOURCE_REMOVE;
+              }
+              try {
+                if (result->text.empty()) {
+                  msime_client_string_free(msime_client_voice_cancel(s.session));
+                  s.voice_active = false;
+                  s.voice_generation = 0;
+                  publish_mode(result->engine);
+                  return G_SOURCE_REMOVE;
+                }
+                auto applied = response(msime_client_voice_apply(
+                    s.session, result->generation,
+                    reinterpret_cast<const uint8_t *>(result->text.data()),
+                    result->text.size()));
+                s.voice_active = false;
+                s.voice_generation = 0;
+                if (applied.is_string())
+                  ibus_engine_commit_text(
+                      result->engine,
+                      ibus_text_new_from_string(applied.get<std::string>().c_str()));
+                publish_mode(result->engine);
+              } catch (...) {
+                s.voice_active = false;
+                s.voice_generation = 0;
+                msime_client_string_free(msime_client_voice_cancel(s.session));
+                publish_mode(result->engine);
+              }
+              return G_SOURCE_REMOVE;
+            },
+            result);
+      });
+  publish_mode(engine);
+}
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
@@ -1132,6 +1254,7 @@ void focus_in(IBusEngine *engine) {
 void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
+    voice_cancel(engine);
     s.focused = false;
     s.invalidate_providers();
     s.surrounding_text.clear();
@@ -1177,6 +1300,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (!name ||
        (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
        std::string(name) != "InputMode" &&
+       std::string(name) != "VoiceInput" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "SmartPunctuationRepeat" &&
@@ -1212,6 +1336,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, [&] {
+    if (property_name == "VoiceInput") {
+      if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
+          !s.input_enabled)
+        return;
+      if (value == PROP_STATE_CHECKED)
+        voice_start(engine);
+      else if (s.voice_active)
+        voice_cancel(engine);
+      return;
+    }
     if (property_name == "NumberRowSelection") {
       s.number_row_selection = value == PROP_STATE_CHECKED;
       s.number_row_override = s.number_row_selection;
@@ -1576,6 +1710,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 }
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
+    if (state(engine).voice_active)
+      voice_cancel(engine);
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
@@ -1871,6 +2007,75 @@ void page(IBusEngine *engine, uint32_t command) {
     if (s.session && s.focused && !s.blocked && s.input_enabled)
       apply(engine, msime_client_command(s.session, command));
   });
+}
+struct PreferencesRead {
+  std::string directory;
+  uint64_t session;
+};
+gboolean reload_preferences(gpointer data) {
+  auto engine = IBUS_ENGINE(data);
+  auto &s = state(engine);
+  if (!s.focused || !s.session || s.preferences_loading)
+    return G_SOURCE_CONTINUE;
+  const auto directory = configured.find("preferences_directory");
+  if (directory == configured.end() || !directory->is_string() ||
+      directory->get<std::string>().empty() ||
+      directory->get<std::string>().front() != '/')
+    return G_SOURCE_CONTINUE;
+  s.preferences_loading = true;
+  auto task = g_task_new(G_OBJECT(engine), nullptr,
+                         +[](GObject *source, GAsyncResult *result, gpointer) {
+                           auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+                           std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+                               static_cast<char *>(g_task_propagate_pointer(
+                                   G_TASK(result), nullptr)),
+                               msime_client_string_free);
+                           if (!self->state)
+                             return;
+                           auto &s = *self->state;
+                           s.preferences_loading = false;
+                           const auto *request = static_cast<const PreferencesRead *>(
+                               g_task_get_task_data(G_TASK(result)));
+                           if (!request || s.session != request->session || !s.focused ||
+                               s.blocked || !raw)
+                             return;
+                           try {
+                             auto snapshot = response(raw.release());
+                             if (snapshot.is_null())
+                               return;
+                             if (s.private_input)
+                               snapshot["preferences"]["learning"] = false;
+                             const auto encoded = snapshot.dump();
+                             auto updated = response(msime_client_update_preferences(
+                                 s.session,
+                                 reinterpret_cast<const uint8_t *>(encoded.data()),
+                                 encoded.size()));
+                             s.view = updated.at("view");
+                             render(IBUS_ENGINE(source), s.view);
+                             publish_mode(IBUS_ENGINE(source));
+                           } catch (...) {
+                             // Retry on the next tick without logging paths or input.
+                           }
+                         },
+                         nullptr);
+  g_task_set_task_data(
+      task,
+      new PreferencesRead{directory->get<std::string>(), s.session},
+      +[](gpointer value) { delete static_cast<PreferencesRead *>(value); });
+  g_task_run_in_thread(
+      task,
+      +[](GTask *task, gpointer, gpointer data, GCancellable *) {
+        const auto &path = static_cast<PreferencesRead *>(data)->directory;
+        g_task_return_pointer(
+            task,
+            msime_client_try_load_preferences(
+                reinterpret_cast<const uint8_t *>(path.data()), path.size()),
+            +[](gpointer value) {
+              msime_client_string_free(static_cast<char *>(value));
+            });
+      });
+  g_object_unref(task);
+  return G_SOURCE_CONTINUE;
 }
 void register_properties(IBusEngine *engine) {
   publish_mode(engine, true);
