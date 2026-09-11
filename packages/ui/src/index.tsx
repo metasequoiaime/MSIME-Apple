@@ -26,6 +26,12 @@ const pages = [
   { id: "feedback", title: "反馈", icon: new URL("./assets/feedback.svg", import.meta.url).href },
 ] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
+const windowIcons = {
+  minimize: new URL("./assets/minimize.svg", import.meta.url).href,
+  maximize: new URL("./assets/maximize.svg", import.meta.url).href,
+  restore: new URL("./assets/restore.svg", import.meta.url).href,
+  close: new URL("./assets/close.svg", import.meta.url).href,
+};
 const appVersion = "0.1.0";
 const releasesPageUrl = "https://github.com/metasequoiaime/MSIME-Windows/releases";
 const updateManifestUrl = "https://msime.app/update.json";
@@ -405,9 +411,15 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <span className="window-title">水杉 IME</span>{client.windowControl && <span className="window-controls"
         onPointerDown={event => event.stopPropagation()}
         onDoubleClick={event => event.stopPropagation()}>
-        <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>−</button>
-        <button type="button" aria-label={windowMaximized ? "还原" : "最大化"} onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}>{windowMaximized ? "❐" : "□"}</button>
-        <button type="button" className="window-close" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
+        <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>
+          <img className="window-icon" src={windowIcons.minimize} alt="" draggable={false} />
+        </button>
+        <button type="button" aria-label={windowMaximized ? "还原" : "最大化"} onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}>
+          <img className="window-icon" src={windowMaximized ? windowIcons.restore : windowIcons.maximize} alt="" draggable={false} />
+        </button>
+        <button type="button" className="window-close" aria-label="关闭" onClick={() => void client.windowControl!("close")}>
+          <img className="window-icon" src={windowIcons.close} alt="" draggable={false} />
+        </button>
       </span>}
     </header>}
     <div className="settings-body">
