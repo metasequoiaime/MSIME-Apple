@@ -476,7 +476,7 @@ fn is_allowed_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_versions, is_allowed_external_url};
+    use super::{compare_versions, is_allowed_external_url, is_valid_version};
 
     #[test]
     fn compares_release_versions_without_padding_bugs() {
@@ -486,6 +486,13 @@ mod tests {
         );
         assert_eq!(compare_versions("1.2", "1.2.0"), std::cmp::Ordering::Equal);
         assert_eq!(compare_versions("0.9", "1.0"), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn rejects_malformed_release_versions() {
+        assert!(is_valid_version("v1.2.3"));
+        assert!(!is_valid_version("latest"));
+        assert!(!is_valid_version("1..2"));
     }
 
     #[test]
@@ -554,6 +561,11 @@ fn check_for_updates() -> Result<bool, HostActionError> {
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
+    if !is_valid_version(version) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     if compare_versions(version, env!("CARGO_PKG_VERSION")) == std::cmp::Ordering::Greater {
         let url = manifest
             .get("releaseUrl")
@@ -588,6 +600,14 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
         })
         .find_map(|(left, right)| (left != right).then_some(left.cmp(&right)))
         .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn is_valid_version(value: &str) -> bool {
+    let value = value.strip_prefix('v').unwrap_or(value);
+    !value.is_empty()
+        && value
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 #[tauri::command]
