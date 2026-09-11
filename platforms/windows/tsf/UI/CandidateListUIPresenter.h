@@ -91,6 +91,10 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
 
     DWORD_PTR _GetSelectedCandidateString(_Outptr_result_maybenull_ const WCHAR **ppwchCandidateString);
     UINT _GetSelectedCandidateIndex() const { return _candidateState.GetSelection(); }
+    UINT _GetSelectedEngineIndex() const {
+        const UINT index = _candidateState.GetSelection();
+        return index < _engineIndices.size() ? _engineIndices[index] : index;
+    }
     BOOL _SetSelectionInPage(int nPos)
     {
         return _candidateState.SetSelectionInPage(nPos);
@@ -145,6 +149,7 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
 
   private:
     CCandidateSessionState _candidateState;
+    std::vector<UINT> _engineIndices;
     CCandidateRange *_pIndexRange;
     KEYSTROKE_CATEGORY _Category;
     DWORD _updatedFlags;
