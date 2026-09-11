@@ -562,6 +562,7 @@ fn check_for_updates_blocking() -> Result<bool, HostActionError> {
             code: "unavailable",
         });
     }
+    validate_update_metadata(&manifest)?;
     if compare_versions(version, env!("CARGO_PKG_VERSION")) == std::cmp::Ordering::Greater {
         let url = manifest
             .get("releaseUrl")
@@ -578,6 +579,42 @@ fn check_for_updates_blocking() -> Result<bool, HostActionError> {
         return Ok(true);
     }
     Ok(false)
+}
+
+fn validate_update_metadata(manifest: &serde_json::Value) -> Result<(), HostActionError> {
+    if let Some(name) = manifest.get("installerName") {
+        let valid = name.as_str().is_some_and(|value| {
+            value.len() <= 128
+                && value.starts_with("MetasequoiaIME_Setup_v")
+                && value.ends_with(".exe")
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        });
+        if !valid {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
+    }
+    if let Some(digest) = manifest.get("installerSha256") {
+        let valid = digest.as_str().is_some_and(|value| {
+            value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        if !valid {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
+    }
+    if let Some(signed) = manifest.get("signed") {
+        if !signed.is_boolean() {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
