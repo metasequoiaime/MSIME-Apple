@@ -2,7 +2,7 @@
 <component>
   <name>app.msime.client.preview</name>
   <description>MSIME Client Linux IBus preview</description>
-  <exec>/usr/bin/msime-client-ibus</exec>
+  <exec>/usr/bin/msime-client-ibus-launcher</exec>
   <version>0.1.0</version>
   <author>MSIME contributors</author>
   <license>GPL-3.0-only</license>
