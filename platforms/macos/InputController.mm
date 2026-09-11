@@ -1,3 +1,4 @@
+#import "ShuangpinKeymapPanel.h"
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
@@ -26,6 +27,7 @@
     id _activeClient;
     NSDictionary *_view;
     NSPanel *_panel;
+    MetasequoiaShuangpinKeymapPanel *_keymapPanel;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
@@ -94,6 +96,15 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     [[MSIMEPreferencesWindowController sharedController] showAndActivate];
 }
 
+- (void)showShuangpinKeymap:(NSMenuItem *)sender {
+    if (!_keymapPanel) _keymapPanel = [MetasequoiaShuangpinKeymapPanel new];
+    [_keymapPanel setProfileName:sender.representedObject];
+    [_keymapPanel updateHighlightedKey:@""];
+    [_keymapPanel center];
+    [_keymapPanel orderFrontRegardless];
+}
+- (void)hideShuangpinKeymap:(id)sender { (void)sender; [_keymapPanel orderOut:nil]; }
+
 - (NSMenu *)menu {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
@@ -115,6 +126,23 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
                                                  keyEquivalent:@""];
     preview.target = self;
     [menu addItem:preview];
+    NSMenuItem *keymap = [[NSMenuItem alloc] initWithTitle:@"双拼键位参考" action:nil keyEquivalent:@""];
+    NSMenu *profiles = [[NSMenu alloc] initWithTitle:keymap.title];
+    profiles.autoenablesItems = NO;
+    NSArray *names = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
+    for (NSUInteger index = 0; index < names.count; ++index) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:names[index] action:@selector(showShuangpinKeymap:) keyEquivalent:@""];
+        item.representedObject = identifiers[index];
+        item.target = self;
+        [profiles addItem:item];
+    }
+    [profiles addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *hide = [[NSMenuItem alloc] initWithTitle:@"隐藏键位参考" action:@selector(hideShuangpinKeymap:) keyEquivalent:@""];
+    hide.target = self;
+    [profiles addItem:hide];
+    keymap.submenu = profiles;
+    [menu addItem:keymap];
     return menu;
 }
 
@@ -209,6 +237,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 }
 
 - (void)deactivateServer:(id)sender {
+    [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];

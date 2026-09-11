@@ -210,7 +210,7 @@ int main() {
         assert([controller handleEvent:inputModeToggle client:client]);
         assert([[controller valueForKey:@"englishMode"] boolValue] && session.englishMode);
         NSMenu *menu = [controller menu];
-        assert(menu.numberOfItems == 4);
+        assert(menu.numberOfItems == 5);
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
         NSMenuItem *englishItem = [menu itemAtIndex:1];
         assert([chineseItem.title isEqualToString:@"中文输入"] && chineseItem.state == NSControlStateValueOff);
@@ -222,6 +222,14 @@ int main() {
         assert(![[controller valueForKey:@"englishMode"] boolValue] && !session.englishMode);
         assert([menu itemAtIndex:2].isSeparatorItem);
         assert([[menu itemAtIndex:3].title isEqualToString:@"候选预览…"]);
+        NSMenu *profiles = [menu itemAtIndex:4].submenu;
+        assert(profiles.numberOfItems == 6);
+        assert([[profiles itemAtIndex:3].representedObject isEqual:@"microsoft"]);
+        [controller showShuangpinKeymap:[profiles itemAtIndex:3]];
+        NSPanel *keymap = [controller valueForKey:@"keymapPanel"];
+        assert(keymap.isVisible && keymap.contentView != nil);
+        [controller hideShuangpinKeymap:nil];
+        assert(!keymap.isVisible);
         menu = [controller menu];
         assert([menu itemAtIndex:0].state == NSControlStateValueOn && [menu itemAtIndex:1].state == NSControlStateValueOff);
         [controller setValue:@NO forKey:@"fullWidthInput"];
