@@ -382,6 +382,16 @@ fn clear_clipboard_history(
 }
 
 #[tauri::command]
+fn list_clipboard_history(
+    state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<Vec<String>, HostActionError> {
+    let history = state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    Ok(history.entries().to_vec())
+}
+
+#[tauri::command]
 fn set_diagnostic_log(
     state: tauri::State<'_, DiagnosticState>,
     scope: String,
@@ -1042,6 +1052,7 @@ pub fn run() {
             set_diagnostic_log,
             get_diagnostic_log,
             clear_clipboard_history,
+            list_clipboard_history,
             select_skin,
             selected_skin,
             fetch_cloud_candidate
