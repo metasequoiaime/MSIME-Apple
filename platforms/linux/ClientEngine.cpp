@@ -176,18 +176,18 @@ bool apply(IBusEngine *engine, char *raw) {
   render(engine, state(engine).view);
   return result.at("handled").get<bool>();
 }
-template <class F> void guarded(IBusEngine *engine, F action) noexcept {
+template <class F> void guarded(IBusEngine *engine, const char *operation, F action) noexcept {
   try {
     action();
   } catch (...) {
     // Never log the raw error or response: either can include input or paths.
-    g_warning("MSIME preview host operation failed");
+    g_warning("MSIME preview host operation failed: %s", operation);
     state(engine).close();
     clear(engine);
   }
 }
 void focus_in(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
     s.focused = true;
     s.open();
@@ -201,7 +201,7 @@ void focus_in(IBusEngine *engine) {
   });
 }
 void focus_out(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     s.focused = false;
     if (s.session)
@@ -210,14 +210,14 @@ void focus_out(IBusEngine *engine) {
   });
 }
 void reset(IBusEngine *engine) {
-  guarded(engine, [&] {
+  guarded(engine, "reset", [&] {
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
   });
 }
 void content_type(IBusEngine *engine, guint purpose, guint hints) {
-  guarded(engine, [&] {
+  guarded(engine, "content_type", [&] {
     auto &s = state(engine);
     bool blocked = purpose == IBUS_INPUT_PURPOSE_PASSWORD ||
                    purpose == IBUS_INPUT_PURPOSE_PIN ||
@@ -248,7 +248,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   if (!s.focused || s.blocked || (flags & IBUS_RELEASE_MASK) || modifier(key))
     return FALSE;
   bool handled = false;
-  guarded(engine, [&] {
+  guarded(engine, "process_key", [&] {
     s.open();
     if ((flags & IBUS_CONTROL_MASK) && key == IBUS_space) {
       s.input_enabled = !s.input_enabled;
@@ -350,7 +350,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
                        guint flags) {
   if (button != 1 || flags || !state(engine).focused || state(engine).blocked)
     return;
-  guarded(engine, [&] {
+  guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
     if (!s.session || index >= s.view.at("candidates").size())
       return;
@@ -361,7 +361,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
   });
 }
 void page(IBusEngine *engine, uint32_t command) {
-  guarded(engine, [&] {
+  guarded(engine, "page", [&] {
     auto &s = state(engine);
     if (s.session && s.focused && !s.blocked)
       apply(engine, msime_client_command(s.session, command));
@@ -375,7 +375,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "ChinesePunctuation") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
-  guarded(engine, [&] {
+  guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
     if (std::string(name) == "ChinesePunctuation") {
       s.chinese_punctuation = value == PROP_STATE_CHECKED;
