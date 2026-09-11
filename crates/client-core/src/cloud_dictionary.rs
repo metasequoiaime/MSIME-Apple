@@ -29,6 +29,39 @@ pub struct DictionaryEntry {
 
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 
+pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
+    if offset > 1_000_000
+        || search.len() > 1024
+        || search.contains('\0')
+        || search.chars().any(char::is_control)
+    {
+        return None;
+    }
+    let kind = match kind {
+        DictionaryKind::Pinyin => "pinyin",
+        DictionaryKind::Wubi => "wubi",
+        DictionaryKind::Quick => "quick",
+        DictionaryKind::English => "english",
+    };
+    Some(format!(
+        "/v1/users/me/dictionaries/{kind}?q={}&offset={offset}&limit=100",
+        encode(search)
+    ))
+}
+
+fn encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                format!("{}", b as char)
+            } else {
+                format!("%{:02X}", b)
+            }
+        })
+        .collect()
+}
+
 pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
     if value.code.is_empty()
         || value.code.len() > 256
@@ -92,5 +125,14 @@ mod tests {
         assert!(validate_import("你好\tnihao\n").is_ok());
         assert!(validate_import("bad\0").is_err());
         assert!(validate_import(&"x".repeat(MAX_IMPORT_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn builds_credential_free_dictionary_path() {
+        assert_eq!(
+            dictionary_path(DictionaryKind::Pinyin, 2, "ni hao").unwrap(),
+            "/v1/users/me/dictionaries/pinyin?q=ni%20hao&offset=2&limit=100"
+        );
+        assert!(dictionary_path(DictionaryKind::Wubi, 0, "bad\n").is_none());
     }
 }
