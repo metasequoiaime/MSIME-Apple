@@ -124,3 +124,8 @@ target_include_directories(candidate-selection-state-test PRIVATE . ../../vendor
 target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-selection-state-test PRIVATE apple-client)
 add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
+
+add_executable(input-menu-test tests/InputMenuTests.mm)
+target_compile_options(input-menu-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(input-menu-test PRIVATE "-framework AppKit")
+add_test(NAME input-menu COMMAND input-menu-test)
