@@ -543,6 +543,7 @@ void CCompositionProcessorEngine::GetCandidateList(_Inout_ CMetasequoiaImeArray<
                     item->_FindKeyCode.Set(L"", 0);
                     item->_EngineGeneration = result.view.generation;
                     item->_EngineIndex = static_cast<uint32_t>(index);
+                    item->_EngineHighlighted = candidate.highlighted;
                 }
             }
             return;

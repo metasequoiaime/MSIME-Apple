@@ -731,6 +731,14 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             clearListElapsedMs = clearListTimer.ElapsedMs();
             PerfTimer setTextTimer;
             _pCandidateListUIPresenter->_SetText(&candidateList, TRUE);
+            for (UINT i = 0; i < candidateList.Count(); ++i)
+            {
+                if (const auto *item = candidateList.GetAt(i); item && item->_EngineHighlighted)
+                {
+                    _pCandidateListUIPresenter->_SetSelection(static_cast<int>(i));
+                    break;
+                }
+            }
             setTextElapsedMs = setTextTimer.ElapsedMs();
         }
     }

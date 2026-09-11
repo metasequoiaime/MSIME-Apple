@@ -8,6 +8,7 @@ namespace msime::tsf {
 struct EngineCandidate {
   std::string id;
   std::string text;
+  bool highlighted = false;
 };
 struct EngineView {
   std::string preedit;
