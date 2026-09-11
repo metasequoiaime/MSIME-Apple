@@ -143,4 +143,37 @@ mod tests {
             "{catalog:?}"
         );
     }
+
+    #[test]
+    fn reports_invalid_ids_and_oversized_manifests_without_loading_them() {
+        let dir = tempdir().unwrap();
+        let invalid = dir.path().join("Bad");
+        fs::create_dir(&invalid).unwrap();
+        fs::write(invalid.join("skin.toml"), "schema_version = 1").unwrap();
+        let huge = dir.path().join("huge");
+        fs::create_dir(&huge).unwrap();
+        fs::write(huge.join("skin.toml"), vec![b'x'; 65_537]).unwrap();
+        let catalog = scan(dir.path());
+        assert!(catalog.packages.is_empty());
+        assert!(catalog
+            .issues
+            .iter()
+            .any(|issue| issue.folder == "huge" && issue.reason.contains("too large")));
+    }
+
+    #[test]
+    fn rejects_manifest_id_mismatch_and_unsupported_base() {
+        let dir = tempdir().unwrap();
+        for (folder, body) in [
+            ("mismatch", "schema_version = 1\nid = 'other'\nname = 'X'\nversion = '1'\nbase = 'fluent'"),
+            ("unsupported", "schema_version = 1\nid = 'unsupported'\nname = 'X'\nversion = '1'\nbase = 'unknown'"),
+        ] {
+            let path = dir.path().join(folder);
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("skin.toml"), body).unwrap();
+        }
+        let catalog = scan(dir.path());
+        assert!(catalog.packages.is_empty());
+        assert_eq!(catalog.issues.len(), 2);
+    }
 }
