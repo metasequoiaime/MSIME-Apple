@@ -3,6 +3,25 @@
 
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DictionaryKind {
+        Pinyin,
+        Wubi,
+        QuickPhrase,
+        English,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryEntry {
+        kind: DictionaryKind,
+        key: String,
+        value: String,
+        weight: i64,
+    }
+    #[derive(Debug)]
+    struct DictionaryPage {
+        entries: Vec<DictionaryEntry>,
+        has_more: bool,
+    }
     #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
@@ -54,6 +73,17 @@ mod ffi {
         include!("bridge.h");
         type EngineSession;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
+        fn dictionary_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_edit(
+            options: &EngineOptions,
+            previous: &[DictionaryEntry],
+            replacement: &[DictionaryEntry],
+            request_id: &str,
+        ) -> Result<()>;
         fn prepare_options(
             resources: &str,
             user_data: &str,
@@ -85,7 +115,33 @@ mod ffi {
     }
 }
 
+pub use ffi::{DictionaryEntry, DictionaryKind, DictionaryPage};
 pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
+
+/// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
+pub fn dictionary_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Atomically add, replace, or remove one personal-dictionary entry.
+/// The caller must quiesce sessions sharing these paths before editing.
+pub fn dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&DictionaryEntry>,
+    replacement: Option<&DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit(
+        options,
+        previous.map_or(&[], std::slice::from_ref),
+        replacement.map_or(&[], std::slice::from_ref),
+        request_id,
+    )
+}
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
 /// Caller verifies resources first and quiesces all users of these data paths.
@@ -175,6 +231,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);

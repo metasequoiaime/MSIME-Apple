@@ -7,6 +7,8 @@ namespace msime {
 struct EngineOptions;
 struct EngineSnapshot;
 struct EngineResult;
+struct DictionaryEntry;
+struct DictionaryPage;
 class EngineSession {
 public:
     explicit EngineSession(const EngineOptions& options);
@@ -27,4 +29,7 @@ private:
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
+DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
+void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
+                     rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
 }
