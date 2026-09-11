@@ -16,42 +16,6 @@
 
 ## 当前证据
 
-### Linux 本地模式候选提示
-
-IBus 候选辅助文本在页码后显示共享 View.local_mode 对应的本地模式标签，普通/未知模式不附加标签。无需新的 panel 属性协议，算法和入口判断仍由 Engine 负责。新增 D-Bus 辅助文本观察覆盖 Unicode 标签及 reset 后清除。
-
-验证期间复查无改动基线：完整 IBus engine_smoke 实测约 54 秒通过，包含多组 2.2 秒设置轮询等待。此前以 45 秒超时推断菜单或标点代码阻塞的结论不成立；没有证据证明那两次超时由功能改动导致。
-
-### Linux IBus 安装组件
-
-为 IBus 宿主补齐 CMake 安装产物：安装 `msime-client-ibus`、个人词典入口和标准 `msime-client-preview.xml` component。component 指向发行版配置文件路径，由安装器生成资源、用户数据和缓存路径；构建系统不自动切换用户输入法，也不携带开发机绝对路径。
-
-Debian bookworm arm64 staging 验证通过：CMake 构建、`cmake --install`、两个可执行文件权限、component 目录位置及 XML 中 bindir/sysconfdir 路径均检查通过。仍需发行版打包、配置生成、GTK/Qt 和真实 IBus panel 验收；CI 保持禁用。
-
-上述 staging 检查已纳入 `platforms/linux/tests/in-container.sh`，后续 Linux 容器回归会同时验证安装产物不会回退。
-
-### Linux 个人词典原生入口
-
-将已有共享词典请求契约接入 Linux 原生 `msime-client-dictionary`。工具只从标准输入读取最多 65536 字节 JSON，调用 `msime_client_dictionary` 后输出规范化 JSON；不把词条放在命令行、日志或错误文本中。共享访问锁、分页、请求幂等、乐观替换和 Engine 原子写入仍由共享 Host/Engine 负责，IBus 输入线程不执行维护操作。GTK/Qt 设置页可复用相同 C ABI。
-
-容器回归覆盖真实共享库的会话占用时写入拒绝、四类词条增删改、重复请求不重复、分页、过期替换拒绝和输入边界（空、超 65536、损坏 JSON）。Debian bookworm arm64 的 Linux 原生 CMake 构建及词典 CLI 回归通过。未完成 GTK/Qt 图形设置页、安装打包和真实桌面验收；CI 保持禁用。
-
-### Linux 面板输入模式切换
-
-将 Windows 输入启停能力适配为 IBus `InputMode` 标准面板开关。启用时使用当前方案，关闭时直接输入，不改写共享方案配置；状态归当前 IBus 实例。切换前由共享 Engine 完成高亮组合，关闭期间按键与旧候选操作不再送入输入运行时。重获焦点保留模式，敏感字段及失焦时禁用开关；未知属性及非法状态拒绝。
-
-新增真实 D-Bus 回归检查属性注册与更新、高亮组合完成、重复请求不重复上屏、直接输入透传、失焦拒绝、重获焦点保持、非法请求拒绝、敏感字段禁用和恢复。改动前宿主运行新测试在属性注册断言失败。仍需实际 panel 呈现、GTK/Qt、X11/Wayland、安装及全部功能验收；不据此宣称完整 Linux 产品迁移完成，CI 保持禁用。
-
-Debian bookworm arm64 / IBus 1.5.27 完整容器检查通过：54 项共享 Rust 测试、C++/Rust 宿主构建、IBus D-Bus 和 daemon/factory 输入上下文测试通过。
-
-### Linux 以词定字接入
-
-按固定 Windows develop `0eaa35eed1dd699b28883068f2909afe3a5902da` 的共享配置接入两组以词定字键，启动和有效设置发布同次更新导航及首末字绑定。宿主使用高亮候选代次与全局索引调用 Engine；不复制汉字抽取算法。Linux 无 TSF 标点委托，候选不含汉字时改走共享组合完成及标点路径。冲突配置拒绝后保留原绑定，Shift 符号和关闭功能时保持标点输入。
-
-新增 IBus D-Bus 真实词库回归覆盖两组键、组合中的配置更新、第二页末字、冲突设置拒绝、无汉字回退、关闭恢复、无需设置目录的启动配置、Shift 符号及补充平面汉字。新增测试链接改动前宿主在首字断言失败。原生桌面、安装及全部 Windows 功能验收仍未完成；继续使用独立 worktree，CI 保持禁用。
-
-更新到最新 develop 后，Debian bookworm arm64 / IBus 1.5.27 容器完整检查通过：50 项共享 Rust 测试、C++/Rust 宿主构建、IBus D-Bus 和 daemon/factory 输入上下文测试通过。
-
 ### Linux 导航设置接入
 
 将固定 Windows develop 提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的六组共享导航设置接入 IBus 启动和实时配置发布。按当前布局字符与 IBus 导航键映射，不依赖 Windows 宿主；候选移动仍由共享运行时执行。Shift+Tab 反向翻页，小键盘导航等价处理，Shift 符号及 Unicode `U+` 保持输入。关闭的标点绑定交回 Engine；关闭的 Tab/Page/上下键先完成组合再交还编辑器，避免焦点移动丢失输入。Panel 操作不受键盘绑定限制。按用户要求后续始终使用独立 worktree。
@@ -66,7 +30,7 @@ Debian bookworm arm64、IBus 1.5.27 容器内真实共享 Rust/C++ 库、共享 
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-后续实施优先级由用户明确为 **Windows → macOS → iOS → Linux**。已合并的 Android/Linux 增量保留，Linux 自动重读已接入预览宿主，后续仍暂停新增产品面；接下来先推进 Windows 的共享运行时接入，保留 TSF DLL / Server 边界，再按上述顺序推进其他端，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
+用户最新要求以 MSIME-Windows 完整功能为基线迁移 Linux，并适配 Linux 平台特性；当前优先推进 Linux，保留已合并的平台成果。上游实际默认分支 develop 固定提交为 `0eaa35eed1dd699b28883068f2909afe3a5902da`。下方各条记录是历史成果，不代表后续排期；完整迁移包含共享功能、Linux 系统入口及原生产品验收，不能以容器测试代替桌面验收。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
@@ -676,8 +640,8 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 
 37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。
 
-### Linux IBus 配置热重载（增量）
+### Windows 实用功能本地模式开关
 
-Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
+在独立 worktree 按同一 Windows 固定提交的 tools-settings.html/config.toml 新增实用功能分类和 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启，来源图标许可记于 UI UPSTREAM。设置经共享配置与 CXX 传至 Engine LocalModeOptions；活动组合中不立即切换，结束后重建生效。旧配置缺省读取不重写，各开关独立保存，算法和入口判断继续由 Engine 负责。
 
-使用固定 Debian bookworm arm64 容器、IBus 1.5.27 和已校验 Release 词库完成真实验收：Rust workspace 测试、CMake/Ninja 构建、独立 Engine D-Bus smoke、IBus daemon/factory 启动以及 Python InputContext 合成输入全部通过。合成 fixture 通过显式环境标记隔离属性信号；生产宿主仍注册并更新 IBus 属性。GTK/Qt 真编辑器、X11/Wayland 选区定位、安装打包和其他发行版仍待验证。
+39 项 Rust 测试、17 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉构建及导入检查通过。真实固定词库回归覆盖八种模式开启进入、关闭不进入、相邻模式仍可进入；宿主测试覆盖组合期间延迟关闭。仅完成模式配置与入口控制，不代表快捷短语增删改查/导入导出、剪贴板管理或整页视觉复刻完成；未执行 Windows 原生 TSF/安装/逐像素验收，CI 保持禁用。
