@@ -104,6 +104,8 @@ enum MsimeCommand {
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
+char *msime_client_pin_candidate(uint64_t session, uint64_t generation, size_t index);
+char *msime_client_remove_candidate(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
  * A candidate without Han text is unhandled and keeps composition; no fallback
