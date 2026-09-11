@@ -14,6 +14,7 @@ let package = Package(
         "BackendAccountClient.swift",
         "BackendAiClient.swift",
         "BackendAccountSession.swift",
+        "BackendChatClient.swift",
         "BackendCandidateClient.swift",
         "BackendClipboardClient.swift",
         "BackendCommunityResourceClient.swift",
