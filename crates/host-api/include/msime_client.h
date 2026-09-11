@@ -57,6 +57,7 @@ char *msime_client_focus(uint64_t session, bool focused);
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
+char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 // Explicit native punctuation: finish the highlighted composition, then translate.
 // Invalid non-punctuation bytes fail without modifying the session.
