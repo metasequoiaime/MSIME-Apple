@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { CloudClipboardPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
+import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -495,6 +495,29 @@ test("cloud clipboard panel lists, uploads, deletes and submits entries", async 
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", text: "新的云端内容" }));
   fireEvent.click(screen.getByRole("button", { name: "删除 云端内容" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "delete", id: "entry-1" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  panel.unmount();
+});
+
+test("cloud dictionary panel supports paging and CRUD actions", async () => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {
+    if (action.operation === "list") return { entries: [{ id: "a".repeat(64), kind: "pinyin", code: "ni", word: "你", weight: 100, revision: 2 }], has_more: true, offset: action.offset ?? 0 };
+    if (action.operation === "export") return { text: "ni\t你\n" };
+    return {};
+  });
+  const panel = render(<CloudDictionaryPanel client={{ close, request }} />);
+  expect(await screen.findByText("你")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "list", kind: "pinyin", offset: 100, search: "" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加词条" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "编码" }), { target: { value: "hao" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "词条" }), { target: { value: "好" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", kind: "pinyin", code: "hao", word: "好", weight: 100000 }));
+  fireEvent.click(screen.getByRole("button", { name: "导出" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "standard" }));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
