@@ -151,6 +151,18 @@ pub struct OnlineQuery {
     pub session_id: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationQuery {
+    pub generation: u64,
+    pub candidates: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationResult {
+    pub text: String,
+    pub translation: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineCandidate {
     pub query: OnlineQuery,
@@ -227,6 +239,42 @@ impl UnixSocketProvider {
             return None;
         }
         Some((reply.text, reply.source))
+    }
+
+    pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
+        if query.candidates.is_empty()
+            || query.candidates.len() > 9
+            || query.candidates.iter().any(|text| text.len() > 4096)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
+        if request.len() > 16384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            translations: Vec<TranslationResult>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.translations.len() > 9
+            || reply
+                .translations
+                .iter()
+                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+        {
+            return None;
+        }
+        Some(reply.translations)
     }
 }
 
