@@ -6,6 +6,36 @@ const MAX_INPUT: usize = 256;
 const MAX_RESPONSE: usize = 256 * 1024;
 const MAX_CANDIDATE: usize = 512;
 
+/// Host-side orchestration state for debounced cloud requests. Network I/O stays injected.
+#[derive(Debug, Default)]
+pub struct CloudCandidateState {
+    generation: u64,
+    input: String,
+}
+
+impl CloudCandidateState {
+    pub fn update(&mut self, enabled: bool, input: &str) -> Option<(u64, String)> {
+        self.generation = self.generation.wrapping_add(1);
+        self.input.clear();
+        if !enabled
+            || input.is_empty()
+            || input.len() > MAX_INPUT
+            || input.chars().any(|c| c.is_control())
+        {
+            return None;
+        }
+        self.input.push_str(input);
+        Some((self.generation, self.input.clone()))
+    }
+
+    pub fn apply(&self, generation: u64, candidate: &str) -> Option<String> {
+        if generation != self.generation || self.input.is_empty() || candidate.is_empty() {
+            return None;
+        }
+        Some(candidate.to_owned())
+    }
+}
+
 pub fn build_google_url(input: &str, japanese: bool) -> Option<String> {
     if input.is_empty() || input.len() > MAX_INPUT || input.chars().any(|c| c.is_control()) {
         return None;
@@ -71,5 +101,14 @@ mod tests {
     fn rejects_unsafe_input_and_response() {
         assert!(build_google_url("bad\n", false).is_none());
         assert!(parse_google_response(br#"["ERROR",[]]"#).is_none());
+    }
+
+    #[test]
+    fn stale_requests_cannot_replace_newer_input() {
+        let mut state = CloudCandidateState::default();
+        let (old, _) = state.update(true, "ni").unwrap();
+        let (new, _) = state.update(true, "ni hao").unwrap();
+        assert!(state.apply(old, "你好").is_none());
+        assert_eq!(state.apply(new, "你好"), Some("你好".into()));
     }
 }
