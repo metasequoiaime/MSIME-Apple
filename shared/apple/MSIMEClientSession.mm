@@ -55,11 +55,6 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     return decode(msime_client_load_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
 }
-- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
-    if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
-}
-
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     if (![NSThread isMainThread]) { setError(error, @"输入会话必须在主线程创建"); return nil; }
     self = [super init];
