@@ -1,12 +1,29 @@
 #import "VoiceSettings.h"
-#import <Security/Security.h>
-static NSString *const VoiceService = @"com.houko.inputmethod.MetasequoiaIME.voice";
-static NSError *VoiceError(NSString *m) { return [NSError errorWithDomain:VoiceService code:1 userInfo:@{NSLocalizedDescriptionKey:m}]; }
-static BOOL SecureEndpoint(NSString *s) { NSURLComponents *u=[NSURLComponents componentsWithString:s]; return [u.scheme.lowercaseString isEqualToString:@"https"] && u.host.length>0 && !u.user && !u.password && !u.fragment; }
-static NSString *StringValue(NSDictionary *d, NSString *k, NSString *fallback) { id v=d[k]; return [v isKindOfClass:NSString.class] ? v : fallback; }
-static NSString *ReadToken(NSString *kind, NSString *endpoint) { NSString *account=[NSString stringWithFormat:@"%@|%@",kind,endpoint]; NSDictionary *q=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:VoiceService,(__bridge id)kSecAttrAccount:account,(__bridge id)kSecReturnData:@YES}; CFTypeRef r=NULL; if(SecItemCopyMatching((__bridge CFDictionaryRef)q,&r)!=errSecSuccess)return @""; return [[NSString alloc] initWithData:CFBridgingRelease(r) encoding:NSUTF8StringEncoding] ?: @""; }
-@implementation MetasequoiaVoiceSettings
-+ (instancetype)loadSettings { NSDictionary *d=[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"voiceInput"] ?: @{}; MetasequoiaVoiceSettings *s=[self new]; s.provider=StringValue(d,@"provider",@"cloud"); s.endpoint=StringValue(d,@"endpoint",@"https://api.siliconflow.cn/v1/audio/transcriptions"); s.model=StringValue(d,@"model",@"FunAudioLLM/SenseVoiceSmall"); s.modelPath=StringValue(d,@"modelPath",@""); s.polishEndpoint=StringValue(d,@"polishEndpoint",@"https://api.siliconflow.cn/v1/chat/completions"); s.polishModel=StringValue(d,@"polishModel",@"Qwen/Qwen3-8B"); s.polishEnabled=[d[@"polishEnabled"] boolValue]; s.token=ReadToken(@"asr",s.endpoint); s.polishToken=ReadToken(@"polish",s.polishEndpoint); return s; }
-- (BOOL)validate:(NSError **)error { NSString *m=nil; if([self.provider isEqualToString:@"local"]){BOOL dir=NO;if(![[NSFileManager defaultManager] fileExistsAtPath:self.modelPath isDirectory:&dir]||dir)m=@"请选择已下载的 Whisper 模型文件。";} else if(![self.provider isEqualToString:@"cloud"]||!SecureEndpoint(self.endpoint)||!self.model.length||!self.token.length)m=@"请填写 HTTPS 识别地址、模型名称和 API 密钥。"; if(self.polishEnabled&&(!SecureEndpoint(self.polishEndpoint)||!self.polishModel.length||!self.polishToken.length))m=@"启用文本整理需要有效的 HTTPS 服务配置。"; if(m){if(error)*error=VoiceError(m);return NO;} return YES; }
-- (BOOL)save:(NSError **)error { if(![self validate:error])return NO; [[NSUserDefaults standardUserDefaults] setObject:@{@"provider":self.provider, @"endpoint":self.endpoint, @"model":self.model, @"modelPath":self.modelPath, @"polishEnabled":@(self.polishEnabled), @"polishEndpoint":self.polishEndpoint, @"polishModel":self.polishModel} forKey:@"voiceInput"]; return YES; }
+#import "VoiceInputService.h"
+NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClientVoiceSettingsDidChange";
+@implementation MSIMEVoiceSettings {
+    NSPopUpButton *_language;
+    NSTextField *_status;
+    MSIMEVoiceInputService *_service;
+}
++ (instancetype)sharedSettings { static MSIMEVoiceSettings *value; static dispatch_once_t once; dispatch_once(&once, ^{ value = [[self alloc] initWithWindow:nil]; }); return value; }
+- (void)showAndActivate {
+    if (!self.window) {
+        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 420, 190) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+        window.title = @"语音输入设置";
+        _service = [[MSIMEVoiceInputService alloc] init];
+        _language = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_language addItemsWithTitles:@[@"中文（简体）", @"English"]];
+        [_language selectItemAtIndex:[[[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] isEqualToString:@"en-US"] ? 1 : 0];
+        _language.target = self; _language.action = @selector(languageChanged:);
+        _status = [NSTextField labelWithString:@"权限状态未知"];
+        NSButton *permission = [NSButton buttonWithTitle:@"请求麦克风与语音权限" target:self action:@selector(requestPermission:)];
+        NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"识别语言"], _language], @[[NSTextField labelWithString:@"权限"], _status], @[[NSTextField labelWithString:@""], permission]]];
+        grid.rowSpacing = 16; grid.columnSpacing = 16; grid.translatesAutoresizingMaskIntoConstraints = NO; [window.contentView addSubview:grid];
+        [NSLayoutConstraint activateConstraints:@[[grid.centerXAnchor constraintEqualToAnchor:window.contentView.centerXAnchor], [grid.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:24]]]; self.window = window;
+    }
+    [self refreshStatus]; [self showWindow:nil]; [NSApp activateIgnoringOtherApps:YES];
+}
+- (void)refreshStatus { _status.stringValue = (_service.microphoneAuthorizationStatus == AVAuthorizationStatusAuthorized && _service.speechAuthorizationStatus == SFSpeechRecognizerAuthorizationStatusAuthorized) ? @"已授权" : @"尚未完全授权"; }
+- (void)requestPermission:(id)sender { (void)sender; [_service requestSpeechPermission:^(BOOL granted) { if (granted) [_service requestMicrophonePermission:^(BOOL grantedMicrophone) { (void)grantedMicrophone; [self refreshStatus]; }]; else [self refreshStatus]; }]; }
+- (void)languageChanged:(NSPopUpButton *)sender { [[NSUserDefaults standardUserDefaults] setObject:(sender.indexOfSelectedItem == 0 ? @"zh-CN" : @"en-US") forKey:@"MSIMEClientVoiceLanguage"]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceSettingsDidChangeNotification object:self]; }
 @end
