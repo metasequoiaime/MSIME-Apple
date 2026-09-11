@@ -3,6 +3,25 @@
 use std::fs::File;
 use std::io;
 
+pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
+    #[cfg(not(target_os = "android"))]
+    {
+        match file.try_lock_shared() {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+    #[cfg(target_os = "android")]
+    {
+        match rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockShared) {
+            Ok(()) => Ok(true),
+            Err(rustix::io::Errno::WOULDBLOCK | rustix::io::Errno::INTR) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
 /// False is contention, not an I/O failure. Never waits for another lock owner.
 pub(crate) fn try_exclusive(file: &File) -> io::Result<bool> {
     #[cfg(not(target_os = "android"))]
