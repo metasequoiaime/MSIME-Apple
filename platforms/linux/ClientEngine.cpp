@@ -398,11 +398,26 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "ChinesePunctuation" &&
        std::string(name) != "CharacterWidth" &&
-       std::string(name) != "EnglishMode") ||
+       std::string(name) != "EnglishMode" &&
+       std::string(name) != "PunctuationChineseLock" &&
+       std::string(name) != "PunctuationEnglishLock") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
+    if (std::string(name) == "PunctuationChineseLock" ||
+        std::string(name) == "PunctuationEnglishLock") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled && s.session) {
+        s.view = response(msime_client_set_punctuation_lock(
+            s.session, std::string(name) == "PunctuationChineseLock" ? 1 : 2));
+        render(engine, s.view);
+      } else if (!enabled && s.session) {
+        s.view = response(msime_client_set_punctuation_lock(s.session, 0));
+        render(engine, s.view);
+      }
+      return;
+    }
     if (std::string(name) == "EnglishMode") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.session) {
@@ -485,6 +500,16 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("使用 Engine 专用英文输入模式"), TRUE, TRUE,
       PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(properties, english_mode);
+  for (const auto &[name, label] : {
+           std::tuple<const char *, const char *>
+               {"PunctuationChineseLock", "强制中文标点"},
+           {"PunctuationEnglishLock", "强制英文标点"}}) {
+    auto item = ibus_property_new(
+        name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
+        ibus_text_new_from_static_string("锁定当前会话的标点语言"), TRUE, TRUE,
+        PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(properties, item);
+  }
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
