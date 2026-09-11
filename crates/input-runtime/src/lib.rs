@@ -57,6 +57,9 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn set_punctuation_lock(&mut self, _lock: u8) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn set_dedicated_english(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -74,6 +77,9 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
+        Session::set_punctuation_lock(self, lock).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_dedicated_english(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
@@ -192,6 +198,10 @@ impl Runtime<Session> {
 }
 
 impl<E: InputEngine> Runtime<E> {
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), RuntimeError> {
+        self.engine.set_punctuation_lock(lock)
+    }
+
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.engine.set_dedicated_english(enabled)
     }
