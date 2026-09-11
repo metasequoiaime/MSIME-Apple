@@ -11,6 +11,7 @@
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
 #include "PreferenceSaveState.h"
+#include "PreferenceSnapshotMerge.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -90,12 +91,14 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (!_preferencesDirectory || !_session) return;
     if (!_preferenceSaveState.request()) return;
     NSString *directory = [_preferencesDirectory copy];
-    MSIMEAppearancePreferences *appearance = _appearance;
+    // Capture all host-owned fields together on the main thread. Both CAS
+    // attempts use this same snapshot; later changes schedule a fresh save.
+    NSDictionary *overrides = [_appearance sharedPreferencesByMerging:@{}];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *loadError = nil;
         NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&loadError];
-        NSDictionary *preferences = snapshot ? [appearance sharedPreferencesByMerging:snapshot[@"preferences"]] : nil;
+        NSDictionary *preferences = snapshot ? MSIMEMergePreferenceSnapshot(snapshot[@"preferences"], overrides) : nil;
         uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
         NSError *saveError = nil;
         NSDictionary *saved = nil;
@@ -105,7 +108,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         if (!saved && snapshot) {
             NSError *retryLoadError = nil;
             NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:&retryLoadError];
-            NSDictionary *latestPreferences = latest ? [appearance sharedPreferencesByMerging:latest[@"preferences"]] : nil;
+            NSDictionary *latestPreferences = latest ? MSIMEMergePreferenceSnapshot(latest[@"preferences"], overrides) : nil;
             if (latestPreferences) {
                 saveError = nil;
                 saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
