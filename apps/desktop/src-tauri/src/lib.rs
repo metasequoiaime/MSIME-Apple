@@ -3,7 +3,9 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use std::sync::Arc;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
+#[cfg(not(target_os = "windows"))]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 struct ClipboardHistoryState(std::sync::Mutex<ClipboardHistoryStore>);
 struct DictionaryHostOptions(Arc<String>);
@@ -117,6 +119,7 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -224,8 +227,47 @@ fn open_handwriting_panel(app: tauri::AppHandle) -> Result<(), HostActionError> 
 }
 
 #[tauri::command]
-fn open_emoji_panel(app: tauri::AppHandle) -> Result<(), HostActionError> {
-    open_panel_window(&app, "emoji-panel", "emoji", "Emoji and more", 720.0, 720.0)
+fn open_emoji_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DictionaryHostOptions>,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        let executable = std::env::var_os("MSIME_CLIENT_EMOJI_PANEL")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::current_exe().ok().and_then(|path| {
+                    path.parent()
+                        .map(|parent| parent.join("msime-client-emoji-panel.exe"))
+                })
+            })
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+        let resources = serde_json::from_str::<serde_json::Value>(&state.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("resources")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .filter(|value| std::path::Path::new(value).is_absolute());
+        let mut command = std::process::Command::new(executable);
+        if let Some(resources) = resources {
+            command.arg("--resources").arg(resources);
+        }
+        command.spawn().map(|_| ()).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = state;
+        open_panel_window(&app, "emoji-panel", "emoji", "Emoji and more", 720.0, 720.0)
+    }
 }
 
 #[tauri::command]

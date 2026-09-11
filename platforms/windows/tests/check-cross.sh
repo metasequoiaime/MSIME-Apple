@@ -25,6 +25,8 @@ for arch in x86_64 i686; do
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
     platforms/windows/HandwritingPanel.cpp -municode -mwindows -luser32 -lgdi32 -lole32 \
     -o "$output/handwriting-panel.exe"
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -I"$json_include" \
+    -c platforms/windows/EmojiPanel.cpp -o "$output/emoji-panel.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \

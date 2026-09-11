@@ -704,6 +704,12 @@ React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔
 
 本地验证：桌面 UI 28 项测试、TypeScript 类型检查、Vite production build、Rust fmt 和 `cargo check --locked -p msime-desktop` 通过。当前共享层使用精简内置目录作为浏览器/未打包资源的回退；Windows 原生 `others.db` 全量目录读取、持续剪贴板监听、跨进程同步、TSF 提交、贴纸/GIF 数据源和系统级验收仍待后续切片，不能据此声称 Emoji 面板完整 Windows 接入完成，CI 保持禁用。
 
+### Windows 原生 Emoji、颜文字与符号面板
+
+新增独立 Win32 `msime-client-emoji-panel.exe`，按参考仓库 `server/src/emoji-panel` 的数据边界从受信资源目录读取 `others.db` 的 `emoji`、`kaomoji_catalog` 和 `symbol_catalog`，提供首页预览、分类切换、搜索、滚动、复制反馈、最近使用、贴纸/GIF 占位和单实例互斥。窗口使用非激活置顶工具窗口，避免面板打开时改变编辑器焦点；Tauri Windows 启动命令只传递已准备 HostOptions 中的绝对 resources 路径，并支持 `MSIME_CLIENT_EMOJI_PANEL` 测试覆盖路径。CMake、运行时 staging、smoke help 和 x86/i686 严格编译检查均已接入，SQLite 依赖沿用 Windows 固定 vcpkg 清单。
+
+本地验证：x64/i686 MinGW `-Wall -Wextra -Werror` 编译通过，x64 CMake 完整链接通过，PE 为 Windows GUI x86-64，导入图包含 USER32/GDI32/SHELL32，`check-cross.sh` 和 `stage-runtime.sh x64` 通过。没有 Wine/Windows 主机，因此尚未执行真实窗口交互、资源目录加载、DPI/多显示器、持续剪贴板监听、跨进程同步、TSF 提交、贴纸/GIF 数据源或安装签名验收；不能据此声称 Windows Emoji 功能完整接入，CI 保持禁用。
+
 ### macOS 语音输入服务
 
 迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
