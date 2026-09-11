@@ -213,7 +213,7 @@ int main() {
         #if MSIME_MACOS_VOICE_SERVICE
         assert(menu.numberOfItems == 7);
 #else
-        assert(menu.numberOfItems == 5);
+        assert(menu.numberOfItems == 8);
 #endif
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
         NSMenuItem *englishItem = [menu itemAtIndex:1];
