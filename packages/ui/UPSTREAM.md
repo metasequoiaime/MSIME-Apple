@@ -40,3 +40,8 @@ The utilities category and eight local-mode toggles follow
 `public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0). Descriptions
 are condensed for the shared cards. Clipboard history and the quick-phrase
 CRUD/import/export manager are not migrated in this increment.
+
+The dedicated skin category follows `src/partials/skin.html` at the same pinned
+commit. The four built-in theme cards retain the shared `candidate_skin` values;
+the compact candidate previews are CSS adaptations for the React settings page.
+External skin directory scanning and live preview asset loading remain pending.

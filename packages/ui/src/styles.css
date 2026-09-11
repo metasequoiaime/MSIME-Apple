@@ -23,6 +23,24 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .helpcode-schema { margin-top: 12px; }
 .frequency-option-content { margin-top: 8px; }
 .frequency-option-row { padding: 10px 0; }
+.skin-intro { color: var(--text-muted); line-height: 1.6; margin: 0 0 14px; }
+.skin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.skin-card { display: block; overflow: hidden; padding: 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); box-shadow: var(--card-shadow); cursor: pointer; }
+.skin-card:hover { border-color: var(--border-strong); }
+.skin-card.selected { border-color: var(--accent-color); box-shadow: 0 0 0 1px var(--accent-color), var(--card-shadow); }
+.skin-card > input { position: absolute; opacity: 0; pointer-events: none; }
+.skin-card-preview { display: flex; flex-direction: column; gap: 10px; min-height: 112px; justify-content: center; padding: 18px; background: var(--skin-preview-stage-bg); }
+.skin-candidate { display: flex; align-items: center; gap: 8px; width: max-content; max-width: 100%; padding: 7px 10px; border: 1px solid var(--cand-border); border-radius: 6px; background: var(--cand-bg); color: var(--cand-text); box-shadow: var(--cand-shadow); font-size: 13px; white-space: nowrap; }
+.skin-candidate-vertical { display: none; }
+.skin-number { color: var(--cand-num); font-size: 11px; }
+.skin-wechat .skin-candidate { border-color: #32b76a; background: #e8fff0; color: #155b32; }
+.skin-wechat .skin-candidate:first-child { background: #bff2d0; }
+.skin-graphite .skin-candidate { border-color: #555; background: #2b2d31; color: #f1f1f1; border-radius: 2px; }
+.skin-willow_green .skin-candidate { border-color: #9fbf9a; background: #f0f8ed; color: #244b2b; border-radius: 12px; }
+.skin-willow_green .skin-candidate:first-child { background: #cfe8c8; }
+.skin-card-body { display: flex; flex-direction: column; gap: 5px; padding: 13px 16px 16px; }
+.skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }
+.skin-card-description { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .shortcut-intro { color: var(--text-secondary); line-height: 1.6; }
 .shortcut-section .section-title { font-size: 15px; }
 .shortcut-list { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
@@ -68,6 +86,7 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .content { padding: 12px 4px; }
   .section { padding: 18px 16px; }
   .section-title { overflow-wrap: anywhere; }
+  .skin-grid { grid-template-columns: 1fr; }
 }
 @media (forced-colors: active) {
   .radio-option input[type="radio"] { appearance: auto; }

@@ -9,6 +9,7 @@ const pages = [
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
+  { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
@@ -53,6 +54,12 @@ export type NavigationPreferences = { minus_equal: boolean; comma_period: boolea
 const defaultNavigation: NavigationPreferences = { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true };
 const defaultWordCharacter = { enabled: false, keys: "brackets" as const };
 const navigationOptions: [keyof NavigationPreferences, string][] = [["minus_equal", "- / ="], ["comma_period", ", / ."], ["brackets", "[ / ]"], ["tab", "Shift+Tab / Tab"], ["page_up_down", "PageUp / PageDown"], ["arrows", "上 / 下（移动候选项）"]];
+const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
+  ["fluent", "Fluent", "简洁、紧凑的默认候选窗"],
+  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏"],
+  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏"],
+  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮"],
+];
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
@@ -136,12 +143,22 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
           <option value="16">小</option><option value="18">标准</option><option value="20">大</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选皮肤</span><select aria-label="候选皮肤" value={draft.candidate_skin ?? "fluent"} onChange={event => setDraft({ ...draft, candidate_skin: event.target.value as Preferences["candidate_skin"] })}>
-          <option value="fluent">Fluent</option><option value="wechat">微信绿</option><option value="graphite">Graphite</option><option value="willow_green">柳绿</option>
-        </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
+        <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；预览会随当前选择更新。</div>
+        <div className="skin-grid">
+          {skinOptions.map(([id, title, description]) => <label className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
+            <input type="radio" name="candidate-skin" value={id} checked={(draft.candidate_skin ?? "fluent") === id} onChange={() => setDraft({ ...draft, candidate_skin: id })} />
+            <div className={`skin-card-preview skin-${id}`} aria-hidden="true">
+              <div className="skin-candidate skin-candidate-horizontal"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span><span className="skin-number">3</span><span>明天</span></div>
+              <div className="skin-candidate skin-candidate-vertical"><span className="skin-number">1</span><span>你好</span><span className="skin-number">2</span><span>世界</span></div>
+            </div>
+            <div className="skin-card-body"><span className="skin-card-title">{title}</span><span className="skin-card-description">{description}</span></div>
+          </label>)}
+        </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section" role="group" aria-labelledby="input-mode-title">
