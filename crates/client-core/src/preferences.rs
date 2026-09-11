@@ -17,6 +17,14 @@ pub enum InputScheme {
     Japanese,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultImeMode {
+    #[default]
+    Chinese,
+    English,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChineseScheme {
@@ -50,6 +58,8 @@ pub enum TranslationTargetLanguage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
+    #[serde(default)]
+    pub default_ime_mode: DefaultImeMode,
     #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
@@ -527,6 +537,7 @@ fn default_candidate_font_family() -> String {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            default_ime_mode: DefaultImeMode::default(),
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             voice_input: VoiceInputPreferences::default(),

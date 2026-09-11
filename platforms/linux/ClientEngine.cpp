@@ -81,6 +81,8 @@ struct State {
     view = response(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
+    if (options.at("preferences").value("default_ime_mode", "chinese") == "english")
+      view = response(msime_client_set_english_mode(session, true));
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
     smart_punctuation = options.at("preferences").value("smart_punctuation", true);

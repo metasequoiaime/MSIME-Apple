@@ -485,7 +485,14 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 msime_client_core::preferences::PunctuationLock::English => 2,
             },
         };
-        let engine = Session::new(&options).map_err(|e| e.to_string())?;
+        let default_english = matches!(
+            applied.default_ime_mode,
+            msime_client_core::preferences::DefaultImeMode::English
+        );
+        let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+        engine
+            .set_dedicated_english(default_english)
+            .map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
@@ -498,7 +505,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
-                    english_mode: false,
+                    english_mode: default_english,
                 },
             )
         });
