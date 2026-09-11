@@ -66,7 +66,7 @@ Debian bookworm arm64、IBus 1.5.27 容器内真实共享 Rust/C++ 库、共享 
 
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-用户最新要求以 MSIME-Windows 完整功能为基线迁移 Linux，并适配 Linux 平台特性；当前优先推进 Linux，保留已合并的平台成果。上游实际默认分支 develop 固定提交为 `0eaa35eed1dd699b28883068f2909afe3a5902da`。下方各条记录是历史成果，不代表后续排期；完整迁移包含共享功能、Linux 系统入口及原生产品验收，不能以容器测试代替桌面验收。
+后续实施优先级由用户明确为 **Windows → macOS → iOS → Linux**。已合并的 Android/Linux 增量保留，Linux 自动重读已接入预览宿主，后续仍暂停新增产品面；接下来先推进 Windows 的共享运行时接入，保留 TSF DLL / Server 边界，再按上述顺序推进其他端，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
@@ -676,38 +676,8 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 
 37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。
 
-### Windows 实用功能本地模式开关
+### Linux IBus 配置热重载（增量）
 
-在独立 worktree 按同一 Windows 固定提交的 tools-settings.html/config.toml 新增实用功能分类和 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启，来源图标许可记于 UI UPSTREAM。设置经共享配置与 CXX 传至 Engine LocalModeOptions；活动组合中不立即切换，结束后重建生效。旧配置缺省读取不重写，各开关独立保存，算法和入口判断继续由 Engine 负责。
+Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
 
-39 项 Rust 测试、17 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉构建及导入检查通过。真实固定词库回归覆盖八种模式开启进入、关闭不进入、相邻模式仍可进入；宿主测试覆盖组合期间延迟关闭。仅完成模式配置与入口控制，不代表快捷短语增删改查/导入导出、剪贴板管理或整页视觉复刻完成；未执行 Windows 原生 TSF/安装/逐像素验收，CI 保持禁用。
-
-### Windows 词库管理迁移：Engine 编辑桥接
-
-为后续词库页和快捷短语管理接入，暴露固定 Engine 的 personal_dictionary 接口：拼音、五笔、快捷短语、英文的类型化词条，有限分页，以及带旧值校验和请求 ID 的新增/替换/删除。数据校验、事务、回放日志和重试去重仍由 Engine 实现，不在 Rust 或 UI 复制 SQL。接口文档明确要求宿主写入前停用所有相关会话、写入后重建，并禁止记录真实词条及原始 Engine 错误。
-
-本批只提供桥接能力，尚未在 host-api/Windows Server/Tauri 中开放管理请求；跨进程停用与缓存失效协调、快捷短语管理 UI、搜索和批量导入导出仍未完成。新增 personal_dictionary 固定生产词库隔离回归覆盖四种类型、稳定分页、边界拒绝、重复请求、请求 ID 冲突、过期旧值、非法修改不覆盖，以及重开 K 模式后的修改/删除可见性。5 项桥接测试、host-api 测试、fmt/clippy、10 项本机边界 CTest、Windows x64 交叉链接与导入检查通过；无 UI 变更，未执行 Windows 原生宿主验证。全程独立 worktree，CI 保持禁用。
-
-### Windows 词库维护：协作访问锁
-
-共享核心新增用户目录和工作词库目录的双路径访问锁：规范化绝对路径、去重排序、稳定锁文件，非阻塞尝试获取。所有 host-api 会话从创建到 Engine 销毁持有共享锁；Rust 维护编辑入口获取独占锁，存在任一参与会话即返回 busy，既不等待按键线程也不取消组合。编辑失败返回不含词条的固定错误，成功或失败均释放维护锁，之后可重建会话。
-
-21 项核心测试、19 项 host-api 测试、fmt/clippy、10 项本机 Windows 边界 CTest、x64 交叉构建和导入检查通过。覆盖双目录冲突、多个读者、跨进程读写互斥、会话销毁释放及维护错误释放。锁为协作协议，不约束旧宿主、直接 Engine 使用者或外部编辑器；资源准备/升级仍要求事先停止相关会话。Windows Server 管理请求、停用/重建调度和 Tauri/UI 尚未接入；未执行 Windows 原生锁竞争或 TSF 验证，完整迁移继续，CI 保持禁用。
-
-### Windows 词库管理 Native Host 请求
-
-在上述访问锁基础上增加 host-api 的受限 JSON 管理入口，支持分页读取与新增、替换、删除个人词库。入口复用同一 HostOptions 资源校验和 Engine 事务接口，编辑只有在所有参与会话销毁后取得独占锁才能执行；重复 request_id 可安全重试，响应只返回固定错误或 `applied`，不回显 Engine 诊断和词条。C 头文件记录长度限制、调用线程、路径授权、停用/重建和隐私契约。
-
-独立请求示例覆盖活跃会话 busy、销毁后新增、重复新增、列表、重建会话提交快捷短语、删除及重复删除；20 项 host-api 测试（含 malformed/oversized request）和 21 项核心测试、fmt/clippy、10 项 Windows 边界 CTest、x64 交叉链接与导入检查通过。该入口仍是 native host API，不是 Windows Server 管理消息、Tauri 命令或 UI；导入导出、搜索、批量编辑、跨进程自动停用仍待完成。未执行 Windows 原生验证，CI 保持禁用。
-
-### Windows 快捷短语管理 UI 初接
-
-共享 React 设置客户端新增可选 dictionary capability。Native host 提供该能力时，实用功能页可查询第一页（最多 100 项）快捷短语并通过 request ID 删除；没有能力时页面保持原有八个模式开关，不直接访问文件。加载和删除失败只显示脱敏提示。新增样式和类型检查/构建验证通过。
-
-这只是 UI 初接：Tauri client 尚未绑定 `msime_client_dictionary`，新增/编辑表单、分页按钮、搜索、批量导入导出、剪贴板管理和 Windows Server 管理消息仍待完成。未执行 Windows 原生 UI 验收，CI 保持禁用。
-
-### Windows Tauri 快捷短语 Native Host 绑定
-
-桌面端现在接入可选 dictionary capability：启动时只接受由安装/资源准备流程提供的 `MSIME_CLIENT_HOST_OPTIONS` 已验证 HostOptions JSON，WebView 只能传 list/edit action，不能传资源、状态或词库路径。Tauri 命令在阻塞线程调用 host-api 的安全 Rust 包装，固定错误不回显 Engine 诊断；Native Host 继续负责访问锁和事务。
-
-验证：desktop Rust 测试目标、17 项 UI 测试、TypeScript/Vite 构建通过。此绑定要求安装流程先生成并注入 HostOptions；未提供变量时启动失败而不会回退到不受保护的路径。新增/编辑表单、分页/搜索、导入导出、Windows Server 停用调度和 Windows 原生验收仍待完成，CI 保持禁用。
+使用固定 Debian bookworm arm64 容器、IBus 1.5.27 和已校验 Release 词库完成真实验收：Rust workspace 测试、CMake/Ninja 构建、独立 Engine D-Bus smoke、IBus daemon/factory 启动以及 Python InputContext 合成输入全部通过。合成 fixture 通过显式环境标记隔离属性信号；生产宿主仍注册并更新 IBus 属性。GTK/Qt 真编辑器、X11/Wayland 选区定位、安装打包和其他发行版仍待验证。

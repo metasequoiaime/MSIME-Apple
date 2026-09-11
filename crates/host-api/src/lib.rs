@@ -8,11 +8,7 @@ use msime_client_core::preferences::{
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-#[cfg(unix)]
-use msime_input_runtime::UnixSocketProvider;
-use msime_input_runtime::{
-    Action, CandidateId, OnlineQuery, Runtime, Transition, TranslationQuery,
-};
+use msime_input_runtime::{Action, CandidateId, CharacterWidth, Runtime, Transition};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -32,10 +28,7 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
-    voice: VoiceSessionState,
-    page_size_override: Option<u8>,
-    // Declared last so the Engine/runtime is dropped before releasing access.
-    _dictionary_access: DictionaryAccess,
+    english_mode: bool,
 }
 
 impl HostSession {
@@ -65,18 +58,16 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
-        options.local_unicode = snapshot.preferences.local_modes.unicode;
-        options.local_date_time = snapshot.preferences.local_modes.date_time;
-        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
-        options.local_emoji = snapshot.preferences.local_modes.emoji;
-        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
-        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
-        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
-        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
+        options.paired_punctuation = snapshot.preferences.paired_punctuation;
+        options.punctuation_lock = match snapshot.preferences.punctuation_lock {
+            msime_client_core::preferences::PunctuationLock::Follow => 0,
+            msime_client_core::preferences::PunctuationLock::Chinese => 1,
+            msime_client_core::preferences::PunctuationLock::English => 2,
+        };
         // Build and validate first; errors leave the original session usable.
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         if let Some(enabled) = self.punctuation_override {
@@ -84,6 +75,9 @@ impl HostSession {
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
         }
+        engine
+            .set_dedicated_english(self.english_mode)
+            .map_err(|e| e.to_string())?;
         self.runtime
             .replace_engine(
                 engine,
@@ -106,6 +100,22 @@ impl HostSession {
             );
         }
         // A replacement changes the view generation, never the completed commit.
+        if result.view.character_width == CharacterWidth::Fullwidth {
+            if let Some(c) = result.commit.as_mut() {
+                *c = c
+                    .chars()
+                    .map(|x| {
+                        if x == ' ' {
+                            '\u{3000}'
+                        } else if ('!'..='~').contains(&x) {
+                            char::from_u32(x as u32 + 0xfee0).unwrap()
+                        } else {
+                            x
+                        }
+                    })
+                    .collect();
+            }
+        }
         result.view = self.runtime.view();
         result
     }
@@ -448,13 +458,33 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
-        let options = options.into_engine_options();
-        let dictionary_access = DictionaryAccess::try_session(
-            std::path::Path::new(&options.user_data),
-            std::path::Path::new(&options.dictionaries),
-        )
-        .map_err(|_| "dictionary access unavailable")?
-        .ok_or("dictionary maintenance busy")?;
+        let helpcode = options.preferences.active_helpcode();
+        let options = EngineOptions {
+            resources: options.resources,
+            user_data: options.user_data,
+            cache: options.cache,
+            dictionaries: options.dictionaries,
+            scheme: scheme_code(options.preferences.scheme),
+            shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
+            learning: options.preferences.learning,
+            autocorrect: options.preferences.autocorrect,
+            frequency_mode: options.preferences.frequency.mode.as_str().into(),
+            frequency_trigger_count: options.preferences.frequency.trigger_count,
+            frequency_linear_step: options.preferences.frequency.linear_step,
+            mixed_english: options.preferences.mixed_input.english,
+            english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
+            mixed_emoji: options.preferences.mixed_input.emoji,
+            mixed_kaomoji: options.preferences.mixed_input.kaomoji,
+            helpcode: helpcode.enabled,
+            helpcode_schema: helpcode.schema.as_str().into(),
+            chinese_punctuation: options.preferences.chinese_punctuation,
+            paired_punctuation: options.preferences.paired_punctuation,
+            punctuation_lock: match options.preferences.punctuation_lock {
+                msime_client_core::preferences::PunctuationLock::Follow => 0,
+                msime_client_core::preferences::PunctuationLock::Chinese => 1,
+                msime_client_core::preferences::PunctuationLock::English => 2,
+            },
+        };
         let engine = Session::new(&options).map_err(|e| e.to_string())?;
         let runtime = Runtime::new(engine, page_size).map_err(|e| e.to_string())?;
         let view = runtime.view();
@@ -468,9 +498,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
-                    voice: VoiceSessionState::default(),
-                    page_size_override: None,
-                    _dictionary_access: dictionary_access,
+                    english_mode: false,
                 },
             )
         });
@@ -606,6 +634,59 @@ pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: boo
                 .set_chinese_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
             session.punctuation_override = Some(enabled);
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_set_paired_punctuation(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_paired_punctuation_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_punctuation_lock(lock)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session
+                .runtime
+                .set_dedicated_english(enabled)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn msime_client_set_character_width(handle: u64, fullwidth: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.runtime.set_character_width(if fullwidth {
+                CharacterWidth::Fullwidth
+            } else {
+                CharacterWidth::Halfwidth
+            });
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
@@ -917,156 +998,6 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn sessions_hold_access_until_destroy_and_failed_edits_release_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = test_host(dir.path());
-        let second = test_host(dir.path());
-        let user = dir.path().join("user");
-        let dictionaries = dir.path().join("dictionaries");
-        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
-            .unwrap()
-            .is_none());
-        read(msime_client_destroy(first));
-        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
-            .unwrap()
-            .is_none());
-        read(msime_client_destroy(second));
-        let writer = DictionaryAccess::try_maintenance(&user, &dictionaries)
-            .unwrap()
-            .unwrap();
-        let options = json!({ "api_version": 1, "resources": dir.path().join("resources"), "user_data": user, "cache": dir.path().join("cache"), "dictionaries": dictionaries, "preferences": Preferences::default() }).to_string();
-        assert_eq!(
-            read(unsafe { msime_client_create(options.as_ptr(), options.len()) })["error"],
-            "dictionary maintenance busy"
-        );
-        drop(writer);
-        let handle = test_host(dir.path());
-        let engine_options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
-        assert_eq!(
-            edit_personal_dictionary(&engine_options, None, None, "fixture"),
-            Err("dictionary maintenance busy")
-        );
-        read(msime_client_destroy(handle));
-        assert_eq!(
-            edit_personal_dictionary(&engine_options, None, None, ""),
-            Err("dictionary request id required")
-        );
-        assert_eq!(
-            edit_personal_dictionary(&engine_options, None, None, "fixture"),
-            Err("dictionary edit rejected")
-        );
-        assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
-            .unwrap()
-            .is_some());
-    }
-    #[test]
-    fn native_page_size_defers_and_survives_preference_rebuild() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        read(msime_client_focus(handle, true));
-        let first = read(msime_client_set_candidate_page_size(handle, 5));
-        assert_eq!(first["value"]["deferred"], false);
-        read(msime_client_character(handle, b'U', true));
-        for byte in b"4e2d" {
-            read(msime_client_character(handle, *byte, false));
-        }
-        let before = read(msime_client_view(handle))["value"].clone();
-        for size in [7, 9] {
-            let pending = read(msime_client_set_candidate_page_size(handle, size));
-            assert_eq!(pending["value"]["deferred"], true);
-            assert_eq!(pending["value"]["view"], before);
-        }
-        for size in [0, 10, 255] {
-            assert_eq!(
-                read(msime_client_set_candidate_page_size(handle, size))["ok"],
-                false
-            );
-            assert_eq!(read(msime_client_view(handle))["value"], before);
-        }
-        let committed = read(msime_client_command(handle, 1));
-        assert_eq!(committed["value"]["commit"], "中");
-        assert_eq!(
-            committed["value"]["commit_context"]["local_mode"],
-            "unicode"
-        );
-        assert_eq!(committed["value"]["view"]["local_mode"], "none");
-        assert_eq!(committed["value"]["view"]["page_size"], 9);
-        let preferences = Preferences {
-            candidate_page_size: 2,
-            ..Preferences::default()
-        };
-        let updated = update(handle, 1, &preferences);
-        assert_eq!(updated["value"]["deferred"], false);
-        assert_eq!(updated["value"]["view"]["page_size"], 9);
-        let unchanged = read(msime_client_view(handle));
-        read(msime_client_set_candidate_page_size(handle, 9));
-        assert_eq!(read(msime_client_view(handle)), unchanged);
-        assert_eq!(
-            std::thread::spawn(
-                move || read(msime_client_set_candidate_page_size(handle, 5))["ok"].clone()
-            )
-            .join()
-            .unwrap(),
-            false
-        );
-        read(msime_client_destroy(handle));
-        assert_eq!(
-            read(msime_client_set_candidate_page_size(handle, 5))["ok"],
-            false
-        );
-    }
-    #[test]
-    fn page_edge_commands_keep_engine_composition() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        read(msime_client_focus(handle, true));
-        read(msime_client_character(handle, b'U', true));
-        for byte in b"4e2d" {
-            read(msime_client_character(handle, *byte, false));
-        }
-        let before = read(msime_client_view(handle))["value"].clone();
-        assert!(!before["candidates"].as_array().unwrap().is_empty());
-        for command in [105, 104] {
-            let moved = read(msime_client_command(handle, command));
-            assert_eq!(moved["ok"], true);
-            assert_eq!(moved["value"]["handled"], true);
-            assert!(moved["value"]["commit"].is_null());
-            assert_eq!(
-                moved["value"]["view"]["editing_text"],
-                before["editing_text"]
-            );
-            assert_eq!(
-                moved["value"]["view"]["caret_position"],
-                before["caret_position"]
-            );
-        }
-        assert_eq!(
-            read(msime_client_command(handle, 1))["value"]["commit"],
-            "中"
-        );
-        read(msime_client_destroy(handle));
-    }
-    #[test]
-    fn local_mode_disable_is_deferred_and_preserves_other_modes() {
-        let dir = tempfile::tempdir().unwrap();
-        let handle = test_host(dir.path());
-        read(msime_client_focus(handle, true));
-        read(msime_client_character(handle, b'U', true));
-        let before = read(msime_client_view(handle));
-        let mut preferences = Preferences::default();
-        preferences.local_modes.unicode = false;
-        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
-        assert_eq!(read(msime_client_view(handle)), before);
-        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.local_unicode));
-        read(msime_client_command(handle, 3));
-        SESSIONS.with(|sessions| {
-            let sessions = sessions.borrow();
-            assert!(!sessions[&handle].options.local_unicode);
-            assert!(sessions[&handle].options.local_emoji);
-        });
-        read(msime_client_destroy(handle));
-    }
     #[test]
     fn mixed_input_changes_defer_until_composition_ends() {
         use msime_client_core::preferences::MixedInputPreferences;
@@ -1537,6 +1468,21 @@ mod tests {
     }
 
     #[test]
+    fn dedicated_english_mode_switches_through_host_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        let enabled = read(msime_client_set_english_mode(handle, true));
+        assert_eq!(enabled["ok"], true);
+        assert_eq!(enabled["value"]["focused"], true);
+        assert_eq!(
+            read(msime_client_set_english_mode(handle, false))["ok"],
+            true
+        );
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
     fn preferences_wait_for_commit_keep_handle_and_reject_old_revisions() {
         let dir = tempfile::tempdir().unwrap();
         let handle = test_host(dir.path());
@@ -1702,5 +1648,24 @@ mod tests {
         );
         assert_eq!(read(msime_client_command(0, 999))["ok"], false);
         unsafe { msime_client_string_free(std::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn candidate_page_edge_commands_reach_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let first = read(msime_client_command(handle, 104));
+        assert_eq!(first["value"]["handled"], false);
+        assert!(first["value"]["view"]["candidates"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let last = read(msime_client_command(handle, 105));
+        assert_eq!(last["value"]["handled"], false);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     }
 }

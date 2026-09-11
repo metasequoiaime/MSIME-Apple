@@ -35,6 +35,8 @@ mod ffi {
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub paired_punctuation: bool,
+        pub punctuation_lock: u8,
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
@@ -42,14 +44,6 @@ mod ffi {
         pub english_minimum_prefix: u8,
         pub mixed_emoji: bool,
         pub mixed_kaomoji: bool,
-        pub local_unicode: bool,
-        pub local_date_time: bool,
-        pub local_quick_phrase: bool,
-        pub local_emoji: bool,
-        pub local_kaomoji: bool,
-        pub local_super_jianpin: bool,
-        pub local_temporary_english: bool,
-        pub local_temporary_japanese: bool,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
@@ -129,6 +123,12 @@ mod ffi {
             self: Pin<&mut EngineSession>,
             enabled: bool,
         ) -> Result<()>;
+        fn set_punctuation_lock(self: Pin<&mut EngineSession>, lock: u8) -> Result<()>;
+        fn set_paired_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
+        fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
 
@@ -252,6 +252,15 @@ impl Session {
             .pin_mut()
             .set_chinese_punctuation_enabled(enabled)
     }
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_punctuation_lock(lock)
+    }
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_paired_punctuation_enabled(enabled)
+    }
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_dedicated_english(enabled)
+    }
 }
 
 #[cfg(test)]
@@ -301,14 +310,6 @@ mod tests {
             english_minimum_prefix: 2,
             mixed_emoji: false,
             mixed_kaomoji: false,
-            local_unicode: true,
-            local_date_time: true,
-            local_quick_phrase: true,
-            local_emoji: true,
-            local_kaomoji: true,
-            local_super_jianpin: true,
-            local_temporary_english: true,
-            local_temporary_japanese: true,
         }
     }
     #[test]

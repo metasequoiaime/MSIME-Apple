@@ -26,24 +26,6 @@ const pages = [
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
-  voice_input?: VoiceInputPreferences;
-  ai_assistant?: AiAssistantPreferences;
-  custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
-  floating_toolbar?: { enabled: boolean; scale_percent: number; font_size: number; fullwidth?: boolean; punctuation?: boolean; character_set?: boolean; emoji?: boolean; screen_keyboard?: boolean; settings?: boolean };
-  theme?: "dark" | "light" | "system";
-  settings_theme?: "follow" | "dark" | "light";
-  candidate_theme?: "follow" | "dark" | "light";
-  candidate_skin?: string;
-  candidate_layout?: "horizontal" | "vertical";
-  candidate_preedit_style?: "pinyin" | "empty";
-  tsf_preedit_style?: "raw" | "pinyin" | "empty";
-  ui_backend?: "direct2d" | "webview2";
-  candidate_follow_cursor?: boolean;
-  local_modes?: LocalModePreferences;
-  clipboard_history?: boolean;
-  cloud_candidates?: boolean;
-  candidate_translations?: boolean;
-  translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -75,18 +57,6 @@ const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 export type ExternalSkinSummary = { id: string; name: string; version?: string; author?: string; description?: string; compatible: boolean; issues?: string[] };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
-export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
-const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
-const localModeRows = [
-  ["quick_phrase", "快捷短语(K 模式)", "中文模式下按 Shift+K，再输入编码即可调用快捷短语"],
-  ["date_time", "日期与时间快捷输入(T 模式)", "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期"],
-  ["unicode", "Unicode 便捷录入(U 模式)", "中文模式下按 Shift+U，再输入十六进制码位（如 4e00 / +1f600）。空格上屏；Shift+数字选词"],
-  ["emoji", "Emoji 快捷输入(E 模式)", "中文模式下按 Shift+E，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词"],
-  ["kaomoji", "颜文字快捷输入(M 模式)", "中文模式下按 Shift+M，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词"],
-  ["super_jianpin", "超级简拼(J 模式)", "中文模式下按 Shift+J，每个字母作为简拼；双拼按当前方案转换声母。空格上屏；数字选词"],
-  ["temporary_english", "临时英文(Y 模式)", "中文模式下按 Shift+Y，之后按英文处理。空格上屏当前输入；数字选词；上屏后回到中文"],
-  ["temporary_japanese", "临时日语(R 模式)", "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文"],
-] as const;
 export type MixedInputPreferences = { english: boolean; minimum_prefix: number; emoji: boolean; kaomoji: boolean };
 const defaultMixedInput: MixedInputPreferences = { english: true, minimum_prefix: 2, emoji: false, kaomoji: false };
 export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
@@ -320,14 +290,6 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
-  const localModes = draft?.local_modes ?? defaultLocalModes;
-  const ai = draft?.ai_assistant ?? defaultAiAssistant;
-  const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
-  const voice = draft?.voice_input ?? defaultVoiceInput;
-  const updateVoice = (patch: Partial<VoiceInputPreferences>) => setDraft({ ...draft!, voice_input: { ...voice, ...patch } });
-  const updateAi = (patch: Partial<AiAssistantPreferences>) => setDraft({ ...draft!, ai_assistant: { ...ai, ...patch } });
-  const selectedPrompt = ai.prompt_id === "custom_2" ? (ai.prompt_custom_2 ?? ai.prompt) : ai.prompt_id === "custom_3" ? (ai.prompt_custom_3 ?? ai.prompt) : (ai.prompt_custom_1 ?? ai.prompt);
-  const updatePrompt = (value: string) => updateAi({ prompt: value, ...(ai.prompt_id === "custom_2" ? { prompt_custom_2: value } : ai.prompt_id === "custom_3" ? { prompt_custom_3: value } : { prompt_custom_1: value }) });
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -502,12 +464,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">智能标点<small>在中文标点模式下识别连续标点输入。</small></span><input className="toggle" type="checkbox" checked={draft.smart_punctuation ?? true} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label><label className="section-header"><span className="section-title">重复标点切换<small>短时间重复输入同一标点时切换中英文标点。</small></span><input className="toggle" type="checkbox" checked={draft.smart_punctuation_repeat ?? true} onChange={event => setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">成对标点<small>启用括号、方括号等成对标点的智能处理。</small></span><input className="toggle" type="checkbox" checked={draft.paired_punctuation ?? true} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>
           <div className="input-option-divider" />
-          <div className="section-header frequency-option-row"><span className="section-title">触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small></span><CustomDropdown ariaLabel="触发字符数" disabled={!mixedInput.english} value={String(mixedInput.minimum_prefix)} options={[1, 2, 3, 4, 5, 6, 7, 8].map(value => [String(value), String(value)] as [string, string])} onChange={value => setDraft({ ...draft, mixed_input: { ...mixedInput, minimum_prefix: Number(value) } })} /></div>
+          <label className="section-header frequency-option-row"><span className="section-title">触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small></span><select aria-label="触发字符数" disabled={!mixedInput.english} value={mixedInput.minimum_prefix} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, minimum_prefix: Number(event.target.value) } })}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value}</option>)}
+          </select></label>
         </div>
         {([["emoji", "emoji 混输", "中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）"], ["kaomoji", "颜文字混输", "中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）"]] as const).map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={mixedInput[key]} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, [key]: event.target.checked } })} /></label>

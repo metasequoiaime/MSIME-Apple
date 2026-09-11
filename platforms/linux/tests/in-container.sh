@@ -2,16 +2,20 @@
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
 cargo build -p msime-host-api --locked
-for attempt in 1 2 3; do
-  if cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked; then
-    break
-  fi
-  if [[ $attempt == 3 ]]; then
-    echo "Linux Rust regression failed after three attempts" >&2
-    exit 1
-  fi
-  echo "Retrying Linux Rust regression after known concurrency jitter (attempt $((attempt + 1)))" >&2
-done
+python3 - <<'PY'
+import ctypes
+import re
+from pathlib import Path
+
+header = Path("crates/host-api/include/msime_client.h").read_text()
+library = ctypes.CDLL("/build/cargo/debug/libmsime_host_api.so")
+symbols = set(re.findall(r"\b(msime_client_\w+)\s*\(", header))
+assert symbols, "Host API header contains no exported declarations"
+for name in sorted(symbols):
+    getattr(library, name)
+print("Host API header exports verified")
+PY
+cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
 cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
 cmake --build /build/ibus
 /build/ibus/msime-client-online-provider-contract

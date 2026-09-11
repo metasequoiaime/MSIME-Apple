@@ -84,10 +84,10 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
-/* Native page-size override (1..9). Returns {deferred, view}; active composition
- * retains its numeric mapping until idle. Newest request wins, survives shared
- * preference reloads, and does not persist files or rebuild Engine by itself. */
-char *msime_client_set_candidate_page_size(uint64_t session, uint8_t page_size);
+char *msime_client_set_character_width(uint64_t session, bool fullwidth);
+char *msime_client_set_english_mode(uint64_t session, bool enabled);
+char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
+char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
 // Explicit native punctuation: finish the highlighted composition, then translate.
 // Invalid non-punctuation bytes fail without modifying the session.
@@ -99,7 +99,6 @@ enum MsimeCommand {
     MSIME_FINISH_COMPOSITION = 9,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
-    // Move highlight within the current page, without editing or committing.
     MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
 };
 char *msime_client_command(uint64_t session, uint32_t command);
