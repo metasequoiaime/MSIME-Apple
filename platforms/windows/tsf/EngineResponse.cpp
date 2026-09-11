@@ -21,6 +21,7 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.diagnostic = value.at("diagnostic").get<std::string>();
     if (value.contains("view") || value.contains("preedit")) {
       const auto &view = value.contains("view") ? value.at("view") : value;
+      parsed.view.session = view.value("session", uint64_t{0});
       parsed.view.preedit = view.value("preedit", "");
       parsed.view.editing_text = view.value("editing_text", "");
       parsed.view.generation = view.value("generation", uint64_t{0});

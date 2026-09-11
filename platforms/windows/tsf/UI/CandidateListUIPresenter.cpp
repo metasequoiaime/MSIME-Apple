@@ -290,13 +290,14 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
     {
         std::string viewRaw, error;
         msime::tsf::EngineResult view;
-        const UINT index = _pCandidateListUIPresenter->_GetSelectedEngineIndex();
-        if (host->view(&viewRaw, &error) &&
+        CCandidateListItem displayed;
+        if (_pCandidateListUIPresenter->_GetSelectedEngineCandidate(&displayed) &&
+            host->view(&viewRaw, &error) &&
             msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) &&
-            view.view.generation != 0)
+            displayed.MatchesEngineView(view.view.session, view.view.generation))
         {
             std::string raw;
-            if (host->select(view.view.generation, index, &raw, &error))
+            if (host->select(displayed._EngineGeneration, displayed._EngineIndex, &raw, &error))
             {
                 msime::tsf::EngineResult selected;
                 if (msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error) &&
@@ -313,8 +314,13 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
                     _DeleteCandidateList(FALSE, pContext);
                     return hrReturn;
                 }
+                if (selected.handled)
+                    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
+                                                         FANY_IME_NO_REQUEST_ID);
             }
         }
+        // Never turn a stale/failed host selection into a legacy text commit.
+        return S_FALSE;
     }
 
     hrReturn = _HandleCandidateFinalize(ec, pContext, requestId, prefetchedText);
@@ -923,7 +929,6 @@ void CCandidateListUIPresenter::_EndCandidateList()
 
     PerfTimer clearStateTimer;
     _candidateState.Clear();
-    _engineIndices.clear();
     _candidateWindowVisible = FALSE;
     _lastUiLessCandidatePage.clear();
     double clearStateElapsedMs = clearStateTimer.ElapsedMs();
@@ -970,14 +975,18 @@ void CCandidateListUIPresenter::_SetText(_In_ CMetasequoiaImeArray<CCandidateLis
                                          BOOL isAddFindKeyCode)
 {
     PerfTimer timer;
-    _engineIndices.clear();
-    if (pCandidateList)
+    if (pCandidateList && pCandidateList->Count() && pCandidateList->GetAt(0)->_EngineSession != 0)
     {
+        // Render the host snapshot and its identities together, including in
+        // UIless mode; a legacy shared-memory page has no host candidate IDs.
+        _candidateState.Clear();
+        AddCandidateToCandidateListUI(pCandidateList, isAddFindKeyCode);
+        SetPageIndexWithScrollInfo(pCandidateList);
         for (UINT i = 0; i < pCandidateList->Count(); ++i)
-        {
-            const auto *item = pCandidateList->GetAt(i);
-            _engineIndices.push_back(item ? item->_EngineIndex : i);
-        }
+            if (pCandidateList->GetAt(i)->_EngineHighlighted) _candidateState.SetSelectionSilently(i);
+        if (!_isShowMode) _NotifyUiLessHost();
+        else _NotifyUI();
+        return;
     }
     if (!_isShowMode)
     {
@@ -1063,7 +1072,6 @@ void CCandidateListUIPresenter::SetPageIndexWithScrollInfo(       //
 void CCandidateListUIPresenter::_ClearList()
 {
     _candidateState.Clear();
-    _engineIndices.clear();
 }
 
 //+---------------------------------------------------------------------------

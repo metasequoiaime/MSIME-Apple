@@ -45,6 +45,13 @@ UINT CCandidateSessionState::GetSelection() const
     return _currentSelection;
 }
 
+bool CCandidateSessionState::GetSelectedCandidate(CCandidateListItem *item) const
+{
+    if (!item || _currentSelection >= _candidateList.Count()) return false;
+    *item = *_candidateList.GetAt(_currentSelection);
+    return true;
+}
+
 void CCandidateSessionState::SetScrollInfo(_In_ int nMax, _In_ int nPage)
 {
     nMax;

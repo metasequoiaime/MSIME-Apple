@@ -12,6 +12,7 @@ struct EngineCandidate {
   std::size_t index = 0;
 };
 struct EngineView {
+  uint64_t session = 0;
   std::string preedit;
   std::string editing_text;
   std::vector<EngineCandidate> candidates;

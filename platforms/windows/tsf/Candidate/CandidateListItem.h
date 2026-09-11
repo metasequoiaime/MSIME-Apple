@@ -30,7 +30,13 @@ struct CCandidateListItem
 {
     CCandidateText _ItemString;
     CCandidateText _FindKeyCode;
+    uint64_t _EngineSession = 0;
     uint64_t _EngineGeneration = 0;
-    uint32_t _EngineIndex = 0;
+    std::size_t _EngineIndex = 0;
     bool _EngineHighlighted = false;
+    bool MatchesEngineView(uint64_t session, uint64_t generation) const
+    {
+        return _EngineSession != 0 && _EngineGeneration != 0 &&
+               _EngineSession == session && _EngineGeneration == generation;
+    }
 };

@@ -137,7 +137,7 @@ template <class T> class CMetasequoiaImeArray
         assert(index >= 0);
         assert(index < _innerVect.size());
 
-        T &curT = _innerVect.at(index);
+        const T &curT = _innerVect.at(index);
 
         return &(curT);
     }
