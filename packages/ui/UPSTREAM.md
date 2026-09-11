@@ -127,3 +127,17 @@ shell command. Failures are sanitized, existing files are preserved, and the
 UI guards duplicate requests and stale completions. Native file-manager
 interaction is not covered by the automated tests. External resource loading
 and native visual parity remain unfinished.
+
+External candidate preview geometry now follows the same pinned Windows
+`skin.ts` `candidatePreviewCss` and `skin.css` decoration rules: conditional
+`containerParent`, manifest top/width/minimum-width variables, a 118px ornament
+layer, separate stacking, no pointer interception, and visible card/stage
+overflow. Both candidate orientations receive this wrapper; toolbar and built-in
+previews retain their markup. Numeric values are finite and bounded before use;
+refresh removes obsolete geometry. Like upstream, minimum width is applied by
+the decoration rule only when decoration is enabled. Image delivery remains
+unimplemented, so the ornament background is explicitly `none` for now.
+
+Sparse light palettes now layer over dark palette rules as upstream does,
+instead of dropping all unspecified dark fields. Tests cover geometry bindings,
+CSSOM declarations, refresh/reset and palette layering, not native pixel layout.

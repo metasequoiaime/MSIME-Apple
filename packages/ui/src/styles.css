@@ -5,6 +5,7 @@
 @import "./skin-candidate-preview.css";
 @import "./skin-candidate-decorations.css";
 @import "./skin-toolbar-preview.css";
+@import "./external-skin-geometry.css";
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
