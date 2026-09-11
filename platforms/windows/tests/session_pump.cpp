@@ -33,15 +33,16 @@ public:
       return std::nullopt;
     return packets[next++];
   }
-  bool send(const PipeTicket &value, uint32_t role,
-            const std::vector<uint8_t> &frame) override {
+  KeyEventSendResult send(const PipeTicket &value, uint32_t role,
+                          const std::vector<uint8_t> &frame) override {
     require(std::this_thread::get_id() == io_thread);
     if (!current(value))
-      return false;
+      return KeyEventSendResult::DefinitelyNotSent;
     writes.emplace_back(role, frame);
     if (throw_write && writes.size() == fail_write)
       throw std::runtime_error("Synthetic write exception");
-    return writes.size() != fail_write;
+    return writes.size() != fail_write ? KeyEventSendResult::Sent
+                                       : KeyEventSendResult::DeliveryAmbiguous;
   }
   void close(const PipeTicket &value) noexcept override {
     if (same_ticket(ticket, value))

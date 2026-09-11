@@ -1,5 +1,6 @@
 #pragma once
 #include "PipeTicket.h"
+#include "KeyEventSendResult.h"
 #include "windows_ipc.h"
 #include <optional>
 #include <vector>
@@ -18,8 +19,8 @@ public:
   virtual std::optional<FanyImeNamedpipeData>
   read(const PipeTicket &ticket) = 0;
   // Complete write only; false includes uncertain delivery. No retries.
-  virtual bool send(const PipeTicket &ticket, uint32_t role,
-                    const std::vector<uint8_t> &frame) = 0;
+  virtual KeyEventSendResult send(const PipeTicket &ticket, uint32_t role,
+                                  const std::vector<uint8_t> &frame) = 0;
   virtual void close(const PipeTicket &ticket) noexcept = 0;
 };
 } // namespace msime::windows

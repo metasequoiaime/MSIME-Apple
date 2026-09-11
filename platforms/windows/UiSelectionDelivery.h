@@ -18,13 +18,15 @@ inline UiDeliveryResult deliver_ui_selection(MainTransport &transport,
       if (!transport.current(lease.transport))
         return;
       attempted = true;
-      if (frames.before_trigger &&
-          !transport.send(lease.transport, FanyImePipeRole::ToTsf,
-                          std::vector<uint8_t>(frames.before_trigger->begin(),
-                                               frames.before_trigger->end())))
-        return;
+      if (frames.before_trigger) {
+        const auto result = transport.send(
+            lease.transport, FanyImePipeRole::ToTsf,
+            std::vector<uint8_t>(frames.before_trigger->begin(),
+                                 frames.before_trigger->end()));
+        if (result != KeyEventSendResult::Sent) return;
+      }
       sent = transport.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
-                            frames.worker);
+                            frames.worker) == KeyEventSendResult::Sent;
     });
   } catch (...) {
     attempted = true;
