@@ -215,9 +215,13 @@ EngineSnapshot EngineSession::snapshot() const {
     output.preedit = value.preedit;
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto& candidate : value.candidates) {
+    for (std::size_t index = 0; index < value.candidates.size(); ++index) {
+        const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));
-        output.candidate_annotations.push_back(rust::String(candidate.corrected_from));
+        const auto &annotation = index < value.candidate_annotations.size()
+                                     ? value.candidate_annotations[index]
+                                     : candidate.corrected_from;
+        output.candidate_annotations.push_back(rust::String(annotation));
         output.candidate_sources.push_back(static_cast<std::uint8_t>(candidate.source));
         output.candidate_positions.push_back(static_cast<std::uint8_t>(candidate.fixed_position));
     }
