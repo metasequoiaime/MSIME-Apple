@@ -64,6 +64,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (_appearance) return;
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
