@@ -14,12 +14,13 @@ import android.os.Looper;
 import android.os.Build;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.view.View;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.View;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
 import android.view.ViewConfiguration;
@@ -46,6 +47,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final int STANDARD_TOUCH_LAYOUT = 0;
     private static final int QUANPIN_NINE_KEY_LAYOUT = 1;
     private static final int JAPANESE_NINE_KEY_LAYOUT = 2;
+    private static final int HANDWRITING_LAYOUT = 3;
+    private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -84,6 +87,16 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
+    private HandwritingCanvas handwritingCanvas;
+    private LinearLayout handwritingCandidates;
+    private TextView handwritingStatus;
+    private Button handwritingDownload;
+    private HandwritingRecognizer handwritingRecognizer;
+    private Runnable handwritingRecognitionTask;
+    private Runnable handwritingAvailabilityTask;
+    private boolean handwritingDownloading;
+    private java.util.List<String> handwritingResults = java.util.List.of();
+    private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
     private Button layerButton;
     private Button shiftButton;
     private TextView status;
@@ -161,6 +174,7 @@ public final class MSIMEInputService extends InputMethodService {
                 message = "共享运行时未就绪：仅直接输入";
             }
         }
+        rebuildKeyRows();
         render();
     }
 
@@ -169,6 +183,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     private void stop(boolean finish) {
+        deactivateHandwriting();
         preferencesReloader.stop();
         preferenceSaveGeneration++;
         preferencesDirectory = "";
@@ -314,6 +329,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     private static int touchLayout(JSONObject value) {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
+        if ("handwriting".equals(value.optString("touch_keyboard_layout"))) {
+            return HANDWRITING_LAYOUT;
+        }
         if (value.optBoolean("nine_key", false)) return QUANPIN_NINE_KEY_LAYOUT;
         if (value.optInt("scheme", -1) == 3
                 && "nine_key".equals(value.optString("touch_keyboard_layout"))) {
@@ -433,6 +451,7 @@ public final class MSIMEInputService extends InputMethodService {
             expandedCandidates.setBackgroundColor(Color.parseColor(skin.background()));
         if (schemePanel != null)
             schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
     }
 
@@ -930,10 +949,307 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidates.addView(hint);
     }
 
+    private boolean handwritingActive() {
+        return session != 0 && keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && touchLayout(view) == HANDWRITING_LAYOUT && handwritingCanvas != null;
+    }
+
+    private void deactivateHandwriting() {
+        if (handwritingRecognitionTask != null) main.removeCallbacks(handwritingRecognitionTask);
+        if (handwritingAvailabilityTask != null) main.removeCallbacks(handwritingAvailabilityTask);
+        handwritingRecognitionTask = null;
+        handwritingAvailabilityTask = null;
+        handwritingRequests.invalidate();
+        if (handwritingRecognizer != null) {
+            try { handwritingRecognizer.cancelPending(); } catch (RuntimeException ignored) { }
+            try { handwritingRecognizer.close(); } catch (RuntimeException ignored) { }
+        }
+        handwritingRecognizer = null;
+        handwritingCanvas = null;
+        handwritingCandidates = null;
+        handwritingStatus = null;
+        handwritingDownload = null;
+        handwritingDownloading = false;
+        handwritingResults = java.util.List.of();
+    }
+
+    private void showHandwritingStatus(String text) {
+        if (handwritingCandidates == null || handwritingStatus == null) return;
+        handwritingCandidates.removeAllViews();
+        handwritingStatus.setText(text);
+        handwritingCandidates.addView(handwritingStatus);
+    }
+
+    private void refreshHandwritingAvailability() {
+        if (!handwritingActive() || handwritingRecognizer == null || handwritingDownload == null) return;
+        if (handwritingAvailabilityTask != null) {
+            main.removeCallbacks(handwritingAvailabilityTask);
+            handwritingAvailabilityTask = null;
+        }
+        HandwritingRecognizer.Availability availability = handwritingRecognizer.availability();
+        switch (availability) {
+            case UNAVAILABLE -> {
+                handwritingCanvas.setAcceptsInk(false);
+                handwritingDownload.setVisibility(View.GONE);
+                showHandwritingStatus("此构建不含手写识别");
+            }
+            case DOWNLOAD_REQUIRED -> {
+                handwritingCanvas.setAcceptsInk(false);
+                handwritingDownload.setText("下载中文手写模型");
+                handwritingDownload.setContentDescription("下载中文手写模型；完成后可离线识别");
+                handwritingDownload.setEnabled(true);
+                handwritingDownload.setVisibility(View.VISIBLE);
+                if (!handwritingDownloading) showHandwritingStatus("首次下载后可离线手写");
+            }
+            case DOWNLOADING -> {
+                handwritingCanvas.setAcceptsInk(false);
+                handwritingDownload.setText(handwritingDownloading ? "正在下载…" : "正在检查模型…");
+                handwritingDownload.setEnabled(false);
+                handwritingDownload.setVisibility(View.VISIBLE);
+                showHandwritingStatus(handwritingDownloading
+                    ? "正在下载中文手写模型…" : "正在检查中文手写模型…");
+                HandwritingRecognizer expected = handwritingRecognizer;
+                handwritingAvailabilityTask = () -> {
+                    if (handwritingRecognizer == expected) refreshHandwritingAvailability();
+                };
+                main.postDelayed(handwritingAvailabilityTask, 250);
+            }
+            case READY -> {
+                handwritingDownloading = false;
+                handwritingCanvas.setAcceptsInk(true);
+                handwritingDownload.setVisibility(View.GONE);
+                if (!handwritingCanvas.hasInk() && handwritingResults.isEmpty()) {
+                    showHandwritingStatus("在此手写，停笔后选字");
+                }
+            }
+        }
+    }
+
+    private void downloadHandwritingModel() {
+        if (!handwritingActive() || handwritingRecognizer == null
+                || handwritingRecognizer.availability() != HandwritingRecognizer.Availability.DOWNLOAD_REQUIRED) {
+            return;
+        }
+        HandwritingRecognizer expected = handwritingRecognizer;
+        handwritingDownloading = true;
+        try {
+            handwritingRecognizer.download(new HandwritingRecognizer.DownloadListener() {
+                @Override public void onProgress(int percent) {
+                    main.post(() -> {
+                        if (handwritingRecognizer != expected || !handwritingActive()) return;
+                        showHandwritingStatus(percent > 0
+                            ? "模型下载中 " + percent + "%" : "正在连接模型服务…");
+                    });
+                }
+
+                @Override public void onComplete() {
+                    main.post(() -> {
+                        if (handwritingRecognizer != expected || !handwritingActive()) return;
+                        handwritingDownloading = false;
+                        refreshHandwritingAvailability();
+                    });
+                }
+
+                @Override public void onFailure() {
+                    main.post(() -> {
+                        if (handwritingRecognizer != expected || !handwritingActive()) return;
+                        handwritingDownloading = false;
+                        refreshHandwritingAvailability();
+                        showHandwritingStatus("下载失败，请检查网络后重试");
+                    });
+                }
+            });
+        } catch (RuntimeException error) {
+            handwritingDownloading = false;
+            showHandwritingStatus("下载失败，请检查网络后重试");
+        }
+        refreshHandwritingAvailability();
+    }
+
+    private void invalidateHandwritingRecognition() {
+        if (handwritingRecognitionTask != null) main.removeCallbacks(handwritingRecognitionTask);
+        handwritingRecognitionTask = null;
+        handwritingRequests.invalidate();
+        handwritingResults = java.util.List.of();
+        if (handwritingRecognizer != null) {
+            try { handwritingRecognizer.cancelPending(); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private void handwritingInkChanged(long revision,
+                                       java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
+        invalidateHandwritingRecognition();
+        if (!handwritingActive() || handwritingCanvas == null) return;
+        if (strokes.isEmpty()) {
+            showHandwritingStatus("在此手写，停笔后选字");
+            return;
+        }
+        if (handwritingRecognizer == null
+                || handwritingRecognizer.availability() != HandwritingRecognizer.Availability.READY) {
+            refreshHandwritingAvailability();
+            return;
+        }
+        showHandwritingStatus("停笔后识别…");
+        HandwritingRequestTracker.Token token = handwritingRequests.begin(session, revision);
+        handwritingRecognitionTask = () -> recognizeHandwriting(token, strokes);
+        main.postDelayed(handwritingRecognitionTask, HANDWRITING_DEBOUNCE_MILLIS);
+    }
+
+    private boolean acceptsHandwriting(HandwritingRequestTracker.Token token) {
+        return handwritingCanvas != null && handwritingRequests.accepts(token, session,
+            handwritingCanvas.revision(), handwritingActive());
+    }
+
+    private void recognizeHandwriting(HandwritingRequestTracker.Token token,
+                                      java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
+        handwritingRecognitionTask = null;
+        if (!acceptsHandwriting(token) || handwritingRecognizer == null
+                || handwritingRecognizer.availability() != HandwritingRecognizer.Availability.READY) {
+            return;
+        }
+        final HandwritingRecognizer expected = handwritingRecognizer;
+        final HandwritingRecognizer.Request request;
+        try {
+            request = new HandwritingRecognizer.Request(token.revision(), strokes,
+                handwritingCanvas.getWidth(), handwritingCanvas.getHeight());
+        } catch (IllegalArgumentException error) {
+            showHandwritingStatus("书写区域不可用，请重试");
+            return;
+        }
+        showHandwritingStatus("正在识别…");
+        try {
+            handwritingRecognizer.recognize(request, new HandwritingRecognizer.RecognitionListener() {
+                @Override public void onResult(long revision, java.util.List<String> values) {
+                    main.post(() -> {
+                        if (handwritingRecognizer != expected || revision != token.revision()
+                                || !acceptsHandwriting(token)) return;
+                        handwritingResults = HandwritingRecognizer.sanitizeCandidates(values);
+                        renderHandwritingCandidates(token);
+                    });
+                }
+
+                @Override public void onFailure(long revision) {
+                    main.post(() -> {
+                        if (handwritingRecognizer != expected || revision != token.revision()
+                                || !acceptsHandwriting(token)) return;
+                        handwritingResults = java.util.List.of();
+                        showHandwritingStatus("识别失败，请撤销或重新书写");
+                    });
+                }
+            });
+        } catch (RuntimeException error) {
+            if (acceptsHandwriting(token)) showHandwritingStatus("识别失败，请撤销或重新书写");
+        }
+    }
+
+    private void renderHandwritingCandidates(HandwritingRequestTracker.Token token) {
+        if (handwritingCandidates == null || handwritingStatus == null) return;
+        handwritingCandidates.removeAllViews();
+        if (handwritingResults.isEmpty()) {
+            showHandwritingStatus("未识别，请撤销或重新书写");
+            return;
+        }
+        for (int index = 0; index < handwritingResults.size(); index++) {
+            String candidate = handwritingResults.get(index);
+            Button choice = keyboardKey(candidate, "手写候选 " + (index + 1),
+                () -> commitHandwritingCandidate(token, candidate));
+            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+            handwritingCandidates.addView(choice, new LinearLayout.LayoutParams(
+                pixels(48), LinearLayout.LayoutParams.MATCH_PARENT));
+        }
+        applySkin();
+    }
+
+    private void clearHandwriting() {
+        invalidateHandwritingRecognition();
+        if (handwritingCanvas != null) handwritingCanvas.clear();
+        showHandwritingStatus("在此手写，停笔后选字");
+    }
+
+    private void deleteFromHandwriting() {
+        if (handwritingCanvas != null && handwritingCanvas.hasInk()) {
+            handwritingCanvas.undo();
+        } else if (connection != null && !command(0)) {
+            connection.deleteSurroundingTextInCodePoints(1, 0);
+        }
+    }
+
+    private void commitHandwritingCandidate(HandwritingRequestTracker.Token token, String candidate) {
+        if (!acceptsHandwriting(token) || !handwritingResults.contains(candidate)
+                || connection == null) return;
+        long targetSession = session;
+        command(9);
+        if (targetSession != session || !acceptsHandwriting(token) || connection == null) return;
+        if (connection.commitText(candidate, 1)) clearHandwriting();
+    }
+
+    private void rebuildHandwritingRows() {
+        handwritingCandidates = new LinearLayout(this);
+        handwritingCandidates.setOrientation(LinearLayout.HORIZONTAL);
+        handwritingStatus = new TextView(this);
+        handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        HorizontalScrollView candidateScroll = new HorizontalScrollView(this);
+        candidateScroll.setHorizontalScrollBarEnabled(false);
+        candidateScroll.setContentDescription("手写候选");
+        candidateScroll.addView(handwritingCandidates);
+        keyRows.addView(candidateScroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(48)));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout canvasFrame = new FrameLayout(this);
+        handwritingCanvas = new HandwritingCanvas(this);
+        handwritingCanvas.applySkin(skin);
+        canvasFrame.addView(handwritingCanvas, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        handwritingDownload = new Button(this);
+        handwritingDownload.setAllCaps(false);
+        handwritingDownload.setOnClickListener(ignored -> {
+            playFeedback(handwritingDownload);
+            downloadHandwritingModel();
+        });
+        FrameLayout.LayoutParams downloadParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, pixels(48));
+        downloadParams.gravity = Gravity.CENTER;
+        downloadParams.leftMargin = pixels(16);
+        downloadParams.rightMargin = pixels(16);
+        canvasFrame.addView(handwritingDownload, downloadParams);
+        row.addView(canvasFrame, new LinearLayout.LayoutParams(0, pixels(220), 1));
+
+        LinearLayout tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.VERTICAL);
+        addNineKey(tools, keyboardKey("撤销", "撤销最后一笔", () -> {
+            if (handwritingCanvas != null) handwritingCanvas.undo();
+        }));
+        addNineKey(tools, keyboardKey("清空", "清空手写", this::clearHandwriting));
+        addNineKey(tools, keyboardKey("⌫", "删除", this::deleteFromHandwriting));
+        row.addView(tools, new LinearLayout.LayoutParams(pixels(64), pixels(220)));
+        keyRows.addView(row);
+
+        handwritingRecognizer = HandwritingRecognizerFactory.create(this);
+        handwritingCanvas.setListener(new HandwritingCanvas.Listener() {
+            @Override public void onStrokeBegan() {
+                invalidateHandwritingRecognition();
+                showHandwritingStatus("书写中…");
+            }
+
+            @Override public void onInkChanged(long revision,
+                    java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
+                handwritingInkChanged(revision, strokes);
+            }
+        });
+        refreshHandwritingAvailability();
+    }
+
     private void rebuildKeyRows() {
         if (keyRows == null) return;
+        deactivateHandwriting();
         keyRows.removeAllViews();
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
+            if (touchLayout(view) == HANDWRITING_LAYOUT) {
+                rebuildHandwritingRows();
+                return;
+            }
             if (touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
                 rebuildNineKeyRows();
                 return;
@@ -1189,6 +1505,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        deactivateHandwriting();
         loadFeedbackPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
         if (!clipboardHistoryEnabled) clipboardHistory.clear();

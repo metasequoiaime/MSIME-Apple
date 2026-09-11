@@ -11,16 +11,18 @@ public final class KeyboardSchemeSmoke {
         check(value.scheme().equals(expectedScheme));
         check(value.lastChineseScheme().equals(expectedLast));
         check(value.shuangpinProfile().equals(expectedProfile));
-        check(value.touchKeyboardLayout().equals(
-            scheme == KeyboardScheme.QUANPIN_NINE_KEY || scheme == KeyboardScheme.JAPANESE_NINE_KEY
-                ? "nine_key" : "twenty_six_key"));
+        String expectedLayout = scheme == KeyboardScheme.HANDWRITING ? "handwriting"
+            : scheme == KeyboardScheme.QUANPIN_NINE_KEY || scheme == KeyboardScheme.JAPANESE_NINE_KEY
+                ? "nine_key" : "twenty_six_key";
+        check(value.touchKeyboardLayout().equals(expectedLayout));
     }
 
     public static void main(String[] args) {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
-            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 26 键", "日语 9 键")));
+            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 26 键", "日语 9 键", "手写")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
-            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ26", "あ9")));
+            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ26", "あ9", "写手")));
+        check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting") == KeyboardScheme.HANDWRITING);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "nine_key") == KeyboardScheme.QUANPIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key") == KeyboardScheme.JAPANESE_NINE_KEY);
         check(KeyboardScheme.fromPreferences("shuangpin", "microsoft", "nine_key") == KeyboardScheme.MICROSOFT);
@@ -33,7 +35,8 @@ public final class KeyboardSchemeSmoke {
         mapping(KeyboardScheme.WUBI, "shuangpin", "ziranma", "wubi", "wubi", "ziranma");
         mapping(KeyboardScheme.JAPANESE, "wubi", "shoudao", "japanese", "wubi", "shoudao");
         mapping(KeyboardScheme.JAPANESE_NINE_KEY, "wubi", "shoudao", "japanese", "wubi", "shoudao");
+        mapping(KeyboardScheme.HANDWRITING, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
         mapping(KeyboardScheme.JAPANESE, "invalid", "invalid", "japanese", "quanpin", "xiaohe");
-        System.out.println("Android keyboard schemes: nine labels, glyphs and shared preference mappings passed");
+        System.out.println("Android keyboard schemes: ten labels, glyphs and shared preference mappings passed");
     }
 }

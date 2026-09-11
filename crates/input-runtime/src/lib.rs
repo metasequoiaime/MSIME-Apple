@@ -1523,6 +1523,13 @@ mod tests {
             active.view().touch_keyboard_layout,
             TouchKeyboardLayout::NineKey
         );
+        active
+            .replace_engine_with_touch_layout(runtime().engine, 2, TouchKeyboardLayout::Handwriting)
+            .unwrap();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::Handwriting
+        );
     }
 
     #[test]
