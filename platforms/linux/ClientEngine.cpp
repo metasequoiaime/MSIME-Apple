@@ -460,6 +460,20 @@ struct TranslationTask {
 bool apply(IBusEngine *engine, char *raw);
 void render(IBusEngine *engine, const Json &view);
 void translation_complete(GObject *source, GAsyncResult *result, gpointer);
+bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded) {
+  try {
+    const auto request = Json::parse(encoded);
+    const auto generation = request.at("generation").get<uint64_t>();
+    auto &s = state(engine);
+    if (!s.session)
+      return false;
+    const auto current = response(msime_client_translation_query(s.session));
+    return current.is_object() &&
+           current.value("generation", generation) != generation;
+  } catch (...) {
+    return false;
+  }
+}
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.translation_provider_socket.empty() || s.translation_loading || !s.session ||
@@ -483,6 +497,20 @@ void translation_schedule(IBusEngine *engine) {
   } catch (...) { s.translation_loading = false; }
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer);
+bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
+  try {
+    const auto request = Json::parse(encoded);
+    const auto generation = request.at("generation").get<uint64_t>();
+    auto &s = state(engine);
+    if (!s.session)
+      return false;
+    const auto current = response(msime_client_online_query(s.session));
+    return current.is_object() &&
+           current.value("generation", generation) != generation;
+  } catch (...) {
+    return false;
+  }
+}
 void online_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.online_provider_socket.empty() || s.online_loading || !s.session ||
@@ -524,7 +552,14 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   if (!request || request->session != s.session || request->epoch != s.provider_epoch)
     return;
   s.translation_loading = false;
-  if (!raw || !s.session || !s.focused || s.blocked || !s.input_enabled) return;
+  if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+    return;
+  if (translation_request_is_stale(engine, request->query)) {
+    translation_schedule(engine);
+    return;
+  }
+  if (!raw)
+    return;
   try {
     const auto document = Json::parse(raw.get());
     if (!document.value("ok", false)) return;
@@ -549,7 +584,14 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
   if (!request || request->session != s.session || request->epoch != s.provider_epoch)
     return;
   s.online_loading = false;
-  if (!raw || !s.session || !s.focused || s.blocked || !s.input_enabled) return;
+  if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+    return;
+  if (online_request_is_stale(engine, request->query)) {
+    online_schedule(engine);
+    return;
+  }
+  if (!raw)
+    return;
   try {
     const auto document = Json::parse(raw.get());
     if (!document.value("ok", false)) return;
