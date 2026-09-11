@@ -323,6 +323,68 @@ fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f64, f64, f64)> {
+    if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+        let rect = value.get("rect")?;
+        return Some((
+            rect.get("x")?.as_f64()?,
+            rect.get("y")?.as_f64()?,
+            rect.get("width")?.as_f64()?,
+            rect.get("height")?.as_f64()?,
+        ));
+    }
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(serde_json::Value::as_array) {
+            for node in nodes {
+                if let Some(rect) = sway_rect_for_container(node, id) {
+                    return Some(rect);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
+    let mut fields = std::collections::HashMap::new();
+    for line in value.lines() {
+        let (key, value) = line.split_once('=')?;
+        fields.insert(key, value.parse::<f64>().ok()?);
+    }
+    Some((
+        *fields.get("X")?,
+        *fields.get("Y")?,
+        *fields.get("WIDTH")?,
+        *fields.get("HEIGHT")?,
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f64, f64)> {
+    let target = state.0.lock().ok()?.clone()?;
+    let rect = match target {
+        PanelInputTarget::X11(window) => std::process::Command::new("xdotool")
+            .args(["getwindowgeometry", "--shell", window.as_str()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| parse_xdotool_geometry(&String::from_utf8_lossy(&output.stdout))),
+        PanelInputTarget::Sway(id) => std::process::Command::new("swaymsg")
+            .args(["-t", "get_tree", "-r"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+            .and_then(|tree| sway_rect_for_container(&tree, id)),
+        PanelInputTarget::Wayland => None,
+    }?;
+    let x = (rect.0 + (rect.2 - width) / 2.0).max(0.0);
+    let y = (rect.1 + rect.3 - height - 16.0).max(0.0);
+    Some((x, y))
+}
+
+#[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
         || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
@@ -706,6 +768,7 @@ fn open_panel_window(
     title: &'static str,
     width: f64,
     height: f64,
+    position: Option<(f64, f64)>,
 ) -> Result<(), HostActionError> {
     if let Some(window) = app.get_webview_window(label) {
         window
@@ -716,23 +779,27 @@ fn open_panel_window(
             })?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         label,
         WebviewUrl::App(format!("index.html?panel={route}").into()),
     )
-    .title(title)
-    .inner_size(width, height)
-    .min_inner_size(width, height)
-    .resizable(false)
-    .decorations(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .build()
-    .map(|_| ())
-    .map_err(|_| HostActionError {
-        code: "unavailable",
-    })
+    .title(title);
+    if let Some((x, y)) = position {
+        builder = builder.position(x, y);
+    }
+    builder
+        .inner_size(width, height)
+        .min_inner_size(width, height)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()
+        .map(|_| ())
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
 }
 
 #[tauri::command]
@@ -767,7 +834,12 @@ fn open_keyboard_panel(
         #[cfg(not(target_os = "linux"))]
         let _ = &state;
         #[cfg(target_os = "linux")]
-        let _ = remember_panel_input_target(&state, true);
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 1100.0, 400.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
         open_panel_window(
             &app,
             "keyboard-panel",
@@ -775,6 +847,7 @@ fn open_keyboard_panel(
             "水杉屏幕键盘",
             1100.0,
             400.0,
+            position,
         )
     }
 }
@@ -811,7 +884,12 @@ fn open_handwriting_panel(
         #[cfg(not(target_os = "linux"))]
         let _ = &state;
         #[cfg(target_os = "linux")]
-        let _ = remember_panel_input_target(&state, true);
+        let position = {
+            let _ = remember_panel_input_target(&state, true);
+            panel_position(&state, 980.0, 650.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
         open_panel_window(
             &app,
             "handwriting-panel",
@@ -819,6 +897,7 @@ fn open_handwriting_panel(
             "水杉手写识别板",
             980.0,
             650.0,
+            position,
         )
     }
 }
@@ -863,7 +942,15 @@ fn open_emoji_panel(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = state;
-        open_panel_window(&app, "emoji-panel", "emoji", "Emoji and more", 720.0, 720.0)
+        open_panel_window(
+            &app,
+            "emoji-panel",
+            "emoji",
+            "Emoji and more",
+            720.0,
+            720.0,
+            None,
+        )
     }
 }
 
