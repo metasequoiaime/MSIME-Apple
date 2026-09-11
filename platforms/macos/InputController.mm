@@ -6,6 +6,7 @@
 #import "CandidatePlacement.h"
 #import "UpdateController.h"
 #import "DictionaryWindowController.h"
+#import "DictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
@@ -109,6 +110,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"个人词典…" action:@selector(showDictionary:) keyEquivalent:@""];
     dictionary.target = self;
     [menu addItem:dictionary];
+    NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
+    prepare.target = self;
+    [menu addItem:prepare];
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
     updates.target = self;
@@ -151,6 +155,33 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)showDictionary:(id)sender { (void)sender; if (!_session) [self prepareSession]; if (!_session) return; _dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:_session.hostOptions]; [_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }
+- (void)prepareDictionary:(id)sender {
+    (void)sender;
+    if (_session && _activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+        [_session setFocused:NO error:nil];
+        [_session closeWithError:nil];
+        _session = nil;
+        [_preferencesTimer invalidate];
+        _preferencesTimer = nil;
+    }
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO; panel.canChooseDirectories = YES; panel.allowsMultipleSelection = NO;
+    [panel beginWithCompletionHandler:^(NSModalResponse response) {
+        if (response != NSModalResponseOK || !panel.URL) return;
+        NSURL *support = [[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSURL *state = [support URLByAppendingPathComponent:@"app.msime.client.preview" isDirectory:YES];
+        [MSIMEDictionaryRuntime prepareResourcesDirectory:panel.URL.path stateRoot:state.path completion:^(NSDictionary *options, NSError *error) {
+            if (!options) { NSAlert *alert = [NSAlert new]; alert.messageText = @"词库准备失败"; alert.informativeText = error.localizedDescription ?: @"无法准备词库"; [alert runModal]; return; }
+            NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:nil];
+            NSURL *target = [state URLByAppendingPathComponent:@"runtime-options.json"];
+            [[NSFileManager defaultManager] createDirectoryAtURL:state withIntermediateDirectories:YES attributes:nil error:nil];
+            [data writeToURL:target options:NSDataWritingAtomic error:nil];
+        }];
+    }];
+}
 
 - (void)activateServer:(id)sender {
     [super activateServer:sender];
