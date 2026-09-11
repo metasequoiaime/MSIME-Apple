@@ -23,7 +23,7 @@ const client: SettingsClient = {
     tsf: enabled => invoke("set_diagnostic_log", { scope: "tsf", enabled }),
     state: scope => invoke<boolean>("get_diagnostic_log", { scope }),
   },
-  clipboard: { clear: () => invoke("clear_clipboard_history"), copy: text => invoke("copy_text", { text }) },
+  clipboard: { clear: () => invoke("clear_clipboard_history"), list: () => invoke<string[]>("list_clipboard_history"), copy: text => invoke("copy_text", { text }) },
   screen_keyboard: { open: () => invoke("open_screen_keyboard") },
   handwriting: { open: () => invoke("open_handwriting") },
   skin: {
