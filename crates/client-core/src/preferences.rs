@@ -90,6 +90,10 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
+    #[serde(default = "enabled_by_default")]
+    pub smart_punctuation: bool,
+    #[serde(default = "enabled_by_default")]
+    pub smart_punctuation_repeat: bool,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -530,6 +534,8 @@ impl Default for Preferences {
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
+            smart_punctuation: true,
+            smart_punctuation_repeat: true,
             navigation: NavigationPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),

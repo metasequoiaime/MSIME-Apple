@@ -140,6 +140,8 @@ struct State {
     session = view.at("session").get<uint64_t>();
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
+    smart_punctuation = options.at("preferences").value("smart_punctuation", true);
+    smart_punctuation_repeat = options.at("preferences").value("smart_punctuation_repeat", true);
     punctuation_lock = configured.value("punctuation_lock", "follow");
     if (punctuation_lock == "chinese")
       chinese_punctuation = true;
