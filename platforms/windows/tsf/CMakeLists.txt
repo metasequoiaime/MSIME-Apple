@@ -32,11 +32,13 @@ add_library(msime-tsf SHARED
 )
 
 find_package(fmt CONFIG REQUIRED)
+find_path(UTF8CPP_INCLUDE_DIR NAMES utf8cpp/utf8.h REQUIRED)
 
 target_include_directories(msime-tsf PRIVATE
   . Candidate Compartment Composition DisplayAttribute Edit FanyLog Global
   Header IME IPC Key LanguageBar Register Tf Thread UI Utils
   ../../../vendor/MSIME-Engine/contracts
+  ${UTF8CPP_INCLUDE_DIR}
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
 target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
