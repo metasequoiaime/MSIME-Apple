@@ -34,6 +34,19 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data || data.length > 65536) { setError(error, @"词典请求过大"); return nil; }
     return decode(msime_client_dictionary(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
++ (NSString *)snapshotVersionForOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"本地词库版本参数无效"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"本地词库版本参数过大"); return nil; }
+    NSDictionary *value = decode(msime_client_snapshot_version(static_cast<const uint8_t *>(data.bytes), data.length), error);
+    NSString *version = value[@"version"];
+    if (![version isKindOfClass:NSString.class] || version.length != 64) { setError(error, @"本地词库版本响应无效"); return nil; }
+    return version;
+}
++ (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error {
+    if (!handle) { setError(error, @"本地词库准备句柄无效"); return NO; }
+    return decode(msime_client_snapshot_discard(handle), error) != nil;
+}
 + (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
     if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
         setError(error, @"词库准备目录必须是绝对路径"); return nil;
