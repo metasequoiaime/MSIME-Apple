@@ -1095,6 +1095,11 @@ void render(IBusEngine *engine, const Json &view) {
           value.size() <= 4096)
         value += " · " + translation;
     }
+    switch (candidate.value("source", 0)) {
+    case 2: value += "  云"; break;
+    case 3: value += "  AI"; break;
+    default: break;
+    }
     const auto annotation = candidate.value("annotation", std::string{});
     if (!annotation.empty()) {
       value += "  ";
