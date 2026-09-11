@@ -34,6 +34,6 @@ target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.
 
 ## Windows parity gaps
 
-The Windows mode panel exposes fullwidth/halfwidth character output. The shared `input-runtime` currently has no character-mode state or command, so Linux does not publish a cosmetic IBus toggle. This must be implemented in the shared runtime and Host API before exposing a session property.
+The Windows mode panel exposes fullwidth/halfwidth character output. Linux now carries a session-scoped `CharacterWidth` through `input-runtime` and `msime-host-api`; the IBus panel exposes `CharacterWidth` and commit text applies fullwidth conversion for printable ASCII. The mode is ephemeral and does not rewrite preferences. Native GTK/Qt editor validation and a dedicated end-to-end ASCII commit fixture remain follow-ups.
 
 Container acceptance also requires the locked Engine dictionary source `googlepinyinime-rev/src/share/dictbuilder.cpp`; without it, full daemon compilation cannot be validated.
