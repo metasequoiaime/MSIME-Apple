@@ -28,6 +28,9 @@ target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
 add_executable(msime-client-handwriting handwriting_request.cpp)
 target_compile_options(msime-client-handwriting PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-handwriting PRIVATE msime-ibus-host)
+add_executable(msime-client-emoji emoji_request.cpp)
+target_compile_options(msime-client-emoji PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-emoji PRIVATE msime-ibus-host)
 add_executable(ibus-engine-smoke tests/engine_smoke.cpp)
 target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
@@ -38,7 +41,8 @@ if(MSIME_LINUX_VOICE)
 endif()
 configure_file(msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-clipboard
-                msime-client-handwriting RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+                msime-client-handwriting msime-client-emoji
+                RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
@@ -50,5 +54,6 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml DESTINATION "
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
-set_target_properties(msime-client-ibus msime-client-dictionary msime-client-handwriting PROPERTIES
+set_target_properties(msime-client-ibus msime-client-dictionary msime-client-handwriting
+                      msime-client-emoji PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")

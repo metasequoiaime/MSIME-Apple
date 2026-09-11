@@ -248,6 +248,29 @@ pub struct HandwritingQuery {
     pub strokes: Vec<Vec<HandwritingPoint>>,
 }
 
+/// Search request for a standalone Linux emoji panel. The panel owns its
+/// category/search UI while the provider supplies the catalog and annotations.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelQuery {
+    #[serde(default)]
+    pub search: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default = "default_emoji_panel_limit")]
+    pub limit: u8,
+}
+
+fn default_emoji_panel_limit() -> u8 {
+    48
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelItem {
+    pub text: String,
+    #[serde(default)]
+    pub annotation: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineCandidate {
     pub query: OnlineQuery,
@@ -403,6 +426,45 @@ impl UnixSocketProvider {
             return None;
         }
         Some(reply.candidates)
+    }
+
+    /// Search the user-owned emoji catalog. Results stay outside the IBus
+    /// session and can be rendered by any desktop panel toolkit.
+    pub fn emoji(&self, query: EmojiPanelQuery) -> Option<Vec<EmojiPanelItem>> {
+        if query.search.len() > 256
+            || query.category.len() > 128
+            || !(1..=96).contains(&query.limit)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "emoji", "query": query}).to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            items: Vec<EmojiPanelItem>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.items.len() > 96
+            || reply.items.iter().any(|item| {
+                item.text.is_empty()
+                    || item.text.len() > 64
+                    || item.annotation.len() > 256
+            })
+        {
+            return None;
+        }
+        Some(reply.items)
     }
 }
 

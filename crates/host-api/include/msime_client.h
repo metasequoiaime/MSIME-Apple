@@ -148,6 +148,12 @@ char *msime_client_handwriting_provider_request(const uint8_t *query,
                                                size_t query_length,
                                                const uint8_t *socket_path,
                                                size_t socket_length);
+/* Linux standalone emoji panel adapter. The query contains search/category
+ * text and a bounded result limit; the socket returns {items:[...]}. */
+char *msime_client_emoji_provider_request(const uint8_t *query,
+                                          size_t query_length,
+                                          const uint8_t *socket_path,
+                                          size_t socket_length);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
