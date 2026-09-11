@@ -9,10 +9,12 @@ const pages = [
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
+  { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
 ] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 
 export type Preferences = {
+  local_modes?: LocalModePreferences;
   mixed_input?: MixedInputPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
@@ -31,6 +33,18 @@ export type Preferences = {
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
+const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
+const localModeRows = [
+  ["quick_phrase", "快捷短语(K 模式)", "中文模式下按 Shift+K，再输入编码即可调用快捷短语"],
+  ["date_time", "日期与时间快捷输入(T 模式)", "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期"],
+  ["unicode", "Unicode 便捷录入(U 模式)", "中文模式下按 Shift+U，再输入十六进制码位（如 4e00 / +1f600）。空格上屏；Shift+数字选词"],
+  ["emoji", "Emoji 快捷输入(E 模式)", "中文模式下按 Shift+E，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词"],
+  ["kaomoji", "颜文字快捷输入(M 模式)", "中文模式下按 Shift+M，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词"],
+  ["super_jianpin", "超级简拼(J 模式)", "中文模式下按 Shift+J，每个字母作为简拼；双拼按当前方案转换声母。空格上屏；数字选词"],
+  ["temporary_english", "临时英文(Y 模式)", "中文模式下按 Shift+Y，之后按英文处理。空格上屏当前输入；数字选词；上屏后回到中文"],
+  ["temporary_japanese", "临时日语(R 模式)", "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文"],
+] as const;
 export type MixedInputPreferences = { english: boolean; minimum_prefix: number; emoji: boolean; kaomoji: boolean };
 const defaultMixedInput: MixedInputPreferences = { english: true, minimum_prefix: 2, emoji: false, kaomoji: false };
 export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
@@ -99,6 +113,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
+  const localModes = draft?.local_modes ?? defaultLocalModes;
   return <div className="settings-shell">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
@@ -246,6 +261,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
           </div>
         </div>
+      </fieldset>
+      <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
+        {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
+          <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
+        </div>)}
       </fieldset>
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}

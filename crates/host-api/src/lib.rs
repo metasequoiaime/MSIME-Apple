@@ -62,6 +62,14 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
+        options.local_unicode = snapshot.preferences.local_modes.unicode;
+        options.local_date_time = snapshot.preferences.local_modes.date_time;
+        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
+        options.local_emoji = snapshot.preferences.local_modes.emoji;
+        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
+        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
+        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
+        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();
@@ -385,6 +393,14 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             english_minimum_prefix: options.preferences.mixed_input.minimum_prefix,
             mixed_emoji: options.preferences.mixed_input.emoji,
             mixed_kaomoji: options.preferences.mixed_input.kaomoji,
+            local_unicode: options.preferences.local_modes.unicode,
+            local_date_time: options.preferences.local_modes.date_time,
+            local_quick_phrase: options.preferences.local_modes.quick_phrase,
+            local_emoji: options.preferences.local_modes.emoji,
+            local_kaomoji: options.preferences.local_modes.kaomoji,
+            local_super_jianpin: options.preferences.local_modes.super_jianpin,
+            local_temporary_english: options.preferences.local_modes.temporary_english,
+            local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
@@ -660,6 +676,27 @@ mod tests {
         });
         preferences.mixed_input.minimum_prefix = 9;
         assert_eq!(update(handle, 2, &preferences)["ok"], false);
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn local_mode_disable_is_deferred_and_preserves_other_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'U', true));
+        let before = read(msime_client_view(handle));
+        let mut preferences = Preferences::default();
+        preferences.local_modes.unicode = false;
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+        assert_eq!(read(msime_client_view(handle)), before);
+        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.local_unicode));
+        read(msime_client_command(handle, 3));
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            assert!(!sessions[&handle].options.local_unicode);
+            assert!(sessions[&handle].options.local_emoji);
+        });
         read(msime_client_destroy(handle));
     }
 

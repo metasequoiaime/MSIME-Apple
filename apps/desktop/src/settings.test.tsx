@@ -144,6 +144,21 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
+
+test("utility mode switches preserve defaults and drafts across pages", async () => {
+  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  const unicode = await screen.findByRole("checkbox", { name: /^Unicode 便捷录入/ }) as HTMLInputElement;
+  expect(unicode.checked).toBe(true);
+  fireEvent.click(unicode);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(unicode.checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: { unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true } });
+});
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
 test("candidate appearance settings persist and use legacy defaults", async () => {

@@ -77,6 +77,36 @@ pub struct Preferences {
     pub frequency: FrequencyPreferences,
     #[serde(default)]
     pub mixed_input: MixedInputPreferences,
+    #[serde(default)]
+    pub local_modes: LocalModePreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalModePreferences {
+    pub unicode: bool,
+    pub date_time: bool,
+    pub quick_phrase: bool,
+    pub emoji: bool,
+    pub kaomoji: bool,
+    pub super_jianpin: bool,
+    pub temporary_english: bool,
+    pub temporary_japanese: bool,
+}
+
+impl Default for LocalModePreferences {
+    fn default() -> Self {
+        Self {
+            unicode: true,
+            date_time: true,
+            quick_phrase: true,
+            emoji: true,
+            kaomoji: true,
+            super_jianpin: true,
+            temporary_english: true,
+            temporary_japanese: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +242,7 @@ impl Default for Preferences {
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
+            local_modes: LocalModePreferences::default(),
         }
     }
 }
@@ -467,6 +498,44 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_mode_defaults_and_each_switch_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("local_modes");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.local_modes,
+            LocalModePreferences::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        for (revision, key) in [
+            "unicode",
+            "date_time",
+            "quick_phrase",
+            "emoji",
+            "kaomoji",
+            "super_jianpin",
+            "temporary_english",
+            "temporary_japanese",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut value = serde_json::to_value(Preferences::default()).unwrap();
+            value["local_modes"][*key] = false.into();
+            let saved = store
+                .save(revision as u64, serde_json::from_value(value).unwrap())
+                .unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+    }
 
     #[test]
     fn mixed_input_legacy_roundtrip_and_bounds() {

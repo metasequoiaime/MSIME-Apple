@@ -634,6 +634,12 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 
 本地验证覆盖快捷键分类、默认翻页键、候选移动键和维护快捷键展示；快捷键实际吃键、简繁/中英切换和全局维护命令仍由 Windows TSF/Server 后续切片接入，未据此声称 Windows 原生功能完成。
 
+### Windows 实用功能本地模式开关
+
+依据 Windows `develop` 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 `tools-settings.html` 和 Engine `LocalModeOptions`，设置页新增实用功能分类及 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启。配置经 PreferencesStore、host-api 和 CXX bridge 传入 Engine；活动组合中的开关变化延迟到组合结束后重建，旧配置缺省读取不改写原文件，各开关独立保存。
+
+本地验证覆盖共享配置旧文件回读、八个开关持久化、组合期间关闭 Unicode 模式的延迟应用及相邻模式不受影响，并新增真实资源回归示例。快捷短语增删改查/导入导出、剪贴板管理和 Windows 原生 TSF/逐像素验收仍待后续切片。
+
 ### Linux IBus 配置热重载（增量）
 
 Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
