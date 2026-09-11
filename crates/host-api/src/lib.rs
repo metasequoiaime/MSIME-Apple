@@ -409,7 +409,6 @@ pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: boo
 }
 
 #[no_mangle]
-#[no_mangle]
 pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *mut c_char {
     response(|| with_session(handle, |session| {
         session.runtime.set_punctuation_lock(lock).map_err(|e| e.to_string())?;
