@@ -131,6 +131,37 @@ fn refresh_skin_catalog(app: tauri::AppHandle) -> Result<(), HostActionError> {
 fn list_external_skins(app: tauri::AppHandle) -> Result<Vec<ExternalSkinSummary>, HostActionError> {
     let path = skin_directory(&app)?;
     let shared_catalog = msime_client_core::skin_catalog::scan(&path);
+    if !shared_catalog.packages.is_empty() || !shared_catalog.issues.is_empty() {
+        let msime_client_core::skin_catalog::SkinCatalog { packages, issues } = shared_catalog;
+        let mut result = packages
+            .into_iter()
+            .map(|package| ExternalSkinSummary {
+                id: package.id,
+                name: package.name,
+                version: Some(package.version),
+                author: package.author,
+                description: package.description,
+                compatible: true,
+                issues: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        result.extend(issues.into_iter().map(|issue| ExternalSkinSummary {
+            id: issue.folder.clone(),
+            name: issue.folder,
+            version: None,
+            author: None,
+            description: None,
+            compatible: false,
+            issues: vec![issue.reason],
+        }));
+        result.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        return Ok(result);
+    }
     let mut result = Vec::new();
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => entries,
