@@ -2416,7 +2416,7 @@ struct PreferencesRead {
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
-  if (!s.focused || !s.session || s.preferences_loading)
+  if (s.preferences_loading)
     return G_SOURCE_CONTINUE;
   const auto directory = configured.find("preferences_directory");
   if (directory == configured.end() || !directory->is_string() ||
@@ -2437,14 +2437,17 @@ gboolean reload_preferences(gpointer data) {
                            s.preferences_loading = false;
                            const auto *request = static_cast<const PreferencesRead *>(
                                g_task_get_task_data(G_TASK(result)));
-                           if (!request || s.session != request->session || !s.focused ||
-                               s.blocked || !raw)
+                           if (!request || !raw)
                              return;
                            try {
                              auto snapshot = response(raw.release());
                              if (snapshot.is_null())
                                return;
                              configured["preferences"] = snapshot.at("preferences");
+                             if (request->session == 0 ||
+                                 s.session != request->session || !s.focused ||
+                                 s.blocked)
+                               return;
                              s.apply_session_overrides(snapshot);
                              s.refresh_host_preferences(snapshot.at("preferences"));
                              if (s.voice_active && !s.voice_enabled)
