@@ -48,6 +48,7 @@ export type Preferences = {
   quanpin_helpcode?: HelpcodePreferences;
   shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
+  traditional_chinese_output?: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };

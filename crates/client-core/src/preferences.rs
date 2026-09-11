@@ -66,6 +66,8 @@ pub struct Preferences {
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
     pub chinese_punctuation: bool,
+    #[serde(default)]
+    pub traditional_chinese_output: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
     #[serde(default)]
@@ -278,6 +280,7 @@ impl Default for Preferences {
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             chinese_punctuation: true,
+            traditional_chinese_output: false,
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
