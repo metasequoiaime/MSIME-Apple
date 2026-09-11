@@ -90,6 +90,7 @@ mod ffi {
     pub struct EmojiCatalogItem {
         pub text: String,
         pub annotation: String,
+        pub group: String,
     }
     unsafe extern "C++" {
         include!("bridge.h");
@@ -125,6 +126,13 @@ mod ffi {
             search: &str,
             category: &str,
             limit: u8,
+        ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_page(
+            resources: &str,
+            search: &str,
+            category: &str,
+            offset: usize,
+            limit: u16,
         ) -> Result<Vec<EmojiCatalogItem>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
@@ -200,6 +208,16 @@ pub fn emoji_catalog(
     limit: u8,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog(resources, search, category, limit)
+}
+
+pub fn emoji_catalog_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_page(resources, search, category, offset, limit)
 }
 
 #[derive(Clone, Copy)]

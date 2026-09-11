@@ -9,12 +9,12 @@ use msime_client_core::preferences::{
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
-#[cfg(unix)]
-use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
     Action, CandidateId, CharacterWidth, EmojiPanelQuery, HandwritingQuery, OnlineQuery, Runtime,
     Transition, TranslationQuery,
 };
+#[cfg(unix)]
+use msime_input_runtime::UnixSocketProvider;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -262,7 +262,7 @@ pub fn prepare_host_configuration(
             state_root
                 .to_str()
                 .ok_or("non-UTF-8 state path")?
-                .to_owned(),
+            .to_owned(),
         ),
         clipboard_history_path: None,
         online_provider_socket: None,
@@ -291,6 +291,43 @@ pub fn edit_personal_dictionary(
     }
     msime_engine_bridge::dictionary_edit(options, previous, replacement, request_id)
         .map_err(|_| "dictionary edit rejected")
+}
+
+/// A host-owned view of one entry in the verified local Emoji catalog.
+#[derive(Clone, Debug, Serialize)]
+pub struct LocalEmojiCatalogItem {
+    pub text: String,
+    pub annotation: String,
+    pub group: String,
+}
+
+/// Read one bounded page from the Engine-owned `others.db` catalog.
+#[cfg(unix)]
+pub fn local_emoji_catalog_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<LocalEmojiCatalogItem>, &'static str> {
+    if !std::path::Path::new(resources).is_absolute() {
+        return Err("resources path must be absolute");
+    }
+    if limit == 0 || limit > 4096 {
+        return Err("invalid local emoji page size");
+    }
+    msime_engine_bridge::emoji_catalog_page(resources, search, category, offset, limit)
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|item| LocalEmojiCatalogItem {
+                    text: item.text,
+                    annotation: item.annotation,
+                    group: item.group,
+                })
+                .collect()
+        })
+        .map_err(|_| "local emoji catalog unavailable")
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
@@ -1015,7 +1052,10 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 16_384
+            || socket_length > 4096
         {
             return Err("invalid emoji provider buffer".into());
         }
@@ -1037,6 +1077,11 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
+/// The response is `{items:[{text,annotation,group}]}` or null when unavailable.
+///
+/// # Safety
+/// All pointers must reference readable buffers of the stated lengths for
+/// the duration of this call; the buffers are not retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_emoji_catalog_request(
@@ -1057,9 +1102,10 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid emoji query document")?;
-        let resources =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
-                .map_err(|_| "resources path is not UTF-8")?;
+        let resources = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(resources, resources_length)
+        })
+        .map_err(|_| "resources path is not UTF-8")?;
         if !std::path::Path::new(resources).is_absolute() {
             return Err("resources path must be absolute".into());
         }
@@ -1073,7 +1119,13 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
         Ok(json!({
             "items": items
                 .into_iter()
-                .map(|item| json!({"text": item.text, "annotation": item.annotation}))
+                .map(|item| {
+                    json!({
+                        "text": item.text,
+                        "annotation": item.annotation,
+                        "group": item.group,
+                    })
+                })
                 .collect::<Vec<_>>()
         }))
     })
@@ -1095,7 +1147,11 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || socket_path.is_null() || query_length > 4096 || socket_length > 4096 {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 4096
+            || socket_length > 4096
+        {
             return Err("invalid voice provider buffer".into());
         }
         #[derive(Deserialize)]

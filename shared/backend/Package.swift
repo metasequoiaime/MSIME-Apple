@@ -14,12 +14,15 @@ let package = Package(
         "BackendAccountClient.swift",
         "BackendAiClient.swift",
         "BackendAccountSession.swift",
+        "BackendChatClient.swift",
         "BackendCandidateClient.swift",
         "BackendClipboardClient.swift",
         "BackendCommunityResourceClient.swift",
         "BackendDictionaryClient.swift",
         "BackendPreferencesClient.swift",
         "BackendSnapshotClient.swift",
+        "BackendSkinArtworkClient.swift",
+        "IOSPreferencePlan.swift",
       ]
     ),
     .testTarget(

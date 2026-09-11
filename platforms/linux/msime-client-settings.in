@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ -n "${MSIME_CLIENT_HOST_OPTIONS:-}" ]; then
+  config=$MSIME_CLIENT_HOST_OPTIONS
+elif [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
+  config=$MSIME_IBUS_OPTIONS
+else
+  config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
+fi
+
+case "$config" in
+  /*) ;;
+  *) echo "MSIME runtime options must be an absolute path: $config" >&2; exit 1 ;;
+esac
+if [ ! -r "$config" ]; then
+  echo "MSIME runtime options not found: $config" >&2
+  exit 1
+fi
+
+launcher_path=$0
+link_depth=0
+while [ -L "$launcher_path" ]; do
+  link_depth=$((link_depth + 1))
+  [ "$link_depth" -le 32 ] || { echo "MSIME settings launcher symlink chain is too deep: $0" >&2; exit 1; }
+  link=$(readlink "$launcher_path")
+  case "$link" in
+    /*) launcher_path=$link ;;
+    *) launcher_path=$(dirname -- "$launcher_path")/$link ;;
+  esac
+done
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
+export MSIME_CLIENT_HOST_OPTIONS=$config
+exec "$launcher_dir/msime-client-desktop" "$@"

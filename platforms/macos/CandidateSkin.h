@@ -107,3 +107,8 @@ std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot);
 ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot);
 std::filesystem::path DefaultSkinsRoot();
 } // namespace msime::mac
+
+namespace metasequoia
+{
+namespace mac = ::msime::mac;
+}

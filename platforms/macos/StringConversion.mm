@@ -4,7 +4,7 @@
 #if __has_warning("-Wcharacter-conversion")
 #pragma clang diagnostic ignored "-Wcharacter-conversion"
 #endif
-#include "../../../vendor/MetasequoiaImeEngine/utfcpp/source/utf8.h"
+#include "../../vendor/MSIME-Engine/utfcpp/source/utf8.h"
 #pragma clang diagnostic pop
 
 NSString *MetasequoiaStringFromUtf8(const std::string &value)

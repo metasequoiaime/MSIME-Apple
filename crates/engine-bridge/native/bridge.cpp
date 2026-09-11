@@ -179,10 +179,11 @@ bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
                                   : CandidateSource::AiSuggestion;
     return session_.apply_online_candidate(request, std::string(candidate), kind);
 }
-rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
-                                          rust::Str category, std::uint8_t limit) {
+rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
+                                               rust::Str category, std::size_t offset,
+                                               std::uint16_t limit) {
     rust::Vec<EmojiCatalogItem> result;
-    if (limit == 0 || limit > 96)
+    if (limit == 0 || limit > 4096)
         return result;
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
     sqlite3 *database = nullptr;
@@ -192,33 +193,60 @@ rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
             sqlite3_close(database);
         return result;
     }
-    constexpr const char *sql =
-        "SELECT emoji,category FROM emoji "
-        "WHERE (?1 = '' OR category = ?1) "
-        "AND (?2 = '' OR pinyin LIKE ?3 OR keywords LIKE ?3 OR emoji LIKE ?3) "
-        "ORDER BY sort_order LIMIT ?4";
+    const std::string category_text(category);
+    const bool kaomoji = category_text == "kaomoji";
+    const bool symbols = category_text == "symbols";
+    const char *sql = nullptr;
+    if (kaomoji) {
+        sql = "SELECT kaomoji,'All',keywords FROM kaomoji_catalog "
+              "WHERE (?1 = '' OR kaomoji LIKE ?2 OR keywords LIKE ?2) "
+              "ORDER BY sort_order LIMIT ?3 OFFSET ?4";
+    } else if (symbols) {
+        sql = "SELECT symbol,category,keywords FROM symbol_catalog "
+              "WHERE (?1 = '' OR symbol LIKE ?2 OR category LIKE ?2 OR "
+              "parent_category LIKE ?2 OR keywords LIKE ?2) "
+              "ORDER BY sort_order LIMIT ?3 OFFSET ?4";
+    } else {
+        sql = "SELECT emoji,category,keywords FROM emoji "
+              "WHERE (?1 = '' OR category = ?1) "
+              "AND (?2 = '' OR pinyin LIKE ?3 OR keywords LIKE ?3 OR emoji LIKE ?3) "
+              "ORDER BY sort_order LIMIT ?4 OFFSET ?5";
+    }
     sqlite3_stmt *statement = nullptr;
     if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK) {
         sqlite3_close(database);
         return result;
     }
-    const std::string category_text(category);
     const std::string search_text(search);
     const std::string pattern = "%" + search_text + "%";
-    sqlite3_bind_text(statement, 1, category_text.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(statement, 2, search_text.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(statement, 3, pattern.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(statement, 4, limit);
+    if (kaomoji || symbols) {
+        sqlite3_bind_text(statement, 1, search_text.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(statement, 3, limit);
+        sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(offset));
+    } else {
+        sqlite3_bind_text(statement, 1, category_text.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, search_text.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 3, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(statement, 4, limit);
+        sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(offset));
+    }
     std::unordered_set<std::string> seen;
     while (sqlite3_step(statement) == SQLITE_ROW) {
         const auto *text = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
-        const auto *annotation = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
+        const auto *group = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
+        const auto *annotation = reinterpret_cast<const char *>(sqlite3_column_text(statement, 2));
         if (text && seen.insert(text).second)
-            result.push_back({rust::String(text), rust::String(annotation ? annotation : "")});
+            result.push_back({rust::String(text), rust::String(annotation ? annotation : ""),
+                              rust::String(group ? group : "")});
     }
     sqlite3_finalize(statement);
     sqlite3_close(database);
     return result;
+}
+rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
+                                          rust::Str category, std::uint8_t limit) {
+    return emoji_catalog_page(resources, search, category, 0, limit);
 }
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");

@@ -351,7 +351,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
         window.title = @"皮肤";
         window.releasedWhenClosed = NO;
-        MSIMESkinSettingsView *cards = [[MSIMESkinSettingsView alloc] initWithFrame:NSZeroRect preferences:self];
+        MetasequoiaSkinSettingsView *cards = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
         [window.contentView addSubview:cards];
         [NSLayoutConstraint activateConstraints:@[
             [cards.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor],
@@ -362,7 +362,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         _skinWindow = [[NSWindowController alloc] initWithWindow:window];
         [window center];
     } else {
-        [(MSIMESkinSettingsView *)_skinWindow.window.contentView.subviews.firstObject reload];
+        [(MetasequoiaSkinSettingsView *)_skinWindow.window.contentView.subviews.firstObject reload];
     }
     return _skinWindow;
 }

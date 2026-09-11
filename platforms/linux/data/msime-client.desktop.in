@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MSIME Client Preview
+GenericName=Chinese Input Method Settings
+Comment=Configure the MSIME Linux desktop host
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
+TryExec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
+Icon=input-keyboard
+Terminal=false
+Categories=Settings;Utility;
+StartupNotify=true
