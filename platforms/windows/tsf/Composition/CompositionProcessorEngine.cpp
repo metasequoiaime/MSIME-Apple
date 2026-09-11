@@ -525,8 +525,7 @@ void CCompositionProcessorEngine::GetCandidateList(_Inout_ CMetasequoiaImeArray<
         std::string raw, error;
         msime::tsf::EngineResult result;
         if (_hostEngineAdapter->view(&raw, &error) &&
-            msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
-            !result.view.candidates.empty())
+            msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
         {
             for (size_t index = 0; index < result.view.candidates.size(); ++index)
             {
