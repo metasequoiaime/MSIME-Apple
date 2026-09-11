@@ -35,6 +35,11 @@ export type Preferences = {
   chinese_punctuation: boolean;
 };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
+export interface DictionaryClient {
+  list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
+  edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
+}
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
 const localModeRows = [
@@ -64,6 +69,7 @@ const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][
 export interface SettingsClient {
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
+  dictionary?: DictionaryClient;
   clipboard?: {
     clear(): Promise<void>;
     list?(): Promise<string[]>;
@@ -94,6 +100,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<(typeof pages)[number]["id"]>("appearance");
+  const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
+  const [phraseBusy, setPhraseBusy] = useState(false);
+  const [phraseError, setPhraseError] = useState("");
+  const [phraseSearch, setPhraseSearch] = useState("");
+  const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -121,6 +132,60 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  }
+
+  const requestId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  async function loadPhrases() {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      const entries: DictionaryEntry[] = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore && offset <= 1000000) {
+        const page = await client.dictionary.list(offset, 100);
+        entries.push(...page.entries);
+        offset += page.entries.length;
+        hasMore = page.has_more && page.entries.length > 0;
+      }
+      setPhrases(entries.filter(entry => entry.kind === "quick_phrase"));
+    } catch { setPhraseError("无法读取快捷短语。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function removePhrase(entry: DictionaryEntry) {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try { await client.dictionary.edit(entry, null, requestId("ui-remove")); await loadPhrases(); }
+    catch { setPhraseError("快捷短语删除失败，请稍后重试。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function savePhrase() {
+    if (!client.dictionary || !phraseForm) return;
+    const replacement: DictionaryEntry = { kind: "quick_phrase", key: phraseForm.key.trim(), value: phraseForm.value, weight: phraseForm.weight };
+    if (!replacement.key || !replacement.value) { setPhraseError("编码和短语不能为空。"); return; }
+    setPhraseBusy(true); setPhraseError("");
+    try { await client.dictionary.edit(phraseForm.previous, replacement, requestId(phraseForm.previous ? "ui-edit" : "ui-add")); setPhraseForm(null); await loadPhrases(); }
+    catch { setPhraseError("快捷短语保存失败，请稍后重试。"); }
+    finally { setPhraseBusy(false); }
+  }
+  async function importPhrases(file: File) {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      const lines = (await file.text()).split(/\r?\n/).filter(Boolean);
+      for (const line of lines) {
+        const [key, value, weight = "100000"] = line.split("\t");
+        if (!key || !value) continue;
+        await client.dictionary.edit(null, { kind: "quick_phrase", key: key.trim(), value, weight: Number(weight) || 100000 }, requestId("ui-import"));
+      }
+      await loadPhrases();
+    } catch { setPhraseError("快捷短语导入失败，请检查文本格式。"); }
+    finally { setPhraseBusy(false); }
+  }
+  function exportPhrases() {
+    const text = phrases.map(entry => `${entry.key}\t${entry.value}\t${entry.weight}`).join("\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "msime-quick-phrases.txt"; anchor.click(); URL.revokeObjectURL(url);
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
@@ -297,6 +362,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}
           {client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
         </div>
+        {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
+          <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
+          <label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label>
+          {phraseError && <p role="alert" className="error">{phraseError}</p>}
+          {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>短语 <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
+          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
+        </div>}
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}

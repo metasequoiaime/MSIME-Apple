@@ -80,6 +80,17 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .clipboard-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
 .clipboard-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clipboard-row .secondary { flex: 0 0 auto; margin-top: 0; padding: 4px 9px; }
+.quick-phrase-manager .section-header { align-items: flex-start; }
+.quick-phrase-manager .section-header > span:last-child { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.quick-phrase-manager .secondary { margin-top: 0; }
+.quick-phrase-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 14px; }
+.quick-phrase-form label, .quick-phrase-manager > label { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 12px; }
+.quick-phrase-form input, .quick-phrase-manager > label input { min-width: 100px; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--dropdown-bg); color: var(--text-color); }
+.quick-phrase-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.quick-phrase-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--divider-color); }
+.quick-phrase-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.quick-phrase-list .secondary { margin-top: 0; padding: 4px 9px; }
+.dict-empty { color: var(--text-muted); }
 @media (max-width: 600px) {
   .settings-shell { flex-direction: column; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }

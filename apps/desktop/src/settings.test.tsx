@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -174,6 +174,30 @@ test("clipboard history defaults off, clears when disabled, and saves independen
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, clipboard_history: false });
+});
+
+test("quick phrase manager queries, edits and removes Engine entries", async () => {
+  const quick = { kind: "quick_phrase" as const, key: "x", value: "fixture", weight: 100000 };
+  const list = vi.fn().mockResolvedValue({
+    entries: [quick, { kind: "pinyin" as const, key: "ni", value: "你好", weight: 100 }],
+    has_more: false,
+  });
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查询" }));
+  expect(await screen.findByText("fixture")).toBeDefined();
+  expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
+  expect(list).toHaveBeenCalledWith(0, 100);
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, { ...quick, value: "updated" }, expect.stringMatching(/^ui-edit-/)));
+  fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)));
 });
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
