@@ -50,6 +50,11 @@ if(MSIME_HOST_LIBRARY)
   target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
 endif()
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
+install(TARGETS msime-tsf
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
   set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
