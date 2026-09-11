@@ -34,6 +34,26 @@ pub fn tencent_tc3_sha256_hex(data: &[u8]) -> String {
     hex::encode(Sha256::digest(data))
 }
 
+pub fn tencent_tc3_authorization(
+    secret_id: &str,
+    secret_key: &str,
+    timestamp: i64,
+    date: &str,
+    payload: &[u8],
+) -> String {
+    if secret_id.is_empty() || secret_key.is_empty() || date.is_empty() {
+        return String::new();
+    }
+    let canonical = tencent_tc3_canonical_request(&tencent_tc3_sha256_hex(payload));
+    let scope = format!("{date}/tmt/tc3_request");
+    let string_to_sign = format!(
+        "TC3-HMAC-SHA256\n{timestamp}\n{scope}\n{}",
+        tencent_tc3_sha256_hex(canonical.as_bytes())
+    );
+    let signature = tencent_tc3_derive(secret_key, &date, "tmt", &string_to_sign);
+    format!("TC3-HMAC-SHA256 Credential={secret_id}/{scope}, SignedHeaders=content-type;host;x-tc-action, Signature={signature}")
+}
+
 pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
     if source.is_empty()
         || target.is_empty()
