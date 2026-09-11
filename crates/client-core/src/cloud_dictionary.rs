@@ -80,6 +80,15 @@ pub fn entry_path(entry: &DictionaryEntry) -> Option<String> {
     Some(format!("/v1/users/me/dictionaries/{kind}/{}", entry.id))
 }
 
+pub fn changes_path(after: i64, limit: usize) -> Option<String> {
+    if after < 0 || !(1..=100).contains(&limit) {
+        return None;
+    }
+    Some(format!(
+        "/v1/users/me/dictionary/changes?after={after}&limit={limit}"
+    ))
+}
+
 fn encode(value: &str) -> String {
     value
         .bytes()
@@ -197,5 +206,15 @@ mod tests {
             ..entry
         })
         .is_none());
+    }
+
+    #[test]
+    fn validates_change_feed_cursor() {
+        assert_eq!(
+            changes_path(4, 50),
+            Some("/v1/users/me/dictionary/changes?after=4&limit=50".into())
+        );
+        assert!(changes_path(-1, 1).is_none());
+        assert!(changes_path(0, 101).is_none());
     }
 }
