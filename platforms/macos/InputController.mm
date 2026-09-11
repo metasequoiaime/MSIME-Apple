@@ -84,14 +84,24 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         NSDictionary *preferences = snapshot ? [appearance sharedPreferencesByMerging:snapshot[@"preferences"]] : nil;
         uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
         NSError *saveError = nil;
+        NSDictionary *saved = nil;
         if (preferences) {
-            [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:@{ @"format_version": @1, @"revision": @(revision), @"preferences": preferences } error:&saveError];
+            saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:@{ @"format_version": @1, @"revision": @(revision), @"preferences": preferences } error:&saveError];
+        }
+        if (!saved && snapshot) {
+            NSError *retryLoadError = nil;
+            NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:&retryLoadError];
+            NSDictionary *latestPreferences = latest ? [appearance sharedPreferencesByMerging:latest[@"preferences"]] : nil;
+            if (latestPreferences) {
+                saveError = nil;
+                saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
+            }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller) return;
             controller->_preferencesSaving = NO;
-            if (preferences && !saveError) [controller reloadPreferences];
+            if (saved && !saveError) [controller reloadPreferences];
         });
     });
 }
