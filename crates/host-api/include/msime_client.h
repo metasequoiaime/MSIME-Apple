@@ -58,6 +58,11 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
  * Busy is not missing/corrupt and must not reset preferences to defaults. */
 char *msime_client_try_load_preferences(const uint8_t *directory, size_t length);
+/* Compare-and-swap save of PreferencesSnapshot.preferences. The snapshot's
+ * format_version is validated; expected_revision must match the store. */
+char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
+                                    uint64_t expected_revision,
+                                    const uint8_t *snapshot, size_t snapshot_length);
 /* Call on the session thread with a PreferencesSnapshot JSON buffer (<=16384):
  * {format_version:1, revision, preferences:{...}}. Revision order is per session;
  * identical retries are allowed, older/conflicting snapshots are rejected.
