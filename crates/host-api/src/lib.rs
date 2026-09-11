@@ -2,6 +2,7 @@
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
 use msime_client_core::dictionary_access::DictionaryAccess;
+pub mod cloud_dictionary;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
