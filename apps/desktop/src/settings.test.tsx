@@ -130,15 +130,13 @@ test("helpcode schemes save independently and retain disabled selections", async
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
-  const quanpin = await screen.findByRole("button", { name: "全拼辅助码方案" }) as HTMLButtonElement;
+  const quanpin = await screen.findByRole("combobox", { name: "全拼辅助码方案" }) as HTMLSelectElement;
   expect(quanpin.textContent).toContain("自然码");
-  fireEvent.click(quanpin);
-  fireEvent.click(screen.getByRole("option", { name: "小鹤" }));
+  fireEvent.change(quanpin, { target: { value: "xiaohe" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
   expect(quanpin.textContent).toContain("小鹤");
-  fireEvent.click(screen.getByRole("button", { name: "双拼辅助码方案" }));
-  fireEvent.click(screen.getByRole("option", { name: "首右2.0" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "双拼辅助码方案" }), { target: { value: "shouyou2_0" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
@@ -397,9 +395,8 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
 test("saves edited preferences against the loaded revision", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("button", { name: "每页候选数量" });
-  fireEvent.click(size);
-  fireEvent.click(screen.getByRole("option", { name: "9" }));
+  const size = await screen.findByRole("combobox", { name: "每页候选数量" });
+  fireEvent.change(size, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9 });
@@ -409,9 +406,8 @@ test("saves edited preferences against the loaded revision", async () => {
 test("conflicts preserve edits and require an explicit reload", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("button", { name: "每页候选数量" });
-  fireEvent.click(size);
-  fireEvent.click(screen.getByRole("option", { name: "9" }));
+  const size = await screen.findByRole("combobox", { name: "每页候选数量" });
+  fireEvent.change(size, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
   expect(size.textContent).toContain("9");
@@ -448,15 +444,14 @@ test("category navigation preserves one draft and saves edits across pages", asy
   render(<SettingsPage client={client} />);
   const appearance = screen.getByRole("button", { name: "外观" });
   expect(appearance.getAttribute("aria-current")).toBe("page");
-  const pageSize = await screen.findByRole("button", { name: "每页候选数量" });
-  fireEvent.click(pageSize);
-  fireEvent.click(screen.getByRole("option", { name: "9" }));
+  const pageSize = await screen.findByRole("combobox", { name: "每页候选数量" });
+  fireEvent.change(pageSize, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
-  expect(screen.queryByRole("button", { name: "每页候选数量" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "每页候选数量" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   fireEvent.click(appearance);
-  expect(screen.getByRole("button", { name: "每页候选数量" }).textContent).toContain("9");
+  expect(screen.getByRole("combobox", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma" } });
