@@ -81,7 +81,12 @@ impl ClipboardHistoryStore {
 }
 
 fn valid(text: &str) -> bool {
-    !text.is_empty() && text.len() <= MAX_TEXT_BYTES && !text.chars().any(char::is_control)
+    !text.is_empty()
+        && text.len() <= MAX_TEXT_BYTES
+        && !text.chars().any(|character| {
+            character == '\0'
+                || (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        })
 }
 
 #[cfg(test)]
@@ -104,13 +109,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_control_and_oversized_text_without_writing() {
+    fn preserves_multiline_text_and_rejects_unsafe_control_data() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("clipboard_history.json");
         let mut store = ClipboardHistoryStore::open(&path);
-        assert!(!store.push("line\nfeed".into()).unwrap());
+        assert!(store.push("line\nfeed\tvalue".into()).unwrap());
+        assert!(!store.push("line\0feed".into()).unwrap());
+        assert!(!store.push("line\u{0007}feed".into()).unwrap());
         assert!(!store.push("x".repeat(MAX_TEXT_BYTES + 1)).unwrap());
-        assert!(store.entries().is_empty());
-        assert!(!path.exists());
+        assert_eq!(store.entries(), &["line\nfeed\tvalue"]);
+        assert!(path.exists());
     }
 }
