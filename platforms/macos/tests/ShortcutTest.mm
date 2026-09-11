@@ -247,6 +247,7 @@ int main() {
         }
         TestCandidatePanel *panel = [TestCandidatePanel new];
         [controller setValue:panel forKey:@"panel"];
+        [controller setValue:@YES forKey:@"verticalCandidates"];
         for (NSNumber *key in @[@123, @124]) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
             panel.visible = YES;
@@ -260,6 +261,31 @@ int main() {
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == (key.unsignedShortValue == 123 ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT));
         }
+        for (NSNumber *vertical in @[@YES, @NO]) {
+            [controller setValue:vertical forKey:@"verticalCandidates"];
+            for (NSNumber *key in @[@123, @124, @126, @125, @115, @119]) {
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
+                panel.visible = YES;
+                session.lastCommand = UINT32_MAX;
+                assert([controller handleEvent:event client:client]);
+                uint32_t expected = UINT32_MAX;
+                switch (key.unsignedShortValue) {
+                    case 123: expected = vertical.boolValue ? UINT32_MAX : MSIME_PREVIOUS_CANDIDATE; break;
+                    case 124: expected = vertical.boolValue ? UINT32_MAX : MSIME_NEXT_CANDIDATE; break;
+                    case 126: expected = MSIME_PREVIOUS_CANDIDATE; break;
+                    case 125: expected = MSIME_NEXT_CANDIDATE; break;
+                    case 115: expected = MSIME_FIRST_CANDIDATE_ON_PAGE; break;
+                    case 119: expected = MSIME_LAST_CANDIDATE_ON_PAGE; break;
+                }
+                assert(session.lastCommand == expected);
+                if (key.intValue == 115 || key.intValue == 119) {
+                    panel.visible = NO;
+                    assert([controller handleEvent:event client:client]);
+                    assert(session.lastCommand == (key.intValue == 115 ? MSIME_MOVE_HOME : MSIME_MOVE_END));
+                }
+            }
+        }
+        [controller setValue:@YES forKey:@"verticalCandidates"];
         HiddenCandidatePanel *layoutPanel = [[HiddenCandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         [controller setValue:layoutPanel forKey:@"panel"];
         client.caret = NSMakeRect(NSMidX(NSScreen.mainScreen.visibleFrame), NSMidY(NSScreen.mainScreen.visibleFrame), 1, 20);

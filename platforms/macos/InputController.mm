@@ -286,10 +286,18 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
         return NO;
     }
     uint32_t command = UINT32_MAX;
-    // The current panel is vertical: Apple consumes the non-primary direction
-    // while candidates are visible, without editing the underlying composition.
-    if (_panel.isVisible && (event.keyCode == 123 || event.keyCode == 124)) return YES;
-    switch (event.keyCode) {
+    // Candidate navigation uses the runtime's highlight; hidden panels retain editing commands.
+    if (_panel.isVisible) {
+        switch (event.keyCode) {
+            case 123: case 124:
+                if (_verticalCandidates) return YES;
+                command = event.keyCode == 123 ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE;
+                break;
+            case 115: command = MSIME_FIRST_CANDIDATE_ON_PAGE; break;
+            case 119: command = MSIME_LAST_CANDIDATE_ON_PAGE; break;
+        }
+    }
+    if (command == UINT32_MAX) switch (event.keyCode) {
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
         case 53: command = MSIME_CANCEL; break;
