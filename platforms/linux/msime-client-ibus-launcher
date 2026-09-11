@@ -10,6 +10,13 @@ else
     config=${1:-/etc/msime-client/runtime-options.json}
   fi
 fi
+case "$config" in
+  /*) ;;
+  *)
+    echo "MSIME runtime options must use an absolute path: $config" >&2
+    exit 1
+    ;;
+esac
 if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   exit 1
