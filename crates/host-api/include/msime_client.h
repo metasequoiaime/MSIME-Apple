@@ -145,8 +145,10 @@ char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t ind
  */
 char *msime_client_view(uint64_t session);
 /* Return a copied OnlineQuery JSON object, or null when the current composition
- * is not eligible for an online provider. The caller may perform provider work
- * off-thread and pass the unchanged document back to apply_online_candidate. */
+ * is not eligible for an online provider. Linux responses may include the
+ * validated ai_assistant provider/model/prompt configuration (never its token).
+ * The caller may perform provider work off-thread and pass the unchanged
+ * document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
 /* Return null or {generation,target_language,candidates:[{text}],
  * custom_translation:{enabled,endpoint,api_key}|null} for visible candidate

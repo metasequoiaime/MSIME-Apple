@@ -247,6 +247,34 @@ pub struct Transition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AiAssistantProviderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default = "default_ai_candidate_limit")]
+    pub candidate_limit: u8,
+    #[serde(default)]
+    pub prompt_id: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub prompt_custom_1: String,
+    #[serde(default)]
+    pub prompt_custom_2: String,
+    #[serde(default)]
+    pub prompt_custom_3: String,
+}
+
+fn default_ai_candidate_limit() -> u8 {
+    3
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
     pub scheme: u8,
     pub generation: u64,
@@ -257,6 +285,8 @@ pub struct OnlineQuery {
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
     pub session_id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_assistant: Option<AiAssistantProviderConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -773,6 +803,7 @@ impl Runtime<Session> {
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
             session_id: query.session_id,
+            ai_assistant: None,
         }))
     }
 
@@ -1414,6 +1445,7 @@ mod tests {
             cloud_eligible: true,
             ai_eligible: true,
             session_id: 9,
+            ai_assistant: None,
         };
         let worker = OnlineProviderWorker::spawn(1, |query| {
             if query.query_text == "nihao" {
@@ -1455,6 +1487,7 @@ mod tests {
             cloud_eligible: false,
             ai_eligible: false,
             session_id: 1,
+            ai_assistant: None,
         };
         assert!(cloud_request_url(&query).is_none());
         query.cloud_eligible = true;
