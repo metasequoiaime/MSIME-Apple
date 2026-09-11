@@ -890,18 +890,13 @@ fn send_key(
 #[tauri::command]
 async fn recognize_handwriting(
     request: HandwritingRecognitionRequest,
+    options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<HandwritingRecognitionResult, HostActionError> {
     request.validate().map_err(|_| HostActionError {
         code: "invalid_stroke",
     })?;
     #[cfg(unix)]
     {
-        let path = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
         let query = HandwritingQuery {
             language: request.language,
             strokes: request
@@ -919,16 +914,60 @@ async fn recognize_handwriting(
                 })
                 .collect(),
         };
-        let candidates = tauri::async_runtime::spawn_blocking(move || {
-            UnixSocketProvider::new(path).handwriting(query)
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
+        let path = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map(|path| (path, true));
+        let configured = serde_json::from_str::<Value>(&options.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("handwriting_model")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute());
+        let model = configured
+            .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(std::path::PathBuf::from))
+            .or_else(|| {
+                std::env::current_exe().ok().and_then(|exe| {
+                    exe.parent()?.parent().map(|prefix| {
+                        prefix.join("share/msime-client/handwriting/handwriting-zh_CN.model")
+                    })
+                })
+            })
+            .filter(|path| path.is_absolute() && path.is_file());
+        let candidates = if let Some((path, _)) = path {
+            tauri::async_runtime::spawn_blocking(move || {
+                UnixSocketProvider::new(path).handwriting(query)
+            })
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?
+        } else if let Some(model) = model {
+            tauri::async_runtime::spawn_blocking(move || {
+                msime_host_api::handwriting_local_candidates(
+                    model.to_str().unwrap_or_default(),
+                    &query,
+                )
+            })
+            .await
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+        } else {
+            return Err(HostActionError {
+                code: "unavailable",
+            });
+        };
         let result = HandwritingRecognitionResult { candidates };
         result.validate().map_err(|_| HostActionError {
             code: "invalid_stroke",

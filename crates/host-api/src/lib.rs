@@ -30,6 +30,27 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
 };
 
+/// Run the optional offline Engine handwriting recognizer for a native panel.
+/// The caller must provide a trusted absolute model path; strokes are copied
+/// before crossing the C++ bridge. The shared Linux panel uses a 420 by 420
+/// canvas, which is also the coordinate space passed to the Engine.
+#[cfg(unix)]
+pub fn handwriting_local_candidates(
+    model_path: &str,
+    query: &HandwritingQuery,
+) -> Result<Vec<String>, &'static str> {
+    if !std::path::Path::new(model_path).is_absolute() {
+        return Err("model path must be absolute");
+    }
+    let strokes = query
+        .strokes
+        .iter()
+        .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
+        .collect::<Vec<Vec<(f32, f32)>>>();
+    msime_engine_bridge::handwriting_recognize(model_path, &strokes, 420.0, 420.0)
+        .map_err(|_| "local handwriting recognizer unavailable")
+}
+
 thread_local! {
     static SESSIONS: RefCell<HashMap<u64, HostSession>> = RefCell::new(HashMap::new());
 }
