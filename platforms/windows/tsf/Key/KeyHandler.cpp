@@ -1088,7 +1088,29 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
 {
     if (keyFunction == FUNCTION_MOVE_LEFT || keyFunction == FUNCTION_MOVE_RIGHT)
     {
-        _pCompositionProcessorEngine->MoveCaret(keyFunction == FUNCTION_MOVE_LEFT ? -1 : 1);
+        bool hostHandled = false;
+        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string raw, error;
+            const uint32_t command = keyFunction == FUNCTION_MOVE_LEFT ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT;
+            if (host->command(command, &raw, &error))
+            {
+                msime::tsf::EngineResult result;
+                if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
+                {
+                    hostHandled = true;
+                    const auto &text = result.view.preedit;
+                    const int n = text.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                                                          text.data(), static_cast<int>(text.size()), nullptr, 0);
+                    std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+                    if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                   static_cast<int>(text.size()), preedit.data(), n);
+                    pCompositionProcessorEngine->SetRenderedPreedit(preedit, preedit.size());
+                    if (_pComposition == nullptr) return S_OK;
+                }
+            }
+        }
+        if (!hostHandled) _pCompositionProcessorEngine->MoveCaret(keyFunction == FUNCTION_MOVE_LEFT ? -1 : 1);
         if (_pComposition == nullptr)
         {
             return S_OK;
