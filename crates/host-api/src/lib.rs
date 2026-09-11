@@ -885,6 +885,14 @@ pub extern "C" fn msime_client_punctuation(handle: u64, ascii: u8) -> *mut c_cha
     dispatch(handle, Action::Punctuation(ascii))
 }
 
+/// Finish the highlighted composition and append a literal ASCII punctuation
+/// mark. This is kept separate from Engine punctuation so a platform host can
+/// apply its own surrounding-text policy without changing the shared table.
+#[no_mangle]
+pub extern "C" fn msime_client_punctuation_ascii(handle: u64, ascii: u8) -> *mut c_char {
+    dispatch(handle, Action::PunctuationAscii(ascii))
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize) -> *mut c_char {
     dispatch(

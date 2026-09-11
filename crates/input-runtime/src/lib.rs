@@ -842,6 +842,11 @@ impl OnlineProviderWorker {
 pub enum Action {
     Character { value: u8, shift: bool },
     Punctuation(u8),
+    /// Finish the highlighted composition and append the literal ASCII mark.
+    /// Linux uses this when IBus surrounding text says smart punctuation
+    /// should stay ASCII; the Engine's normal punctuation table remains
+    /// authoritative for every other punctuation action.
+    PunctuationAscii(u8),
     Command(Command),
     Select(CandidateId),
     SelectEdge(CandidateId, CandidateEdge),
@@ -1245,8 +1250,21 @@ impl<E: InputEngine> Runtime<E> {
         Ok(finished)
     }
 
+    fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+        // Keep the same highlighted-candidate completion semantics as normal
+        // punctuation, but do not ask Engine to translate the trailing mark.
+        // The Linux host has already applied its surrounding-text policy.
+        let mut finished = self.engine.finish(self.highlighted)?;
+        if !finished.has_commit {
+            return Ok(finished);
+        }
+        finished.handled = true;
+        finished.commit.push(char::from(value));
+        Ok(finished)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
-        if matches!(&action, Action::Punctuation(value) if !value.is_ascii_punctuation()) {
+        if matches!(&action, Action::Punctuation(value) | Action::PunctuationAscii(value) if !value.is_ascii_punctuation()) {
             return Err(RuntimeError::InvalidPunctuation);
         }
         if !self.focused {
@@ -1309,6 +1327,7 @@ impl<E: InputEngine> Runtime<E> {
         };
         let result = match action {
             Action::Punctuation(value) => self.punctuation(value),
+            Action::PunctuationAscii(value) => self.punctuation_ascii(value),
             Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {

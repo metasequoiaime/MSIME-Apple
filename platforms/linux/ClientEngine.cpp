@@ -554,6 +554,41 @@ const char *smart_punctuation_pair(char value) {
   case '<': return "〈"; case '>': return "〉"; default: return nullptr;
   }
 }
+bool is_smart_punctuation_key(guint key) {
+  return key == IBUS_comma || key == IBUS_period || key == IBUS_colon;
+}
+bool is_ascii_alphanumeric(unsigned char value) {
+  return (value >= '0' && value <= '9') ||
+         (value >= 'A' && value <= 'Z') ||
+         (value >= 'a' && value <= 'z');
+}
+bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
+  // A highlighted candidate is the preceding text for punctuation finishing
+  // an active composition. This mirrors the Windows TSF path, while IBus
+  // surrounding text supplies the document character for a pure punctuation
+  // input.
+  if (s.view.is_object()) {
+    const auto candidates = s.view.value("candidates", Json::array());
+    if (candidates.is_array()) {
+      for (const auto &candidate : candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto text = candidate.value("text", std::string{});
+        if (text.empty())
+          break;
+        const auto last = static_cast<unsigned char>(text.back());
+        return last < 0x80 && is_ascii_alphanumeric(last);
+      }
+    }
+  }
+  const auto &surrounding = s.surrounding_text;
+  const auto cursor = std::min<std::size_t>(s.surrounding_cursor, surrounding.size());
+  if (cursor == 0)
+    return false;
+  const auto value = static_cast<unsigned char>(surrounding[cursor - 1]);
+  // A UTF-8 continuation byte means the preceding code point is non-ASCII.
+  return value < 0x80 && is_ascii_alphanumeric(value);
+}
 
 struct OnlineTask {
   uint64_t session;
@@ -2353,7 +2388,29 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         s.last_smart_punctuation_time = 0;
         handled = true;
         return;
+        }
+    }
+    if (s.smart_punctuation && is_smart_punctuation_key(key) &&
+        smart_punctuation_preceded_by_ascii_alphanumeric(s)) {
+      const auto &editing_text = s.view.at("editing_text").get<std::string>();
+      const auto &candidates = s.view.at("candidates");
+      const bool has_composition = !editing_text.empty() ||
+                                   (candidates.is_array() && !candidates.empty());
+      if (has_composition) {
+        handled = apply(engine, msime_client_punctuation_ascii(
+                                  s.session, static_cast<uint8_t>(key)));
+      } else {
+        std::string text(1, static_cast<char>(key));
+        if (s.fullwidth)
+          text = fullwidth_text(text);
+        ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+        if (s.paired_punctuation) {
+          s.last_smart_punctuation = static_cast<char>(key);
+          s.last_smart_punctuation_time = g_get_monotonic_time();
+        }
+        handled = true;
       }
+      return;
     }
     if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
         std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
