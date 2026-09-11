@@ -41,6 +41,7 @@ const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PR
 
 export type Preferences = {
   ai_assistant?: { enabled: boolean; provider: string; model: string; endpoint: string; candidate_limit: number; prompt_custom_1: string; prompt_custom_2: string; prompt_custom_3: string };
+  custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
@@ -75,6 +76,7 @@ export type Preferences = {
 };
 export type VoiceInputPreferences = { enabled: boolean; language: string; asr_provider?: string; [key: string]: unknown };
 const defaultAiAssistant = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
 export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
 export interface DictionaryClient {
@@ -392,6 +394,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
+  const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
@@ -596,6 +599,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">目标语言</span><select aria-label="候选翻译目标语言" disabled={!candidateTranslations} value={translationTargetLanguage} onChange={event => setDraft({ ...draft, translation_target_language: event.target.value as Preferences["translation_target_language"] })}>{translationLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        </div>
+        <div className="section" role="group" aria-label="自定义翻译服务">
+          <label className="section-header"><span className="section-title">自定义翻译服务<small>通过 Linux provider 使用兼容 DeepLX 的 HTTPS 服务</small></span><input aria-label="自定义翻译服务" className="toggle" type="checkbox" checked={customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, enabled: event.target.checked } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">翻译 Endpoint</span><input aria-label="自定义翻译 Endpoint" type="url" value={customTranslation.endpoint} disabled={!customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, endpoint: event.target.value } })} placeholder="https://example.com/translate" /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">API Key</span><input aria-label="自定义翻译 API Key" type="password" value={customTranslation.api_key} disabled={!customTranslation.enabled} onChange={event => setDraft({ ...draft, custom_translation: { ...customTranslation, api_key: event.target.value } })} /></label>
         </div>
         <div className="section" role="group" aria-label="中英混输">
           <label className="section-header"><span className="section-title">中英混输<small>中文输入时在候选项中补充英文单词</small></span><input className="toggle" type="checkbox" checked={mixedInput.english} onChange={event => setDraft({ ...draft, mixed_input: { ...mixedInput, english: event.target.checked } })} /></label>

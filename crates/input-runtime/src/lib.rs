@@ -260,11 +260,23 @@ pub struct OnlineQuery {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationProviderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TranslationQuery {
     pub generation: u64,
     #[serde(default = "default_translation_target_language")]
     pub target_language: String,
     pub candidates: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_translation: Option<TranslationProviderConfig>,
 }
 
 fn default_translation_target_language() -> String {

@@ -983,11 +983,22 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .iter()
                 .map(|candidate| json!({ "text": candidate.text }))
                 .collect::<Vec<_>>();
+            let custom_translation = &session.applied.custom_translation;
+            let custom_translation = (custom_translation.enabled
+                && !custom_translation.endpoint.is_empty())
+                .then(|| {
+                    json!({
+                        "enabled": true,
+                        "endpoint": &custom_translation.endpoint,
+                        "api_key": &custom_translation.api_key,
+                    })
+                });
             Ok(json!({
                 "generation": view.generation,
                 "target_language": serde_json::to_value(session.applied.translation_target_language)
                     .map_err(|e| e.to_string())?,
                 "candidates": candidates,
+                "custom_translation": custom_translation,
             }))
         })
     })
