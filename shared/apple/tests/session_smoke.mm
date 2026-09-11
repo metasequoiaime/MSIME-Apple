@@ -61,7 +61,8 @@ int main() {
         assert(!invalidHandwriting && error);
         error = nil;
         NSString *oversizedPath = [@"/tmp/" stringByPaddingToLength:4100 withString:@"x" startingAtIndex:0];
-        assert(![MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": oversizedPath, @"strokes": @[]} error:&error] && error);
+        NSDictionary *oversizedHandwriting = [MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": oversizedPath, @"strokes": @[]} error:&error];
+        assert((!oversizedHandwriting && error));
         error = nil;
         NSMutableDictionary *oversized = [@{} mutableCopy];
         oversized[@"padding"] = [@"x" stringByPaddingToLength:70000 withString:@"x" startingAtIndex:0];
