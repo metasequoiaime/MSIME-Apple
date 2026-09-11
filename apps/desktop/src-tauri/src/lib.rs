@@ -5,6 +5,7 @@ use msime_client_core::cloud::{build_google_url, parse_google_response};
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+use msime_client_core::skin_catalog;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -289,7 +290,11 @@ fn select_skin(
         "fluent" | "wechat" | "graphite" | "willow_green"
     ) {
         let skin_dir = skin_directory(&app)?;
-        if !skin_dir.join(&id).is_dir() {
+        if !skin_catalog::scan(&skin_dir)
+            .packages
+            .iter()
+            .any(|package| package.id == id)
+        {
             return Err(HostActionError {
                 code: "unknown_skin",
             });
