@@ -36,6 +36,7 @@
     NSUInteger _candidateFontSize;
     NSString *_candidateSkin;
     BOOL _fullWidthInput;
+    BOOL _traditionalOutput;
     BOOL _englishMode;
     BOOL _inputModeShortcutEnabled;
     NSString *_resolvedSkinID;
@@ -157,6 +158,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
     _verticalCandidates = YES;
     _candidateFontSize = 18;
     _candidateSkin = @"fluent";
+    _traditionalOutput = [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientTraditionalChineseOutput"];
     if (!_session) {
         NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
         if (!path) {
@@ -169,6 +171,10 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
             _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
             NSDictionary *preferences = options[@"preferences"];
             if ([preferences isKindOfClass:NSDictionary.class]) {
+                if ([preferences[@"traditional_chinese_output"] isKindOfClass:NSNumber.class]) {
+                    _traditionalOutput = [preferences[@"traditional_chinese_output"] boolValue];
+                    [[NSUserDefaults standardUserDefaults] setBool:_traditionalOutput forKey:@"MSIMEClientTraditionalChineseOutput"];
+                }
                 id orientation = preferences[@"candidate_orientation"];
                 if ([orientation isKindOfClass:NSString.class]) {
                     _verticalCandidates = metasequoia::mac::IsVerticalCandidateOrientation(orientation);
@@ -331,7 +337,7 @@ static BOOL MSIMEIsDarkAppearance(NSAppearance *appearance)
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
     if ([transition[@"commit"] isKindOfClass:NSString.class] &&
-        [[NSUserDefaults standardUserDefaults] boolForKey:@"MSIMEClientTraditionalChineseOutput"]) {
+        _traditionalOutput) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MetasequoiaChineseOutputString(transition[@"commit"], YES);
         transition = converted;
