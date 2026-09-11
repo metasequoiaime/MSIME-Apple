@@ -397,11 +397,20 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "ChinesePunctuation" &&
-       std::string(name) != "CharacterWidth") ||
+       std::string(name) != "CharacterWidth" &&
+       std::string(name) != "EnglishMode") ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
     auto &s = state(engine);
+    if (std::string(name) == "EnglishMode") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (s.session) {
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+        s.view = response(msime_client_set_english_mode(s.session, enabled));
+      }
+      return;
+    }
     if (std::string(name) == "CharacterWidth") {
       const bool fullwidth = value == PROP_STATE_CHECKED;
       if (s.session) {
@@ -471,6 +480,11 @@ void register_properties(IBusEngine *engine) {
       ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
       PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(properties, width);
+  auto english_mode = ibus_property_new(
+      "EnglishMode", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("英文模式"), "",
+      ibus_text_new_from_static_string("使用 Engine 专用英文输入模式"), TRUE, TRUE,
+      PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(properties, english_mode);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
