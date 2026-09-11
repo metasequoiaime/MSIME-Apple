@@ -143,6 +143,12 @@ char *msime_client_online_provider_request(const uint8_t *query,
                                            size_t query_length,
                                            const uint8_t *socket_path,
                                            size_t socket_length);
+/* Linux: forward one validated account-backed dictionary operation to a
+ * user-owned Unix-socket provider. The provider owns credentials and sync. */
+char *msime_client_cloud_dictionary_provider_request(const uint8_t *request,
+                                                     size_t request_length,
+                                                     const uint8_t *socket_path,
+                                                     size_t socket_length);
 char *msime_client_translation_provider_request(const uint8_t *query,
                                                 size_t query_length,
                                                 const uint8_t *socket_path,

@@ -1022,6 +1022,43 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
     })
 }
 
+/// Forward one account-backed dictionary operation to a user-owned Linux
+/// provider. The request is validated before it crosses the Unix socket.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
+    request: *const u8,
+    request_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null()
+            || socket_path.is_null()
+            || request_length > 65_536
+            || socket_length > 4096
+        {
+            return Err("invalid cloud dictionary provider buffer".into());
+        }
+        let request_bytes = unsafe { std::slice::from_raw_parts(request, request_length) };
+        let parsed =
+            serde_json::from_slice::<cloud_dictionary::CloudDictionaryRequest>(request_bytes)
+                .map_err(|_| "invalid cloud dictionary request")?;
+        cloud_dictionary::validate_cloud_request(&parsed).map_err(|error| error.to_owned())?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
+            .map_err(|_| "invalid cloud dictionary request")?;
+        msime_input_runtime::UnixSocketProvider::new(path)
+            .cloud_dictionary(request)
+            .ok_or_else(|| "cloud dictionary provider unavailable".to_owned())
+    })
+}
+
 /// Query a user-owned Unix-socket translation provider.
 ///
 /// # Safety

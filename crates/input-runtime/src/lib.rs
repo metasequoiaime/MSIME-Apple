@@ -38,7 +38,7 @@ use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -541,6 +541,35 @@ impl UnixSocketProvider {
             return None;
         }
         Some(reply.text)
+    }
+
+    /// Forward one validated account-backed dictionary operation to the
+    /// user-owned service. The provider owns authentication, synchronization,
+    /// and network policy; this adapter only carries bounded JSON.
+    pub fn cloud_dictionary(&self, request: Value) -> Option<Value> {
+        let encoded = json!({
+            "version": 1,
+            "kind": "cloud_dictionary",
+            "request": request,
+        })
+        .to_string();
+        if encoded.len() > 65_536 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        if line.len() > 65_536 {
+            return None;
+        }
+        let response = serde_json::from_str::<Value>(&line).ok()?;
+        response.is_object().then_some(response)
     }
 }
 
@@ -1140,6 +1169,8 @@ fn empty_result(handled: bool) -> EngineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::net::UnixListener;
     use std::time::Duration;
     struct Fixture {
         scheme: u8,
@@ -1149,6 +1180,33 @@ mod tests {
         words: Vec<String>,
         text: String,
         snapshot_fails: bool,
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_dictionary_provider_forwards_bounded_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("cloud-dictionary.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut reader, &mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["version"], 1);
+            assert_eq!(request["kind"], "cloud_dictionary");
+            assert_eq!(request["request"]["operation"], "changes");
+            let mut stream = stream;
+            std::io::Write::write_all(&mut stream, br#"{"changes":[],"next":0}"#).unwrap();
+            std::io::Write::write_all(&mut stream, b"\n").unwrap();
+        });
+        let request = json!({"operation":"changes","after":0,"limit":1});
+        let response = UnixSocketProvider::new(socket)
+            .cloud_dictionary(request)
+            .unwrap();
+        assert_eq!(response["next"], 0);
+        server.join().unwrap();
     }
     impl InputEngine for Fixture {
         fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
