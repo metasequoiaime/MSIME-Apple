@@ -4,6 +4,7 @@
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
 #include <type_traits>
+#include <limits>
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_set>
@@ -132,6 +133,48 @@ void hash_dictionary_state(const EngineOptions& options, DictionaryRevision& sin
         }, record);
         return true;
     });
+}
+EngineOptions stage_dictionary_state(const EngineOptions& options, rust::Str generation,
+    rust::Str content_id, std::size_t maximum_records, DictionaryRecordStream& stream) {
+    if (maximum_records == 0) throw std::invalid_argument("Invalid snapshot record limit");
+    const auto paths = metasequoia::stage_dictionary_state(
+        std::filesystem::u8path(std::string(options.resources)),
+        std::filesystem::u8path(std::string(generation)), std::string(content_id),
+        [&](metasequoia::DictionaryStateRecord& output) {
+            const auto value = stream.next(); // Transport failure throws; only verified EOF returns false.
+            if (value.record_type == 0) return false;
+            if (value.record_type == 1) {
+                using Kind = metasequoia::PersonalDictionaryKind;
+                Kind kind;
+                switch (value.kind) {
+                case DictionaryKind::Pinyin: kind = Kind::Pinyin; break;
+                case DictionaryKind::Wubi: kind = Kind::Wubi; break;
+                case DictionaryKind::QuickPhrase: kind = Kind::QuickPhrase; break;
+                case DictionaryKind::English: kind = Kind::English; break;
+                default: throw std::invalid_argument("Invalid snapshot dictionary kind");
+                }
+                output = metasequoia::DictionaryStateEntry{kind, std::string(value.key),
+                    std::string(value.value), value.number, std::string(value.display),
+                    value.deleted, value.user_inserted};
+            } else if (value.record_type == 2) {
+                if (value.number < std::numeric_limits<int>::min() || value.number > std::numeric_limits<int>::max())
+                    throw std::invalid_argument("Invalid snapshot position");
+                output = metasequoia::DictionaryStatePosition{std::string(value.context),
+                    std::string(value.key), std::string(value.value), static_cast<int>(value.number)};
+            } else if (value.record_type == 3) {
+                if (value.number < std::numeric_limits<int>::min() || value.number > std::numeric_limits<int>::max())
+                    throw std::invalid_argument("Invalid snapshot selection count");
+                output = metasequoia::DictionaryStateSelection{std::string(value.context),
+                    std::string(value.key), std::string(value.value), static_cast<int>(value.number)};
+            } else throw std::invalid_argument("Invalid snapshot record type");
+            return true;
+        }, maximum_records);
+    auto result = options;
+    result.resources = paths.resources.u8string();
+    result.user_data = paths.user_data.u8string();
+    result.cache = paths.cache.u8string();
+    result.dictionaries = paths.dictionaries.u8string();
+    return result;
 }
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit) {
     auto page = metasequoia::personal_dictionary_entries(paths_for(options), offset, limit);

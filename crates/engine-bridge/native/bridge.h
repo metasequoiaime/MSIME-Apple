@@ -6,6 +6,9 @@
 namespace msime {
 struct EngineOptions;
 struct DictionaryRevision;
+struct DictionaryRecordStream;
+EngineOptions stage_dictionary_state(const EngineOptions& options, rust::Str generation,
+    rust::Str content_id, std::size_t maximum_records, DictionaryRecordStream& stream);
 void hash_dictionary_state(const EngineOptions& options, DictionaryRevision& sink);
 struct EngineSnapshot;
 struct EngineResult;
