@@ -78,6 +78,9 @@ char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
+/* Apply JSON [{"text":"candidate","translation":"gloss"}] for a candidate generation. */
+char *msime_client_apply_translations(uint64_t session, uint64_t generation,
+                                      const uint8_t *translations, size_t length);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);

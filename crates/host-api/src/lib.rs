@@ -530,6 +530,49 @@ pub unsafe extern "C" fn msime_client_voice_apply(
     })
 }
 
+/// Apply asynchronous candidate translations for an exact candidate generation.
+/// The buffer is a JSON array of `{text, translation}` objects and is not retained.
+///
+/// # Safety
+/// `translations` must point to a readable UTF-8 buffer of `length` bytes and
+/// must not be null. The buffer is not retained after this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_translations(
+    handle: u64,
+    generation: u64,
+    translations: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if translations.is_null() || length > 1_048_576 {
+            return Err("invalid translation buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Translation {
+            text: String,
+            translation: String,
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(translations, length) };
+        let values: Vec<Translation> =
+            serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
+        if values.len() > 4096
+            || values
+                .iter()
+                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+        {
+            return Err("translation entries exceed limits".into());
+        }
+        with_session(handle, |session| {
+            let applied = session.runtime.apply_translations(
+                generation,
+                values.into_iter().map(|item| (item.text, item.translation)),
+            );
+            Ok(json!({"applied": applied, "view": session.runtime.view()}))
+        })
+    })
+}
+
 /// Native presentation override; changes wait for the current composition to end.
 #[no_mangle]
 pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
