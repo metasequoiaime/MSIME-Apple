@@ -365,8 +365,10 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
                 msime::tsf::EngineResult result;
                 if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled)
                 {
-                    _pCandidateListUIPresenter->AdviseUIChangedByArrowKey(keyFunction);
-                    return S_OK;
+                    // Rebuild the presenter from the authoritative Engine view;
+                    // the legacy presenter does not know the Engine page or
+                    // selection after a host dispatch.
+                    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, requestId);
                 }
             }
         }
