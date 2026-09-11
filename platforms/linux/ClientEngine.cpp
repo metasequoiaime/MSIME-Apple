@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "ChineseTextConversion.h"
 #include "NavigationBindings.h"
 #include "WordCharacterBinding.h"
 #include "VoiceAction.h"
@@ -36,6 +37,10 @@ std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
+struct State;
+bool script_conversion_applies(const Json &context);
+std::string traditional_display(const State &s, const Json &context,
+                                std::string text);
 struct State {
   MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
@@ -49,6 +54,7 @@ struct State {
   bool chinese_punctuation = true;
   bool properties_registered = false;
   std::optional<bool> english_override;
+  std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<bool> punctuation_override, autocorrect_override, helpcode_override;
@@ -60,6 +66,7 @@ struct State {
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
   bool fullwidth = false;
+  bool traditional_output = false;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool paired_punctuation = true;
@@ -146,6 +153,8 @@ struct State {
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
     voice_language = voice_preferences.value("language", std::string("zh-cn"));
+    traditional_output = traditional_output_override.value_or(
+        preferences.value("traditional_chinese_output", false));
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -189,6 +198,16 @@ struct State {
       word_character.enabled = *word_character_override;
   }
 };
+bool script_conversion_applies(const Json &context) {
+  return context.is_object() && context.value("scheme", 255) != 3 &&
+         context.value("local_mode", "none") != "unicode";
+}
+std::string traditional_display(const State &s, const Json &context,
+                                std::string text) {
+  if (s.traditional_output && script_conversion_applies(context))
+    text = msime_linux_simplified_to_traditional(text);
+  return text;
+}
 std::vector<std::string> clipboard_items(const std::string &path) {
   std::vector<std::string> items;
   if (path.empty() || path.size() > 4096) return items;
@@ -633,6 +652,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("切换 ASCII 全角或半角输出"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto traditional = ibus_property_new(
+      "TraditionalOutput", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("繁体输出"), "",
+      ibus_text_new_from_static_string("将中文候选和上屏文本转换为繁体"),
+      s.focused && !s.blocked && s.input_enabled && s.session &&
+          !japanese_scheme,
+      TRUE, s.traditional_output ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      nullptr);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("英文候选"), "",
@@ -869,7 +896,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                      std::pair{"shuangpin", "双拼"},
                                      std::pair{"wubi", "五笔"}}) {
     auto item = ibus_property_new(
-        (std::string("Scheme/") + (value == "quanpin" ? "Quanpin" : value == "shuangpin" ? "Shuangpin" : "Wubi")).c_str(), PROP_TYPE_RADIO,
+        (std::string("Scheme/") + (std::string(value) == "quanpin" ? "Quanpin" : std::string(value) == "shuangpin" ? "Shuangpin" : "Wubi")).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
         ibus_text_new_from_static_string("直接选择中文输入方案"), TRUE, TRUE,
         !japanese_scheme && active_chinese_scheme == value
@@ -910,6 +937,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, paired);
     ibus_prop_list_append(properties, punctuation_lock);
     ibus_prop_list_append(properties, character_mode);
+    ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, autocorrect_property);
     ibus_prop_list_append(properties, helpcode_property);
@@ -938,6 +966,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, paired);
     ibus_engine_update_property(engine, punctuation_lock);
     ibus_engine_update_property(engine, character_mode);
+    ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, autocorrect_property);
     ibus_engine_update_property(engine, helpcode_property);
@@ -964,7 +993,7 @@ void clear(IBusEngine *engine) {
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
 }
-void publish_input_enabled(IBusEngine *engine, bool enabled) {
+[[maybe_unused]] void publish_input_enabled(IBusEngine *engine, bool enabled) {
   auto property = ibus_property_new(
       "InputEnabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入启用"), "",
@@ -972,7 +1001,7 @@ void publish_input_enabled(IBusEngine *engine, bool enabled) {
       TRUE, enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
 }
-void publish_punctuation(IBusEngine *engine, bool enabled) {
+[[maybe_unused]] void publish_punctuation(IBusEngine *engine, bool enabled) {
   auto property = ibus_property_new(
       "ChinesePunctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
@@ -980,14 +1009,14 @@ void publish_punctuation(IBusEngine *engine, bool enabled) {
       enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
 }
-void publish_character_width(IBusEngine *engine, bool fullwidth) {
+[[maybe_unused]] void publish_character_width(IBusEngine *engine, bool fullwidth) {
   auto property = ibus_property_new(
       "CharacterWidth", PROP_TYPE_TOGGLE, ibus_text_new_from_static_string("全角字符"), "",
       ibus_text_new_from_static_string("切换 ASCII 字符的全角/半角输出"), TRUE, TRUE,
       fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_engine_update_property(engine, property);
 }
-void publish_expressive(IBusEngine *engine, const State &s) {
+[[maybe_unused]] void publish_expressive(IBusEngine *engine, const State &s) {
   const auto preferences = configured.at("preferences").value("mixed_input", Json::object());
   const auto value = [&](const std::optional<bool> &override_value,
                          const char *key, bool fallback) {
@@ -1071,6 +1100,7 @@ void render(IBusEngine *engine, const Json &view) {
       value += "  ";
       value += annotation;
     }
+    value = traditional_display(state(engine), view, std::move(value));
     auto text = ibus_text_new_from_string(value.c_str());
     if (state(engine).candidate_text_color)
       ibus_text_append_attribute(
@@ -1095,6 +1125,8 @@ bool apply(IBusEngine *engine, char *raw) {
   if (commit.is_string()) {
     auto text = commit.get<std::string>();
     auto &s = state(engine);
+    text = traditional_display(
+        s, result.value("commit_context", Json(nullptr)), std::move(text));
     if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
@@ -1203,10 +1235,15 @@ void voice_start(IBusEngine *engine) {
                     result->text.size()));
                 s.voice_active = false;
                 s.voice_generation = 0;
-                if (applied.is_string())
+                if (applied.is_string()) {
+                  auto text = traditional_display(
+                      s, Json{{"scheme", s.view.value("scheme", 0)},
+                              {"local_mode", "none"}},
+                      applied.get<std::string>());
                   ibus_engine_commit_text(
                       result->engine,
-                      ibus_text_new_from_string(applied.get<std::string>().c_str()));
+                      ibus_text_new_from_string(text.c_str()));
+                }
                 publish_mode(result->engine);
               } catch (...) {
                 s.voice_active = false;
@@ -1309,6 +1346,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "PunctuationLock/chinese" &&
        std::string(name) != "PunctuationLock/english" &&
        std::string(name) != "CharacterMode" &&
+       std::string(name) != "TraditionalOutput" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "Autocorrect" &&
        std::string(name) != "Helpcode" &&
@@ -1335,7 +1373,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
-  guarded(engine, [&] {
+  guarded(engine, "property_activate", [&] {
     if (property_name == "VoiceInput") {
       if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
           !s.input_enabled)
@@ -1497,6 +1535,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.fullwidth = value == PROP_STATE_CHECKED;
       if (s.session)
         apply(engine, msime_client_set_character_width(s.session, s.fullwidth));
+      publish_mode(engine);
+      return;
+    }
+    if (std::string(name) == "TraditionalOutput") {
+      if (s.scheme_override.value_or(
+              configured.at("preferences").value("scheme", "quanpin")) ==
+          "japanese")
+        return;
+      s.traditional_output = value == PROP_STATE_CHECKED;
+      s.traditional_output_override = s.traditional_output;
+      render(engine, s.view);
       publish_mode(engine);
       return;
     }
@@ -1761,7 +1810,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       return FALSE;
     if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
       return FALSE;
-    guarded(engine, [&] {
+    guarded(engine, "process_key", [&] {
       s.open();
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
