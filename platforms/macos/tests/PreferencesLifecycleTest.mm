@@ -2,7 +2,7 @@
 #import "AppearancePreferences.h"
 #include <cassert>
 
-// Exercise the real window delegate without presenting a window.
+// Deliver AppKit close notifications to the real window delegate without presenting a window.
 @interface HiddenPreferencesController : MSIMEPreferencesWindowController
 @end
 @implementation HiddenPreferencesController
@@ -31,23 +31,22 @@ int main() {
         [controller showAndActivate];
         assert(controller.window == MSIMEAppearancePreferences.sharedPreferences.window);
         assert(controller.window.delegate == controller);
-        [controller.window close];
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         DrainMainQueue();
         assert(closes == 0); // In-process settings must not terminate the input method.
 
         [controller showAndActivateForStandaloneLaunch];
-        [controller.window close];
-        [controller windowWillClose:[NSNotification notificationWithName:NSWindowWillCloseNotification object:controller.window]];
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         assert(closes == 0); // Termination is deferred until AppKit finishes closing.
         DrainMainQueue();
         assert(closes == 1);
-        [controller.window close];
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         DrainMainQueue();
         assert(closes == 1);
 
         [controller showAndActivateForStandaloneLaunch];
         [controller showAndActivate];
-        [controller.window close];
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         DrainMainQueue();
         assert(closes == 1); // Ordinary presentation clears standalone state.
         [NSNotificationCenter.defaultCenter removeObserver:observer];

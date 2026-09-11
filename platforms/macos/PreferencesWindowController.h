@@ -8,7 +8,4 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEStandalonePreferencesDidCloseNot
 + (instancetype)sharedController;
 - (void)showAndActivate;
 - (void)showAndActivateForStandaloneLaunch;
-- (NSDictionary<NSString *, id> *)cloudSettingsSnapshot;
-- (BOOL)validateCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
-- (BOOL)applyCloudSettingsSnapshot:(NSDictionary<NSString *, id> *)values;
 @end
