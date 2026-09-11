@@ -194,6 +194,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [windowMaximized, setWindowMaximized] = useState(false);
+  const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  useEffect(() => {
+    const clear = () => { pendingTitlebarDrag.current = null; };
+    window.addEventListener("blur", clear);
+    return () => { clear(); window.removeEventListener("blur", clear); };
+  }, [client]);
   useEffect(() => {
     let active = true; let unsubscribe: (() => void) | undefined;
     setWindowMaximized(false);
@@ -394,6 +400,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
   }, [client, page]);
   return <div className="settings-shell" onPointerDownCapture={event => {
+    pendingTitlebarDrag.current = null;
     if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
     const rect = event.currentTarget.getBoundingClientRect(); const edge = 8;
     const n = event.clientY - rect.top < edge, s = rect.bottom - event.clientY < edge;
@@ -406,8 +413,34 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     }
   }}>
     {(client.windowControl || client.beginWindowDrag) && <header className="window-titlebar" aria-label="窗口控制"
-      onDoubleClick={() => client.windowControl ? void client.windowControl(windowMaximized ? "restore" : "maximize") : undefined}
-      onPointerDown={event => { if (event.button === 0 && client.beginWindowDrag) void client.beginWindowDrag(); }}>
+      onDoubleClick={event => {
+        pendingTitlebarDrag.current = null;
+        if (event.button !== 0 || !client.windowControl) return;
+        const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+        if (!windowMaximized && client.resizeWindow &&
+          (event.clientX - rect.left < 8 || rect.right - event.clientX < 8 ||
+           event.clientY - rect.top < 8 || rect.bottom - event.clientY < 8)) return;
+        void client.windowControl(windowMaximized ? "restore" : "maximize");
+      }}
+      onPointerDown={event => {
+        if (event.button === 0 && event.detail < 2 && client.beginWindowDrag)
+          pendingTitlebarDrag.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+      }}
+      onPointerMove={event => {
+        const pending = pendingTitlebarDrag.current;
+        if (!pending || pending.pointerId !== event.pointerId) return;
+        if (event.buttons !== 1) { pendingTitlebarDrag.current = null; return; }
+        if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2) return;
+        pendingTitlebarDrag.current = null;
+        // Invoke during the gesture; catch synchronous and asynchronous host failures.
+        void (async () => {
+          try { await client.beginWindowDrag?.(); }
+          catch { setError("无法移动窗口，请重试。"); }
+        })();
+      }}
+      onPointerUp={() => { pendingTitlebarDrag.current = null; }}
+      onPointerCancel={() => { pendingTitlebarDrag.current = null; }}
+      onPointerLeave={() => { pendingTitlebarDrag.current = null; }}>
       <span className="window-title">水杉 IME</span>{client.windowControl && <span className="window-controls"
         onPointerDown={event => event.stopPropagation()}
         onDoubleClick={event => event.stopPropagation()}>

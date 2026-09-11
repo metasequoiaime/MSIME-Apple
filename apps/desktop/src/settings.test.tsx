@@ -68,6 +68,73 @@ test("resize starts on edge press, not pointer movement", async () => {
   expect(resizeWindow).toHaveBeenCalledTimes(1);
 });
 
+function titlebarPointer(target: Element, type: string, x: number, y: number, detail = 1, buttons = 1) {
+  fireEvent(target, new MouseEvent(type, { bubbles: true, button: 0, buttons, clientX: x, clientY: y, detail }));
+}
+
+test("titlebar drag waits for upstream two-pixel threshold and starts only once", async () => {
+  const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const titlebar = screen.getByRole("banner", { name: "窗口控制" });
+  titlebarPointer(titlebar, "pointerdown", 100, 16);
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  titlebarPointer(titlebar, "pointermove", 101, 16);
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  titlebarPointer(titlebar, "pointermove", 101, 17);
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  titlebarPointer(titlebar, "pointermove", 110, 17);
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+});
+
+test.each(["pointerup", "pointercancel", "pointerout", "blur", "released", "double-press"])(
+  "%s cancels or excludes a pending titlebar drag", async reason => {
+    const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+    render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    const titlebar = screen.getByRole("banner", { name: "窗口控制" });
+    titlebarPointer(titlebar, "pointerdown", 100, 16, reason === "double-press" ? 2 : 1);
+    if (reason === "blur") fireEvent(window, new Event("blur"));
+    else if (reason === "released") titlebarPointer(titlebar, "pointermove", 100, 16, 1, 0);
+    else if (reason !== "double-press") titlebarPointer(titlebar, reason, 100, 16);
+    titlebarPointer(titlebar, "pointermove", 110, 16);
+    expect(beginWindowDrag).not.toHaveBeenCalled();
+  },
+);
+
+test("resize edges do not drag or double-click maximize the titlebar", async () => {
+  const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+  const resizeWindow = vi.fn().mockResolvedValue(undefined);
+  const windowControl = vi.fn().mockResolvedValue(undefined);
+  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag, resizeWindow, windowControl }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  vi.spyOn(mounted.container.querySelector(".settings-shell")!, "getBoundingClientRect")
+    .mockReturnValue({ left: 0, top: 0, right: 800, bottom: 780, width: 800, height: 780, x: 0, y: 0, toJSON() {} });
+  const titlebar = screen.getByRole("banner", { name: "窗口控制" });
+  titlebarPointer(titlebar, "pointerdown", 100, 2);
+  titlebarPointer(titlebar, "pointermove", 110, 16);
+  expect(resizeWindow).toHaveBeenCalledWith("n");
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  fireEvent.doubleClick(titlebar, { button: 0, clientX: 100, clientY: 2 });
+  fireEvent.doubleClick(titlebar, { button: 2, clientX: 100, clientY: 16 });
+  expect(windowControl).not.toHaveBeenCalled();
+  fireEvent.doubleClick(titlebar, { button: 0, clientX: 100, clientY: 16 });
+  expect(windowControl).toHaveBeenCalledWith("maximize");
+});
+
+test.each([false, true])("titlebar drag handles host failure (synchronous=%s)", async synchronous => {
+  const beginWindowDrag = vi.fn(() => {
+    if (synchronous) throw new Error("host unavailable");
+    return Promise.reject(new Error("host unavailable"));
+  });
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  const titlebar = screen.getByRole("banner", { name: "窗口控制" });
+  titlebarPointer(titlebar, "pointerdown", 100, 16);
+  titlebarPointer(titlebar, "pointermove", 110, 16);
+  expect(await screen.findByText("无法移动窗口，请重试。")).toBeTruthy();
+});
+
 test("window state subscription failures are handled", async () => {
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
     onWindowStateChanged: async () => { throw new Error("unavailable"); } }} />);
