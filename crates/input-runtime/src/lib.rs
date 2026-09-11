@@ -57,7 +57,9 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
-    fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError>;
+    fn set_dedicated_english(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Ok(())
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
