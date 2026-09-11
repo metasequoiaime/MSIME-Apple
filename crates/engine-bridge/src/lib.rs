@@ -65,6 +65,7 @@ mod ffi {
         pub scheme: u8,
         pub answered_by_pinyin_fallback: bool,
         pub candidate_annotations: Vec<String>,
+        pub candidate_sources: Vec<u8>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
