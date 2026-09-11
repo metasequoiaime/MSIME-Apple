@@ -1698,22 +1698,28 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     // composition is active. Do not fall through to the generic cancellation.
     if (msime::linux_host::navigation_key(key))
       return;
-    if (s.chinese_punctuation && s.paired_punctuation &&
-        !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
-        s.view.at("editing_text").get<std::string>().empty() &&
-        (key == IBUS_quotedbl || key == IBUS_apostrophe)) {
-      const char *pair = key == IBUS_quotedbl ? "“”" : "‘’";
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(pair));
-      handled = true;
-      return;
-    }
-    if ((flags & IBUS_CONTROL_MASK) && key == IBUS_period) {
+    if (modifiers == IBUS_CONTROL_MASK && key == IBUS_period) {
       s.chinese_punctuation = !s.chinese_punctuation;
       s.punctuation_override = s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
           s.session, s.chinese_punctuation));
       render(engine, s.view);
       publish_mode(engine);
+      handled = true;
+      return;
+    }
+    if (flags &
+        (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
+         IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK)) {
+      apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+      return;
+    }
+    if (s.chinese_punctuation && s.paired_punctuation &&
+        !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
+        s.view.at("editing_text").get<std::string>().empty() &&
+        (key == IBUS_quotedbl || key == IBUS_apostrophe)) {
+      const char *pair = key == IBUS_quotedbl ? "“”" : "‘’";
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(pair));
       handled = true;
       return;
     }
@@ -1736,12 +1742,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       char raw[2] = {static_cast<char>(key), '\0'};
       ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
       handled = true;
-      return;
-    }
-    if (flags &
-        (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
-         IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK)) {
-      apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
     if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 &&
