@@ -50,6 +50,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!data || data.length > 65536) { setError(error, @"词典请求过大"); return nil; }
     return decode(msime_client_dictionary(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
++ (NSDictionary *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"手写请求格式错误"); return nil; }
+    NSString *socketPath = request[@"socket_path"];
+    if (![socketPath isKindOfClass:NSString.class] || !socketPath.isAbsolutePath || socketPath.length > 4096) { setError(error, @"手写 provider 路径无效"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"手写请求过大"); return nil; }
+    NSData *socket = [socketPath dataUsingEncoding:NSUTF8StringEncoding];
+    return decode(msime_client_handwriting_provider_request(static_cast<const uint8_t *>(data.bytes), data.length,
+                                                            static_cast<const uint8_t *>(socket.bytes), socket.length), error);
+}
 + (NSString *)snapshotVersionForOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"本地词库版本参数无效"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
