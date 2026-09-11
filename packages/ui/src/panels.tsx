@@ -17,6 +17,7 @@ export interface PanelClient {
   close(): Promise<void>;
   rememberInputTarget?(): Promise<void>;
   sendKey?(request: KeyboardInputRequest): Promise<void>;
+  sendText?(text: string): Promise<void>;
   recognizeHandwriting?(request: HandwritingRecognitionRequest): Promise<HandwritingRecognitionResult>;
   submitHandwritingCandidate?(candidate: string): Promise<void>;
 }
@@ -180,6 +181,11 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
 
   useEffect(() => {
+    if (!client.rememberInputTarget) return;
+    void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+  }, [client]);
+
+  useEffect(() => {
     if (!client.loadCatalog) return;
     void client.loadCatalog().then(setCatalog).catch(() => setNotice("目录不可用，已使用内置目录"));
   }, [client]);
@@ -204,6 +210,16 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
   ].filter(group => group.items.length);
 
   async function copy(text: string, isClipboardItem = false) {
+    if (!isClipboardItem && client.sendText) {
+      try {
+        await client.sendText(text);
+        setNotice(`已输入：${text}`);
+        setRecent(current => [{ text, keywords: text }, ...current.filter(item => item.text !== text)].slice(0, 28));
+        return;
+      } catch {
+        // Fall back to clipboard when the captured Linux input target is gone.
+      }
+    }
     const copyAction = isClipboardItem ? client.clipboard?.copy ?? client.copyText : client.copyText ?? client.clipboard?.copy;
     if (!copyAction) {
       setNotice(`已选择：${text}（等待宿主复制能力）`);

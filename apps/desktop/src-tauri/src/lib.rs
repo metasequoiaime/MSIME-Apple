@@ -722,6 +722,22 @@ fn submit_handwriting_candidate(
     }
 }
 
+#[tauri::command]
+fn send_text(
+    state: tauri::State<'_, PanelInputState>,
+    text: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    return send_panel_text(&state, &text);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, text);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
 fn external_url_is_safe(url: &str) -> bool {
     url.starts_with("https://")
         && !url.bytes().any(|byte| {
@@ -905,11 +921,12 @@ fn open_handwriting_panel(
 #[tauri::command]
 fn open_emoji_panel(
     app: tauri::AppHandle,
-    state: tauri::State<'_, DictionaryHostOptions>,
+    options: tauri::State<'_, DictionaryHostOptions>,
+    input: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        let _ = (app, input);
         let executable = std::env::var_os("MSIME_CLIENT_EMOJI_PANEL")
             .map(std::path::PathBuf::from)
             .or_else(|| {
@@ -921,7 +938,7 @@ fn open_emoji_panel(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        let resources = serde_json::from_str::<serde_json::Value>(&state.0)
+        let resources = serde_json::from_str::<serde_json::Value>(&options.0)
             .ok()
             .and_then(|value| {
                 value
@@ -941,7 +958,16 @@ fn open_emoji_panel(
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = state;
+        #[cfg(not(target_os = "linux"))]
+        let _ = (&options, &input);
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = &options;
+            let _ = remember_panel_input_target(&input, true);
+            panel_position(&input, 720.0, 720.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
         open_panel_window(
             &app,
             "emoji-panel",
@@ -949,7 +975,7 @@ fn open_emoji_panel(
             "Emoji and more",
             720.0,
             720.0,
-            None,
+            position,
         )
     }
 }
@@ -1310,6 +1336,7 @@ pub fn run() {
             copy_text,
             remember_input_target,
             send_key,
+            send_text,
             recognize_handwriting,
             submit_handwriting_candidate,
             open_external_url,
