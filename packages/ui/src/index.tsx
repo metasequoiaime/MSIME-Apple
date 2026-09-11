@@ -202,6 +202,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     const resolved = mode === "system" ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
     document.documentElement.dataset.theme = resolved;
   }, [draft?.theme]);
+  useEffect(() => {
+    if (selectedSkin) setDraft(current => current ? { ...current, candidate_skin: selectedSkin } : current);
+  }, [selectedSkin]);
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [phraseSearch, setPhraseSearch] = useState("");
 
