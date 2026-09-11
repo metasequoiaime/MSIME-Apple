@@ -66,6 +66,7 @@ mod ffi {
             self: Pin<&mut EngineSession>,
             enabled: bool,
         ) -> Result<()>;
+        fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
 
