@@ -10,12 +10,12 @@
     _audioEngine = [[AVAudioEngine alloc] init];
     AVAudioInputNode *input = _audioEngine.inputNode;
     AVAudioFormat *format = [input inputFormatForBus:0];
-    [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; bufferHandler(buffer); }];
+    [input installTapOnBus:0 bufferSize:1024 format:format block:^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { (void)time; SFSpeechAudioBufferRecognitionRequest *request = _speechRequest; if (request) [request appendAudioPCMBuffer:buffer]; bufferHandler(buffer); }];
     NSError *startError = nil;
     if (![_audioEngine startAndReturnError:&startError]) { [input removeTapOnBus:0]; _audioEngine = nil; if (error) *error = startError; return NO; }
     return YES;
 }
-- (void)stopMicrophoneCapture { if (!_audioEngine) return; [_audioEngine.inputNode removeTapOnBus:0]; [_audioEngine stop]; _audioEngine = nil; }
+- (void)stopMicrophoneCapture { if (!_audioEngine) return; [_audioEngine.inputNode removeTapOnBus:0]; [_audioEngine stop]; _audioEngine = nil; [_speechRequest endAudio]; }
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error {
     if ([SFSpeechRecognizer authorizationStatus] != SFSpeechRecognizerAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:2 userInfo:@{NSLocalizedDescriptionKey: @"语音识别权限未授权"}]; return NO; }
     [self stopTranscription];
