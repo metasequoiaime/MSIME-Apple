@@ -31,6 +31,7 @@
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     BOOL _preferencesLoading;
+    BOOL _verticalCandidates;
 }
 
 - (void)activateServer:(id)sender {
@@ -45,6 +46,7 @@
         NSData *data = [NSData dataWithContentsOfFile:path];
         NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         if ([options isKindOfClass:NSDictionary.class]) {
+            _verticalCandidates = ![options[@"candidate_orientation"] isEqual:@"horizontal"];
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -162,6 +164,7 @@
     NSRect visible = screen.visibleFrame;
     NSFont *font = [NSFont systemFontOfSize:18];
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
+    const BOOL vertical = _verticalCandidates;
     CGFloat width = 20;
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
@@ -182,7 +185,8 @@
         _panel.contentView.layer.cornerRadius = 8.0;
         _panel.contentView.layer.masksToBounds = YES;
     }
-    CGFloat height = candidates.count * rowHeight + 12;
+    CGFloat height = vertical ? candidates.count * rowHeight + 12 : rowHeight + 12;
+    if (!vertical) width = MIN(width, MAX(80, visible.size.width - 20));
     [_panel setContentSize:NSMakeSize(width, height)];
     NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
@@ -190,7 +194,8 @@
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), candidate[@"text"]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
-        button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
+        if (vertical) button.frame = NSMakeRect(6, height - 6 - (++slot * rowHeight), width - 12, rowHeight);
+        else { CGFloat x = 6; for (NSUInteger i = 0; i < slot; ++i) x += ceil([NSString stringWithFormat:@"%lu  %@", (unsigned long)(i + 1), candidates[i][@"text"]].length * 10) + 28; button.frame = NSMakeRect(x, 6, MIN(width - x - 6, 180), rowHeight); ++slot; }
         button.font = font;
         button.contentTintColor = [NSColor whiteColor];
         button.bezelStyle = NSBezelStyleTexturedRounded;
