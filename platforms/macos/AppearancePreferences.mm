@@ -59,6 +59,19 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     return self;
 }
 - (NSURL *)skinsRoot { return _skinsRoot; }
+- (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
+    if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary *merged = [snapshot mutableCopy];
+    merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
+    merged[@"candidate_page_size"] = @(self.pageSize);
+    merged[@"candidate_font_size"] = @(self.fontSize);
+    merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
+    NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
+    if (!toolbar) toolbar = [NSMutableDictionary dictionary];
+    toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
+    merged[@"floating_toolbar"] = toolbar;
+    return merged;
+}
 - (NSImage *)decorationImage { return _decorationImage; }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
 - (void)reloadSkins {
