@@ -796,6 +796,15 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
+    if (candidate.contains("translation") && !candidate.at("translation").is_null()) {
+      auto translation = candidate.at("translation").get<std::string>();
+      // IBus lookup rows are plain text; preserve the candidate and expose
+      // the optional gloss without allowing an oversized provider result to
+      // destabilize the panel.
+      if (!translation.empty() && translation.size() <= 4096 &&
+          value.size() <= 4096)
+        value += " · " + translation;
+    }
     const auto annotation = candidate.value("annotation", std::string{});
     if (!annotation.empty()) {
       value += "  ";
