@@ -114,6 +114,7 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
   endif()
 endforeach()
 if(WIN32)
+  add_subdirectory(msimeui)
   find_package(SQLite3 REQUIRED)
   if(TARGET SQLite3::SQLite3)
     set(MSIME_SQLITE_TARGET SQLite3::SQLite3)
