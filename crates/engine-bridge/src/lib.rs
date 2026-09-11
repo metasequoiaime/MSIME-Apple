@@ -146,6 +146,9 @@ impl Session {
             .pin_mut()
             .set_chinese_punctuation_enabled(enabled)
     }
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_dedicated_english(enabled)
+    }
 }
 
 #[cfg(test)]
