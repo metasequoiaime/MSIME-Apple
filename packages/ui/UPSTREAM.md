@@ -182,3 +182,13 @@ are deferred with a visible partial-support notice. Resource URL rewriting and
 global name isolation remain follow-ups. Compile both `skin-palette.ts` and
 `skin-toolbar-css.ts` for the manual Chromium regression above; it verifies
 computed styles, conditional rules, root mapping, scope containment and cleanup.
+
+Native CSS nesting is now preserved by sanitizing the browser-parsed rule tree
+in place before scoped insertion. Parent declarations, nested selectors,
+media/supports groups and CSSNestedDeclarations retain their original ordering;
+this also preserves pseudo-element behavior that rebuilding declarations as an
+`&` rule would change. Unsupported resource/global rules are still filtered at
+every depth, without discarding their supported parent rule. The Chromium
+regression now checks declaration order, nested conditions, pseudo-elements,
+scope isolation, nested resource filtering and cleanup. This supersedes the
+earlier nesting limitation, not the remaining resource/font/keyframe limitations.

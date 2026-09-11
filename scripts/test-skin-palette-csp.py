@@ -48,7 +48,21 @@ with sync_playwright() as playwright:
       if (getComputedStyle(document.body).display === 'none' || getComputedStyle(first).backgroundImage !== 'none') throw Error('toolbar escape or resource rule retained');
       toolbar.remove();
       if (document.adoptedStyleSheets.length || getComputedStyle(first).color !== baseline) throw Error('toolbar cleanup failed');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, resourceRulesDeferred:true};
+      const nested = installToolbarCss('card1', '.sample { color: rgb(10, 20, 30); & { color: rgb(30, 40, 50); } color: rgb(50, 60, 70); @media screen { & { border-left: 5px solid black; } } @supports (display: block) { padding-right: 6px; } }');
+      if (nested.partial || getComputedStyle(first).color !== 'rgb(50, 60, 70)') throw Error('nested declaration order lost');
+      if (getComputedStyle(first).borderLeftWidth !== '5px' || getComputedStyle(first).paddingRight !== '6px') throw Error('nested conditional rules lost');
+      if (getComputedStyle(second).color !== baseline) throw Error('nesting escaped scope');
+      nested.remove();
+      const pseudo = installToolbarCss('card1', '.sample::before { content: "synthetic"; color: rgb(1, 2, 3); @media screen { color: rgb(4, 5, 6); } color: rgb(7, 8, 9); }');
+      if (pseudo.partial || getComputedStyle(first, '::before').color !== 'rgb(7, 8, 9)') throw Error('nested pseudo-element declarations lost');
+      pseudo.remove();
+      const filtered = installToolbarCss('card1', '.sample { color: rgb(10, 20, 30); & { background: url(https://invalid.example/nested.png); } @media screen { background-image: url(https://invalid.example/group.png); } @keyframes unsafe-nested { from { opacity: 0; } to { opacity: 1; } } }');
+      if (!filtered.partial || getComputedStyle(first).color !== 'rgb(10, 20, 30)' || getComputedStyle(first).backgroundImage !== 'none') throw Error('nested filtering lost parent or retained resource');
+      const serialized = document.adoptedStyleSheets.flatMap(sheet => Array.from(sheet.cssRules).map(rule => rule.cssText)).join('');
+      if (serialized.includes('unsafe-nested') || serialized.includes('invalid.example')) throw Error('nested unsupported rules retained');
+      filtered.remove();
+      if (document.adoptedStyleSheets.length || getComputedStyle(first).color !== baseline) throw Error('nested cleanup failed');
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, resourceRulesDeferred:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true};
     }""")
     print(result)
     browser.close()

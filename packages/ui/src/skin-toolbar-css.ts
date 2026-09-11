@@ -9,9 +9,13 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
   const target = sheet.cssRules[0] as CSSGroupingRule;
   if (!target.cssRules || !target.insertRule) throw new Error("scope unavailable");
   let partial = /@import\b/i.test(css); // Constructed sheets discard imports.
-  function copy(rules: CSSRuleList, into: CSSGroupingRule) {
-    for (const rule of Array.from(rules)) {
-      if (rule.type === CSSRule.STYLE_RULE) {
+  function sanitize(container: CSSStyleSheet | CSSGroupingRule | CSSStyleRule) {
+    // Edit the parsed tree in place so declarations after a nested rule retain
+    // their native CSSNestedDeclarations ordering and pseudo-element semantics.
+    for (let index = container.cssRules.length - 1; index >= 0; index--) {
+      const rule = container.cssRules[index];
+      const nestedDeclarations = rule.constructor.name === "CSSNestedDeclarations";
+      if (rule.type === CSSRule.STYLE_RULE || nestedDeclarations) {
         const styleRule = rule as CSSStyleRule;
         // Resource rewriting is a separate migration step. Do not resolve skin
         // URLs relative to the settings page or permit escaped resource syntax.
@@ -20,21 +24,19 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
             styleRule.style.removeProperty(name); partial = true;
           }
         }
-        if (styleRule.cssRules?.length) { partial = true; continue; }
-        into.insertRule(styleRule.cssText, into.cssRules.length);
+        if (!nestedDeclarations && styleRule.cssRules?.length) sanitize(styleRule);
       } else if (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE) {
-        const grouping = rule as CSSConditionRule;
-        const prefix = rule.type === CSSRule.MEDIA_RULE ? "@media" : "@supports";
-        const index = into.insertRule(`${prefix} ${grouping.conditionText} {}`, into.cssRules.length);
-        copy(grouping.cssRules, into.cssRules[index] as CSSGroupingRule);
+        sanitize(rule as CSSGroupingRule);
       } else {
         // Fonts, keyframes and other globally named rules need their own
         // resource/name isolation; do not leak them into the settings document.
         partial = true;
+        container.deleteRule(index);
       }
     }
   }
-  copy(parsed.cssRules, target);
+  sanitize(parsed);
+  for (const rule of Array.from(parsed.cssRules)) target.insertRule(rule.cssText, target.cssRules.length);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
   return { partial, remove: () => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(existing => existing !== sheet); } };
 }
