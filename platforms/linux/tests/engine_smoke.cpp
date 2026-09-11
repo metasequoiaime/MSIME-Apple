@@ -96,6 +96,7 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   try {
+    g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
     // Synthetic fixture only; the production host does not invoke this
     // bootstrap.
     gchar *temporary = g_dir_make_tmp("msime-ibus-test-XXXXXX", nullptr);
