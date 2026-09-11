@@ -29,6 +29,27 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_loadPreferencesR
     env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
+    if (!directory || !snapshot || expected_revision < 0) {
+        return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
+    }
+    jsize directory_length = env->GetArrayLength(directory);
+    jbyte *directory_bytes = env->GetByteArrayElements(directory, nullptr);
+    if (!directory_bytes) return nullptr;
+    jsize snapshot_length = env->GetArrayLength(snapshot);
+    jbyte *snapshot_bytes = env->GetByteArrayElements(snapshot, nullptr);
+    if (!snapshot_bytes) {
+        env->ReleaseByteArrayElements(directory, directory_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    char *result = msime_client_save_preferences(
+        reinterpret_cast<const uint8_t *>(directory_bytes), static_cast<size_t>(directory_length),
+        static_cast<uint64_t>(expected_revision),
+        reinterpret_cast<const uint8_t *>(snapshot_bytes), static_cast<size_t>(snapshot_length));
+    env->ReleaseByteArrayElements(snapshot, snapshot_bytes, JNI_ABORT);
+    env->ReleaseByteArrayElements(directory, directory_bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_prepareHostRaw(JNIEnv *env, jclass, jbyteArray options) {
     if (!options) return response(env, msime_client_prepare_host(nullptr, 0));
     jsize length = env->GetArrayLength(options);

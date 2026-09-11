@@ -14,6 +14,12 @@ public final class NativeClient {
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** May block on the shared file lock. Call on a worker, without a session handle. */
+    public static String savePreferences(String directory, long expectedRevision, String snapshot) {
+        if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
+        return text(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
+            snapshot.getBytes(StandardCharsets.UTF_8)));
+    }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
     public static String character(long session, int ascii, boolean shift) {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
@@ -35,6 +41,7 @@ public final class NativeClient {
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] commandRaw(long session, int command);

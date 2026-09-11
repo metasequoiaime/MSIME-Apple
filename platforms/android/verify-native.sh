@@ -27,10 +27,10 @@ for name in libmsime_host_api.so libmsime_android.so libc++_shared.so; do
   echo "$name: $abi ELF, 16KB LOAD alignment and dependency allowlist passed"
 done
 symbols=$("$readelf_tool" --dyn-syms --wide "$library_dir/libmsime_host_api.so")
-for symbol in msime_client_prepare_host msime_client_create msime_client_character msime_client_load_preferences msime_client_update_preferences msime_client_pin_candidate msime_client_remove_candidate msime_client_string_free; do
+for symbol in msime_client_prepare_host msime_client_create msime_client_character msime_client_load_preferences msime_client_save_preferences msime_client_update_preferences msime_client_pin_candidate msime_client_remove_candidate msime_client_string_free; do
   grep -Eq "GLOBAL +DEFAULT +[0-9]+ +${symbol}$" <<< "$symbols" || { echo "Missing host export: $symbol" >&2; exit 1; }
 done
 symbols=$("$readelf_tool" --dyn-syms --wide "$library_dir/libmsime_android.so")
-for method in prepareHostRaw loadPreferencesRaw createRaw characterRaw updatePreferencesRaw pinCandidateRaw removeCandidateRaw destroyRaw; do
+for method in prepareHostRaw loadPreferencesRaw savePreferencesRaw createRaw characterRaw updatePreferencesRaw pinCandidateRaw removeCandidateRaw destroyRaw; do
   grep -Eq "GLOBAL +DEFAULT +[0-9]+ +Java_app_msime_client_NativeClient_${method}$" <<< "$symbols" || { echo "Missing JNI export: $method" >&2; exit 1; }
 done
