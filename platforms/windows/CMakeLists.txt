@@ -114,6 +114,7 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
   endif()
 endforeach()
 if(WIN32)
+  install(FILES installer/config.default.toml DESTINATION share/msime)
   add_subdirectory(msimeui)
   add_subdirectory(tsf)
   find_package(SQLite3 REQUIRED)
