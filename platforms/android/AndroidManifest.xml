@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.client.preview" android:versionCode="1" android:versionName="0.1.0-dev">
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <application android:label="MSIME Client Preview" android:allowBackup="false" android:supportsRtl="true">
         <activity android:name="app.msime.client.SetupActivity" android:exported="true">

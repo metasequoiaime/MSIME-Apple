@@ -4,6 +4,22 @@
 
 `MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。没有输入日志或网络权限。
 
+软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
+
+候选区独立显示当前组合文本、当前页和候选按钮；候选超过一个时可展开当前页的无障碍候选面板，面板内可直接选择或收起，翻页仍通过共享运行时的命令完成。Android 宿主不复制候选算法或分页规则，展开面板明确标注“当前页”，避免把当前页误报为完整候选列表。
+
+输入服务现在消费共享 `candidate_skin` 偏好，将 fluent、wechat、graphite 和 willow_green 映射为 Android 键盘、候选区及展开面板的背景、按键色、前景色、边框圆角和等宽字体样式；设置热更新后不重建输入会话，只重新应用视觉样式。未知皮肤 ID 回退到 fluent，不把用户设置值当作颜色或资源名直接使用。
+
+“更多”菜单现在提供 Apple 键盘对应的按键音、按键振动和轻/中/强振动强度；按键、候选、翻页和面板操作共用反馈路径。设置保存在输入法私有的 `keyboard-feedback` 偏好中，默认按键音开启、振动关闭；振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
+
+“更多”菜单的“本地输入”子菜单接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。
+
+中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
+
+候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size` 和 `candidate_preedit_font_size`；偏好热更新成功后立即调整候选排列和字号，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16。
+
+“更多”菜单提供键盘内剪贴板历史面板。与 Apple 一致，只有用户点按“保存当前剪贴板”时才读取 Android 文本剪贴板，不后台监听；最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空并禁用入口。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
+
 配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备；源码、打包与签名检查通过不代表设备运行通过。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0。脚本编译全部服务 Java、执行不依赖 Android 运行时的文本/敏感字段策略测试，并校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
