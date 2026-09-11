@@ -1143,6 +1143,7 @@ fn voice_provider_options(document: &Value) -> Value {
         "polish_endpoint",
         "polish_model",
         "polish_prompt_id",
+        "polish_prompt",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
             let bounded = value.chars().take(512).collect::<String>();
