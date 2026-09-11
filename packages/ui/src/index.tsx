@@ -402,12 +402,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {(client.windowControl || client.beginWindowDrag) && <header className="window-titlebar" aria-label="窗口控制"
       onDoubleClick={() => client.windowControl ? void client.windowControl(windowMaximized ? "restore" : "maximize") : undefined}
       onPointerDown={event => { if (event.button === 0 && client.beginWindowDrag) void client.beginWindowDrag(); }}>
-      <span>水杉 IME</span>{client.windowControl && <span className="window-controls"
+      <span className="window-title">水杉 IME</span>{client.windowControl && <span className="window-controls"
         onPointerDown={event => event.stopPropagation()}
         onDoubleClick={event => event.stopPropagation()}>
         <button type="button" aria-label="最小化" onClick={() => void client.windowControl!("minimize")}>−</button>
         <button type="button" aria-label={windowMaximized ? "还原" : "最大化"} onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}>{windowMaximized ? "❐" : "□"}</button>
-        <button type="button" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
+        <button type="button" className="window-close" aria-label="关闭" onClick={() => void client.windowControl!("close")}>×</button>
       </span>}
     </header>}
     <div className="settings-body">
