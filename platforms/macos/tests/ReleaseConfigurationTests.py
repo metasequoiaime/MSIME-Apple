@@ -726,6 +726,21 @@ class ReleaseConfigurationTests(unittest.TestCase):
         # checks off for them.
         self.assertNotIn("SUEnableAutomaticChecks", package_script)
         self.assertIn("METASEQUOIA_VOICE_ENTITLEMENTS", package_script)
+
+        # Sign in with Apple is the only sign-in the backend has switched on, so the account that
+        # candidate translation and cloud sync authenticate with depends on this entitlement.
+        entitlements = (MACOS_ROOT / "resources/VoiceInput.entitlements").read_text()
+        self.assertIn("com.apple.security.device.audio-input", entitlements)
+        self.assertIn("com.apple.developer.applesignin", entitlements)
+
+        # The entitlement is only honoured when a profile authorising it is embedded, and the
+        # profile has to be in place before codesign seals the bundle -- adding it afterwards breaks
+        # the seal that the verify below checks.
+        self.assertIn("METASEQUOIA_PROVISIONING_PROFILE", package_script)
+        self.assertIn("Contents/embedded.provisionprofile", package_script)
+        embed = package_script.index("embedded.provisionprofile")
+        sign = package_script.index("--entitlements")
+        self.assertLess(embed, sign, "the profile must be embedded before the bundle is signed")
         self.assertIn("Voice input entitlements not found at", package_script)
         self.assertNotIn("${0:A:h:h}/resources", package_script)
         postinstall_script = MACOS_ROOT / "scripts/pkg-postinstall.sh"

@@ -9,6 +9,17 @@ project_root=${project_root:A}
 # is why unsigned releases never noticed.
 voice_entitlements=${METASEQUOIA_VOICE_ENTITLEMENTS:-$project_root/platforms/macos/resources/VoiceInput.entitlements}
 voice_entitlements=${voice_entitlements:A}
+# VoiceInput.entitlements carries the microphone key and com.apple.developer.applesignin. It holds
+# no XML comments on purpose: AMFI's plist parser rejects them and codesign fails to read the file.
+#
+# Sign in with Apple is authorised by a provisioning profile, not by the entitlement alone: the
+# system checks the embedded profile for the capability before honouring com.apple.developer
+# .applesignin. Releases built without one stay exactly as they were -- the entitlement is inert
+# rather than harmful -- so this is optional and absent from unsigned builds.
+provisioning_profile=${METASEQUOIA_PROVISIONING_PROFILE:-}
+if [[ -n "$provisioning_profile" ]]; then
+    provisioning_profile=${provisioning_profile:A}
+fi
 install_script=${METASEQUOIA_RELEASE_INSTALL_SCRIPT:-$project_root/platforms/macos/scripts/install-release.sh}
 install_script=${install_script:A}
 uninstall_script=${METASEQUOIA_RELEASE_UNINSTALL_SCRIPT:-$project_root/platforms/macos/scripts/uninstall.sh}
@@ -204,6 +215,15 @@ chmod +x "$bundled_uninstaller"
 # do publish appcast.xml — generate-sparkle-appcast.sh accepts the -unsigned-update.zip asset and
 # the feed is signed with the project's Ed25519 update key, which is independent of Apple signing —
 # so disabling checks here left every installed copy blind to updates that were already published.
+if [[ -n "$provisioning_profile" ]]; then
+    if [[ ! -f "$provisioning_profile" ]]; then
+        print -u2 "Provisioning profile not found at $provisioning_profile"
+        exit 1
+    fi
+    # The profile has to be in place before the signature is made: codesign seals the bundle, and a
+    # file added afterwards would break the seal that codesign --verify checks a few lines below.
+    ditto "$provisioning_profile" "$packaged_bundle/Contents/embedded.provisionprofile"
+fi
 if [[ -n "$application_identity" ]]; then
     codesign --force --deep --options runtime --timestamp --entitlements "$voice_entitlements" --sign "$application_identity" "$packaged_bundle"
 else
