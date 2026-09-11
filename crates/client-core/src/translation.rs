@@ -118,6 +118,13 @@ pub fn should_persist_translation(key: &str, gloss: &str) -> bool {
         && !gloss.eq_ignore_ascii_case(key)
 }
 
+pub fn usable_tencent_secret(value: &str) -> bool {
+    let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
+    !trimmed.is_empty()
+        && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
+        && !trimmed.starts_with("FAKESECRET_")
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
     pub endpoint: String,
@@ -449,5 +456,13 @@ mod tests {
         assert!(should_persist_translation("hello", "你好"));
         assert!(!should_persist_translation("hello", "hello"));
         assert!(!should_persist_translation("hello", &"字".repeat(33)));
+    }
+
+    #[test]
+    fn rejects_placeholder_tencent_secrets() {
+        assert!(usable_tencent_secret(" real-secret "));
+        assert!(!usable_tencent_secret("<YOUR_TENCENT_SECRET_ID>"));
+        assert!(!usable_tencent_secret("FAKESECRET_test"));
+        assert!(!usable_tencent_secret(" \n\t"));
     }
 }
