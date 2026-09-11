@@ -83,6 +83,11 @@ mod ffi {
 
 pub use ffi::{EngineOptions, EngineResult, EngineSnapshot};
 
+/// Validate a personal dictionary entry using the pinned Engine contract.
+pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
+    ffi::validate_personal_dictionary(kind, key, value)
+}
+
 /// Delegate working-dictionary preparation and learning replay to the Engine.
 /// Caller verifies resources first and quiesces all users of these data paths.
 pub fn prepare_options(
