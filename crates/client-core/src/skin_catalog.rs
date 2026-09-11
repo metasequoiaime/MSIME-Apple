@@ -1,6 +1,7 @@
 //! Safe discovery and validation of external candidate-skin manifests.
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use toml::Value;
 
@@ -96,14 +97,15 @@ fn enum_array(table: &toml::map::Map<String, Value>, key: &str, allowed: &[&str]
         .and_then(Value::as_array)
         .is_some_and(|items| {
             !items.is_empty()
-                && items
-                    .iter()
-                    .all(|item| item.as_str().is_some_and(|value| allowed.contains(&value)))
+                && items.iter().enumerate().all(|(index, item)| {
+                    item.as_str().is_some_and(|value| allowed.contains(&value))
+                        && !items[..index].contains(item)
+                })
         })
 }
 
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
-    if !safe_id(folder) {
+    if !safe_id(folder) || matches!(folder, "fluent" | "wechat" | "graphite" | "willow_green") {
         return Err("invalid skin id".into());
     }
     let dir = root.join(folder);
@@ -111,7 +113,19 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     if !contained(root, &dir) || !contained(&dir, &manifest) {
         return Err("manifest escapes skin directory".into());
     }
-    let bytes = fs::read(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
+    let input = fs::File::open(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
+    if !input
+        .metadata()
+        .map_err(|_| "unreadable skin.toml")?
+        .is_file()
+    {
+        return Err("skin.toml is not a regular file".into());
+    }
+    let mut bytes = Vec::new();
+    input
+        .take(65_537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "unreadable skin.toml")?;
     if bytes.len() > 65_536 {
         return Err("skin.toml is too large".into());
     }
@@ -150,14 +164,12 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         .get("candidate_window")
         .and_then(Value::as_table)
         .ok_or("missing candidate_window")?;
-    let number = |value: Option<&Value>| {
-        value
-            .and_then(|value| {
-                value
-                    .as_float()
-                    .or_else(|| value.as_integer().map(|n| n as f64))
-            })
-            .unwrap_or(0.0)
+    let number = |value: Option<&Value>| match value {
+        None => 0.0,
+        Some(value) => value
+            .as_float()
+            .or_else(|| value.as_integer().map(|n| n as f64))
+            .unwrap_or(f64::NAN),
     };
     let min_width = number(window.get("min_width_dip"));
     if !min_width.is_finite() || !(0.0..=1000.0).contains(&min_width) {
@@ -179,8 +191,11 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     }
     if let Some(stylesheet) = optional_string(table, "toolbar_stylesheet", 128)? {
         if !safe_resource(&stylesheet, 128)
+            || stylesheet.contains('/')
+            || stylesheet.len() <= 4
             || !stylesheet.ends_with(".css")
             || !contained(&dir, &dir.join(&stylesheet))
+            || !dir.join(&stylesheet).is_file()
         {
             return Err("invalid toolbar_stylesheet".into());
         }
@@ -228,13 +243,97 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    fn manifest(id: &str) -> String {
+        format!("schema_version = 1\nid = '{id}'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n")
+    }
+
+    fn scan_manifest(body: &str) -> SkinCatalog {
+        let root = tempdir().unwrap();
+        let skin = root.path().join("sample");
+        fs::create_dir(&skin).unwrap();
+        fs::write(skin.join("skin.toml"), body).unwrap();
+        scan(root.path())
+    }
+
+    #[test]
+    fn rejects_duplicate_supported_layouts_and_themes() {
+        for (from, to) in [
+            ("['vertical']", "['vertical', 'vertical']"),
+            ("['light']", "['light', 'light']"),
+        ] {
+            let result = scan_manifest(&manifest("sample").replace(from, to));
+            assert!(result.packages.is_empty());
+            assert_eq!(result.issues[0].reason, "invalid supports");
+        }
+    }
+
+    #[test]
+    fn rejects_wrong_numeric_types_and_nonfinite_or_out_of_range_dimensions() {
+        for field in ["min_width_dip = 10", "top_inset_dip = 0", "width_dip = 0"] {
+            let key = field.split(" = ").next().unwrap();
+            for value in ["'10'", "false", "[]", "{}", "nan", "inf", "-1", "1001"] {
+                let result =
+                    scan_manifest(&manifest("sample").replace(field, &format!("{key} = {value}")));
+                assert!(result.packages.is_empty(), "accepted {key}={value}");
+                assert_eq!(result.issues.len(), 1);
+            }
+        }
+        assert_eq!(scan_manifest(&manifest("sample")).packages.len(), 1);
+        let defaults = manifest("sample")
+            .replace("min_width_dip = 10\n", "")
+            .replace("top_inset_dip = 0\n", "")
+            .replace("width_dip = 0\n", "");
+        assert_eq!(scan_manifest(&defaults).packages.len(), 1);
+    }
+
+    #[test]
+    fn rejects_builtin_ids_as_external_skin_folders() {
+        let root = tempdir().unwrap();
+        for id in ["fluent", "wechat", "graphite", "willow_green"] {
+            let skin = root.path().join(id);
+            fs::create_dir(&skin).unwrap();
+            fs::write(skin.join("skin.toml"), manifest(id)).unwrap();
+        }
+        let catalog = scan(root.path());
+        assert!(catalog.packages.is_empty());
+        assert_eq!(catalog.issues.len(), 4);
+    }
+
+    #[test]
+    fn toolbar_stylesheet_must_be_a_single_regular_css_file() {
+        for (resource, directory) in [
+            ("toolbar.css", false),
+            ("toolbar.css", true),
+            ("nested/toolbar.css", false),
+            (".css", false),
+        ] {
+            let root = tempdir().unwrap();
+            let skin = root.path().join("sample");
+            fs::create_dir_all(skin.join("nested")).unwrap();
+            let path = skin.join(resource);
+            if directory {
+                fs::create_dir(path).unwrap();
+            } else {
+                fs::write(path, "/* fixture */").unwrap();
+            }
+            fs::write(
+                skin.join("skin.toml"),
+                format!("toolbar_stylesheet = '{resource}'\n{}", manifest("sample")),
+            )
+            .unwrap();
+            let result = scan(root.path());
+            assert_eq!(
+                result.packages.len(),
+                usize::from(resource == "toolbar.css" && !directory)
+            );
+        }
+    }
     #[test]
     fn scans_valid_and_rejects_unsafe_manifests() {
         let dir = tempdir().unwrap();
         let skin = dir.path().join("sample_skin");
         fs::create_dir(&skin).unwrap();
         fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\nauthor = 'Test'\ndescription = 'Demo'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
-        fs::create_dir(dir.path().join("../escape")).ok();
         let catalog = scan(dir.path());
         assert_eq!(
             catalog.packages,
