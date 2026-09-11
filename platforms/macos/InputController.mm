@@ -6,7 +6,7 @@
 #import "CandidatePlacement.h"
 #import "UpdateController.h"
 #import "DictionaryWindowController.h"
-#import "DictionaryRuntime.h"
+#import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
 #import "AccountWindowController.h"
