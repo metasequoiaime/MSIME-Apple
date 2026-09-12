@@ -483,7 +483,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       setHasMore(result.has_more === true);
       setNotice("云词典已刷新");
     } catch { if (revision === refreshRevision.current) setNotice("无法访问云词典服务，请确认 provider 已连接"); }
-    finally { setBusy(false); }
+    finally { if (revision === refreshRevision.current) setBusy(false); }
   }
 
   useEffect(() => { void refresh(0, ""); }, [client]);
