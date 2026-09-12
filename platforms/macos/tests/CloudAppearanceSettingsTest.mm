@@ -9,7 +9,7 @@ int main() {
     assert([initial[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([initial[@"platform.macos.candidate_panel_style"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(initial));
-    assert(initial.count == 16);
+    assert(initial.count == 17);
     for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
     for (NSString *key in @[@"english_input_mode", @"full_width_input", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
