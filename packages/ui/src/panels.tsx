@@ -199,13 +199,16 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
   const [drawing, setDrawing] = useState<Point[]>([]);
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
+  const recognitionRevision = useRef(0);
   async function recognize(nextStrokes: InkStroke[]) {
+    const revision = ++recognitionRevision.current;
     if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由宿主提供"); return; }
     try {
       const result = await client.recognizeHandwriting({ language: "zh-CN", strokes: nextStrokes });
+      if (revision !== recognitionRevision.current) return;
       setCandidates(result.candidates);
       setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
-    } catch { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); }
+    } catch { if (revision === recognitionRevision.current) { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); } }
   }
   function start(event: PointerEvent<SVGSVGElement>) { event.currentTarget.setPointerCapture?.(event.pointerId); setDrawing([pointFromEvent(event)]); }
   function move(event: PointerEvent<SVGSVGElement>) {
@@ -223,7 +226,7 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
     setStrokes(nextStrokes); setCandidates([]);
     if (!nextStrokes.length) setNotice("请在左侧书写，松开鼠标后自动识别"); else void recognize(nextStrokes);
   }
-  function clear() { setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
+  function clear() { recognitionRevision.current++; setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
   function chooseCandidate(candidate: string) {
     if (!client.submitHandwritingCandidate) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
     void client.submitHandwritingCandidate(candidate).then(() => setNotice(`已提交：${candidate}`)).catch(() => setNotice(`提交失败：${candidate}`));
