@@ -8,6 +8,7 @@
 - (void)revealKey:(id)sender;
 - (void)revealTencentKey:(id)sender;
 - (void)updateControls:(id)sender;
+- (void)providerChanged:(id)sender;
 @end
 static void Wait(MSIMETranslationSettingsWindow *window) {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
@@ -27,7 +28,9 @@ int main() {
             assert(NSThread.isMainThread && [preferences[@"custom_translation"] isKindOfClass:NSDictionary.class]); ++saves;
         }];
         [window showWindow:nil]; Wait(window);
-        NSButton *custom = [window valueForKey:@"custom"], *enabled = [window valueForKey:@"enabled"], *reveal = [window valueForKey:@"reveal"];
+        NSButton *enabled = [window valueForKey:@"enabled"], *reveal = [window valueForKey:@"reveal"];
+        NSPopUpButton *provider = [window valueForKey:@"provider"];
+        NSGridView *grid = [window valueForKey:@"grid"];
         NSTextField *endpoint = [window valueForKey:@"endpoint"], *plain = [window valueForKey:@"plainKey"];
         NSSecureTextField *key = [window valueForKey:@"key"];
         NSPopUpButton *target = [window valueForKey:@"target"];
@@ -38,8 +41,11 @@ int main() {
         assert(tencent.state == NSControlStateValueOn && secretId.enabled && [region.stringValue isEqual:@"ap-guangzhou"]);
         secretId.stringValue = @"AKIDsynthetic"; tencentKey.stringValue = @"synthetic-tencent";
         assert([key isKindOfClass:NSSecureTextField.class] && !key.hidden && plain.hidden);
-        assert(target.numberOfItems == 7 && custom.state == NSControlStateValueOff && !endpoint.enabled);
-        custom.state = NSControlStateValueOn; [window updateControls:nil];
+        assert(target.numberOfItems == 7 && provider.indexOfSelectedItem == 0 && !endpoint.enabled);
+        assert(([provider.itemTitles isEqual:@[@"腾讯云", @"自定义 DeepLX"]]));
+        assert([grid rowAtIndex:3].hidden && ![grid rowAtIndex:6].hidden);
+        [provider selectItemAtIndex:1]; [window providerChanged:nil];
+        assert(![grid rowAtIndex:3].hidden && [grid rowAtIndex:6].hidden);
         assert(endpoint.enabled && key.enabled);
         assert(!tencent.enabled && !secretId.enabled && !tencentKey.enabled && !region.enabled);
         endpoint.stringValue = @"file:///synthetic";
@@ -70,8 +76,9 @@ int main() {
         assert(saves == 1);
         [window reload:nil]; Wait(window);
         assert([endpoint.stringValue isEqual:@"https://translation.invalid/api"]);
-        enabled.state = NSControlStateValueOff; custom.state = NSControlStateValueOff;
-        [window updateControls:nil]; assert(!target.enabled && !endpoint.enabled);
+        assert(provider.indexOfSelectedItem == 1 && ![grid rowAtIndex:3].hidden && [grid rowAtIndex:6].hidden);
+        enabled.state = NSControlStateValueOff; [provider selectItemAtIndex:0];
+        [window providerChanged:nil]; assert(!target.enabled && !endpoint.enabled);
         [window save:nil]; Wait(window); assert(saves == 2);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"candidate_page_size"] isEqual:@7]);
@@ -82,6 +89,14 @@ int main() {
         revealTencent.state = NSControlStateValueOn; [window revealTencentKey:nil];
         assert(tencentKey.hidden && !plainTencent.hidden && !tencentKey.stringValue.length);
         assert([plainTencent.stringValue isEqual:@"synthetic-tencent"]);
+        [provider selectItemAtIndex:1]; [window providerChanged:nil];
+        assert(revealTencent.state == NSControlStateValueOff && !plainTencent.stringValue.length);
+        assert([tencentKey.stringValue isEqual:@"synthetic-tencent"] && ![grid rowAtIndex:3].hidden);
+        reveal.state = NSControlStateValueOn; [window revealKey:nil];
+        [provider selectItemAtIndex:0]; [window providerChanged:nil];
+        assert(reveal.state == NSControlStateValueOff && !plain.stringValue.length);
+        assert([key.stringValue isEqual:@"synthetic-edited"] && [grid rowAtIndex:3].hidden);
+        revealTencent.state = NSControlStateValueOn; [window revealTencentKey:nil];
         plainTencent.stringValue = @"synthetic-tencent-edited"; region.stringValue = @"ap-shanghai";
         [window save:nil]; Wait(window); assert(saves == 3);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
@@ -94,6 +109,7 @@ int main() {
         assert([[MSIMEClientSession loadPreferencesInDirectory:root error:&error][@"revision"] isEqual:stored[@"revision"]]);
         [window reload:nil]; Wait(window);
         assert([region.stringValue isEqual:@"ap-shanghai"] && !tencentKey.hidden && plainTencent.hidden);
+        assert(provider.indexOfSelectedItem == 0 && [grid rowAtIndex:3].hidden && ![grid rowAtIndex:6].hidden);
         // A concurrent edit also protects Tencent drafts through the same CAS revision.
         other = [stored mutableCopy]; otherPreferences = [stored[@"preferences"] mutableCopy];
         otherPreferences[@"candidate_page_size"] = @8; other[@"preferences"] = otherPreferences;
