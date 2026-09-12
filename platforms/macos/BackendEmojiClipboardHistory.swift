@@ -81,4 +81,17 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
       throw NSError(domain: "MSIMEClipboardHistory", code: 4)
     }
   }
+
+  static func capture(directory: String, text: String) throws -> Bool {
+    let selector = NSSelectorFromString("captureClipboardHistoryRequest:")
+    guard NSString(string: directory).isAbsolutePath, text.utf8.count <= 4096,
+          let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
+          type.responds(to: selector),
+          let response = type.perform(selector, with: ["directory": directory, "text": text] as NSDictionary)?.takeUnretainedValue() as? NSDictionary,
+          response["error"] == nil, let captured = response["captured"] as? NSNumber,
+          CFGetTypeID(captured) == CFBooleanGetTypeID() else {
+      throw NSError(domain: "MSIMEClipboardHistory", code: 5)
+    }
+    return captured.boolValue
+  }
 }
