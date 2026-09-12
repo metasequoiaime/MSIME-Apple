@@ -24,6 +24,7 @@
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
+#include "ModifierTap.h"
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
@@ -186,6 +187,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     BOOL _focusPending;
+    MSIMEModifierTap _modifierTap;
     MSIMEDictionaryWindowController *_dictionaryWindow;
 }
 
@@ -503,6 +505,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    _modifierTap.reset();
     [super activateServer:sender];
     [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
@@ -543,6 +546,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    _modifierTap.reset();
     _requestedPageSize = 0;
     _preferenceLoadState.reset();
     _focusPending = YES;
@@ -650,6 +654,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)deactivateServer:(id)sender {
+    _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
     [_toolbar deactivateForDelegate:self];
@@ -699,19 +704,26 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (NSUInteger)recognizedEvents:(id)sender {
     (void)sender;
-    return NSEventMaskKeyDown;
+    return NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
 }
 
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
-    if (event.type != NSEventTypeKeyDown) return NO;
+    if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
+    if (!sender) { _modifierTap.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        _modifierTap.reset();
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
         _focusPending = _appearance.englishMode;
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
+    if (_modifierTap.observe(event, _appearance.shiftTapShortcut, _appearance.controlTapShortcut)) {
+        [self setEnglishInputMode:!_appearance.englishMode];
+        return YES;
+    }
+    if (event.type != NSEventTypeKeyDown) return NO;
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {

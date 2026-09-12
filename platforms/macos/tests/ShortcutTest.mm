@@ -914,6 +914,127 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(client.committed == nil && control.state == NSControlStateValueOff);
 }
 
+static NSEvent *TapEvent(NSEventType type, unsigned short key, NSEventModifierFlags flags, double time) {
+    return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:time windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key];
+}
+
+static void TestModifierTaps() {
+    for (NSNumber *key in @[@56, @60, @59, @62]) {
+        const auto code = key.unsignedShortValue;
+        const auto flag = code == 56 || code == 60 ? NSEventModifierFlagShift : NSEventModifierFlagControl;
+        auto down = TapEvent(NSEventTypeFlagsChanged, code, flag, 1.0);
+        auto up = TapEvent(NSEventTypeFlagsChanged, code, 0, 1.1);
+        MSIMEModifierTap tap;
+        assert(!tap.observe(up, true, true)); // A release after focus acquisition cannot toggle.
+        assert(!tap.observe(down, true, true));
+        assert(tap.observe(up, true, true));
+        assert(!tap.observe(up, true, true));
+        for (double time : {1.5, 2.0, 0.9}) {
+            tap.reset();
+            assert(!tap.observe(down, true, true));
+            assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, code, 0, time), true, true));
+        }
+        tap.reset();
+        assert(!tap.observe(down, false, false));
+        assert(!tap.observe(up, true, true)); // Enabling while held does not arm.
+        assert(!tap.observe(down, true, true));
+        assert(!tap.observe(up, false, false));
+        tap.reset();
+        assert(!tap.observe(down, true, true));
+        tap.reset();
+        assert(!tap.observe(up, true, true));
+        for (auto other : {NSEventModifierFlagCommand, NSEventModifierFlagOption, NSEventModifierFlagFunction,
+                          flag == NSEventModifierFlagShift ? NSEventModifierFlagControl : NSEventModifierFlagShift}) {
+            tap.reset();
+            assert(!tap.observe(down, true, true));
+            assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 55, flag | other, 1.02), true, true));
+            assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 55, flag, 1.04), true, true));
+            assert(!tap.observe(up, true, true));
+        }
+        // A held non-modifier and typing while held cancel.
+        tap.reset();
+        assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, 0, 0.9), true, true));
+        assert(!tap.observe(down, true, true));
+        assert(!tap.observe(up, true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, 0, 1.2), true, true));
+        assert(!tap.observe(down, true, true));
+        assert(tap.observe(up, true, true));
+        assert(!tap.observe(down, true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, flag, 1.02), true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, flag, 1.04), true, true));
+        assert(!tap.observe(up, true, true));
+        assert(!tap.observe(down, true, true));
+        unsigned short otherSide = code == 56 ? 60 : code == 60 ? 56 : code == 59 ? 62 : 59;
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, flag, 1.02), true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, flag, 1.04), true, true));
+        assert(tap.observe(up, true, true));
+        assert(!tap.observe(down, true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, flag, 1.02), true, true));
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, code, flag, 1.04), true, true));
+        assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, 0, 1.1), true, true));
+    }
+
+    NSString *suite = [@"msime.modifier-taps." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(prefs.shiftTapShortcut && !prefs.controlTapShortcut);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"keybindings"]);
+    NSDictionary *keys = @{@"switch_language_shift":@NO, @"switch_language_ctrl":@YES, @"switch_language_ctrl_alt_space":@NO};
+    [prefs applySharedInputPreferences:@{@"keybindings":keys}];
+    assert(!prefs.shiftTapShortcut && prefs.controlTapShortcut);
+    assert([[prefs sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
+    [prefs applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@1, @"switch_language_ctrl":@"false"}}];
+    assert(!prefs.shiftTapShortcut && prefs.controlTapShortcut);
+    NSButton *shift = (id)PreferenceControl(prefs, NSSelectorFromString(@"shiftTapShortcutChanged:"));
+    NSButton *control = (id)PreferenceControl(prefs, NSSelectorFromString(@"controlTapShortcutChanged:"));
+    assert(shift.state == NSControlStateValueOff && control.state == NSControlStateValueOn);
+    shift.state = NSControlStateValueOn;
+    assert([NSApp sendAction:shift.action to:shift.target from:shift]);
+    control.state = NSControlStateValueOff;
+    assert([NSApp sendAction:control.action to:control.target from:control]);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(reopened.shiftTapShortcut && !reopened.controlTapShortcut);
+    NSDictionary *merged = [MSIMEMergePreferenceSnapshot(@{@"keybindings":keys}, [prefs sharedPreferencesByMerging:@{}]) objectForKey:@"keybindings"];
+    assert(([merged isEqual:@{@"switch_language_shift":@YES, @"switch_language_ctrl":@NO, @"switch_language_ctrl_alt_space":@NO}]));
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    assert([controller recognizedEvents:client] == (NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged));
+    auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0);
+    auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1.1);
+    session.failFinish = YES;
+    assert(![controller handleEvent:down client:client]);
+    assert([controller handleEvent:up client:client]);
+    assert(!prefs.englishMode);
+    session.failFinish = NO;
+    assert(![controller handleEvent:down client:client]);
+    assert([controller handleEvent:up client:client]);
+    assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
+    assert(![controller handleEvent:down client:client]);
+    assert([controller handleEvent:up client:client]);
+    assert(!prefs.englishMode);
+    assert(![controller handleEvent:down client:client]);
+    ShortcutClient *other = [ShortcutClient new];
+    assert(![controller handleEvent:up client:other]);
+    assert(!prefs.englishMode);
+    prefs.controlTapShortcut = YES;
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 62, NSEventModifierFlagControl, 2.0) client:other]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 62, 0, 2.1) client:other]);
+    assert(prefs.englishMode);
+    assert(![controller handleEvent:TapEvent(NSEventTypeKeyUp, 0, 0, 2.2) client:other]);
+    assert(![controller handleEvent:down client:other]);
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:session]];
+    assert(![controller handleEvent:up client:other] && prefs.englishMode);
+    assert(![controller handleEvent:down client:other]);
+    assert(![controller handleEvent:up client:nil]);
+    assert(![controller handleEvent:up client:other] && prefs.englishMode);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestControlOptionSpace() {
     NSString *suite = [@"msime.control-option-space." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -1883,6 +2004,7 @@ int main() {
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         TestControlOptionSpace();
+        TestModifierTaps();
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestCharacterSetShortcut(defaults, appearance);
