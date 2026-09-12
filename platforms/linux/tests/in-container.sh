@@ -29,6 +29,7 @@ rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 if [[ -x /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 ]]; then
   xvfb-run -a python3 platforms/linux/tests/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
+  xvfb-run -a python3 platforms/linux/tests/clipboard_x11_read.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
 fi
 test -x /build/stage/usr/local/bin/msime-client-ibus
 test -x /build/stage/usr/local/bin/msime-client-dictionary

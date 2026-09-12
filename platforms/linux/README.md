@@ -335,7 +335,7 @@ systemctl --user enable --now msime-client-voice.service
 
 `msime-client-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
 
-Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-client-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，再用 `xclip` 或 `xsel` 读取文本。再次复制相同文本也会触发捕获。监听器只输出事件标记，不读取或输出剪贴板内容。不支持事件监听的环境继续以 750ms 间隔轮询；每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-client-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
+Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-client-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询；每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-client-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
 
 可按需执行 `systemctl --user enable --now msime-client-clipboard.service`，使用默认 XDG runtime-options 路径。桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`；未集成 systemd 图形会话的桌面可从会话自启动运行监视器。安装不会自动启用服务，语音和在线服务不依赖它。
 

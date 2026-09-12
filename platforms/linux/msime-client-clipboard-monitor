@@ -90,6 +90,9 @@ def clipboard_text():
     if os.environ.get("WAYLAND_DISPLAY"):
         commands.append(["wl-paste", "--no-newline", "--type", "text"])
     if os.environ.get("DISPLAY"):
+        native = Path(__file__).resolve().parent / "msime-client-clipboard-watch-x11"
+        if native.is_file():
+            commands.append([str(native), "--read"])
         commands.extend([["xclip", "-selection", "clipboard", "-o"],
                          ["xsel", "--clipboard", "--output"]])
     for args in commands:
