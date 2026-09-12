@@ -34,6 +34,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.
 @property(nonatomic) BOOL englishMode;
+@property(nonatomic, copy) NSString *defaultImeMode;
+@property(nonatomic, copy) NSString *imeModeScope;
+- (void)activateInputModeForApplication:(NSString *)identifier;
+- (void)lockActiveInputMode;
 @property(nonatomic) BOOL inputModeShortcut;
 @property(nonatomic) BOOL shiftTapShortcut;
 @property(nonatomic) BOOL controlTapShortcut;
