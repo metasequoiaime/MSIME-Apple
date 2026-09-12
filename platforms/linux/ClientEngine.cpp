@@ -88,6 +88,16 @@ struct State {
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
+  bool shift_down = false;
+  bool ctrl_down = false;
+  gint64 modifier_toggle_deadline = 0;
+  void reset_mode_modifiers() {
+    pure_shift_candidate = false;
+    pure_ctrl_candidate = false;
+    shift_down = false;
+    ctrl_down = false;
+    modifier_toggle_deadline = 0;
+  }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
   bool mode_ctrl_alt_space_enabled = true;
@@ -178,8 +188,7 @@ struct State {
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
     voice_space_locked = false;
-    pure_shift_candidate = false;
-    pure_ctrl_candidate = false;
+    reset_mode_modifiers();
     mode_chord_held = false;
     voice_worker.cancel_async();
     invalidate_providers();
@@ -2297,6 +2306,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.reset_mode_modifiers();
     s.ai_context.clear();
     s.invalidate_providers();
     s.surrounding_text.clear();
@@ -3127,11 +3137,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  const bool repeated_modifier = !release &&
+      ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
+  if (shift_key) s.shift_down = !release;
+  if (ctrl_key) s.ctrl_down = !release;
+
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
        IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   if (shift_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_shift_candidate || chord_modifiers) {
+    if (!s.pure_shift_candidate || chord_modifiers ||
+        g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_shift_candidate = false;
       return FALSE;
     }
@@ -3144,6 +3160,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
+    if (repeated_modifier) return FALSE;
+    s.modifier_toggle_deadline = g_get_monotonic_time() + 500000;
     s.pure_ctrl_candidate = false;
     // A modifier already held when Shift arrives makes this a chord.
     // Ignore Caps/Num Lock; IBus includes Shift in the modifier mask for
@@ -3154,7 +3172,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
     if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK) ||
-        (flags & IBUS_SHIFT_MASK)) {
+        (flags & IBUS_SHIFT_MASK) ||
+        g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_ctrl_candidate = false;
       return FALSE;
     }
@@ -3165,6 +3184,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (ctrl_key && !(flags & IBUS_RELEASE_MASK)) {
+    if (repeated_modifier) return FALSE;
+    s.modifier_toggle_deadline = g_get_monotonic_time() + 500000;
     s.pure_shift_candidate = false;
     s.pure_ctrl_candidate =
         s.mode_ctrl_enabled && s.focused && !s.blocked &&

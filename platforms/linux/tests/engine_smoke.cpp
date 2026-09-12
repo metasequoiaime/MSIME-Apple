@@ -294,6 +294,19 @@ int main(int argc, char **argv) {
       require(key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
               "Bare modifier no longer restored input");
     }
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      require(!key(modifier_key), "Held modifier press was intercepted");
+      g_usleep(350000);
+      require(!key(modifier_key), "Repeated modifier press was intercepted");
+      g_usleep(250000);
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Long modifier hold or repeat extended the mode-toggle deadline");
+      require(!key(modifier_key), "Focus fixture modifier press was intercepted");
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Modifier release crossed a focus boundary");
+    }
     require(seen.committed.empty(), "Mode setup unexpectedly committed text");
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
       phrase();
@@ -402,6 +415,8 @@ int main(int argc, char **argv) {
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");
     require(key(IBUS_space), "Space not handled");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+            "Shift chord tail toggled input after Space");
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
