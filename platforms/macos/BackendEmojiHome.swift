@@ -94,18 +94,18 @@ struct MacEmojiHomeView: View {
       MacEmojiHomeHeading(title: title, palette: palette, more: showMore ? { more(category) } : nil)
       if category == "kaomoji" {
         MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
-          selected: { effectiveSelection == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
-          identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          selected: { effectiveSelection == MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          identity: { MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
           copy: { index in
-            selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
+            selected = MacEmojiHomeNavigation.key(category: category, items: items, index: index)
             copy(items[index])
           })
       } else {
         MacEmojiGrid(items: items, palette: palette,
-          selected: { effectiveSelection == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
-          identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          selected: { effectiveSelection == MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          identity: { MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
           copy: { index in
-            selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
+            selected = MacEmojiHomeNavigation.key(category: category, items: items, index: index)
             copy(items[index])
           })
       }
@@ -152,7 +152,7 @@ struct MacEmojiHomeView: View {
           try MacEmojiHomeCatalog.load(search: query, groups: {
             try MacEmojiCatalog.loadGroups(resources: directory, category: $0)
           }, page: { category, group, limit in
-            try MacEmojiCatalog.load(resources: directory, search: query, category: category, group: group, limit: limit)
+            try MacEmojiCatalog.loadPrefix(resources: directory, search: query, category: category, group: group, limit: limit)
           })
         }
         let result = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })

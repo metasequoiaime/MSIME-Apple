@@ -5,6 +5,7 @@ use msime_client_core::panels::{
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 #[cfg(unix)]
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
 use serde_json::Value;
@@ -44,6 +45,81 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
 struct SkinDirectoryState(PathBuf);
+struct TypingStatisticsState(TypingStatisticsStore);
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TypingStatisticsStatus {
+    statistics: TypingStatistics,
+    availability: &'static str,
+    last_written_ms: Option<u64>,
+}
+
+fn typing_statistics_status(
+    store: &TypingStatisticsStore,
+    statistics: TypingStatistics,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let last_written = store
+        .last_written()
+        .map_err(|_| CommandError { code: "storage" })?;
+    Ok(TypingStatisticsStatus {
+        statistics,
+        availability: if last_written.is_some() {
+            "ready"
+        } else {
+            "neverWritten"
+        },
+        last_written_ms: last_written.and_then(|time| {
+            time.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        }),
+    })
+}
+
+#[tauri::command]
+async fn load_typing_statistics(
+    state: tauri::State<'_, TypingStatisticsState>,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let store = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let statistics = store.load().map_err(|_| CommandError { code: "storage" })?;
+        typing_statistics_status(&store, statistics)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn set_typing_statistics_enabled(
+    state: tauri::State<'_, TypingStatisticsState>,
+    enabled: bool,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let store = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let statistics = store
+            .set_enabled(enabled)
+            .map_err(|_| CommandError { code: "storage" })?;
+        typing_statistics_status(&store, statistics)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn reset_typing_statistics(
+    state: tauri::State<'_, TypingStatisticsState>,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let store = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let statistics = store
+            .reset()
+            .map_err(|_| CommandError { code: "storage" })?;
+        typing_statistics_status(&store, statistics)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
 
 fn read_skin_toolbar_stylesheet_at(
     root: PathBuf,
@@ -1132,9 +1208,7 @@ fn remember_panel_input_target(
 }
 
 #[cfg(target_os = "windows")]
-fn focused_panel_target(
-    state: &tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
+fn focused_panel_target(state: &tauri::State<'_, PanelInputState>) -> Result<(), HostActionError> {
     let target = state
         .0
         .lock()
@@ -2237,6 +2311,7 @@ pub fn run() {
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
             #[cfg(target_os = "linux")]
@@ -2348,6 +2423,9 @@ pub fn run() {
             supports_font_catalog,
             list_font_families,
             load_preferences,
+            load_typing_statistics,
+            set_typing_statistics_enabled,
+            reset_typing_statistics,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
@@ -2386,6 +2464,29 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn typing_statistics_status_reports_file_availability_without_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            msime_client_core::typing_statistics::TypingStatisticsStore::new(directory.path());
+        let missing = super::typing_statistics_status(&store, store.load().unwrap())
+            .ok()
+            .unwrap();
+        let missing_json = serde_json::to_value(missing).unwrap();
+        assert_eq!(missing_json["availability"], "neverWritten");
+        assert!(missing_json["lastWrittenMs"].is_null());
+        assert_eq!(missing_json["statistics"]["enabled"], true);
+
+        let disabled = store.set_enabled(false).unwrap();
+        let ready = super::typing_statistics_status(&store, disabled)
+            .ok()
+            .unwrap();
+        let ready_json = serde_json::to_value(ready).unwrap();
+        assert_eq!(ready_json["availability"], "ready");
+        assert!(ready_json["lastWrittenMs"].is_number());
+        assert_eq!(ready_json["statistics"]["enabled"], false);
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn keyboard_does_not_accept_focus_but_editable_panels_do() {

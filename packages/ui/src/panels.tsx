@@ -82,11 +82,13 @@ type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifi
 const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({ label, virtualKey, shifted });
 const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({ label, virtualKey, modifier: label });
 const keyboardRows: KeyboardKey[][] = [
+  [key("Num Lock", 0x90), key("Num 0", 0x60), key("Num 1", 0x61), key("Num 2", 0x62), key("Num 3", 0x63), key("Num 4", 0x64), key("Num 5", 0x65), key("Num 6", 0x66), key("Num 7", 0x67), key("Num 8", 0x68), key("Num 9", 0x69), key("Num *", 0x6a), key("Num +", 0x6b), key("Num -", 0x6d), key("Num /", 0x6f), key("Num .", 0x6e)],
+  [key("Esc", 0x1b), key("F1", 0x70), key("F2", 0x71), key("F3", 0x72), key("F4", 0x73), key("F5", 0x74), key("F6", 0x75), key("F7", 0x76), key("F8", 0x77), key("F9", 0x78), key("F10", 0x79), key("F11", 0x7a), key("F12", 0x7b), key("PrtSc", 0x2c), key("Scroll", 0x91), key("Pause", 0x13), key("Ins", 0x2d), key("Home", 0x24), key("End", 0x23), key("PgUp", 0x21), key("PgDn", 0x22)],
   [key("`", 0xc0, "~"), ...[..."1234567890"].map((label, index) => key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index])), key("-", 0xbd, "_"), key("=", 0xbb, "+"), key("Backspace", 0x08)],
   [key("Tab", 0x09), ...[..."QWERTYUIOP"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key("[", 0xdb, "{"), key("]", 0xdd, "}"), key("\\", 0xdc, "|")],
   [modifier("Caps Lock", 0x14), ...[..."ASDFGHJKL"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(";", 0xba, ":"), key("'", 0xde, '"'), key("Enter", 0x0d)],
   [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
-  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), modifier("Ctrl", 0x11)],
+  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), key("←", 0x25), key("↑", 0x26), key("↓", 0x28), key("→", 0x27), modifier("Ctrl", 0x11)],
 ];
 const nineKeyRows: KeyboardKey[][] = [
   [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
@@ -115,7 +117,8 @@ function isImeCommitKey(virtualKey: number) {
 }
 
 export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
-  const rows = layout === "nine_key" ? nineKeyRows : keyboardRows;
+  const [activeLayout, setActiveLayout] = useState(layout);
+  const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
     const reset = () => { pendingDrag.current = null; };
@@ -151,7 +154,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
-  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={layout} aria-label="屏幕键盘">
+  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header"
       onPointerDown={event => {
         pendingDrag.current = null;
@@ -172,7 +175,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
       onPointerUp={() => { pendingDrag.current = null; }}
       onPointerCancel={() => { pendingDrag.current = null; }}
       onPointerLeave={() => { pendingDrag.current = null; }}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={() => setActiveLayout(value => value === "nine_key" ? "twenty_six_key" : "nine_key")}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
@@ -199,13 +202,16 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
   const [drawing, setDrawing] = useState<Point[]>([]);
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
+  const recognitionRevision = useRef(0);
   async function recognize(nextStrokes: InkStroke[]) {
+    const revision = ++recognitionRevision.current;
     if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由宿主提供"); return; }
     try {
       const result = await client.recognizeHandwriting({ language: "zh-CN", strokes: nextStrokes });
+      if (revision !== recognitionRevision.current) return;
       setCandidates(result.candidates);
       setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
-    } catch { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); }
+    } catch { if (revision === recognitionRevision.current) { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); } }
   }
   function start(event: PointerEvent<SVGSVGElement>) { event.currentTarget.setPointerCapture?.(event.pointerId); setDrawing([pointFromEvent(event)]); }
   function move(event: PointerEvent<SVGSVGElement>) {
@@ -223,7 +229,7 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
     setStrokes(nextStrokes); setCandidates([]);
     if (!nextStrokes.length) setNotice("请在左侧书写，松开鼠标后自动识别"); else void recognize(nextStrokes);
   }
-  function clear() { setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
+  function clear() { recognitionRevision.current++; setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
   function chooseCandidate(candidate: string) {
     if (!client.submitHandwritingCandidate) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
     void client.submitHandwritingCandidate(candidate).then(() => setNotice(`已提交：${candidate}`)).catch(() => setNotice(`提交失败：${candidate}`));

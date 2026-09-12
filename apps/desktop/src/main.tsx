@@ -54,6 +54,11 @@ const client: SettingsClient = {
     copy: text => invoke("copy_text", { text }),
   },
   dictionary,
+  ...(/\bAndroid\b/i.test(navigator.userAgent) ? { typingStatistics: {
+    load: () => invoke("load_typing_statistics"),
+    setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
+    reset: () => invoke("reset_typing_statistics"),
+  } } : {}),
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
