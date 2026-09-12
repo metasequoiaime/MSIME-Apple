@@ -983,6 +983,111 @@ static void TestStaleClientDeactivation() {
     [defaults removePersistentDomainForName:suite];
 }
 
+@interface ControlledPreferenceRead : NSObject
+@property(nonatomic, strong) dispatch_semaphore_t started;
+@property(nonatomic, strong) dispatch_semaphore_t released;
+@property(nonatomic, copy) NSDictionary *snapshot;
+@end
+@implementation ControlledPreferenceRead
+- (instancetype)init {
+    self = [super init];
+    if (self) { _started = dispatch_semaphore_create(0); _released = dispatch_semaphore_create(0); }
+    return self;
+}
+@end
+
+@interface AsyncPreferenceSession : ShortcutSession
+@property(nonatomic) NSUInteger updates;
+@end
+@implementation AsyncPreferenceSession
+- (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
+    (void)snapshot; (void)error; ++self.updates;
+    return @{@"view":@{@"focused":@YES, @"editing_text":@"", @"candidates":@[]}};
+}
+@end
+
+@interface AsyncPreferencesController : ModeController
+@property(nonatomic, copy) NSArray<ControlledPreferenceRead *> *reads;
+@property(nonatomic) NSUInteger readCalls;
+@property(nonatomic) NSUInteger completions;
+@property(nonatomic, strong) NSMutableArray<NSDictionary *> *appliedPreferences;
+@end
+@implementation AsyncPreferencesController
+- (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory; (void)error;
+    assert(!NSThread.isMainThread);
+    ControlledPreferenceRead *read;
+    @synchronized(self) { assert(self.readCalls < self.reads.count); read = self.reads[self.readCalls++]; }
+    dispatch_semaphore_signal(read.started);
+    assert(dispatch_semaphore_wait(read.released, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    return read.snapshot;
+}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    assert(NSThread.isMainThread);
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.completions;
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [self.appliedPreferences addObject:preferences];
+    [super applySharedToolbarPreferences:preferences];
+}
+@end
+
+static void WaitForPreferenceCompletions(AsyncPreferencesController *controller, NSUInteger count) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.completions == count);
+}
+
+static void TestPreferenceClientGeneration() {
+    for (NSNumber *returnToFirst in @[@NO, @YES]) {
+        NSString *suite = [@"msime.preference-focus." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        prefs.englishMode = YES;
+        AsyncPreferencesController *controller = [AsyncPreferencesController alloc];
+        ShortcutClient *first = [ShortcutClient new], *second = [ShortcutClient new];
+        AsyncPreferenceSession *session = returnToFirst.boolValue ? [AsyncPreferenceSession new] : nil;
+        NSMutableArray *reads = [NSMutableArray array];
+        for (NSNumber *enabled in @[@NO, @YES, @NO]) {
+            ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+            read.snapshot = @{@"preferences":@{@"chinese_punctuation":enabled}};
+            [reads addObject:read];
+        }
+        controller.reads = reads;
+        controller.appliedPreferences = [NSMutableArray array];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:first forKey:@"activeClient"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+        [controller reloadPreferences];
+        assert(dispatch_semaphore_wait(controller.reads[0].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+        NSEvent *release = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1);
+        assert(![controller handleEvent:release client:second]);
+        if (returnToFirst.boolValue) assert(![controller handleEvent:release client:first]);
+        [controller reloadPreferences];
+        assert(dispatch_semaphore_wait(controller.reads[1].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+        dispatch_semaphore_signal(controller.reads[0].released);
+        WaitForPreferenceCompletions(controller, 1);
+        assert(controller.appliedPreferences.count == 0 && session.updates == 0);
+        // Completing the old request must not release the newer request's gate.
+        [controller reloadPreferences];
+        dispatch_semaphore_signal(controller.reads[1].released);
+        WaitForPreferenceCompletions(controller, 2);
+        assert(controller.readCalls == 2 && controller.appliedPreferences.count == 1);
+        assert([controller.appliedPreferences[0][@"chinese_punctuation"] isEqual:@YES]);
+        assert(session.updates == (session ? 1 : 0));
+        dispatch_semaphore_signal(controller.reads[2].released);
+        [controller reloadPreferences];
+        WaitForPreferenceCompletions(controller, 3);
+        assert(controller.appliedPreferences.count == 2 && !prefs.chinesePunctuation);
+        assert(session.updates == (session ? 2 : 0));
+        [defaults removePersistentDomainForName:suite];
+    }
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -2239,6 +2344,7 @@ int main() {
         TestInputSourceModeReset();
         TestModifierTaps();
         TestStaleClientDeactivation();
+        TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestCharacterSetShortcut(defaults, appearance);
