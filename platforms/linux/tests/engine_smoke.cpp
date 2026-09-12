@@ -251,6 +251,7 @@ int main(int argc, char **argv) {
       auto initial = options;
       initial["preferences"]["default_ime_mode"] = "english";
       initial["preferences"]["ime_mode_scope"] = scope;
+      initial.erase("preferences_directory");
       msime_preview_configure(initial.dump());
       engine = create_engine();
       seen = Observation{};
@@ -282,6 +283,15 @@ int main(int argc, char **argv) {
       require(seen.input_enabled == global && key('n') == global && !seen.english_mode,
               "New host did not distinguish app defaults from global mode memory");
       invoke("Reset");
+      // Switching input sources disables the engine; ordinary refocus above
+      // must preserve mode, but reactivation starts from the configured default.
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      invoke("Disable");
+      invoke("FocusIn");
+      invoke("Enable");
+      require(!key('n'), "Input source reactivation retained the previous CN/EN mode");
+      require(!seen.input_enabled && seen.mode_sensitive && !seen.preedit_visible,
+              "Input source reactivation retained the previous CN/EN presentation");
     }
     ibus_object_destroy(IBUS_OBJECT(engine));
     g_object_unref(engine);
@@ -291,6 +301,13 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
+    invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_UNCHECKED));
+    invoke("Disable");
+    invoke("Enable");
+    invoke("FocusIn");
+    require(seen.input_enabled && key('n') && !seen.english_mode,
+            "Input source reactivation did not restore default Chinese");
+    invoke("Reset");
     phrase();
     invoke("FocusIn");
     require(seen.preedit_visible && seen.preedit == "nihao",

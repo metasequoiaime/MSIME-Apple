@@ -40,6 +40,18 @@ for character in "nihao":
     assert context.process_key_event(ord(character), 0, 0)
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好"])
+# This fixture uses global CN/EN mode. A different input source must clear
+# that authority so returning starts with the configured Chinese default.
+context.property_activate("InputMode", IBus.PropState.UNCHECKED)
+assert not context.process_key_event(ord("n"), 0, 0)
+assert bus.set_global_engine("xkb:us::eng"), "US input source activation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "xkb:us::eng")
+assert bus.set_global_engine("msime-client-preview"), "Input source reactivation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+for character in "nihao":
+    assert context.process_key_event(ord(character), 0, 0), "Source switch retained global English mode"
+assert context.process_key_event(IBus.KEY_space, 0, 0)
+wait(lambda: commits == ["你好", "你好"])
 context.focus_out()
 context.destroy()
 print("IBus daemon factory and input-context acceptance passed")

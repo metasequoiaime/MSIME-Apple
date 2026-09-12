@@ -4499,7 +4499,18 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
     focus_out(engine);
   };
 #endif
-  engine->disable = focus_out;
+  engine->disable = [](IBusEngine *engine) {
+    focus_out(engine);
+    guarded(engine, "disable", [&] {
+      // IBus disables the old engine when changing input sources. Unlike a
+      // focus transfer, reactivation must start from the configured CN/EN mode.
+      global_input_enabled.reset();
+      // The daemon clears properties on disable; register them on reactivation.
+      state(engine).properties_registered = false;
+      state(engine).input_enabled = configured.at("preferences").value(
+          "default_ime_mode", "chinese") != "english";
+    });
+  };
   engine->reset = reset;
   engine->set_content_type = content_type;
   engine->set_surrounding_text = set_surrounding;

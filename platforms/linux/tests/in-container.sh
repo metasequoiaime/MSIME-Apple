@@ -71,7 +71,20 @@ print("Installed host resolves staged Host API library")
 PYTHON
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")
-dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options"
+global_mode_options="$fixture/global-runtime-options.json"
+python3 - "$options" "$global_mode_options" <<'PYTHON'
+import json
+import os
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text())
+value["preferences"]["ime_mode_scope"] = "global"
+value.pop("preferences_directory", None)
+with os.fdopen(os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as output:
+    json.dump(value, output)
+PYTHON
+dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$global_mode_options"
 
 GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/gtk_smoke.py
 
