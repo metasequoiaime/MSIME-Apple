@@ -324,12 +324,18 @@ def translations(query, server):
         endpoint = custom.get("endpoint", "")
         if not isinstance(endpoint, str) or len(endpoint) > 2048:
             return []
+        endpoint = endpoint.strip(" \t\r\n")
         url = urllib.parse.urlsplit(endpoint)
         if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password:
             return []
         token = custom.get("api_key", "")
         if not isinstance(token, str) or len(token) > 4096:
             return []
+        token = token.strip(" \t\r\n")
+        # Match Windows ResolveCustomConfig; use one normalized snapshot for
+        # requests in both directions and for cache identity, without editing
+        # the incoming query or the user's persisted preferences.
+        custom = {**custom, "endpoint": endpoint, "api_key": token}
         # Keep credentials out of cache keys and separate caches when they change.
         provider = (endpoint, hashlib.sha256(token.encode()).digest())
     else:
