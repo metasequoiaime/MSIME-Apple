@@ -1272,7 +1272,7 @@ fn send_panel_text_to_target(
 ) -> Result<(), HostActionError> {
     if let PanelInputTarget::X11(window) = target {
         let status = std::process::Command::new("xdotool")
-            .args(["type", "--window", window.as_str(), "--delay", "0", text])
+            .args(["type", "--window", window.as_str(), "--delay", "0", "--", text])
             .status()
             .map_err(|_| HostActionError {
                 code: "unavailable",
@@ -1286,6 +1286,7 @@ fn send_panel_text_to_target(
             "type".to_owned(),
             "--key-delay".to_owned(),
             "0".to_owned(),
+            "--".to_owned(),
             text.to_owned(),
         ]);
     }
