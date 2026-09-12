@@ -4104,7 +4104,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const msime_client_key_event routed_event = {{s.client_token, s.focus_epoch, s.session}, key, keycode,
       static_cast<uint32_t>(flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)),
       key <= 0xffffu ? key : 0u, false};
-  if (!s.key_router.accepts(routed_event))
+  const auto dispatch_result = s.key_router.check(routed_event);
+  if (dispatch_result != MSIME_CLIENT_KEY_SENT)
     return FALSE;
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
