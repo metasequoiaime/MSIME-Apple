@@ -48,7 +48,9 @@ def read_command(args):
             if not chunk:
                 if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
                     return None
-                text = data.decode("utf-8").rstrip("\r\n")
+                # Preserve source line endings; wl-paste already suppresses
+                # its own added newline and X11 tools return the raw selection.
+                text = data.decode("utf-8")
                 return text if text and "\0" not in text else None
             data.extend(chunk)
             if len(data) > 4096:

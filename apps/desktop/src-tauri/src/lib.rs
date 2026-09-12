@@ -2394,7 +2394,7 @@ fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, H
 #[cfg(target_os = "linux")]
 fn linux_clipboard_text() -> Result<String, HostActionError> {
     let output = std::process::Command::new("wl-paste")
-        .arg("--no-newline")
+        .args(["--no-newline", "--type", "text"])
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -2415,11 +2415,11 @@ fn linux_clipboard_text() -> Result<String, HostActionError> {
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
-    String::from_utf8(output.stdout)
-        .map(|text| text.trim_end_matches(['\r', '\n']).to_owned())
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })
+    // wl-paste's --no-newline suppresses only its added separator. Existing
+    // line endings belong to the copied text, as they do on X11.
+    String::from_utf8(output.stdout).map_err(|_| HostActionError {
+        code: "unavailable",
+    })
 }
 
 #[cfg(target_os = "linux")]
