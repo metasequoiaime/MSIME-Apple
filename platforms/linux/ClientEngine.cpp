@@ -35,7 +35,7 @@ uint64_t configuration_generation = 0;
 // Effective runtime revisions also include local overrides and are independent.
 std::string accepted_preferences_directory;
 Json accepted_preferences_snapshot;
-bool toolbar_save_pending = false;
+bool menu_save_pending = false;
 
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
@@ -85,7 +85,8 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-void save_toolbar_enabled(IBusEngine *engine, bool enabled);
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations };
+void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool enabled);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
   const auto explicit_path = options.value("clipboard_history_path", std::string{});
@@ -798,7 +799,7 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("工具栏"), "",
       ibus_text_new_from_static_string("保存工具栏显示开关"),
-      s.focused && !s.blocked && !toolbar_save_pending &&
+      s.focused && !s.blocked && !menu_save_pending &&
           !directory.empty() && directory.front() == '/',
       TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   for (const auto &action : desktop_panel_actions) {
@@ -1733,14 +1734,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("云联想"), "",
       ibus_text_new_from_static_string("通过用户管理的 provider 请求云候选"),
       s.focused && !s.blocked && s.input_enabled && s.session &&
-          !s.online_provider_socket.empty(),
+          !s.online_provider_socket.empty() && !menu_save_pending,
       TRUE, s.cloud_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto translations = ibus_property_new(
       "CandidateTranslations", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("候选翻译"), "",
       ibus_text_new_from_static_string("通过用户管理的 provider 请求候选翻译"),
       s.focused && !s.blocked && s.input_enabled && s.session &&
-          !s.translation_provider_socket.empty(),
+          !s.translation_provider_socket.empty() && !menu_save_pending,
       TRUE, s.candidate_translations ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto translation_language = ibus_property_new(
@@ -3023,7 +3024,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     if (property_name == "DesktopTools/ToolbarEnabled") {
       if (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED)
-        save_toolbar_enabled(engine, value == PROP_STATE_CHECKED);
+        save_menu_preference(engine, MenuPreference::Toolbar, value == PROP_STATE_CHECKED);
       return;
     }
     for (const auto &action : desktop_panel_actions) {
@@ -3128,8 +3129,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (property_name == "CloudCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (enabled == s.cloud_candidates)
+      if (menu_save_pending || enabled == s.cloud_candidates)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CloudCandidates, enabled);
+        return;
+      }
       s.cloud_candidates_override = enabled;
       s.cloud_candidates = enabled;
       s.invalidate_providers();
@@ -3139,8 +3145,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (property_name == "CandidateTranslations") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (enabled == s.candidate_translations)
+      if (menu_save_pending || enabled == s.candidate_translations)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CandidateTranslations, enabled);
+        return;
+      }
       s.candidate_translations_override = enabled;
       s.candidate_translations = enabled;
       s.invalidate_providers();
@@ -4642,30 +4653,31 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   translation_schedule(engine);
   online_schedule(engine);
 }
-struct ToolbarSave {
+struct MenuPreferenceSave {
   std::string directory;
   uint64_t configuration;
+  MenuPreference preference;
   bool enabled;
 };
-void save_toolbar_enabled(IBusEngine *engine, bool enabled) {
+void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool enabled) {
   const auto directory = configured.value("preferences_directory", std::string{});
-  if (toolbar_save_pending || directory.empty() || directory.front() != '/')
+  if (menu_save_pending || directory.empty() || directory.front() != '/')
     return;
-  toolbar_save_pending = true;
+  menu_save_pending = true;
   publish_mode(engine);
   auto task = g_task_new(G_OBJECT(engine), nullptr,
       +[](GObject *source, GAsyncResult *result, gpointer) {
-        toolbar_save_pending = false;
+        menu_save_pending = false;
         auto self = reinterpret_cast<MsimePreviewEngine *>(source);
         std::unique_ptr<Json> snapshot(static_cast<Json *>(
             g_task_propagate_pointer(G_TASK(result), nullptr)));
         if (!self->state) return;
-        const auto &request = *static_cast<ToolbarSave *>(
+        const auto &request = *static_cast<MenuPreferenceSave *>(
             g_task_get_task_data(G_TASK(result)));
-        guarded(IBUS_ENGINE(source), "toolbar_save", [&] {
+        guarded(IBUS_ENGINE(source), "menu_preference_save", [&] {
           if (request.configuration != configuration_generation) return;
           if (!snapshot) {
-            g_warning("Cannot save MSIME toolbar preference");
+            g_warning("Cannot save MSIME menu preference");
             publish_mode(IBUS_ENGINE(source));
             return;
           }
@@ -4674,9 +4686,12 @@ void save_toolbar_enabled(IBusEngine *engine, bool enabled) {
               !accepted_preferences_snapshot.is_null() &&
               accepted_preferences_snapshot.at("revision").get<uint64_t>() >
                   snapshot->at("revision").get<uint64_t>()) {
-            publish_mode(IBUS_ENGINE(source));
-            return;
+            *snapshot = accepted_preferences_snapshot;
           }
+          if (request.preference == MenuPreference::CloudCandidates)
+            self->state->cloud_candidates_override.reset();
+          if (request.preference == MenuPreference::CandidateTranslations)
+            self->state->candidate_translations_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4684,17 +4699,27 @@ void save_toolbar_enabled(IBusEngine *engine, bool enabled) {
           publish_mode(IBUS_ENGINE(source));
         });
       }, nullptr);
-  g_task_set_task_data(task, new ToolbarSave{directory, configuration_generation, enabled},
-      +[](gpointer value) { delete static_cast<ToolbarSave *>(value); });
+  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, enabled},
+      +[](gpointer value) { delete static_cast<MenuPreferenceSave *>(value); });
   g_task_run_in_thread(task,
       +[](GTask *task, gpointer, gpointer data, GCancellable *) {
-        const auto &request = *static_cast<ToolbarSave *>(data);
+        const auto &request = *static_cast<MenuPreferenceSave *>(data);
         Json *saved = nullptr;
         try {
           const auto *path = reinterpret_cast<const uint8_t *>(request.directory.data());
           auto snapshot = response(msime_client_load_preferences(path, request.directory.size()));
           const auto revision = snapshot.at("revision").get<uint64_t>();
-          snapshot["preferences"]["floating_toolbar"]["enabled"] = request.enabled;
+          switch (request.preference) {
+          case MenuPreference::Toolbar:
+            snapshot["preferences"]["floating_toolbar"]["enabled"] = request.enabled;
+            break;
+          case MenuPreference::CloudCandidates:
+            snapshot["preferences"]["cloud_candidates"] = request.enabled;
+            break;
+          case MenuPreference::CandidateTranslations:
+            snapshot["preferences"]["candidate_translations"] = request.enabled;
+            break;
+          }
           const auto encoded = snapshot.dump();
           saved = new Json(response(msime_client_save_preferences(
               path, request.directory.size(), revision,
