@@ -95,8 +95,20 @@ target_link_libraries(backend-library-load-test PRIVATE "-framework Foundation")
 add_dependencies(backend-library-load-test MSIMEClientInputMethod)
 add_test(NAME backend-library-load COMMAND backend-library-load-test "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
 set(MSIME_SPARKLE_ROOT "" CACHE PATH "Directory containing the pinned Sparkle.framework (Apple reference: 2.9.6)")
+if(NOT MSIME_SPARKLE_ROOT)
+  message(FATAL_ERROR "UpdateController requires Sparkle 2.9.6. Set MSIME_SPARKLE_ROOT to the directory containing Sparkle.framework; see platforms/macos/README.md.")
+endif()
 if(MSIME_SPARKLE_ROOT)
+  # Do not reuse a framework cached for a different root on reconfiguration.
+  unset(MSIME_SPARKLE_FRAMEWORK CACHE)
   find_library(MSIME_SPARKLE_FRAMEWORK Sparkle PATHS "${MSIME_SPARKLE_ROOT}" NO_DEFAULT_PATH REQUIRED)
+  execute_process(COMMAND /usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString
+    "${MSIME_SPARKLE_FRAMEWORK}/Resources/Info.plist"
+    OUTPUT_VARIABLE MSIME_SPARKLE_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET RESULT_VARIABLE MSIME_SPARKLE_VERSION_RESULT)
+  if(NOT MSIME_SPARKLE_VERSION_RESULT EQUAL 0 OR NOT MSIME_SPARKLE_VERSION STREQUAL "2.9.6")
+    message(FATAL_ERROR "MSIME_SPARKLE_ROOT must contain Sparkle 2.9.6; found '${MSIME_SPARKLE_VERSION}'.")
+  endif()
   target_compile_options(MSIMEClientInputMethod PRIVATE "-F${MSIME_SPARKLE_ROOT}")
   target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
   set_property(TARGET MSIMEClientInputMethod APPEND PROPERTY BUILD_RPATH "@executable_path/../Frameworks")
