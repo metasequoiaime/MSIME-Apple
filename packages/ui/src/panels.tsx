@@ -1300,7 +1300,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const selectedCategory = categoryPage ? categories[categoryPage] : "all";
   const activeCategory = selectedCategory === "recent" || groups.some(group => `group:${group.title}` === selectedCategory) ? selectedCategory : "all";
   const recentGroup = { title: "最近使用", icon: "◷", items: recent };
-  const selectedGroups = categoryPage && !query
+  const selectedGroups = categoryPage && (page === "emoji" || !query)
     ? activeCategory === "recent" ? [recentGroup] : activeCategory === "all" ? groups : groups.filter(group => `group:${group.title}` === activeCategory)
     : groups;
   const filteredGroups: DisplayGroup[] = selectedGroups.map(group => ({ ...group, flow: page === "kaomoji", items: group.items.filter(item => matchesEmojiItem(item, query)) })).filter(group => group.items.length);
@@ -1317,7 +1317,6 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   function selectCategory(next: string) {
     if (!categoryPage) return;
     setCategories(current => ({ ...current, [categoryPage]: next }));
-    setQuery("");
   }
 
   const visibleClipboard = clipboard.filter(item => item.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
@@ -1403,9 +1402,8 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     if (client.clipboard?.clear) return changeClipboard(client.clipboard.clear, () => [], "剪贴板历史已清空");
   }
 
-  function selectPage(next: EmojiPage, preserveSearch = false) {
+  function selectPage(next: EmojiPage) {
     setPage(next);
-    if (!preserveSearch) setQuery("");
     setNotice(next === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用");
   }
 
@@ -1465,8 +1463,8 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       <div className="emoji-panel-toolbar"><h2>剪贴板</h2><div className="clipboard-panel-actions">{client.clipboard?.list && <button type="button" disabled={clipboardBusy} onClick={() => { if (!clipboardMutation.current) setClipboardRefresh(value => value + 1); }}>刷新列表</button>}{client.clipboard?.sync && <button type="button" disabled={clipboardBusy || clipboardEnabled === false} onClick={() => void syncClipboard()}>同步</button>}{client.clipboard?.clear && <button type="button" disabled={clipboardBusy || !clipboard.length} onClick={() => void clearClipboard()}>清空历史</button>}</div></div>
       {clipboardLoadFailed ? <p className="emoji-panel-empty" role="status">无法读取剪贴板历史，请点击“刷新列表”重试</p> : clipboardEnabled === false ? <div className="emoji-panel-empty"><p>剪贴板历史已关闭</p><p>开启后保存复制过的文本；关闭会清空历史。</p>{client.clipboard?.enable && <button type="button" disabled={clipboardBusy} onClick={() => void enableClipboard()}>开启剪贴板历史</button>}</div> : visibleClipboard.length ? <div className="clipboard-panel-list">{visibleClipboard.map(item => <div className="clipboard-panel-row" key={item}><button type="button" className="clipboard-panel-item" data-emoji-navigation-item aria-keyshortcuts={[canCopy ? "Control+c" : "", client.clipboard?.remove ? "Delete" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={event => clipboardItemKey(event, item)} disabled={clipboardBusy} title={clipboardTooltip(item)} onClick={() => void copy(item, true)}>{item.replace(/[\r\n\t]/g, " ")}</button>{client.clipboard?.paste && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="粘贴此条记录到原应用" onClick={() => void pasteClipboard(item)}>粘贴</button>}{client.clipboard?.remove && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="删除此条记录" onClick={() => void removeClipboard(item)}>删除</button>}</div>)}</div> : <p className="emoji-panel-empty" role="status">{query ? "没有匹配的剪贴板记录" : "暂无剪贴板记录"}</p>}
     </section> : page === "sticker" || page === "gif" ? <p className="emoji-panel-empty">{page === "sticker" ? "贴纸来源可在这里接入" : "GIF 来源可在这里接入"}</p> : <section className="emoji-panel-content" aria-label={page === "home" ? "最近使用与目录" : page === "emoji" ? "Emoji 目录" : page === "kaomoji" ? "颜文字目录" : "符号目录"}>
-      {(page === "home" || (page === "emoji" && activeCategory === "recent" && !query)) && recent.length > 0 && <div className="emoji-panel-toolbar"><span>最近使用</span><button type="button" onClick={clearRecent} disabled={clipboardBusy}>清除最近使用</button></div>}
-      {displayGroups.map(group => <div className="emoji-panel-group" key={group.title}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{group.moreTarget && <button type="button" onClick={() => { setCategories(current => ({ ...current, emoji: "all", symbols: "all" })); selectPage(group.moreTarget!, true); }}>更多</button>}</div><div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>{group.items.map(item => <button type="button" className="emoji-panel-item" data-emoji-navigation-item disabled={clipboardBusy} key={`${group.title}-${item.text}`} title={item.keywords} onClick={() => void copy(item.text, false, item.keywords)}>{item.text}</button>)}</div></div>)}
+      {(page === "home" || (page === "emoji" && activeCategory === "recent")) && recent.length > 0 && <div className="emoji-panel-toolbar"><span>最近使用</span><button type="button" onClick={clearRecent} disabled={clipboardBusy}>清除最近使用</button></div>}
+      {displayGroups.map(group => <div className="emoji-panel-group" key={group.title}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{group.moreTarget && <button type="button" onClick={() => { setCategories(current => ({ ...current, emoji: "all", symbols: "all" })); selectPage(group.moreTarget!); }}>更多</button>}</div><div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>{group.items.map(item => <button type="button" className="emoji-panel-item" data-emoji-navigation-item disabled={clipboardBusy} key={`${group.title}-${item.text}`} title={item.keywords} onClick={() => void copy(item.text, false, item.keywords)}>{item.text}</button>)}</div></div>)}
       {!displayGroups.length && <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>}
     </section>}
     <p className="emoji-panel-notice" role="status">{notice}</p>
