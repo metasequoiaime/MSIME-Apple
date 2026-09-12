@@ -25,6 +25,8 @@ use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
+#[cfg(unix)]
+mod voice_sessions;
 use msime_host_api::system_fonts;
 
 #[tauri::command]
@@ -1423,6 +1425,7 @@ async fn recognize_handwriting(
 #[derive(serde::Deserialize)]
 struct VoiceRecognitionRequest {
     language: String,
+    request_id: String,
 }
 
 #[derive(serde::Serialize)]
@@ -1434,6 +1437,7 @@ struct VoiceRecognitionResult {
 #[derive(serde::Serialize, Clone)]
 struct VoiceRecognitionUpdate {
     text: String,
+    request_id: String,
     #[serde(rename = "final")]
     final_result: bool,
 }
@@ -1495,7 +1499,13 @@ async fn recognize_voice(
     // Streaming updates are emitted by the unix provider path only.
     #[cfg(not(unix))]
     let _ = &app;
-    if request.language.is_empty()
+    if request.request_id.is_empty()
+        || request.request_id.len() > 64
+        || !request
+            .request_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || request.language.is_empty()
         || request.language.len() > 64
         || request.language.chars().any(char::is_control)
     {
@@ -1525,33 +1535,44 @@ async fn recognize_voice(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
+        let sessions = app.state::<voice_sessions::VoiceSessions>();
+        let session = sessions
+            .begin(request.request_id, path)
+            .ok_or(HostActionError { code: "busy" })?;
+        let generation = session.generation;
         let language = request.language;
-        let app = app.clone();
-        let text = tauri::async_runtime::spawn_blocking(move || {
+        let worker_app = app.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
             let mut update = |text: &str, final_result: bool| {
-                let _ = app.emit(
+                if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                let _ = worker_app.emit(
                     "voice-update",
                     VoiceRecognitionUpdate {
                         text: text.to_owned(),
+                        request_id: session.request_id.clone(),
                         final_result,
                     },
                 );
             };
-            UnixSocketProvider::new(path).voice_stream_with_options_cancelled(
+            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_cancelled(
                 &language,
-                1,
+                generation,
                 &provider_options,
-                None,
+                Some(&session.cancelled),
                 &mut update,
             )
         })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
+        .await;
+        sessions.finish(generation);
+        let text = result
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         return Ok(VoiceRecognitionResult { text });
     }
     #[cfg(not(unix))]
@@ -1564,36 +1585,23 @@ async fn recognize_voice(
 }
 
 #[tauri::command]
-fn cancel_voice(options: tauri::State<'_, DictionaryHostOptions>) -> Result<(), HostActionError> {
+fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(), HostActionError> {
     #[cfg(unix)]
     {
-        let path = serde_json::from_str::<Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("voice_provider_socket")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .or_else(|| {
-                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        if UnixSocketProvider::new(path).voice_cancel(1) {
+        let sessions = app.state::<voice_sessions::VoiceSessions>();
+        let Some(session) = sessions.cancel(request_id.as_deref()) else {
+            return Ok(());
+        };
+        if UnixSocketProvider::new(session.path).voice_cancel(session.generation) {
             return Ok(());
         }
-        return Err(HostActionError {
+        Err(HostActionError {
             code: "unavailable",
-        });
+        })
     }
     #[cfg(not(unix))]
     {
-        let _ = options;
+        let _ = (app, request_id);
         Err(HostActionError {
             code: "unavailable",
         })
@@ -2007,7 +2015,6 @@ fn close_panel(
     app: tauri::AppHandle,
     label: String,
     state: tauri::State<'_, PanelInputState>,
-    options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
@@ -2023,7 +2030,7 @@ fn close_panel(
         });
     }
     if label == "voice-panel" {
-        let _ = cancel_voice(options);
+        let _ = cancel_voice(app.clone(), None);
     }
     let result = app
         .get_webview_window(&label)
@@ -2340,6 +2347,8 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());
+            #[cfg(unix)]
+            app.manage(voice_sessions::VoiceSessions::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
             #[cfg(target_os = "android")]

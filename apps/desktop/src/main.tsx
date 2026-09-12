@@ -1,3 +1,4 @@
+import { createVoiceRecognitionClient } from "./voice-recognition-client";
 import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -80,9 +81,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     loadVoiceLanguage: () => invoke<string>("voice_input_language"),
-    recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
-    onVoiceUpdate: listener => listen<{ text: string; final: boolean }>("voice-update", event => listener(event.payload)),
-    cancelVoice: () => invoke("cancel_voice"),
+    ...createVoiceRecognitionClient(invoke, listener => listen<{ request_id: string; text: string; final: boolean }>("voice-update", event => listener(event.payload))),
     sendText: text => invoke("send_text", { text }),
     sendVoiceText: text => invoke("send_voice_text", { text }),
   },
