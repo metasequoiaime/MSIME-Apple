@@ -1876,6 +1876,12 @@ void voice_start(IBusEngine *engine) {
   if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
+  const auto editing_text =
+      s.view.value("editing_text", std::string{});
+  const auto candidates = s.view.value("candidates", Json::array());
+  if (!editing_text.empty() ||
+      (candidates.is_array() && !candidates.empty()))
+    apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
