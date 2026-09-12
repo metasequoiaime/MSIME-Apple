@@ -2115,6 +2115,13 @@ fn linux_clipboard_text() -> Result<String, HostActionError> {
                 .ok()
                 .filter(|output| output.status.success())
         })
+        .or_else(|| {
+            std::process::Command::new("xsel")
+                .args(["--clipboard", "--output"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+        })
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
@@ -2146,14 +2153,21 @@ fn write_linux_clipboard(text: &str) -> bool {
             return true;
         }
     }
-    let Ok(child) = std::process::Command::new("xclip")
+    if let Ok(child) = std::process::Command::new("xclip")
         .args(["-selection", "clipboard"])
         .stdin(std::process::Stdio::piped())
         .spawn()
-    else {
-        return false;
-    };
-    write_with(child, text)
+    {
+        if write_with(child, text) {
+            return true;
+        }
+    }
+    std::process::Command::new("xsel")
+        .args(["--clipboard", "--input"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map(|child| write_with(child, text))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "linux")]
