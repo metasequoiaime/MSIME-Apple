@@ -5,9 +5,13 @@ struct MacEmojiView: View {
   let resources: String
   @State private var search = ""
   @State private var category = ""
+  @State private var group = ""
+  @State private var groups: [String] = []
+  @State private var groupsCategory: String?
+  @State private var groupsFailed = false
   @State private var offset = 0
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, String(offset)] }
+  private var queryID: [String] { [search, category, group, String(offset)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   var onSelect: (String) -> Void = { text in
@@ -21,6 +25,13 @@ struct MacEmojiView: View {
         Text("颜文字").tag("kaomoji")
         Text("符号").tag("symbols")
       }.pickerStyle(.segmented)
+      Picker("分类", selection: $group) {
+        Text("全部分类").tag("")
+        ForEach(groupsCategory == category ? groups : [], id: \.self) { name in
+          Text(name).tag(name)
+        }
+      }.disabled(groupsCategory != category || groups.isEmpty)
+      if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(.secondary) }
       TextField("搜索表情或关键词", text: $search)
       Text(status).font(.caption).foregroundStyle(.secondary)
       HStack {
@@ -43,7 +54,26 @@ struct MacEmojiView: View {
       }
     }.padding(20).frame(minWidth: 380, minHeight: 320)
       .onChange(of: search) { _ in offset = 0 }
-      .onChange(of: category) { _ in offset = 0 }
+      .onChange(of: category) { _ in offset = 0; group = "" }
+      .onChange(of: group) { _ in offset = 0 }
+      .task(id: category) {
+        groupsCategory = nil
+        groups = []
+        groupsFailed = false
+        let selectedCategory = category
+        let directory = resources
+        do {
+          let result = try await Task.detached {
+            try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory)
+          }.value
+          try Task.checkCancellation()
+          groups = result
+          groupsCategory = selectedCategory
+        } catch {
+          guard !Task.isCancelled else { return }
+          groupsFailed = true
+        }
+      }
       .task(id: queryID) {
         items = []
         loadedQuery = []
@@ -54,9 +84,10 @@ struct MacEmojiView: View {
           let directory = resources
           let selectedCategory = category
           let selectedOffset = offset
+          let selectedGroup = group
           let requestedID = queryID
           let result = try await Task.detached {
-            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset)
+            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset, group: selectedGroup)
           }.value
           try Task.checkCancellation()
           items = result

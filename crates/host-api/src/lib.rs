@@ -1384,6 +1384,10 @@ struct EmojiCatalogQuery {
     panel: EmojiPanelQuery,
     #[serde(default)]
     offset: usize,
+    #[serde(default)]
+    group: String,
+    #[serde(default)]
+    list_groups: bool,
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
@@ -1422,10 +1426,17 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
         if query.offset > i64::MAX as usize || query.panel.limit == 0 {
             return Err("invalid emoji page".into());
         }
-        let items = msime_engine_bridge::emoji_catalog_page(
+        if query.list_groups {
+            let groups =
+                msime_engine_bridge::emoji_catalog_groups(resources, &query.panel.category)
+                    .map_err(|_| "local emoji catalog unavailable")?;
+            return Ok(json!({"groups": groups}));
+        }
+        let items = msime_engine_bridge::emoji_catalog_filtered_page(
             resources,
             &query.panel.search,
             &query.panel.category,
+            &query.group,
             query.offset,
             u16::from(query.panel.limit),
         )
@@ -2639,5 +2650,56 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request(""), unavailable);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn emoji_groups_preserve_catalog_order_and_filter_before_paging() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+        db.execute_batch("CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
+            INSERT INTO emoji VALUES ('one','Z','match','',1),('two','A','match','',2),('three','Z','match','',3),('four','Z','other','',4);
+            CREATE TABLE symbol_catalog(symbol TEXT,category TEXT,parent_category TEXT,keywords TEXT,sort_order INTEGER);
+            INSERT INTO symbol_catalog VALUES ('one','Z','parent','match',1),('two','A','parent','match',2),('three','Z','parent','match',3),('four','Z','parent','other',4);
+            CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);
+            INSERT INTO kaomoji_catalog VALUES ('fixture','match',1);").unwrap();
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let request = |query: Value| {
+            let query = serde_json::to_vec(&query).unwrap();
+            read(unsafe {
+                msime_client_emoji_catalog_request(
+                    query.as_ptr(),
+                    query.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+        for category in ["", "symbols"] {
+            assert_eq!(
+                request(json!({"category":category,"list_groups":true}))["value"]["groups"],
+                json!(["Z", "A"])
+            );
+            let page = request(
+                json!({"category":category,"group":"Z","search":"match","offset":1,"limit":1}),
+            );
+            assert_eq!(page["ok"], true);
+            assert_eq!(page["value"]["items"].as_array().unwrap().len(), 1);
+            assert_eq!(page["value"]["items"][0]["text"], "three");
+            assert_eq!(
+                request(json!({"category":category,"group":"' OR 1=1 --"}))["value"]["items"],
+                json!([])
+            );
+        }
+        assert_eq!(
+            request(json!({"category":"kaomoji","list_groups":true}))["value"]["groups"],
+            json!(["All"])
+        );
+        assert_eq!(
+            request(json!({"category":"kaomoji","group":"missing"}))["value"]["items"],
+            json!([])
+        );
+        db.execute_batch("DROP TABLE emoji").unwrap();
+        assert_eq!(request(json!({"list_groups":true}))["ok"], false);
     }
 }
