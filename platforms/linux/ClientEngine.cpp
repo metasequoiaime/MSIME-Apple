@@ -3254,7 +3254,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                   ? ((key >= 'a' && key <= 'f') ||
                      (key >= 'A' && key <= 'F'))
                   : local_mode == "date_time"
-                        ? false
+                        ? lowercase_letter
                         : (local_mode != "none" || lowercase_letter ||
                            (uppercase_letter && helpcode));
     const bool nine_key_digit =
