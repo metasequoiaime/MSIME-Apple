@@ -515,6 +515,11 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
   };
   append_toggle("Toolbar/InputMode", "中英文模式", "切换中文输入与直接输入",
                 available, s.input_enabled);
+  append_toggle("Toolbar/EnglishMode", "英文输入模式",
+                "切换 Engine 的独立英文输入模式",
+                available && toolbar.value("english_mode", true) &&
+                    s.input_enabled && s.session,
+                s.english_mode);
   append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
                 available && toolbar.value("fullwidth", true), s.fullwidth);
   append_toggle("Toolbar/Punctuation", "中文标点", "切换中文或英文标点",
@@ -1867,6 +1872,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     const char *target =
         property_name == "Toolbar/InputMode" ? "InputMode"
+        : property_name == "Toolbar/EnglishMode" ? "EnglishMode"
         : property_name == "Toolbar/Fullwidth" ? "CharacterMode"
         : property_name == "Toolbar/Punctuation" ? "Punctuation"
         : property_name == "Toolbar/CharacterSet" ? "TraditionalOutput"
