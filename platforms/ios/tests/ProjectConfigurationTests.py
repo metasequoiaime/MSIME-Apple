@@ -35,6 +35,21 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_brand_logo_is_a_template_without_a_baked_in_background(self):
+        # 启动页、欢迎页和关于页共用这一张图。It was exported as RGB, so the white it was drawn on
+        # travelled with it and showed as a white tile on the launch screen's grouped background --
+        # and as a white block in dark mode. Alpha alone is not enough: without the template intent
+        # the black ink would then be invisible on a dark background.
+        asset = IOS_ROOT / "App/Resources/Assets.xcassets/MSIMELogo.imageset"
+        contents = json.loads((asset / "Contents.json").read_text())
+        self.assertEqual(contents["properties"]["template-rendering-intent"], "template")
+        image = (asset / contents["images"][0]["filename"]).read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        # Colour type 6 is RGBA, 4 is grey+alpha; anything else carries no transparency.
+        self.assertIn(image[25], (4, 6), "brand logo must keep an alpha channel")
+        storyboard = (IOS_ROOT / "App/Resources/LaunchScreen.storyboard").read_text()
+        self.assertIn('<color key="tintColor" systemColor="labelColor"/>', storyboard)
+
     def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
         # The effect assumes edges hold empty space. Keyboard panels are a few rows tall, so the
         # gradient lands on the content: it smudged the candidate chips and sat over the first line
