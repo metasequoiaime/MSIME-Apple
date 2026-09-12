@@ -1,5 +1,6 @@
 #import "../InputController.mm"
 #import "../InputSourceRegistration.h"
+#import "../SkinSettingsView.h"
 #include <cassert>
 #include <fstream>
 #import <objc/runtime.h>
@@ -483,6 +484,19 @@ show_selected_bar = true
     assert([loaded.skinID isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].id == "synthetic");
     NSDictionary *before = [[controller valueForKey:@"view"] copy];
     [controller setValue:external forKey:@"appearance"];
+    MetasequoiaSkinSettingsView *cards = (id)[external skinCatalogController].window.contentView.subviews.firstObject;
+    NSArray<NSSwitch *> *skinSwitches = [cards valueForKey:@"switches"];
+    assert([skinSwitches.lastObject.identifier isEqual:@"synthetic"]);
+    [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+                                              name:MSIMEAppearanceDidChangeNotification object:external];
+    [NSApp sendAction:skinSwitches.firstObject.action to:skinSwitches.firstObject.target from:skinSwitches.firstObject];
+    assert([external.skinID isEqual:@"fluent"] && !external.decorationImage);
+    [NSApp sendAction:skinSwitches.lastObject.action to:skinSwitches.lastObject.target from:skinSwitches.lastObject];
+    assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
+    assert([control.selectedItem.representedObject isEqual:@"synthetic"]);
+    assert([panel.contentView.subviews.lastObject isKindOfClass:NSImageView.class]);
+    assert([[controller valueForKey:@"view"] isEqual:before]);
+    [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:external];
     for (NSNumber *vertical in @[@NO, @YES]) {
         external.vertical = vertical.boolValue;
         for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {

@@ -1,7 +1,6 @@
 #import "SkinSettingsView.h"
-#import "CandidateSkinAppearance.h"
+#import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
-#import "PreferencesWindowController.h"
 
 #include "CandidateSkin.h"
 
@@ -72,6 +71,7 @@ NSString *BuiltinDescription(const std::string &id)
 {
     NSStackView *_document;
     NSView *_externalCards;
+    NSLayoutConstraint *_emptyExternalHeight;
     NSTextField *_directoryLabel;
     NSTextField *_emptyLabel;
     NSTextField *_diagnosticsLabel;
@@ -85,12 +85,20 @@ NSString *BuiltinDescription(const std::string &id)
 
 - (instancetype)initWithFrame:(NSRect)frameRect
 {
+    return [self initWithFrame:frameRect preferences:MSIMEAppearancePreferences.sharedPreferences];
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect preferences:(MSIMEAppearancePreferences *)preferences
+{
     self = [super initWithFrame:frameRect];
     if (self == nil)
     {
         return nil;
     }
     self.translatesAutoresizingMaskIntoConstraints = NO;
+    _preferences = preferences;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:)
+                                              name:MSIMEAppearanceDidChangeNotification object:preferences];
     self.accessibilityLabel = @"皮肤设置页";
     _switches = [NSMutableArray array];
     _previews = [NSMutableArray array];
@@ -185,6 +193,7 @@ NSString *BuiltinDescription(const std::string &id)
 
     _externalCards = [[NSView alloc] initWithFrame:NSZeroRect];
     _externalCards.translatesAutoresizingMaskIntoConstraints = NO;
+    _emptyExternalHeight = [_externalCards.heightAnchor constraintEqualToConstant:0];
     [self addSection:_externalCards];
 
     _emptyLabel =
@@ -199,6 +208,24 @@ NSString *BuiltinDescription(const std::string &id)
 
     [self reload];
     return self;
+}
+
+- (void)dealloc
+{
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)preferencesChanged:(NSNotification *)notification
+{
+    (void)notification;
+    for (MetasequoiaCandidatePreviewView *preview in _previews) [preview reloadPreview];
+    [self refreshSelection];
+}
+
+- (void)viewDidChangeEffectiveAppearance
+{
+    [super viewDidChangeEffectiveAppearance];
+    [self refreshCardChrome];
 }
 
 - (void)addSection:(NSView *)view
@@ -227,6 +254,7 @@ NSString *BuiltinDescription(const std::string &id)
     theme.identifier = skinId;
     theme.accessibilityLabel = [name stringByAppendingString:@"预览明暗"];
     MetasequoiaCandidatePreviewView *preview = [[MetasequoiaCandidatePreviewView alloc] initWithFrame:NSZeroRect];
+    preview.preferences = _preferences;
     [preview setShowsLayoutShowcase:YES];
     [preview setPreviewSkinId:skinId];
     preview.accessibilityLabel = [name stringByAppendingString:@"预览"];
@@ -278,7 +306,7 @@ NSString *BuiltinDescription(const std::string &id)
         return;
     }
     sender.state = NSControlStateValueOn;
-    [MetasequoiaPreferencesWindowController setStoredCandidateSkin:skinId];
+    _preferences.skinID = skinId;
 }
 
 - (void)toggleCardTheme:(NSButton *)sender
@@ -295,22 +323,31 @@ NSString *BuiltinDescription(const std::string &id)
 - (void)openDirectory:(id)sender
 {
     (void)sender;
-    NSURL *directory = MetasequoiaCandidateSkinsDirectoryURL();
+    NSURL *directory = _preferences.skinsRoot;
     if (directory == nil)
     {
         return;
     }
-    [[NSFileManager defaultManager] createDirectoryAtURL:directory
+    BOOL created = [[NSFileManager defaultManager] createDirectoryAtURL:directory
                              withIntermediateDirectories:YES
                                               attributes:nil
                                                    error:nil];
-    [[NSWorkspace sharedWorkspace] openURL:directory];
+    if (!created) {
+        _diagnosticsLabel.stringValue = @"无法创建皮肤目录。";
+        _diagnosticsLabel.hidden = NO;
+        return;
+    }
+    BOOL opened = self.directoryOpener ? self.directoryOpener(directory) : [[NSWorkspace sharedWorkspace] openURL:directory];
     [self reload];
+    if (!opened) {
+        _diagnosticsLabel.stringValue = @"无法打开皮肤目录。";
+        _diagnosticsLabel.hidden = NO;
+    }
 }
 
 - (void)refreshCardChrome
 {
-    NSString *active = [MetasequoiaPreferencesWindowController storedCandidateSkin];
+    NSString *active = _preferences.skinID;
     for (NSUInteger index = 0; index < _skinIds.count; ++index)
     {
         const BOOL selected = [_skinIds[index] isEqualToString:active];
@@ -342,7 +379,8 @@ NSString *BuiltinDescription(const std::string &id)
 - (void)reload
 {
     [self clearExternalCards];
-    const std::filesystem::path root = metasequoia::mac::DefaultSkinsRoot();
+    [_preferences reloadSkins];
+    const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
     NSString *path = @(root.string().c_str());
     if ([path hasPrefix:NSHomeDirectory()])
     {
@@ -363,6 +401,7 @@ NSString *BuiltinDescription(const std::string &id)
     }
     if (cards.count > 0)
     {
+        _emptyExternalHeight.active = NO;
         NSStackView *stack = [NSStackView stackViewWithViews:cards];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
@@ -381,6 +420,7 @@ NSString *BuiltinDescription(const std::string &id)
             [card.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
         }
     }
+    _emptyExternalHeight.active = cards.count == 0;
     _emptyLabel.hidden = cards.count > 0;
     _emptyLabel.stringValue = cards.count > 0 ? @"" : @"没有发现外部皮肤。把皮肤文件夹放到目录中后点击“刷新皮肤”。";
     if (catalog.issues.empty())
