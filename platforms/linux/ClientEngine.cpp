@@ -1965,7 +1965,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory/OpenPanel", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("打开历史面板"), "",
       ibus_text_new_from_static_string("搜索、管理或主动开启本地剪贴板历史"),
-      TRUE, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, open_clipboard);
   const auto &items = s.clipboard_items_cache;
   auto refresh_clipboard = ibus_property_new(
