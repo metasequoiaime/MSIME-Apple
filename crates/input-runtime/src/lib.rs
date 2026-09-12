@@ -935,7 +935,10 @@ impl Runtime<Session> {
         candidate: &str,
         source: u8,
     ) -> Result<bool, RuntimeError> {
-        if source > 1 || (source == 0 && !query.cloud_candidates) {
+        if source > 1
+            || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+            || (source == 1 && !query.ai_eligible)
+        {
             return Ok(false);
         }
         let query = OnlineQuerySnapshot {
