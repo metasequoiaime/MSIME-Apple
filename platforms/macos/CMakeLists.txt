@@ -19,7 +19,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm CloudClipboardWindowController.mm CloudClipboardClient.mm AccountSessionManager.mm AccountAuthClient.mm AccountWindowController.mm AccountKeychain.mm CloudDictionaryClient.mm PreferencesWindowController.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm InputController.mm CandidatePanel.mm CandidateSkinAppearance.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm StringConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm DictionaryInstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE ScreenKeyboardPanel.mm)
-target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics")
+target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
@@ -310,7 +310,7 @@ target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-f
 target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm)
-target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics")
+target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText")
 add_test(NAME shortcut COMMAND shortcut-test)
 add_executable(shuangpin-keymap-input-test tests/ShuangpinKeymapInputTest.mm ShuangpinKeymapPanel.mm)
 target_include_directories(shuangpin-keymap-input-test PRIVATE . ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)

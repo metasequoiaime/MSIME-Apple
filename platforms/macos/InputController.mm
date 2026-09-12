@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
+#import <CoreText/CoreText.h>
 #import "MSIMEClientSession.h"
 #import "RuntimeOptions.h"
 #import "../../shared/apple/TextClient.h"
@@ -66,6 +67,64 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
 @implementation MSIMECandidatePanel
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
+@end
+
+@interface MSIMECandidatePreeditField : NSTextField
+@property(nonatomic) NSUInteger caretIndex;
+@property(nonatomic) BOOL showsCaret;
+@property(nonatomic, readonly) NSRect caretRect;
+@end
+
+@implementation MSIMECandidatePreeditField
+- (void)setCaretIndex:(NSUInteger)value { _caretIndex = value; self.needsDisplay = YES; }
+- (void)setShowsCaret:(BOOL)value { _showsCaret = value; self.needsDisplay = YES; }
+- (CTLineRef)newPreeditLine CF_RETURNS_RETAINED {
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:self.stringValue attributes:@{
+        NSFontAttributeName:self.font ?: [NSFont systemFontOfSize:16],
+        NSForegroundColorAttributeName:self.textColor ?: NSColor.labelColor
+    }];
+    return CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)text);
+}
+- (NSRect)caretRectForLine:(CTLineRef)line origin:(CGFloat *)origin baseline:(CGFloat *)baseline {
+    CGFloat ascent = 0, descent = 0;
+    CTLineGetTypographicBounds(line, &ascent, &descent, nullptr);
+    CGFloat offset = CTLineGetOffsetForStringIndex(line, MIN(self.caretIndex, self.stringValue.length), nullptr);
+    CGFloat available = MAX(0.0, NSWidth(self.bounds) - 4.0);
+    // Scroll just enough to keep the insertion point inside the clipped row.
+    *origin = 2.0 - MAX(0.0, offset - available);
+    CGFloat top = MAX(0.0, (NSHeight(self.bounds) - ascent - descent) / 2.0);
+    *baseline = top + ascent;
+    return NSMakeRect(*origin + offset, top, 1.0, MIN(ascent + descent, NSHeight(self.bounds)));
+}
+- (NSRect)caretRect {
+    if (!self.showsCaret || !self.stringValue.length) return NSZeroRect;
+    CTLineRef line = [self newPreeditLine];
+    CGFloat origin, baseline;
+    NSRect caret = [self caretRectForLine:line origin:&origin baseline:&baseline];
+    CFRelease(line);
+    return caret;
+}
+- (BOOL)isFlipped { return YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    CTLineRef line = [self newPreeditLine];
+    CGFloat origin, baseline;
+    NSRect caret = [self caretRectForLine:line origin:&origin baseline:&baseline];
+    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+    CGContextSaveGState(context);
+    CGContextClipToRect(context, NSRectToCGRect(self.bounds));
+    CGContextTranslateCTM(context, origin, baseline);
+    CGContextScaleCTM(context, 1, -1);
+    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
+    CGContextSetTextPosition(context, 0, 0);
+    CTLineDraw(line, context);
+    CGContextRestoreGState(context);
+    CFRelease(line);
+    if (self.showsCaret && self.stringValue.length) {
+        [self.textColor ?: NSColor.labelColor setFill];
+        NSRectFill(NSIntersectionRect(caret, self.bounds));
+    }
+}
 @end
 
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
@@ -852,11 +911,13 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
         }
     }
     if (preedit.length) {
-        NSTextField *label = [NSTextField labelWithString:preedit];
+        MSIMECandidatePreeditField *label = [MSIMECandidatePreeditField labelWithString:preedit];
         label.identifier = @"candidate-preedit";
         label.accessibilityLabel = @"候选窗预编辑";
         label.font = preeditFont;
-        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        NSString *editing = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
+        label.caretIndex = MSIMEPreeditCaretPosition(editing, preedit, _view[@"caret_position"]);
+        label.showsCaret = [_view[@"focused"] isEqual:@YES];
         label.frame = NSMakeRect(inset, height - inset - decorationHeight - preeditHeight, width - 2 * inset, preeditHeight);
         [content addSubview:label];
     }

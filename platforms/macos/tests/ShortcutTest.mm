@@ -1067,6 +1067,7 @@ int main() {
         pageView[@"page_count"] = @1;
         // The candidate preedit uses Engine display text, independent of candidate font.
         pageView[@"preedit"] = @"ce'shi";
+        pageView[@"caret_position"] = @2;
         [controller setValue:pageView forKey:@"view"];
         // Fallback text can be taller than the primary family at the same size.
         appearance.fontFamily = @"Helvetica";
@@ -1102,6 +1103,24 @@ int main() {
             for (NSView *child in layoutPanel.contentView.subviews)
                 if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
             assert(preeditLabel && [preeditLabel.stringValue isEqual:@"ce'shi"] && preeditLabel.font.pointSize == 32);
+            assert([preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
+            MSIMECandidatePreeditField *caretLabel = (id)preeditLabel;
+            assert(caretLabel.caretIndex == 2 && caretLabel.showsCaret);
+            NSRect middleCaret = caretLabel.caretRect;
+            assert(!NSIsEmptyRect(middleCaret) && NSContainsRect(caretLabel.bounds, middleCaret));
+            NSBitmapImageRep *withCaret = [caretLabel bitmapImageRepForCachingDisplayInRect:caretLabel.bounds];
+            [caretLabel cacheDisplayInRect:caretLabel.bounds toBitmapImageRep:withCaret];
+            caretLabel.showsCaret = NO;
+            assert(NSIsEmptyRect(caretLabel.caretRect));
+            NSBitmapImageRep *withoutCaret = [caretLabel bitmapImageRepForCachingDisplayInRect:caretLabel.bounds];
+            [caretLabel cacheDisplayInRect:caretLabel.bounds toBitmapImageRep:withoutCaret];
+            assert(![[withCaret TIFFRepresentation] isEqual:[withoutCaret TIFFRepresentation]]);
+            caretLabel.showsCaret = YES;
+            caretLabel.caretIndex = 0;
+            assert(NSMinX(caretLabel.caretRect) < NSMinX(middleCaret));
+            caretLabel.caretIndex = caretLabel.stringValue.length;
+            assert(NSMinX(caretLabel.caretRect) > NSMinX(middleCaret));
+            caretLabel.caretIndex = 2;
             assert([preeditLabel.font.familyName isEqual:installedFamily]);
             const auto preeditTokens = [appearance resolvedSkinForDark:NO].tokens;
             layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
@@ -1121,6 +1140,20 @@ int main() {
         }
         appearance.showsCandidatePreedit = YES;
         appearance.preeditFontSize = 16;
+        // Long rows scroll rather than truncating away the insertion point.
+        MSIMECandidatePreeditField *longPreedit = [MSIMECandidatePreeditField labelWithString:[@"ni'" stringByPaddingToLength:180 withString:@"ni'" startingAtIndex:0]];
+        longPreedit.frame = NSMakeRect(0, 0, 80, 28);
+        longPreedit.font = [NSFont systemFontOfSize:16];
+        longPreedit.showsCaret = YES;
+        for (NSNumber *offset in @[@0, @50, @180, @(NSUIntegerMax)]) {
+            longPreedit.caretIndex = offset.unsignedIntegerValue;
+            assert(NSContainsRect(longPreedit.bounds, longPreedit.caretRect));
+        }
+        longPreedit.stringValue = @"合😀";
+        longPreedit.caretIndex = 3;
+        assert(NSContainsRect(longPreedit.bounds, longPreedit.caretRect));
+        longPreedit.stringValue = @"";
+        assert(NSIsEmptyRect(longPreedit.caretRect));
         appearance.fontFamily = @"Segoe UI";
         for (id display in @[@"", NSNull.null]) {
             pageView[@"preedit"] = display;

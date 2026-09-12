@@ -15,7 +15,7 @@ static NSString *MSIMEPreeditLetters(NSString *text) {
     return letters;
 }
 
-static NSUInteger MSIMEPreeditCaret(NSString *editing, NSString *preedit, id position) {
+NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position) {
     if (![position isKindOfClass:NSNumber.class]) return preedit.length;
     NSUInteger rawCaret = MIN([position unsignedIntegerValue], editing.length);
     if ([preedit isEqual:editing]) return rawCaret;
@@ -48,6 +48,6 @@ void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) 
     if (![editing isKindOfClass:NSString.class]) editing = @"";
     NSString *preedit = view[@"preedit"];
     if (![preedit isKindOfClass:NSString.class]) preedit = editing;
-    NSUInteger caret = MSIMEPreeditCaret(editing, preedit, view[@"caret_position"]);
+    NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, view[@"caret_position"]);
     [client setMarkedText:preedit selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
 }
