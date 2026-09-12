@@ -197,10 +197,14 @@ export function aiCredentialOrigin(endpoint: string): string | null {
 }
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
-export type DictionaryEntry = { kind: "pinyin" | "wubi" | "quick_phrase" | "english"; key: string; value: string; weight: number };
+export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
+export type LocalDictionaryFormat = "standard" | "windows" | "rime";
+export type DictionaryEntry = { kind: LocalDictionaryKind; key: string; value: string; weight: number };
 export interface DictionaryClient {
   list(offset: number, limit: number): Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
   edit(previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string): Promise<void>;
+  import?(kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string): Promise<{ applied: number }>;
+  export?(kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime">, offset: number, limit: number): Promise<{ text: string; has_more: boolean }>;
 }
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
@@ -214,6 +218,12 @@ const localModeRows = [
   ["temporary_english", "临时英文(Y 模式)", "中文模式下按 Shift+Y，之后按英文处理。空格上屏当前输入；数字选词；上屏后回到中文"],
   ["temporary_japanese", "临时日语(R 模式)", "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文"],
 ] as const;
+const localDictionaryKinds: [LocalDictionaryKind, string][] = [
+  ["pinyin", "全拼"],
+  ["wubi", "五笔"],
+  ["english", "英文"],
+  ["quick_phrase", "快捷短语"],
+];
 export type MixedInputPreferences = { english: boolean; minimum_prefix: number; emoji: boolean; kaomoji: boolean };
 const defaultMixedInput: MixedInputPreferences = { english: true, minimum_prefix: 2, emoji: false, kaomoji: false };
 export type FrequencyPreferences = { mode: "disabled" | "pin" | "halve" | "linear" | "promote"; trigger_count: number; linear_step: number };
@@ -329,6 +339,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const [phraseError, setPhraseError] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
+  const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
+  const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
@@ -464,7 +476,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
 
   const requestId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  async function loadPhrases() {
+  async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind) {
     if (!client.dictionary) return;
     setPhraseBusy(true); setPhraseError("");
     try {
@@ -477,7 +489,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         offset += page.entries.length;
         hasMore = page.has_more && page.entries.length > 0;
       }
-      setPhrases(entries.filter(entry => entry.kind === "quick_phrase"));
+      setPhrases(entries.filter(entry => entry.kind === kind));
     } catch { setPhraseError("无法读取快捷短语。"); }
     finally { setPhraseBusy(false); }
   }
@@ -490,7 +502,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
   async function savePhrase() {
     if (!client.dictionary || !phraseForm) return;
-    const replacement: DictionaryEntry = { kind: "quick_phrase", key: phraseForm.key.trim(), value: phraseForm.value, weight: phraseForm.weight };
+    const replacement: DictionaryEntry = { kind: dictionaryKind, key: phraseForm.key.trim(), value: phraseForm.value, weight: phraseForm.weight };
     if (!replacement.key || !replacement.value) { setPhraseError("编码和短语不能为空。"); return; }
     setPhraseBusy(true); setPhraseError("");
     try { await client.dictionary.edit(phraseForm.previous, replacement, requestId(phraseForm.previous ? "ui-edit" : "ui-add")); setPhraseForm(null); await loadPhrases(); }
@@ -501,20 +513,46 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     if (!client.dictionary) return;
     setPhraseBusy(true); setPhraseError("");
     try {
-      const lines = (await file.text()).split(/\r?\n/).filter(Boolean);
-      for (const line of lines) {
-        const [key, value, weight = "100000"] = line.split("\t");
-        if (!key || !value) continue;
-        await client.dictionary.edit(null, { kind: "quick_phrase", key: key.trim(), value, weight: Number(weight) || 100000 }, requestId("ui-import"));
+      const text = await file.text();
+      if (client.dictionary.import) {
+        await client.dictionary.import(dictionaryKind, dictionaryFormat, text, requestId("ui-import"));
+      } else {
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        for (const line of lines) {
+          const [first, second, weight = "100000"] = line.split("\t");
+          if (!first || !second) continue;
+          const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
+          await client.dictionary.edit(null, { kind: dictionaryKind, key: key.trim(), value, weight: Number(weight) || 100000 }, requestId("ui-import"));
+        }
       }
-      await loadPhrases();
+      await loadPhrases(dictionaryKind);
     } catch { setPhraseError("快捷短语导入失败，请检查文本格式。"); }
     finally { setPhraseBusy(false); }
   }
-  function exportPhrases() {
-    const text = phrases.map(entry => `${entry.key}\t${entry.value}\t${entry.weight}`).join("\n");
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "msime-quick-phrases.txt"; anchor.click(); URL.revokeObjectURL(url);
+  async function exportPhrases() {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError("");
+    try {
+      let text = "";
+      if (client.dictionary.export) {
+        let offset = 0;
+        let hasMore = true;
+        while (hasMore && offset <= 1000000) {
+          const page = await client.dictionary.export(dictionaryKind, dictionaryFormat === "rime" ? "standard" : dictionaryFormat, offset, 1000);
+          text += page.text;
+          const count = page.text ? page.text.trimEnd().split("\n").length : 0;
+          offset += count;
+          hasMore = page.has_more && count > 0;
+        }
+      } else {
+        text = phrases.map(entry => dictionaryFormat === "windows"
+          ? `${entry.key}\t${entry.value}\t${entry.weight}`
+          : `${entry.value}\t${entry.key}\t${entry.weight}`).join("\n");
+      }
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `msime-${dictionaryKind}-dictionary.tsv`; anchor.click(); URL.revokeObjectURL(url);
+    } catch { setPhraseError("词库导出失败，请稍后重试。"); }
+    finally { setPhraseBusy(false); }
   }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
@@ -892,11 +930,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}
         </div>
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
-          <div className="section-header"><span className="section-title">快捷短语管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库中的快捷短语。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增短语</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={exportPhrases}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void importPhrases(file); event.currentTarget.value = ""; }} /></label></span></div>
-          <label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label>
+          <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV 和 Rime userdb.txt / dict.yaml。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases()}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void exportPhrases()}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
+          <div className="dictionary-manager-controls"><label>词库 <select aria-label="本地词库类型" value={dictionaryKind} disabled={phraseBusy} onChange={event => { const kind = event.target.value as LocalDictionaryKind; setDictionaryKind(kind); setPhrases([]); void loadPhrases(kind); }}>{localDictionaryKinds.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label><label>文件格式 <select aria-label="本地词库文件格式" value={dictionaryFormat} disabled={phraseBusy} onChange={event => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option><option value="rime">Rime userdb / dict.yaml</option></select></label><label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label></div>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
-          {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>短语 <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
-          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看快捷短语</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
+          {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>{dictionaryKind === "quick_phrase" ? "短语" : "词条"} <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
+          {phrases.length === 0 ? <p className="dict-empty">点击查询后查看{localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}词条</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
         </div>}
         {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
