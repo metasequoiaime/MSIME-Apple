@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
+import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -570,6 +571,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
+        <AppearanceCandidatePreview preferences={draft} />
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
@@ -579,7 +581,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
+        <div className="section"><label className="section-header"><span className="section-title">每页候选数量</span><select aria-label="每页候选数量" value={draft.candidate_page_size} onChange={event => setDraft({ ...draft, candidate_page_size: Number(event.target.value) })}>
           {Array.from({ length: 9 }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
       </fieldset>

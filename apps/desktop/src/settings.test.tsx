@@ -491,6 +491,49 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("appearance preview follows drafts, skin selection and reload without saving", async () => {
+  const save = vi.fn();
+  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  const preview = await screen.findByRole("region", { name: "候选窗口预览" });
+  expect(preview.querySelectorAll(".cand")).toHaveLength(5);
+  expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
+  expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
+  fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
+  fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("每页候选数量"), { target: { value: "9" } });
+  fireEvent.change(screen.getByLabelText("候选窗预编辑"), { target: { value: "empty" } });
+  expect(preview.querySelectorAll(".cand")).toHaveLength(9);
+  expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
+  expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
+  expect(preview.querySelector(".pinyin")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  expect(preview.querySelector(".skin-wechat")).not.toBeNull();
+  expect(save).not.toHaveBeenCalled();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  confirm.mockRestore();
+  await waitFor(() => expect(preview.querySelectorAll(".cand")).toHaveLength(5));
+  expect(preview.querySelector(".skin-fluent")).not.toBeNull();
+  expect(preview.querySelector(".pinyin")).not.toBeNull();
+});
+
+test("appearance preview identifies external skins instead of showing a false built-in match", async () => {
+  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, candidate_skin: "external.sample" } }), save: vi.fn() }} />);
+  const preview = await screen.findByRole("region", { name: "候选窗口预览" });
+  expect(preview.textContent).toContain("此处暂不预览外部皮肤");
+  expect(preview.querySelector(".candidate")).toBeNull();
+});
+
+test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)("appearance preview honors helpcode visibility for %s", async scheme => {
+  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, scheme,
+    quanpin_helpcode: { enabled: false, schema: "ziranma" }, shuangpin_helpcode: { enabled: true, schema: "ziranma" },
+  } }), save: vi.fn() }} />);
+  const preview = await screen.findByRole("region", { name: "候选窗口预览" });
+  expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
+});
+
 test("touch keyboard spacing mirrors Apple defaults and persists tenths", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save }} />);
@@ -536,7 +579,7 @@ test("skin preview switches are independent, reversible and do not change saved 
   }
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
-  const wechat = mounted.container.querySelector(".skin-wechat")!.closest("article")!;
+  const wechat = mounted.container.querySelector("article .skin-wechat")!.closest("article")!;
   fireEvent.click(within(wechat).getByRole("button", { name: "预览浅色" }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
