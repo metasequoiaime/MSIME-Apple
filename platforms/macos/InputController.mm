@@ -598,33 +598,40 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
 }
 
+- (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
+    return [MSIMEClientSession loadPreferencesInDirectory:directory error:error];
+}
+
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    if (!_preferenceLoadState.finish(generation)) return;
+    if (!snapshot || error || !_activeClient || _activeClient != client || _session != session) return;
+    if (!session) {
+        [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        return;
+    }
+    NSError *updateError = nil;
+    NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
+    // Failed loads/updates retain the existing window appearance and runtime.
+    if (result && !updateError) {
+        [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        _view = result[@"view"];
+        [self renderCandidates];
+    }
+}
+
 - (void)reloadPreferences {
     if (!_activeClient || !_preferencesDirectory || _preferenceSaveState.saving || !_preferenceLoadState.begin()) return;
     const uint64_t generation = _preferenceLoadState.generation;
     MSIMEClientSession *session = _session;
+    id client = _activeClient;
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *error = nil;
-        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&error];
+        NSDictionary *snapshot = [weakSelf readPreferencesSnapshotInDirectory:directory error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
-            MSIMEInputController *controller = weakSelf;
-            if (!controller) return;
-            if (!controller->_preferenceLoadState.finish(generation)) return;
-            // Never apply a delayed read to a replacement or inactive input session.
-            if (!snapshot || error || !controller->_activeClient || controller->_session != session) return;
-            if (!session) {
-                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
-                return;
-            }
-            NSError *updateError = nil;
-            NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
-            // Failed loads/updates retain the existing window appearance and runtime.
-            if (result && !updateError) {
-                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
-                controller->_view = result[@"view"];
-                [controller renderCandidates];
-            }
+            [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
         });
     });
 }
@@ -718,6 +725,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self ensureAppearance];
     if (sender != _activeClient) {
         _modifierTap.reset();
+        _preferenceLoadState.reset();
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
