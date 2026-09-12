@@ -220,7 +220,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     (void)sender;
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
-    if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
+    id resources = [self runtimeOptions][@"resources"];
+    if ([shared respondsToSelector:@selector(showEmojiWithResources:)])
+        [shared performSelector:@selector(showEmojiWithResources:) withObject:[resources isKindOfClass:NSString.class] ? resources : @""];
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
