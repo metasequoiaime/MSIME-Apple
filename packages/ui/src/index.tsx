@@ -72,7 +72,20 @@ function isLinuxDesktop(): boolean {
   return /\bLinux\b/i.test(userAgent) && !/\bjsdom\b/i.test(userAgent);
 }
 
+export type ThemeMode = "dark" | "light" | "system";
+export type SurfaceTheme = "follow" | "dark" | "light";
+
+function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
+  if (surface !== "follow") return surface;
+  if (theme !== "system") return theme;
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 export type Preferences = {
+  theme?: ThemeMode;
+  settings_theme?: SurfaceTheme;
+  candidate_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
@@ -502,10 +515,29 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
+  const themeMode = draft?.theme ?? "dark";
+  const settingsTheme = draft?.settings_theme ?? "follow";
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const apply = () => {
+      document.documentElement.dataset.theme = resolveSettingsTheme(themeMode, settingsTheme);
+    };
+    apply();
+    if (themeMode !== "system" || settingsTheme !== "follow" ||
+        typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const listener = () => apply();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", listener);
+      return () => media.removeEventListener("change", listener);
+    }
+    media.addListener(listener);
+    return () => media.removeListener(listener);
+  }, [settingsTheme, themeMode]);
   useEffect(() => {
     if (!client.clipboard?.list) return;
     void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
@@ -584,6 +616,9 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} />
+        <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗主题<small>Linux IBus panel 支持时使用；跟随时交给桌面主题</small></span><select aria-label="候选窗主题" value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
