@@ -5,6 +5,9 @@ struct MacEmojiView: View {
   let resources: String
   @State private var search = ""
   @State private var category = ""
+  @State private var offset = 0
+  @State private var loadedQuery: [String] = []
+  private var queryID: [String] { [search, category, String(offset)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   var onSelect: (String) -> Void = { text in
@@ -20,9 +23,17 @@ struct MacEmojiView: View {
       }.pickerStyle(.segmented)
       TextField("搜索表情或关键词", text: $search)
       Text(status).font(.caption).foregroundStyle(.secondary)
+      HStack {
+        Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
+        Spacer()
+        Text("第 \(offset / 255 + 1) 页").font(.caption)
+        Spacer()
+        Button("下一页") { offset += 255 }
+          .disabled(loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
+      }
       ScrollView {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
-          ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+          ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { _, item in
             Button(item.text) { onSelect(item.text) }
               .font(category == "kaomoji" ? .body : .title2).buttonStyle(.plain)
               .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
@@ -31,20 +42,26 @@ struct MacEmojiView: View {
         }
       }
     }.padding(20).frame(minWidth: 380, minHeight: 320)
-      .task(id: [search, category]) {
+      .onChange(of: search) { _ in offset = 0 }
+      .onChange(of: category) { _ in offset = 0 }
+      .task(id: queryID) {
         items = []
+        loadedQuery = []
         status = "正在加载…"
         do {
           try await Task.sleep(nanoseconds: 200_000_000)
           let query = search
           let directory = resources
           let selectedCategory = category
+          let selectedOffset = offset
+          let requestedID = queryID
           let result = try await Task.detached {
-            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory)
+            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset)
           }.value
           try Task.checkCancellation()
           items = result
-          status = result.isEmpty ? "没有匹配的表情" : result.count == 255 ? "显示前 255 项，请输入关键词缩小范围" : "\(result.count) 个表情"
+          loadedQuery = requestedID
+          status = result.isEmpty ? (selectedOffset == 0 ? "没有匹配的表情" : "已到目录末尾，可返回上一页") : "本页 \(result.count) 项"
         } catch {
           guard !Task.isCancelled else { return }
           items = []

@@ -37,7 +37,12 @@ import Foundation
       assert(StubEmojiSession.lastRequest["category"] as? String == category)
       assert(StubEmojiSession.lastRequest["search"] as? String == "synthetic-keyword")
       assert(StubEmojiSession.lastRequest["limit"] as? Int == 255)
+      assert(StubEmojiSession.lastRequest["offset"] as? Int == 0)
+      _ = try MacEmojiCatalog.load(resources: directory.path, search: "synthetic-keyword", category: category, offset: 510)
+      assert(StubEmojiSession.lastRequest["offset"] as? Int == 510)
     }
+    do { _ = try MacEmojiCatalog.load(resources: directory.path, search: "", offset: -1); assertionFailure("accepted negative offset") }
+    catch {}
     print("Emoji catalog decoding checks passed")
   }
 }

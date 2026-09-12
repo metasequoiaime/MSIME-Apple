@@ -21,14 +21,14 @@ enum MacEmojiCatalog {
     }
   }
 
-  static func load(resources: String, search: String, category: String = "") throws -> [MacEmojiCatalogItem] {
+  static func load(resources: String, search: String, category: String = "", offset: Int = 0) throws -> [MacEmojiCatalogItem] {
     let selector = NSSelectorFromString("emojiCatalogRequest:")
-    guard NSString(string: resources).isAbsolutePath,
+    guard offset >= 0, NSString(string: resources).isAbsolutePath,
           FileManager.default.isReadableFile(atPath: URL(fileURLWithPath: resources).appendingPathComponent("others.db").path),
           let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           type.responds(to: selector),
           let response = type.perform(selector, with: ["resources": resources, "search": search,
-              "category": category, "limit": 255] as NSDictionary)?.takeUnretainedValue() as? NSDictionary else {
+              "category": category, "offset": offset, "limit": 255] as NSDictionary)?.takeUnretainedValue() as? NSDictionary else {
       throw NSError(domain: "MSIMEEmojiCatalog", code: 3)
     }
     return try decode(response)
