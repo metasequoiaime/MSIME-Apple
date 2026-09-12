@@ -55,21 +55,35 @@ echo "Linux clipboard remove-index acceptance passed"
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources
+installed_host=/build/stage/usr/local/bin/msime-client-ibus
+python3 - "$installed_host" <<'PYTHON'
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+output = subprocess.check_output(["ldd", sys.argv[1]], text=True)
+match = re.search(r"libmsime_host_api\.so => (\S+)", output)
+expected = Path("/build/stage/usr/local/lib/msime-client/libmsime_host_api.so")
+assert match and Path(match[1]).resolve() == expected.resolve(), \
+    "Installed host did not resolve the staged Host API library"
+print("Installed host resolves staged Host API library")
+PYTHON
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")
-dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options"
+dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options"
 
-GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/gtk_smoke.py
+GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/gtk_smoke.py
 
-QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/qt_smoke.py
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/qt_smoke.py
 
-QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/qt_smoke.py --qt6
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/qt_smoke.py --qt6
 
-XCOMPOSEFILE="$PWD/platforms/linux/tests/compose.fixture" GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/gtk_smoke.py --custom-compose
+XCOMPOSEFILE="$PWD/platforms/linux/tests/compose.fixture" GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/gtk_smoke.py --custom-compose
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland --qt6
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland --qt6
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/portal_smoke.py
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/portal_smoke.py
