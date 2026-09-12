@@ -531,9 +531,14 @@ class AudioMuteJournal:
     def record(self, backend, stream):
         if not self.available:
             return False
-        key = backend + ":" + str(stream["index"])
         try:
+            key = backend + ":" + str(stream["index"])
             digest = self.fingerprint(backend, stream)
+        except Exception:
+            # A stream can exit between enumeration and reading /proc. Skip
+            # that stream without disabling recovery for other applications.
+            return False
+        try:
             # Pending restoration is never overwritten by a new mute operation.
             if key in self.entries or len(self.entries) >= 256:
                 return False
@@ -557,6 +562,7 @@ class AudioMuteJournal:
                     indices={int(key.split(":")[1]) for key in keys}, failed_indices=failed_indices)
                     if backend == "pipewire" else sink_inputs())
                 current = {backend + ":" + str(stream["index"]): stream for stream in streams}
+                recovered = {}
                 for key in keys:
                     # Unreadable is not absent: keep recovery intent for that
                     # node while independently restoring the available ones.
@@ -567,11 +573,19 @@ class AudioMuteJournal:
                         if stream is not None and self.fingerprint(backend, stream) == self.entries[key]:
                             if stream.get("mute"):
                                 set_stream_mute(backend, stream["index"], False)
-                        del self.entries[key]
+                        recovered[key] = self.entries[key]
                     except Exception:
                         # Enumeration, identity or restore failures retain the entry.
                         continue
-                self.persist()
+                if recovered:
+                    for key in recovered:
+                        del self.entries[key]
+                    try:
+                        self.persist()
+                    except Exception:
+                        # Keep memory conservative even if replace succeeded
+                        # but fsync failed; the next recovery can retry safely.
+                        self.entries.update(recovered)
             except Exception:
                 continue
 
