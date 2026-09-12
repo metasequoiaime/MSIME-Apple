@@ -102,6 +102,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button schemeButton;
     private Button skinButton;
     private Button layoutSettingsButton;
+    private Button scriptShortcutButton;
     private Button voiceShortcutButton;
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
@@ -135,6 +136,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String message = "MSIME Preview";
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
+    private boolean traditionalChineseOutput;
     private int editorInputType;
     private long currentDocumentIdentifier;
     private long nextDocumentIdentifier = 1;
@@ -148,6 +150,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean schemeSaving;
     private boolean touchGeometrySaving;
     private boolean skinSaving;
+    private boolean traditionalOutputSaving;
     private ScrollView voiceResultScroll;
     private LinearLayout voiceResultPanel;
     private VoiceResultStore voiceResultStore;
@@ -265,6 +268,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyVoicePreferences(preferences);
                 applyAiPreferences(preferences);
                 applyClipboardPreference(preferences);
+                applyChineseOutputPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
@@ -314,6 +318,7 @@ public final class MSIMEInputService extends InputMethodService {
         schemeSaveTarget = null;
         touchGeometrySaving = false;
         skinSaving = false;
+        traditionalOutputSaving = false;
         if (session != 0) {
             try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
@@ -397,6 +402,22 @@ public final class MSIMEInputService extends InputMethodService {
         if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clear();
     }
 
+    private void applyChineseOutputPreference(JSONObject preferences) {
+        traditionalChineseOutput = preferences != null
+            && preferences.optBoolean("traditional_chinese_output", false);
+    }
+
+    private String chineseOutput(String text, JSONObject context) {
+        int scheme = context == null
+            ? (view == null ? -1 : view.optInt("scheme", -1))
+            : context.optInt("scheme", -1);
+        String localMode = context == null
+            ? (view == null ? "none" : view.optString("local_mode", "none"))
+            : context.optString("local_mode", "none");
+        return AndroidChineseTextConversion.outputString(
+            text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
+    }
+
     private String candidateAppearanceKey() {
         return (candidateHorizontal ? "horizontal" : "vertical") + ":"
             + candidateFontSize + ":" + candidatePreeditFontSize;
@@ -416,6 +437,7 @@ public final class MSIMEInputService extends InputMethodService {
         String previousGeometry = touchGeometryKey();
         AiPolishConfiguration previousAi = aiPolishConfiguration;
         boolean previousClipboard = clipboardHistoryEnabled;
+        boolean previousTraditional = traditionalChineseOutput;
         KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
@@ -431,6 +453,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || (previousAi == null ? aiPolishConfiguration != null
                     : !previousAi.equals(aiPolishConfiguration))
                 || previousClipboard != clipboardHistoryEnabled
+                || previousTraditional != traditionalChineseOutput
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
@@ -457,6 +480,7 @@ public final class MSIMEInputService extends InputMethodService {
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
             : nextVoice.optString("language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
+        boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -479,6 +503,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
         clipboardHistoryEnabled = nextClipboard;
+        traditionalChineseOutput = nextTraditional;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         selectedScheme = hostScheme(nextScheme);
@@ -502,6 +527,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject next = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
+        if (commit != null) commit = chineseOutput(commit, result.optJSONObject("commit_context"));
         if (connection != null && !bridge.apply(sink(), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
@@ -1142,7 +1168,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean canSaveKeyboardSkin() {
-        return !skinSaving && session != 0 && preferencesSnapshot != null
+        return !skinSaving && !traditionalOutputSaving
+            && session != 0 && preferencesSnapshot != null
             && !preferencesDirectory.isEmpty();
     }
 
@@ -1171,7 +1198,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void saveKeyboardSkin(String identifier) {
         KeyboardSkin next = KeyboardSkin.from(identifier);
-        if (skin.id().equals(next.id()) || skinSaving || session == 0
+        if (skin.id().equals(next.id()) || skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
@@ -1220,6 +1247,87 @@ public final class MSIMEInputService extends InputMethodService {
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         applySkin();
+        render();
+    }
+
+    private boolean canSaveChineseOutput() {
+        return !traditionalOutputSaving && !schemeSaving && !touchGeometrySaving && !skinSaving
+            && session != 0 && preferencesSnapshot != null && !preferencesDirectory.isEmpty();
+    }
+
+    private void toggleChineseOutput() {
+        if (!AndroidChineseTextConversion.available()) {
+            Toast.makeText(this, "简繁转换需要 Android 10 或更高版本", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!canSaveChineseOutput()) {
+            Toast.makeText(this, "简繁设置尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final boolean targetTraditional = !traditionalChineseOutput;
+        final long targetSession = session;
+        final String targetDirectory = preferencesDirectory;
+        final JSONObject pending;
+        final long expectedRevision;
+        try {
+            pending = new JSONObject(preferencesSnapshot.toString());
+            expectedRevision = pending.getLong("revision");
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+            pending.getJSONObject("preferences")
+                .put("traditional_chinese_output", targetTraditional);
+        } catch (JSONException error) {
+            preferencesNotice = " · 简繁设置保存失败，保留原设置";
+            render();
+            return;
+        }
+        traditionalChineseOutput = targetTraditional;
+        traditionalOutputSaving = true;
+        preferencesNotice = " · 正在保存简繁设置";
+        final long operation = ++preferenceSaveGeneration;
+        render();
+        try {
+            preferencesWorker.execute(() -> {
+                String response;
+                try {
+                    response = NativeClient.savePreferences(
+                        targetDirectory, expectedRevision, pending.toString());
+                } catch (Exception | LinkageError error) {
+                    response = null;
+                }
+                final String savedResponse = response;
+                main.post(() -> finishChineseOutputSave(
+                    operation, targetSession, targetDirectory, savedResponse));
+            });
+        } catch (RuntimeException error) {
+            finishChineseOutputSave(operation, targetSession, targetDirectory, null);
+        }
+    }
+
+    private void finishChineseOutputSave(long operation, long targetSession,
+                                         String targetDirectory, String response) {
+        if (operation != preferenceSaveGeneration || session != targetSession
+                || !targetDirectory.equals(preferencesDirectory)) return;
+        traditionalOutputSaving = false;
+        try {
+            if (response == null) throw new JSONException("Preferences save unavailable");
+            JSONObject saved = value(response);
+            long savedRevision = saved.getLong("revision");
+            if (preferencesSnapshot != null
+                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                applyChineseOutputPreference(preferencesSnapshot.optJSONObject("preferences"));
+                preferencesNotice = "";
+            } else {
+                applyPreferencesSnapshot(saved);
+                preferencesNotice = traditionalChineseOutput
+                    ? " · 已切换为繁体输出" : " · 已切换为简体输出";
+            }
+        } catch (JSONException | LinkageError error) {
+            JSONObject accepted = preferencesSnapshot == null ? null
+                : preferencesSnapshot.optJSONObject("preferences");
+            applyChineseOutputPreference(accepted);
+            preferencesNotice = " · 简繁设置保存失败，已恢复原设置";
+            Toast.makeText(this, "简繁设置未能保存", Toast.LENGTH_SHORT).show();
+        }
         render();
     }
 
@@ -1664,16 +1772,16 @@ public final class MSIMEInputService extends InputMethodService {
                 || voiceShortcutSwitch == null) return;
         keySpacingSlider.setProgress(touchKeySpacingTenths);
         rowSpacingSlider.setProgress(touchRowSpacingTenths);
-        keySpacingSlider.setEnabled(!touchGeometrySaving);
-        rowSpacingSlider.setEnabled(!touchGeometrySaving);
+        keySpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+        rowSpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
-        voiceShortcutSwitch.setEnabled(!touchGeometrySaving);
+        voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
         rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
     }
 
     private void previewTouchGeometry(boolean keySpacing, int value) {
-        if (touchGeometrySaving) return;
+        if (touchGeometrySaving || traditionalOutputSaving) return;
         if (keySpacing) touchKeySpacingTenths = KeyboardGeometry.keySpacing(value);
         else touchRowSpacingTenths = KeyboardGeometry.rowSpacing(value);
         renderLayoutSettingsState();
@@ -1695,7 +1803,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showLayoutSettings() {
-        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+        if (touchGeometrySaving || traditionalOutputSaving
+                || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) {
             Toast.makeText(this, "键盘设置尚未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -1710,7 +1819,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveTouchGeometry() {
-        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+        if (touchGeometrySaving || traditionalOutputSaving
+                || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
         if (acceptedPreferences != null
@@ -1796,7 +1906,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showSchemePicker() {
-        if (touchGeometrySaving || session == 0 || preferencesSnapshot == null
+        if (touchGeometrySaving || traditionalOutputSaving
+                || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) {
             Toast.makeText(this, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -1863,7 +1974,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void selectKeyboardScheme(KeyboardScheme scheme) {
-        if (schemeSaving || touchGeometrySaving || session == 0 || preferencesSnapshot == null
+        if (schemeSaving || touchGeometrySaving || traditionalOutputSaving
+                || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         if (scheme == selectedScheme) {
             closeSchemePicker();
@@ -1958,7 +2070,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void toggleThoughtfulReplyScheme() {
-        if (schemeHostPreferences == null || schemeSaving) return;
+        if (schemeHostPreferences == null || schemeSaving || traditionalOutputSaving) return;
         boolean enabled = thoughtfulReplyEnabled();
         schemeHostPreferences.edit().putBoolean(THOUGHTFUL_REPLY_ENABLED, !enabled).apply();
         if (enabled && selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY) {
@@ -2207,7 +2319,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button candidateButton(JSONObject candidate, int slot) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = new Button(this);
-        String text = candidate.optString("text");
+        String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
         button.setAllCaps(false);
         button.setText((slot + 1) + ". " + text);
@@ -2534,7 +2646,7 @@ public final class MSIMEInputService extends InputMethodService {
         long targetSession = session;
         command(9);
         if (targetSession != session || !acceptsHandwriting(token) || connection == null) return;
-        if (connection.commitText(candidate, 1)) clearHandwriting();
+        if (connection.commitText(chineseOutput(candidate, view), 1)) clearHandwriting();
     }
 
     private void rebuildHandwritingRows() {
@@ -2890,6 +3002,10 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePage = new TextView(this);
         candidateHeader.addView(candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        scriptShortcutButton = button(candidateHeader, "简", this::toggleChineseOutput);
+        scriptShortcutButton.setContentDescription("切换到繁体");
+        scriptShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         voiceShortcutButton = button(candidateHeader, "语音", this::showVoiceResult);
         voiceShortcutButton.setContentDescription("打开语音结果");
         voiceShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
@@ -3073,7 +3189,8 @@ public final class MSIMEInputService extends InputMethodService {
         voiceShortcutSwitch.setText("顶部语音入口");
         voiceShortcutSwitch.setContentDescription("顶部语音入口");
         voiceShortcutSwitch.setOnCheckedChangeListener((button, checked) -> {
-            if (checked == touchVoiceShortcutEnabled || touchGeometrySaving) return;
+            if (checked == touchVoiceShortcutEnabled
+                    || touchGeometrySaving || traditionalOutputSaving) return;
             touchVoiceShortcutEnabled = checked;
             renderLayoutSettingsState();
             render();
@@ -3155,8 +3272,38 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.setText(view == null ? "" : view.optString("editing_text", ""));
         }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
+        if (scriptShortcutButton != null) {
+            JSONArray visible = view == null ? null : view.optJSONArray("candidates");
+            boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
+                && "none".equals(view.optString("local_mode", "none"))
+                && (visible == null || visible.length() == 0));
+            boolean replaced = touchVoiceShortcutEnabled
+                || selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY;
+            scriptShortcutButton.setVisibility(idle && !replaced ? View.VISIBLE : View.GONE);
+            scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
+            scriptShortcutButton.setSelected(traditionalChineseOutput);
+            styleButton(scriptShortcutButton, true);
+            int scheme = view == null
+                ? ((selectedScheme == KeyboardScheme.JAPANESE
+                    || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3 : -1)
+                : view.optInt("scheme", -1);
+            boolean japanese = scheme == 3;
+            boolean conversionAvailable = AndroidChineseTextConversion.available();
+            scriptShortcutButton.setEnabled(
+                conversionAvailable && !japanese && canSaveChineseOutput());
+            String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
+            String outputState = !conversionAvailable ? "需要 Android 10 或更高版本"
+                : japanese ? "日语不使用简繁转换"
+                : traditionalOutputSaving ? "正在保存"
+                : traditionalChineseOutput ? "繁体" : "简体";
+            scriptShortcutButton.setContentDescription(
+                Build.VERSION.SDK_INT >= 30 ? label : label + "，" + outputState);
+            if (Build.VERSION.SDK_INT >= 30)
+                scriptShortcutButton.setStateDescription(outputState);
+        }
         if (voiceShortcutButton != null) {
-            voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled ? View.VISIBLE : View.GONE);
+            voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled
+                && selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY ? View.VISIBLE : View.GONE);
             voiceShortcutButton.setEnabled(voiceInsertionReady());
         }
         if (aiPolishShortcutButton != null) {
@@ -3201,7 +3348,7 @@ public final class MSIMEInputService extends InputMethodService {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
             schemeButton.setEnabled(session != 0 && preferencesSnapshot != null
-                && !schemeSaving && !touchGeometrySaving);
+                && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         }
         if (skinButton != null) {
             skinButton.setEnabled(canSaveKeyboardSkin());
@@ -3211,7 +3358,7 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
         if (layoutSettingsButton != null)
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
-                && !schemeSaving && !touchGeometrySaving);
+                && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         renderNineKeySpellings();
         if (candidates == null) {
             applySkin();

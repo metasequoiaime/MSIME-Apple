@@ -1,6 +1,7 @@
 package app.msime.client.test;
 
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.util.AtomicFile;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,6 +34,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
             shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
             shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
             stage = "baseline editor focus";
             tap(field("msime-test-plain"));
@@ -44,14 +46,14 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            await(key("MSIME Preview · 设置将在组词结束后应用"));
+            await(imeTextContains("MSIME Preview · 设置将在组词结束后应用"));
             await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
             stage = "commit preserves composition";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
             await(key("MSIME Preview"));
             stage = "updated punctuation";
-            tap(key(","));
+            tapSymbol(",");
             await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
             stage = "updated page size";
             typePhrase();
@@ -59,7 +61,9 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             for (var window : automation.getWindows()) {
                 if (find(window.getRoot(), node -> equalsText("app.msime.client.preview", node.getPackageName()) && node.getText() != null && node.getText().toString().startsWith("3. ")) != null) throw new AssertionError("Old page size remains active");
             }
-            tap(key("2")); // Shared runtime's page-relative numeric selection, not raw input.
+            stage = "updated second candidate selection";
+            tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
+                && node.getText() != null && node.getText().toString().startsWith("2. "));
             await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
             stage = "malformed preferences preserve working input";
             byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
@@ -74,7 +78,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.getJSONObject("preferences").put("chinese_punctuation", true);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             await(key("MSIME Preview"));
-            tap(key(","));
+            tapSymbol(",");
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
         } catch (Exception | AssertionError error) {
             shell("screencap -p /data/local/tmp/msime-preferences-failure.png");

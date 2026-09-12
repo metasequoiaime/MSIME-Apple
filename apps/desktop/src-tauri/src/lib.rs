@@ -1993,6 +1993,12 @@ pub fn run() {
             app.manage(PanelInputState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
+            #[cfg(target_os = "android")]
+            let host_options_path = app
+                .path()
+                .app_data_dir()?
+                .join("files/runtime-options.json");
+            #[cfg(not(target_os = "android"))]
             let host_options_path = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
