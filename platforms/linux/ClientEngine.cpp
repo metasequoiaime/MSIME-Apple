@@ -8,6 +8,7 @@
 #include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cctype>
 #include <cmath>
@@ -31,6 +32,7 @@ struct MsimePreviewEngine;
 namespace {
 Json configured;
 uint64_t configuration_generation = 0;
+std::atomic<uint64_t> next_client_token{1};
 // Store acceptance is shared by all contexts and survives session recreation.
 // Effective runtime revisions also include local overrides and are independent.
 std::string accepted_preferences_directory;
@@ -128,6 +130,7 @@ struct State {
   msime::linux_host::NativeCompose native_compose;
   MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
+  uint64_t client_token = 0;
   Json view;
   bool focused = false;
   std::string focused_context;
@@ -5281,6 +5284,7 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
+  engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.
   if (configured.is_object())
     engine->state->input_enabled = configured.at("preferences").value(
