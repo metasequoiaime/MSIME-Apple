@@ -1,5 +1,13 @@
 # Linux IBus 预览宿主
 
+## 生成 Linux 安装包
+
+在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。该选项默认关闭，不启用 CI。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
+
+完成正常构建后，可运行 `cpack --config <build-dir>/CPackConfig.cmake -G TGZ` 生成按 `/usr` 布局安装的归档，或在具备 Debian 打包工具的 Linux 环境运行相同命令并使用 `-G DEB` 生成 Debian 包。归档不是可任意搬移的便携包。Debian 包声明 IBus、Python 依赖，并由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖；包中包含许可证及本构建说明。包版本取自桌面 `tauri.conf.json`，不另建版本序列。
+
+安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用仍需准备匹配安装环境的用户运行配置；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。未提供桌面二进制或资源的构建只打包实际配置的部分，不能视为完整产品包。
+
 ## 卸载 CMake 安装
 
 保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板；已启用的用户 provider 服务应先停止。执行卸载所需权限与原安装相同。

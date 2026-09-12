@@ -143,3 +143,8 @@ target_include_directories(linux-native-compose-test PRIVATE .)
 target_link_libraries(linux-native-compose-test PRIVATE PkgConfig::XKBCOMMON)
 add_test(NAME linux-native-compose COMMAND linux-native-compose-test
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/compose.fixture")
+
+option(MSIME_ENABLE_PACKAGING "Enable Linux TGZ and Debian package generation" OFF)
+if(MSIME_ENABLE_PACKAGING)
+  include(cmake/packaging.cmake)
+endif()
