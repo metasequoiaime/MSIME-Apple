@@ -293,3 +293,14 @@ priority/order, opaque quoted text and the complete prior skin tests.
 This supersedes the pending-shorthand override limitation. Fragment variable
 substitution, escaped/non-ASCII variable names, fonts, imports and native visual
 acceptance remain unfinished.
+
+Animation custom-property names now support non-ASCII characters and CSS
+hexadecimal/simple escapes. Definitions and references share decoded logical
+names through source projection and private animation aliasing; escaped names
+also reserve their decoded spelling to avoid namespace collisions. Resource
+validation treats only a valid var() name as opaque, leaving fallback URLs
+subject to all existing image/path checks. Unit and Chromium regressions cover
+Chinese names, equivalent escaped/plain spellings, escaped punctuation,
+name-only variables, timing overrides and blocked remote fallbacks.
+This supersedes the non-ASCII/escaped variable-name limitation, not fragment
+substitution, fonts, imports or native-platform visual acceptance.

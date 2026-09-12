@@ -1,10 +1,11 @@
 export type AnimationMode = "animation" | "animation-name";
+import { customPropertyNames, decodeCustomPropertyName } from "./css-custom-property.js";
 
 // Recognize a whole var() value, preserving commas in strings/functions in its
 // fallback. Partial token substitution is a separate compatibility step.
 export function parseAnimationVariable(value: string): { name: string; fallback?: string } | null {
   value = value.trim();
-  if (!value.startsWith("var(")) return null;
+  if (!/^var\(/i.test(value)) return null;
   let depth = 1, comma = -1, quote = "";
   for (let index = 4; index < value.length; index++) {
     const char = value[index];
@@ -20,8 +21,8 @@ export function parseAnimationVariable(value: string): { name: string; fallback?
     else if (char === ")") {
       if (--depth !== 0) continue;
       if (index !== value.length - 1) return null;
-      const name = value.slice(4, comma < 0 ? index : comma).trim();
-      if (!/^--[a-zA-Z0-9_-]+$/.test(name)) return null;
+      const name = decodeCustomPropertyName(value.slice(4, comma < 0 ? index : comma));
+      if (name === null) return null;
       return comma < 0 ? { name } : { name, fallback: value.slice(comma + 1, index).trim() };
     } else if (char === "," && depth === 1 && comma < 0) comma = index;
   }
@@ -36,7 +37,7 @@ export function animationVariables<Mode extends string = AnimationMode>(
   literal: (value: string, mode: Mode) => { value: string; partial: boolean },
 ) {
   const aliases = new Map<string, { source: string; mode: Mode; target: string }>();
-  const reserved = new Set(styles.flatMap(style => style.cssText.match(/--[a-zA-Z0-9_-]+/g) ?? []));
+  const reserved = new Set(styles.flatMap(style => customPropertyNames(style.cssText)));
   let nextAlias = 0;
   let partial = false, expanded = 0;
   function rewrite(value: string, mode: Mode, depth = 0): string {

@@ -184,6 +184,22 @@ with sync_playwright() as playwright:
       const lateShorthand = installToolbarCss('card1', '@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {--motion:pulse 1s linear both paused; animation-duration:2s; animation:var(--motion); }');
       if (lateShorthand.partial || getComputedStyle(first).animationDuration !== '1s') throw Error('later shorthand failed to reset prior longhand');
       lateShorthand.remove();
+      for (const [definition, reference, functionName = 'var'] of [['--动画', '--动画'], ['--\\61', '--a'], ['--a', '--\\61'], ['--a\\,b', '--a\\,b'], ['--upper', '--upper', 'VAR']]) {
+        const namedCss = '@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {' + definition + ':pulse 1s linear both paused; animation:' + functionName + '(' + reference + '); animation-duration:2s;}';
+        const preparedNamed = await prepareToolbarImages(namedCss, async () => { throw Error('variable name is not a resource'); });
+        const namedSheet = installToolbarCss('card1', preparedNamed.css);
+        if (preparedNamed.partial || namedSheet.partial || first.getAnimations().length !== 1 || getComputedStyle(first).animationDuration !== '2s') throw Error('Unicode/escaped animation variable failed: ' + definition + '/' + reference);
+        first.getAnimations()[0].currentTime = 1000;
+        if (Math.abs(Number(getComputedStyle(first).opacity) - .5) > .01) throw Error('named variable timing lost');
+        namedSheet.remove();
+      }
+      const escapedNameOnly = await prepareToolbarImages('@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {--动画:pulse;animation-name:var(--\\52a8\\753b);animation-duration:1s;animation-play-state:paused;}', async () => { throw Error('must not read'); });
+      const escapedNameSheet = installToolbarCss('card1', escapedNameOnly.css);
+      if (escapedNameOnly.partial || escapedNameSheet.partial || first.getAnimations().length !== 1) throw Error('escaped animation-name variable removed by resource preparation');
+      escapedNameSheet.remove();
+      let escapedFallbackReads = 0;
+      const unsafeVariableFallback = await prepareToolbarImages('.sample { background-image:var(--\\61,url(https://invalid.example/a.png)); color:rgb(3,2,1); }', async () => { escapedFallbackReads++; return imageData; });
+      if (!unsafeVariableFallback.partial || escapedFallbackReads || unsafeVariableFallback.css.includes('invalid.example')) throw Error('escaped variable concealed unsafe fallback');
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
       return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true, animationLonghandOverrides:true, animationPriority:true};
     }""")

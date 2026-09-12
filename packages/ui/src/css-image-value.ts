@@ -1,4 +1,5 @@
 import { normalizeImageSets } from "./css-image-set.js";
+import { maskVariableNames } from "./css-custom-property.js";
 const imageData = /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon|bmp|avif);base64,[A-Za-z0-9+/]*={0,2}$/;
 // Consume strings as opaque tokens before considering URL functions, so e.g.
 // content: "url(icon.png)" never starts a resource request.
@@ -47,7 +48,7 @@ export function hasUnresolvedCssResource(value: string): boolean {
   value = normalized;
   const remaining = value.replace(urlPattern, (token, double: string, single: string, bare: string) =>
     double === undefined && single === undefined && bare === undefined ? "" : isImageDataUrl(double ?? single ?? bare) ? "" : token);
-  return /url\s*\(|src\s*\(|\\/i.test(remaining);
+  return /url\s*\(|src\s*\(|\\/i.test(maskVariableNames(remaining));
 }
 
 export async function rewriteCssImages(value: string, resolve: (relative: string) => Promise<string>): Promise<string | null> {
