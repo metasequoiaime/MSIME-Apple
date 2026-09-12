@@ -24,8 +24,18 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
   }, [viewKey]);
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
-      || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+      const search = panelRef.current?.querySelector<HTMLInputElement>(".emoji-panel-search input:not(:disabled)");
+      if (search) {
+        event.preventDefault();
+        search.focus({ preventScroll: true });
+        search.select();
+        search.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.key === "Escape") {
       event.preventDefault();
       onEscape();

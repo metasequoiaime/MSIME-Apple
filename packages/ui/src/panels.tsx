@@ -1448,7 +1448,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [clipboard, clipboardBusy, page, query]);
   return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" disabled={clipboardBusy} onClick={() => void closeEmoji()}>×</button></header>
-    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : "Search emoji, kaomoji, and symbols"} /></div>
+    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : "Search emoji, kaomoji, and symbols"} /></div>
     <nav className="emoji-panel-tabs" aria-label="面板分类">
       {emojiPages.map(item => <button type="button" key={item.id} className={page === item.id ? "active" : ""} aria-label={item.label} aria-pressed={page === item.id} onClick={() => selectPage(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}
     </nav>
