@@ -86,7 +86,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -1924,6 +1924,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
+  auto clipboard_toggle = ibus_property_new(
+      "ClipboardHistory/Enabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("启用历史采集"), "",
+      ibus_text_new_from_static_string("启用或停用本地剪贴板历史记录"),
+      s.focused && !s.blocked && !menu_save_pending &&
+          !configured.value("preferences_directory", std::string{}).empty(), TRUE,
+      s.clipboard_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(clipboard_menu, clipboard_toggle);
   auto open_clipboard = ibus_property_new(
       "ClipboardHistory/OpenPanel", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("打开历史面板"), "",
@@ -3101,6 +3109,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
        property_name != "ClipboardHistory/Refresh" &&
        std::string(name) != "InputMode" &&
+       std::string(name) != "ClipboardHistory/Enabled" &&
        std::string(name) != "VoiceInput" &&
        std::string(name) != "CloudCandidates" &&
        std::string(name) != "CandidateTranslations" &&
@@ -3146,6 +3155,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
+    if (property_name == "ClipboardHistory/Enabled") {
+      if (menu_save_pending || !s.focused || s.blocked) return;
+      save_menu_preference(engine, MenuPreference::ClipboardHistoryEnabled, value == PROP_STATE_CHECKED);
+      publish_mode(engine);
+      return;
+    }
     if (property_name.rfind("ClipboardHistory/", 0) == 0 &&
         (!s.clipboard_enabled || !s.input_enabled))
       return;
@@ -5058,6 +5073,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::InputMode:
             snapshot["preferences"]["ime_mode"] = request.value.get<bool>() ? "chinese" : "english";
+            break;
+          case MenuPreference::ClipboardHistoryEnabled:
+            snapshot["preferences"]["clipboard_history"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
