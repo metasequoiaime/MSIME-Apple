@@ -102,6 +102,12 @@ with sync_playwright() as playwright:
     expect(page.get_by_label("候选文字颜色", exact=True)).to_have_value("#1a1a1a")
     expect(preview.locator(".appearance-candidate-preview")).to_have_attribute("data-preview-theme", "light")
     light_surface = preview.locator(".container").evaluate("el => getComputedStyle(el).backgroundColor")
+    page.get_by_role("button", name="皮肤", exact=True).click()
+    for card in page.get_by_role("article").all():
+        expect(card.locator(".skin-card-preview")).to_have_attribute("data-preview-theme", "light")
+        card.get_by_role("button", name="预览深色", exact=True).click()
+        expect(card.locator(".skin-card-preview")).to_have_attribute("data-preview-theme", "dark")
+    page.get_by_role("button", name="外观", exact=True).click()
     page.get_by_label("设置窗口主题", exact=True).select_option("dark")
     expect(preview.locator(".container")).to_have_css("background-color", light_surface)
     page.get_by_label("候选窗主题", exact=True).select_option("dark")
@@ -116,6 +122,10 @@ with sync_playwright() as playwright:
     expect(preview.locator(".appearance-candidate-preview")).to_have_attribute("data-preview-theme", "dark")
     page.get_by_label("全局主题", exact=True).select_option("dark")
     page.get_by_label("设置窗口主题", exact=True).select_option("follow")
+    page.get_by_role("button", name="皮肤", exact=True).click()
+    for card in page.get_by_role("article").all():
+        expect(card.locator(".skin-card-preview")).to_have_attribute("data-preview-theme", "dark")
+    page.get_by_role("button", name="外观", exact=True).click()
     primary = page.get_by_label("候选窗主字体", exact=True)
     primary.click()
     expect(page.get_by_role("option", name="示例字体", exact=True)).to_be_visible()
