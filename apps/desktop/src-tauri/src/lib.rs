@@ -85,6 +85,43 @@ async fn read_skin_image(
         .map_err(|_| CommandError { code: "storage" })?
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkinFontResponse {
+    content_type: &'static str,
+    bytes: Vec<u8>,
+}
+
+fn read_skin_font_at(
+    root: PathBuf,
+    id: &str,
+    relative: &str,
+) -> Result<SkinFontResponse, CommandError> {
+    let resource = msime_client_core::skin_catalog::read_resource(root, id, relative)
+        .map_err(|_| CommandError { code: "storage" })?;
+    if !resource.content_type.starts_with("font/") {
+        return Err(CommandError {
+            code: "invalid_resource",
+        });
+    }
+    Ok(SkinFontResponse {
+        content_type: resource.content_type,
+        bytes: resource.bytes,
+    })
+}
+
+#[tauri::command]
+async fn read_skin_font(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    id: String,
+    relative: String,
+) -> Result<SkinFontResponse, CommandError> {
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_skin_font_at(root, &id, &relative))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
 #[tauri::command]
 async fn open_skin_directory(
     directory: tauri::State<'_, SkinDirectoryState>,
@@ -2034,6 +2071,7 @@ pub fn run() {
             load_preferences,
             scan_skin_catalog,
             read_skin_image,
+            read_skin_font,
             read_skin_toolbar_stylesheet,
             open_skin_directory,
             save_preferences,
@@ -2088,6 +2126,7 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join("skin.toml"), "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
         std::fs::write(folder.join("preview.png"), [0, 1, 255]).unwrap();
+        std::fs::write(folder.join("font.woff2"), [0, 1, 255]).unwrap();
         std::fs::write(folder.join("toolbar.css"), b".sample {}").unwrap();
         assert!(matches!(
             super::read_skin_toolbar_stylesheet_at(root.clone(), "sample"),
@@ -2108,6 +2147,15 @@ mod tests {
         let json = serde_json::to_value(result).unwrap();
         assert_eq!(json["contentType"], "image/png");
         assert_eq!(json["bytes"], serde_json::json!([0, 1, 255]));
+        let font = super::read_skin_font_at(root.clone(), "sample", "font.woff2")
+            .ok()
+            .unwrap();
+        let font_json = serde_json::to_value(font).unwrap();
+        assert_eq!(font_json["contentType"], "font/woff2");
+        assert_eq!(font_json["bytes"], serde_json::json!([0, 1, 255]));
+        assert!(super::read_skin_font_at(root.clone(), "sample", "preview.png").is_err());
+        assert!(super::read_skin_font_at(root.clone(), "sample", "../font.woff2").is_err());
+        assert!(super::read_skin_font_at(root.clone(), "../sample", "font.woff2").is_err());
         assert!(super::read_skin_image_at(root.clone(), "sample", "toolbar.css").is_err());
         assert!(super::read_skin_image_at(root.clone(), "sample", "../preview.png").is_err());
         assert!(super::read_skin_image_at(root, "../sample", "preview.png").is_err());

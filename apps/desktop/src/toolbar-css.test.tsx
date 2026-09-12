@@ -5,15 +5,53 @@ import { useToolbarCss } from "../../../packages/ui/src/use-toolbar-css";
 import { installToolbarCss } from "../../../packages/ui/src/skin-toolbar-css";
 import { prepareToolbarImages } from "../../../packages/ui/src/toolbar-images";
 import type { SkinImageReader } from "../../../packages/ui/src/skin-image";
+import type { SkinFontReader } from "../../../packages/ui/src/skin-font";
+import { prepareToolbarFonts } from "../../../packages/ui/src/toolbar-fonts";
 
 // jsdom does not implement CSSScopeRule. The real helper is exercised by the
 // Chromium regression; these tests exercise asynchronous React ownership.
 vi.mock("../../../packages/ui/src/skin-toolbar-css", () => ({ installToolbarCss: vi.fn() }));
 vi.mock("../../../packages/ui/src/toolbar-images", () => ({ prepareToolbarImages: vi.fn() }));
+vi.mock("../../../packages/ui/src/toolbar-fonts", () => ({ prepareToolbarFonts: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-function Probe({ read, revision = 0, filename = "toolbar.css", readImage }: { read?: (id: string) => Promise<string | null>; revision?: number; filename?: string | null; readImage?: SkinImageReader }) {
-  return <span>{useToolbarCss(read, "sample", filename, revision, "scope", readImage)}</span>;
+function Probe({ read, revision = 0, filename = "toolbar.css", readImage, readFont }: { read?: (id: string) => Promise<string | null>; revision?: number; filename?: string | null; readImage?: SkinImageReader; readFont?: SkinFontReader }) {
+  return <span>{useToolbarCss(read, "sample", filename, revision, "scope", readImage, readFont)}</span>;
 }
+test("font preparation uses the package reader and owns font cleanup", async () => {
+  const readFont = vi.fn().mockResolvedValue({ contentType: "font/woff2", bytes: [0, 1] });
+  const removeFont = vi.fn(), removeStyle = vi.fn(), install = vi.fn(() => removeFont);
+  vi.mocked(prepareToolbarFonts).mockImplementation(async (_css, resolve) => {
+    expect(new Uint8Array(await resolve("fonts/test.woff2"))).toEqual(new Uint8Array([0, 1]));
+    return { css: ".prepared {}", partial: false, install };
+  });
+  vi.mocked(installToolbarCss).mockReturnValue({ remove: removeStyle, partial: false });
+  const mounted = render(<Probe read={async () => ".source {}"} readFont={readFont} />);
+  await waitFor(() => expect(mounted.container.textContent).toBe("ready"));
+  expect(readFont).toHaveBeenCalledExactlyOnceWith("sample", "fonts/test.woff2");
+  expect(install).toHaveBeenCalledTimes(1);
+  mounted.unmount();
+  expect(removeFont).toHaveBeenCalledTimes(1);
+  expect(removeStyle).toHaveBeenCalledTimes(1);
+});
+test("unmounted font preparation never installs fonts or styles", async () => {
+  let finish!: (value: Awaited<ReturnType<typeof prepareToolbarFonts>>) => void;
+  vi.mocked(prepareToolbarFonts).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const mounted = render(<Probe read={async () => ".source {}"} readFont={vi.fn()} />);
+  await waitFor(() => expect(prepareToolbarFonts).toHaveBeenCalledTimes(1));
+  mounted.unmount();
+  const install = vi.fn();
+  await act(async () => finish({ css: ".late {}", partial: false, install }));
+  expect(install).not.toHaveBeenCalled();
+  expect(installToolbarCss).not.toHaveBeenCalled();
+});
+test("failed font installation rolls back the adopted stylesheet", async () => {
+  const remove = vi.fn();
+  vi.mocked(prepareToolbarFonts).mockResolvedValue({ css: ".prepared {}", partial: false, install: () => { throw new Error("synthetic"); } });
+  vi.mocked(installToolbarCss).mockReturnValue({ remove, partial: false });
+  const mounted = render(<Probe read={async () => ".source {}"} readFont={vi.fn()} />);
+  await waitFor(() => expect(mounted.container.textContent).toBe("failed"));
+  expect(remove).toHaveBeenCalledTimes(1);
+});
 test("image preparation uses the same package id and reports partial resources", async () => {
   const readImage = vi.fn().mockResolvedValue({ contentType: "image/png", bytes: [0] });
   vi.mocked(prepareToolbarImages).mockImplementation(async (_css, resolve) => {

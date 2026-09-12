@@ -5,6 +5,8 @@ Bundle with node scripts/build-skin-browser.mjs <temporary-directory>, serve it 
 Requires Python Playwright. Does not launch the input method or touch user data.
 """
 import argparse
+import json
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser()
@@ -21,7 +23,7 @@ with sync_playwright() as playwright:
         body='<html><head></head><body><div class="card1"><span class="sample">synthetic</span></div><div class="card2"><span class="sample">synthetic</span></div></body></html>',
         content_type="text/html", headers={"Content-Security-Policy": args.csp}))
     page.goto(args.url + "/fixture")
-    result = page.evaluate(r"""async () => {
+    result = page.evaluate(r"""async fontBase64 => {
       const {installSkinPalette} = await import('/skin-palette.js');
       const first = document.querySelector('.card1 .sample');
       const second = document.querySelector('.card2 .sample');
@@ -210,7 +212,36 @@ with sync_playwright() as playwright:
       const unsafeVariableFallback = await prepareToolbarImages('.sample { background-image:var(--\\61,url(https://invalid.example/a.png)); color:rgb(3,2,1); }', async () => { escapedFallbackReads++; return imageData; });
       if (!unsafeVariableFallback.partial || escapedFallbackReads || unsafeVariableFallback.css.includes('invalid.example')) throw Error('escaped variable concealed unsafe fallback');
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true, animationLonghandOverrides:true, animationPriority:true};
-    }""")
+      const {prepareToolbarFonts} = await import('/toolbar-fonts.js');
+      const fontBytes = Uint8Array.from(atob(fontBase64), character => character.charCodeAt(0)).buffer;
+      const initialFonts = document.fonts.size;
+      const fontRequests = [];
+      const fontCss = '@font-face {font-family:"Synthetic Font";src:url(fonts/test.ttf) format("truetype");font-weight:400;} .sample {--skin-family:"Synthetic Font",serif; font-family:var(--skin-family);font-size:20px;}';
+      const fontA = await prepareToolbarFonts(fontCss, async name => { fontRequests.push(name); return fontBytes; });
+      const fontB = await prepareToolbarFonts(fontCss, async () => fontBytes);
+      if (fontA.partial || fontB.partial || document.fonts.size !== initialFonts || fontRequests.join(',') !== 'fonts/test.ttf') throw Error('font preparation failed or installed too early');
+      const removeFontA = fontA.install(), removeFontB = fontB.install();
+      const fontStyleA = installToolbarCss('card1', fontA.css), fontStyleB = installToolbarCss('card2', fontB.css);
+      if (fontStyleA.partial || fontStyleB.partial || document.fonts.size !== initialFonts + 2 || getComputedStyle(first).fontFamily === getComputedStyle(second).fontFamily) throw Error('font names not isolated');
+      const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
+      context.font = '20px ' + getComputedStyle(first).fontFamily;
+      if (Math.abs(context.measureText('A').width - 20) > .01) throw Error('binary font did not render under CSP');
+      fontStyleA.remove(); removeFontA();
+      if (document.fonts.size !== initialFonts + 1) throw Error('font cleanup affected another card');
+      fontStyleB.remove(); removeFontB();
+      if (document.fonts.size !== initialFonts) throw Error('font leaked');
+      let unsafeFontReads = 0;
+      const unsafeFont = await prepareToolbarFonts('@font-face{font-family:Bad;src:url(https://invalid.example/font.woff2)}.sample{font-family:Bad,serif}', async () => { unsafeFontReads++; return fontBytes; });
+      if (!unsafeFont.partial || unsafeFontReads || unsafeFont.css.includes('invalid.example')) throw Error('remote font reached reader or survived');
+      const badFont = await prepareToolbarFonts('@font-face{font-family:Bad;src:url(fonts/bad.ttf)}.sample{color:red;font-family:Bad,serif}', async () => new Uint8Array([0, 1]).buffer);
+      if (!badFont.partial || !badFont.css.includes('red')) throw Error('failed font decode lost valid styles');
+      let cappedFontReads = 0;
+      const cappedFonts = await prepareToolbarFonts(Array.from({length:9}, (_, index) => '@font-face{font-family:Cap' + index + ';src:url(fonts/test.ttf)}').join(''), async () => { cappedFontReads++; return fontBytes; });
+      const removeCapped = cappedFonts.install();
+      if (!cappedFonts.partial || cappedFontReads !== 1 || document.fonts.size !== initialFonts + 8) throw Error('font face limit or shared read failed');
+      removeCapped();
+      if (document.fonts.size !== initialFonts) throw Error('capped fonts leaked');
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true, animationLonghandOverrides:true, animationPriority:true, fontRendering:true, fontIsolation:true, fontCleanup:true, fontLimits:true};
+    }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     print(result)
     browser.close()

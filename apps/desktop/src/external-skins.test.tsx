@@ -6,6 +6,7 @@ import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
 import geometryCss from "../../../packages/ui/src/external-skin-geometry.css?raw";
 import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin-image";
 import desktopConfig from "../src-tauri/tauri.conf.json";
+import * as fontPreparation from "../../../packages/ui/src/toolbar-fonts";
 
 afterEach(cleanup);
 // jsdom parses CSS rules but does not implement adopted stylesheet rendering.
@@ -35,6 +36,21 @@ test("settings forwards the declared toolbar reader using only package id", asyn
   fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
   refresh();
   await waitFor(() => expect(readSkinToolbarCss).toHaveBeenCalledExactlyOnceWith("sample"));
+});
+test("settings forwards the font reader with package id and relative name", async () => {
+  const readSkinFont = vi.fn().mockResolvedValue({ contentType: "font/woff2", bytes: [0, 1] });
+  const prepare = vi.spyOn(fontPreparation, "prepareToolbarFonts").mockImplementation(async (_css, resolve) => {
+    await resolve("fonts/test.woff2");
+    return { css: "", partial: false, install: () => () => {} };
+  });
+  try {
+    render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), readSkinFont,
+      readSkinToolbarCss: async () => ".sample {}",
+      scanSkinCatalog: async () => ({ ...catalog, packages: [{ ...catalog.packages[0], toolbarStylesheet: "toolbar.css" }] }) }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+    refresh();
+    await waitFor(() => expect(readSkinFont).toHaveBeenCalledExactlyOnceWith("sample", "fonts/test.woff2"));
+  } finally { prepare.mockRestore(); }
 });
 
 test("palette sheets replace on theme change and disappear when cards unmount", async () => {

@@ -313,3 +313,24 @@ pseudo-classes and root rules nested under supported conditions work too.
 Unit and Chromium regressions cover exact token matching, escaped/quoted text,
 conditional variable inheritance, scoped computed styles and cleanup. Existing
 animation, resource and native-platform limitations are unchanged.
+
+Top-level external @font-face rules now load through an injected font reader
+and the host-managed package resource API. The desktop command accepts only
+package ID/relative path and font MIME types, retaining the core containment and
+8 MiB per-resource limit. Binary FontFace loading needs no font URL or relaxed
+CSP. Private family names and family-variable aliases isolate preview cards;
+font shorthand family values and keyframe family declarations are rewritten
+where browser CSSOM exposes them. Fonts are adopted only after current-generation
+preparation and removed with the card stylesheet; stale results never register.
+Failures retain other styling and show partial support. Limits are 8 font faces,
+16 distinct source reads and 16 MiB total bytes per preparation.
+
+Tests cover the Rust command contract, byte validation, settings-reader wiring,
+React stale/cleanup/rollback ownership and actual Chromium font rendering under
+desktop CSP, two-card isolation, decoder failure, remote rejection and limits.
+scripts/skin-font-fixture.json contains an original synthetic rectangular glyph
+font (1000 units/em and advance), not copied font artwork. Browser behavior
+follows https://www.w3.org/TR/css-font-loading/.
+Conditional/nested font faces, local()/data sources, tech() hints, variable font
+shorthand recovery and native-platform typography parity remain unfinished.
+This is preview font support, not full native candidate font delivery.

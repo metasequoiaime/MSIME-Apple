@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
+import type { SkinFontReader } from "./skin-font";
 import { installSkinPalette } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 
@@ -39,13 +40,13 @@ function paletteCss(scope: string, palette: Palette): string[] {
   return css;
 }
 
-function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readToolbarCss, revision }: {
-  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; readToolbarCss?: ToolbarCssReader; revision: number;
+function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readFont, readToolbarCss, revision }: {
+  skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; readFont?: SkinFontReader; readToolbarCss?: ToolbarCssReader; revision: number;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   const theme = override ?? (skin.themes.includes("dark") ? "dark" : "light");
   const scope = `external-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const toolbarState = useToolbarCss(readToolbarCss, skin.id, skin.toolbarStylesheet, revision, scope, readImage);
+  const toolbarState = useToolbarCss(readToolbarCss, skin.id, skin.toolbarStylesheet, revision, scope, readImage, readFont);
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
     try {
@@ -95,8 +96,8 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readToo
   </article>;
 }
 
-export function ExternalSkins({ scan, openDirectory, readImage, readToolbarCss, selected, layout, onSelect }: {
-  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; readImage?: SkinImageReader; readToolbarCss?: ToolbarCssReader; selected: string; layout: string; onSelect: (id: string) => void;
+export function ExternalSkins({ scan, openDirectory, readImage, readFont, readToolbarCss, selected, layout, onSelect }: {
+  scan?: () => Promise<SkinCatalog>; openDirectory?: () => Promise<void>; readImage?: SkinImageReader; readFont?: SkinFontReader; readToolbarCss?: ToolbarCssReader; selected: string; layout: string; onSelect: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [revision, setRevision] = useState(0);
@@ -156,7 +157,7 @@ export function ExternalSkins({ scan, openDirectory, readImage, readToolbarCss, 
     {openFailed && <p role="alert">无法打开皮肤目录，请重试。</p>}
     {failed && <p role="alert">读取皮肤目录失败，请重试。{catalog && "仍显示上次扫描结果。"}</p>}
     <div role="status">{!scan ? "当前宿主不支持扫描外部皮肤。" : busy ? "正在读取皮肤目录。" : !catalog ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。" : !catalog.packages.length ? "没有发现外部皮肤。" : ""}</div>
-    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} readImage={readImage} readToolbarCss={readToolbarCss} revision={revision} />)}</div>
+    <div className="skin-grid">{catalog?.packages.map(skin => <ExternalSkinCard key={skin.id} skin={skin} selected={selected} layout={layout} onSelect={onSelect} readImage={readImage} readFont={readFont} readToolbarCss={readToolbarCss} revision={revision} />)}</div>
     {!!catalog?.issues.length && <details className="external-skin-diagnostics"><summary>已忽略 {catalog.issues.length} 个无效皮肤目录</summary><ul>{catalog.issues.map((issue, index) => <li key={index}>{issue.folder}：{issue.reason}</li>)}</ul></details>}
   </section>;
 }
