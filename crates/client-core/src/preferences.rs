@@ -260,7 +260,7 @@ impl Default for VoiceInputPreferences {
             asr_token: String::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
-            asr_resource_id: String::new(),
+            asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
             polish_text: false,
             polish_provider: "siliconflow".into(),

@@ -177,7 +177,7 @@ export type VoiceInputPreferences = {
   [key: string]: unknown;
 };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
-const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "local_whisper" };
+const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "local_whisper", asr_resource_id: "volc.seedasr.sauc.duration" };
 
 export function aiCredentialOrigin(endpoint: string): string | null {
   if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
