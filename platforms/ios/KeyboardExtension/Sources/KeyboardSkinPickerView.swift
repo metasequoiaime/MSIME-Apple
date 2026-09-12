@@ -15,6 +15,7 @@ final class KeyboardSkinPickerView: UIView {
     close.accessibilityIdentifier = "closeSkinPicker"
     close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
     let scroll = UIScrollView()
+    scroll.disableEdgeEffects()
     let rows = UIStackView()
     rows.axis = .vertical
     rows.spacing = 10

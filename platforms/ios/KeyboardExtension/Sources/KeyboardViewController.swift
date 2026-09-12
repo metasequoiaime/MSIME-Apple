@@ -44,6 +44,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateContent: UIStackView?
   private let scriptShortcut = UIButton()
   private let skinShortcut = UIButton()
+  private let emojiShortcut = UIButton()
   private let layoutShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
@@ -54,6 +55,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
+  private var emojiPicker: KeyboardEmojiPickerView?
   private var nineKeyHoldPopup: UIView?
   // 九键网格的按键。按 123 时同一批键改显数字,而不是换成 26 键那排符号。
   private struct NineKeyGridKey {
@@ -63,7 +65,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
-  private var moreMenu: UIMenu?
+  private var moreTools: [KeyboardToolSection] = []
+  private var showsLocalModeTools = false
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
   private var microsoftFinalKey: UIButton?
@@ -734,7 +737,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
+    for button in [schemeButton, scriptShortcut, emojiShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
       if button !== schemeButton {
         button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
@@ -751,15 +754,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         equalTo: container.topAnchor, constant: Self.compositionRowHeight),
       shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
-    scriptShortcut.addAction(UIAction { [weak self] _ in
-      guard let self else { return }
-      if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
-      usesTraditionalOutput.toggle()
-      ChineseOutputPreference.usesTraditional = usesTraditionalOutput
-      renderCandidateStrip()
-      updateShortcutButtons()
-    }, for: .primaryActionTriggered)
+    scriptShortcut.addAction(UIAction { [weak self] _ in self?.showKeyboardAI() },
+      for: .primaryActionTriggered)
+    emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() }, for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
@@ -783,78 +780,120 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityLabel = label
       button.accessibilityIdentifier = id
     }
-    configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
-      label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
-    scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
-    if KeyboardLayoutPreference.voiceShortcutEnabled {
-      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
-    if inputScheme == .thoughtfulReply {
-      configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
-        label: "生成高情商回复", id: "replyShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
+    // 简繁是一次性设置,不占常驻工具位;这个位置只在高情商回复方案下作为生成按钮出现。
+    //
+    // Script choice is made once and then left alone -- the app's 输入设置 already carries it, and
+    // the toolbar is the row you see whenever nothing is being composed. It moved into 更多, which
+    // is where the other settings that are set once already live.
+    configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
+      label: "生成高情商回复", id: "replyShortcut")
+    scriptShortcut.isEnabled = true
+    scriptShortcut.accessibilityValue = nil
+    scriptShortcut.isHidden = inputScheme != .thoughtfulReply
+    configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
-    moreMenu = UIMenu(children: [
-      UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
-        self?.showClipboardHistory()
-      },
-      UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardAI()
-      },
-      UIAction(title: "语音结果", image: UIImage(systemName: "waveform")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardVoice()
-      },
-      UIMenu(title: "按键反馈", options: .displayInline, children: [
-        UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
-          state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
+    moreTools = makeToolSections()
+    morePicker?.update(sections: showsLocalModeTools ? makeLocalModeSections() : moreTools)
+    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+  }
+
+  /// logo 面板的一级:工具在上,设置在下。
+  ///
+  /// 这一屏的高度就是键盘的高度。Eight local input modes and a settings list used to sit in the
+  /// same scroll as the tools, which put the last of them 360pt down a 292pt panel -- past the
+  /// bottom of the keyboard, where nothing said they were there. The modes moved one level in.
+  private func makeToolSections() -> [KeyboardToolSection] {
+    [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in
+          self?.closeKeyboardPicker()
+          self?.showEmojiPicker()
+        },
+        KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in
+          self?.showClipboardHistory()
+        },
+        KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
+          self?.closeKeyboardPicker()
+          self?.showKeyboardAI()
+        },
+        KeyboardTool(title: "本地输入", symbol: "textformat.123",
+                     enabled: supportsLocalTools) { [weak self] in
+          guard let self else { return }
+          showsLocalModeTools = true
+          morePicker?.update(sections: makeLocalModeSections())
+        },
+      ]),
+      KeyboardToolSection(title: "设置", kind: .toggle, columns: 2, tools: [
+        // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
+        KeyboardTool(title: "繁体输出", symbol: "character.textbox",
+                     selected: usesTraditionalOutput,
+                     enabled: !(isChineseMode && inputScheme.isJapanese)) { [weak self] in
+          guard let self else { return }
+          selectTraditionalOutput(!usesTraditionalOutput)
+        },
+        KeyboardTool(title: "按键音", symbol: "speaker.wave.2",
+                     selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
+                                                  forKey: KeyboardFeedbackPreference.soundKey)
           if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
           self?.updateShortcutButtons()
         },
-        UIAction(title: "按键振动", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
-          state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
+        KeyboardTool(title: "按键振动", symbol: "iphone.radiowaves.left.and.right",
+                     selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
+                                                  forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
             self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
         },
+        // 一张卡显示当前档位并循环,而不是三张并排:三个档位撑出的那一行正好把面板顶出键盘高度。
+        KeyboardTool(title: "振动强度", symbol: "waveform",
+                     enabled: KeyboardFeedbackPreference.hapticsEnabled,
+                     caption: KeyboardFeedbackPreference.hapticStrength.title) { [weak self] in
+          guard let self else { return }
+          let all = KeyboardHapticStrength.allCases
+          let current = all.firstIndex(of: KeyboardFeedbackPreference.hapticStrength) ?? 0
+          let next = all[(current + 1) % all.count]
+          KeyboardFeedbackPreference.defaults.set(next.rawValue,
+                                                  forKey: KeyboardFeedbackPreference.strengthKey)
+          keyFeedback.impactOccurred(intensity: next.intensity)
+          prepareKeyFeedback()
+          updateShortcutButtons()
+        },
       ]),
-      UIMenu(title: "振动强度", image: UIImage(systemName: "waveform"), children: KeyboardHapticStrength.allCases.map { strength in
-        UIAction(title: strength.title, state: strength == KeyboardFeedbackPreference.hapticStrength ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
-          if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: strength.intensity)
-            self?.prepareKeyFeedback()
-          }
-          self?.updateShortcutButtons()
-        }
-      }),
-      UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
-        UIAction(title: mode.title, attributes: supportsLocalTools ? [] : .disabled) { [weak self] _ in
+    ]
+  }
+
+  /// 二级:八个本地输入模式,外加一条回到工具的路。
+  private func makeLocalModeSections() -> [KeyboardToolSection] {
+    [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 1, tools: [
+        KeyboardTool(title: "返回工具", symbol: "chevron.left") { [weak self] in
+          guard let self else { return }
+          showsLocalModeTools = false
+          morePicker?.update(sections: moreTools)
+        },
+      ]),
+      KeyboardToolSection(title: "本地输入", kind: .opens, columns: 2,
+                          tools: Self.localInputModes.map { mode in
+        KeyboardTool(title: mode.title, enabled: supportsLocalTools) { [weak self] in
           self?.closeKeyboardPicker()
           self?.openLocalInputMode(mode.trigger)
         }
       }),
-    ])
-    if let moreMenu { morePicker?.update(menu: moreMenu) }
-    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+    ]
   }
 
   private func makeSpellingStrip() -> UIView {
     spellingScrollView.showsVerticalScrollIndicator = false
+    spellingScrollView.accessibilityIdentifier = "nineKeySpellingStrip"
+    spellingScrollView.disableEdgeEffects()
     spellingStack.axis = .vertical
     spellingStack.spacing = 6
     spellingStack.translatesAutoresizingMaskIntoConstraints = false
@@ -870,31 +909,52 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return spellingScrollView
   }
 
+  /// 每次按键都会走这里,所以只改文字,不重建按钮,也不无条件重排整块键盘。
+  ///
+  /// This ran on every keystroke and rebuilt the row from scratch -- a fresh UIButton, a fresh
+  /// configuration with its own attribute transformer, and a fresh UIAction per spelling -- then
+  /// finished by laying the whole keyboard out again. Only nine-key has this row, which is why a
+  /// nine-key keystroke measured 51ms against 1.8ms for the same key on the 26-key layout.
   private func updateSpellingStrip() {
-    spellingStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-    for (index, spelling) in session.nineKeySpellings().enumerated() {
-      let button = UIButton(type: .system)
-      var configuration = UIButton.Configuration.tinted()
-      configuration.title = spelling
-      configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
-      configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-        var attributes = attributes
-        attributes.font = .systemFont(ofSize: 14)
-        return attributes
+    let spellings = session.nineKeySpellings()
+    while spellingStack.arrangedSubviews.count < spellings.count {
+      spellingStack.addArrangedSubview(makeSpellingButton(index: spellingStack.arrangedSubviews.count))
+    }
+    for (offset, view) in spellingStack.arrangedSubviews.enumerated() {
+      guard let button = view as? UIButton else { continue }
+      guard offset < spellings.count else {
+        button.isHidden = true
+        continue
       }
-      configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
-      button.configuration = configuration
+      let spelling = spellings[offset]
+      button.isHidden = false
+      button.configuration?.title = spelling
+      button.configuration?.baseForegroundColor = KeyboardSkinPreference.selected.accent
       button.accessibilityLabel = "选择拼音 \(spelling)"
       button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
-      button.addAction(UIAction { [weak self] _ in
-        guard let self else { return }
-        self.playInputClick()
-        self.render(self.session.chooseNineKeySpelling(at: UInt(index)))
-      }, for: .primaryActionTriggered)
-      spellingStack.addArrangedSubview(button)
     }
     spellingScrollView.setContentOffset(.zero, animated: false)
     updateKeyboardLayout()
+  }
+
+  /// The position is the identity: `chooseNineKeySpelling` takes an index, and a reused button
+  /// keeps the slot it was created for even as the text in it changes.
+  private func makeSpellingButton(index: Int) -> UIButton {
+    let button = UIButton(type: .system)
+    var configuration = UIButton.Configuration.tinted()
+    configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.font = .systemFont(ofSize: 14)
+      return attributes
+    }
+    button.configuration = configuration
+    button.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      playInputClick()
+      render(session.chooseNineKeySpelling(at: UInt(index)))
+    }, for: .primaryActionTriggered)
+    return button
   }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
@@ -2365,6 +2425,37 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: panel)
   }
 
+  private func selectTraditionalOutput(_ traditional: Bool) {
+    usesTraditionalOutput = traditional
+    ChineseOutputPreference.usesTraditional = traditional
+    renderCandidateStrip()
+    updateShortcutButtons()
+  }
+
+  private func showEmojiPicker() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    // The composition is finished rather than carried: an emoji is not a candidate for the pinyin
+    // already typed, so leaving it open would commit the two in the wrong order.
+    render(session.finishComposition())
+    let picker = KeyboardEmojiPickerView(onInsert: { [weak self] emoji in
+      self?.insertOwnText(emoji, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    picker.accessibilityViewIsModal = true
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    emojiPicker = picker
+    UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2376,7 +2467,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       height: KeyboardLayoutPreference.heightAdjustment,
-      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled,
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
         self?.applyLayoutPreferences()
@@ -2391,11 +2481,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardLayoutPreference.heightAdjustment = adjustment
         self?.updatePreferredKeyboardHeight()
       },
-      // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
-      // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
-      onVoice: { [weak self] enabled in
-        KeyboardLayoutPreference.voiceShortcutEnabled = enabled
-        self?.updateShortcutButtons()
+      // The panel's controls take their values when it is built, so it is rebuilt rather than
+      // reaching back into it to move a slider that has just been reset underneath the user.
+      onReset: { [weak self] in
+        guard let self else { return }
+        KeyboardLayoutPreference.resetToDefaults()
+        applyLayoutPreferences()
+        updatePreferredKeyboardHeight()
+        updateShortcutButtons()
+        showLayoutPicker()
       },
       onClose: { [weak self] in
         guard let self else { return }
@@ -2420,8 +2514,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     updateShortcutButtons()
-    guard let moreMenu else { return }
-    let picker = KeyboardMorePickerView(menu: moreMenu, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    showsLocalModeTools = false
+    if moreTools.isEmpty { moreTools = makeToolSections() }
+    let picker = KeyboardMorePickerView(sections: moreTools,
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(picker)
@@ -2503,6 +2599,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let picker = morePicker {
       picker.removeFromSuperview()
       morePicker = nil
+      UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+    }
+    if let picker = emojiPicker {
+      picker.removeFromSuperview()
+      emojiPicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
     }
     if let picker = schemePicker {

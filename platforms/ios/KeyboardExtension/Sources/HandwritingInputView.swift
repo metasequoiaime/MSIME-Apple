@@ -236,6 +236,7 @@ final class HandwritingInputView: UIView {
     accessibilityIdentifier = "handwritingInput"
     let column = UIStackView(); column.axis = .vertical; column.spacing = 4
     let scroll = UIScrollView(); scroll.showsHorizontalScrollIndicator = false
+    scroll.disableEdgeEffects()
     candidates.axis = .horizontal; candidates.spacing = 8
     status.font = .systemFont(ofSize: 12); status.text = "一次写一个字，停笔后选字"; status.accessibilityIdentifier = "handwritingStatus"
     candidates.addArrangedSubview(status)

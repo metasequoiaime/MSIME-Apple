@@ -59,19 +59,6 @@ final class CandidateScrollView: UIScrollView {
     disableEdgeEffects()
   }
 
-  /// 关闭 iOS 26 起默认开启的滚动边缘效果。
-  ///
-  /// The effect fades and blurs content towards a scroll view's edges. On a strip one row tall it
-  /// reaches the candidates themselves: the top of every chip was softened into a smudge while the
-  /// keys beside them, which are not inside a scroll view, stayed sharp. Sampling the pixels showed
-  /// it plainly -- the bottom of a chip held its exact fill colour, the top was blended with its
-  /// surroundings. The strip only ever scrolls sideways, so there is no vertical edge to hint at.
-  private func disableEdgeEffects() {
-    guard #available(iOS 26.0, *) else { return }
-    topEdgeEffect.isHidden = true
-    bottomEdgeEffect.isHidden = true
-  }
-
   override func touchesShouldCancel(in view: UIView) -> Bool {
     if view is KeyboardKeyButton { return true }
     return super.touchesShouldCancel(in: view)

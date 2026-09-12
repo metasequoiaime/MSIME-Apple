@@ -1,16 +1,16 @@
 import UIKit
 
-/// 键位间距与语音入口的键盘内设置面板。
+/// 键位间距与键盘高度的键盘内设置面板。
 ///
 /// This replaced a grid of layout preset cards. Key placement no longer derives from a preset --
 /// presets survive only as upgrade defaults for the spacing values -- so picking one changed
 /// nothing the user could see. The spacing the geometry actually reads is editable here instead.
 final class KeyboardLayoutPickerView: UIView {
-  init(keySpacing: Double, rowSpacing: Double, height: Double, voiceEnabled: Bool,
+  init(keySpacing: Double, rowSpacing: Double, height: Double,
        onKeySpacing: @escaping (Double) -> Void,
        onRowSpacing: @escaping (Double) -> Void,
        onHeight: @escaping (Double) -> Void,
-       onVoice: @escaping (Bool) -> Void,
+       onReset: @escaping () -> Void,
        onClose: @escaping () -> Void) {
     super.init(frame: .zero); accessibilityIdentifier = "keyboardLayoutPicker"
     let skin = KeyboardSkinPreference.selected; backgroundColor = skin.background
@@ -27,16 +27,20 @@ final class KeyboardLayoutPickerView: UIView {
                                range: -12...48, skin: skin,
                                format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" }, onChange: onHeight)
 
-    let voiceLabel = UILabel(); voiceLabel.text = "顶部语音入口"; voiceLabel.font = .systemFont(ofSize: 14, weight: .medium); voiceLabel.textColor = skin.keyForeground
-    let voiceSwitch = UISwitch(); voiceSwitch.isOn = voiceEnabled; voiceSwitch.onTintColor = skin.accent; voiceSwitch.accessibilityIdentifier = "voiceShortcutSwitch"; voiceSwitch.accessibilityLabel = "顶部语音入口"
-    voiceSwitch.addAction(UIAction { action in
-      guard let toggle = action.sender as? UISwitch else { return }
-      onVoice(toggle.isOn)
-    }, for: .valueChanged)
-    let voice = UIStackView(arrangedSubviews: [voiceLabel, UIView(), voiceSwitch]); voice.alignment = .center; voice.spacing = 8
+    // On the title row rather than under the controls. The panel is only as tall as the keyboard,
+    // and the sliders already fill it: a fifth row pushed the stack past the space it had, and Auto
+    // Layout answered by squeezing the sliders until they could not be dragged and the rows
+    // overlapped each other.
+    let reset = UIButton(type: .system)
+    reset.setTitle("恢复默认", for: .normal)
+    reset.setTitleColor(.systemRed, for: .normal)
+    reset.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+    reset.accessibilityIdentifier = "resetKeyboardSettings"
+    reset.accessibilityHint = "把间距和高度恢复成默认值"
+    reset.addAction(UIAction { _ in onReset() }, for: .primaryActionTriggered)
 
-    let stack = UIStackView(arrangedSubviews: [keys, rows, tall, voice]); stack.axis = .vertical; stack.spacing = 16
-    for item in [title, close, stack] { item.translatesAutoresizingMaskIntoConstraints = false; addSubview(item) }
+    let stack = UIStackView(arrangedSubviews: [keys, rows, tall]); stack.axis = .vertical; stack.spacing = 16
+    for item in [title, close, reset, stack] { item.translatesAutoresizingMaskIntoConstraints = false; addSubview(item) }
     NSLayoutConstraint.activate([
       close.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
       close.topAnchor.constraint(equalTo: topAnchor),
@@ -44,6 +48,9 @@ final class KeyboardLayoutPickerView: UIView {
       close.heightAnchor.constraint(equalToConstant: 44),
       title.centerXAnchor.constraint(equalTo: centerXAnchor),
       title.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+      reset.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      reset.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
       stack.topAnchor.constraint(equalTo: close.bottomAnchor, constant: 12),
       stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
       stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),

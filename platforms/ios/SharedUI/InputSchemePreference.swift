@@ -70,8 +70,19 @@ enum InputSchemePreference {
       if let value = defaults.string(forKey: schemeKey), let scheme = ChineseInputScheme(rawValue: value) {
         return enabledSchemes.contains(scheme) ? scheme : enabledSchemes[0]
       }
+      // 迁移一次就写回,不要每次读都重算。
+      //
+      // The scheme was stored twice: this name, and an older usesShuangpin boolean that only
+      // distinguishes shuangpin from everything else. Nine-key, wubi and handwriting all write
+      // false into that boolean, so every read that missed the name resolved to 全拼 26 键 -- and
+      // resolved that way again on the next read, because nothing recorded the answer. One lost
+      // read of the name silently turned a nine-key keyboard into a 26-key one for good.
       let legacy: ChineseInputScheme = usesShuangpin ? .shuangpin : .quanpin
-      return enabledSchemes.contains(legacy) ? legacy : enabledSchemes[0]
+      let migrated = enabledSchemes.contains(legacy) ? legacy : enabledSchemes[0]
+      // 两个键一起写,和 setter 保持一致;只写一个会让它们从此各说各话。
+      defaults.set(migrated.shuangpinProfile != nil, forKey: key)
+      defaults.set(migrated.rawValue, forKey: schemeKey)
+      return migrated
     }
     set {
       let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard

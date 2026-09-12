@@ -78,8 +78,6 @@ final class OnboardingUITests: XCTestCase {
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
-    let voice = app.switches["appVoiceShortcutSwitch"]
-    let originalVoice = voice.value as? String
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)
       let value = try XCTUnwrap(Double(raw.replacingOccurrences(of: "%", with: "")))
@@ -92,18 +90,14 @@ final class OnboardingUITests: XCTestCase {
     defer {
       keys.adjust(toNormalizedSliderPosition: originalKeys)
       rows.adjust(toNormalizedSliderPosition: originalRows)
-      if voice.value as? String != originalVoice { voice.tap() }
     }
     keys.adjust(toNormalizedSliderPosition: originalKeys > 0.5 ? 0 : 1)
     rows.adjust(toNormalizedSliderPosition: originalRows > 0.5 ? 0 : 1)
     let changedKeys = try position(keys), changedRows = try position(rows)
-    voice.tap()
-    let changedVoice = voice.value as? String
     app.navigationBars.buttons.element(boundBy: 0).tap()
     app.buttons["keyboardLayoutLink"].tap()
     XCTAssertEqual(try position(keys), changedKeys, accuracy: 0.01)
     XCTAssertEqual(try position(rows), changedRows, accuracy: 0.01)
-    XCTAssertEqual(voice.value as? String, changedVoice)
   }
 
   @MainActor
@@ -485,38 +479,6 @@ final class OnboardingUITests: XCTestCase {
     screenshot.name = "Keyboard AI compact accessibility text"
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
-  }
-
-  @MainActor
-  func testVoiceResultIsExplicitlyTransferredAndClaimedOnce() {
-    let app = XCUIApplication()
-    let isolation = ["-voiceHandoffTestID", UUID().uuidString]
-    app.launchArguments = isolation + ["-hasCompletedOnboarding", "YES", "-voiceResultFixture"]
-    app.launch()
-    openKeyboardSettingsIfNeeded(app)
-    app.buttons["voiceSettingsLink"].tap()
-    XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
-    for _ in 0..<8 {
-      if app.buttons["sendVoiceToKeyboard"].isHittable { break }
-      app.swipeUp()
-    }
-    app.buttons["sendVoiceToKeyboard"].tap()
-    XCTAssertTrue(app.staticTexts["等待键盘插入"].waitForExistence(timeout: 5))
-    app.terminate()
-    app.launchArguments = isolation + ["-keyboardVoicePreview"]
-    app.launch()
-    XCTAssertTrue(app.staticTexts["语音交接测试。"].waitForExistence(timeout: 5))
-    let screenshot = XCTAttachment(screenshot: app.screenshot())
-    screenshot.name = "Keyboard voice result preview"
-    screenshot.lifetime = .deleteOnSuccess
-    add(screenshot)
-    XCTAssertGreaterThanOrEqual(app.buttons["keyboardVoiceInsert"].frame.height, 44)
-    app.buttons["keyboardVoiceInsert"].tap()
-    XCTAssertTrue(app.staticTexts["插入验证：语音交接测试。"].waitForExistence(timeout: 5))
-    app.terminate()
-    app.launch()
-    XCTAssertTrue(app.staticTexts["请在水杉 App 的“语音设置”中录音识别，点击“发送到键盘”，再返回这里插入。"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.buttons["keyboardVoiceInsert"].exists)
   }
 
   @MainActor
@@ -1110,6 +1072,39 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testResetRestoresTheKeyboardSettings() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardLayoutLink"].tap()
+
+    let keys = app.sliders["appKeySpacingSlider"]
+    let height = app.sliders["appKeyboardHeightSlider"]
+    XCTAssertTrue(keys.waitForExistence(timeout: 5))
+
+    // These settings outlive the app, and other cases here move them, so the defaults are taken by
+    // resetting first rather than by assuming the values on arrival are untouched.
+    app.buttons["appResetKeyboardSettings"].tap()
+    let defaultKeys = try XCTUnwrap(keys.value as? String)
+    let defaultHeight = try XCTUnwrap(height.value as? String)
+
+    keys.adjust(toNormalizedSliderPosition: 0)
+    height.adjust(toNormalizedSliderPosition: 1)
+    XCTAssertNotEqual(keys.value as? String, defaultKeys, "滑块应先被改动,否则复位无从验证")
+
+    app.buttons["appResetKeyboardSettings"].tap()
+    XCTAssertTrue(wait(keys, until: "value == '\(defaultKeys)'"))
+    XCTAssertEqual(height.value as? String, defaultHeight, "复位后高度应回到默认")
+
+    // The values survive leaving and coming back, so the reset reached storage rather than only
+    // the controls on screen.
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["keyboardLayoutLink"].tap()
+    XCTAssertEqual(keys.value as? String, defaultKeys)
+    XCTAssertEqual(height.value as? String, defaultHeight)
+  }
+
+  @MainActor
   func testNineKeySchemeSurvivesRelaunch() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
@@ -1212,7 +1207,7 @@ final class OnboardingUITests: XCTestCase {
     app.navigationBars.buttons.element(boundBy: 0).tap()
     for (identifier, title) in [
       ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
-      ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
+      ("aiSettingsLink", "AI 设置"),
     ] {
       if !app.buttons[identifier].exists { openKeyboardSettingsIfNeeded(app) }
       let link = app.buttons[identifier]
@@ -1226,7 +1221,7 @@ final class OnboardingUITests: XCTestCase {
         app.buttons["skin_ocean"].tap()
         XCTAssertEqual(app.buttons["skin_ocean"].value as? String, "已选择")
       }
-      if identifier == "aiSettingsLink" || identifier == "voiceSettingsLink" {
+      if identifier == "aiSettingsLink" {
         XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
         XCTAssertTrue(app.secureTextFields["serviceToken"].exists)
         if identifier == "aiSettingsLink" {

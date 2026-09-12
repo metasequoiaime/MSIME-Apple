@@ -229,6 +229,7 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboardtesthost
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
 

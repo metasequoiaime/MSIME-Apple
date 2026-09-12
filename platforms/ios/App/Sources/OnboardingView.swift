@@ -22,9 +22,6 @@ struct KeyboardSettingsView: View {
           NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
             Label("AI 设置", systemImage: "sparkles")
           }.accessibilityIdentifier("aiSettingsLink")
-          NavigationLink(destination: ServiceSettingsView(kind: .voice)) {
-            Label("语音设置", systemImage: "waveform")
-          }.accessibilityIdentifier("voiceSettingsLink")
         }
 
         Section("系统") {
@@ -243,7 +240,7 @@ struct OnboardingView: View {
             .accessibilityIdentifier("finishOnboardingButton")
         }
 
-        Text("键盘默认离线。打字统计需开启“允许完全访问”以保存本机字数；AI 和语音服务可在设置中单独配置。")
+        Text("键盘默认离线。打字统计需开启“允许完全访问”以保存本机字数；AI 服务可在设置中单独配置。")
           .font(.footnote)
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .center)

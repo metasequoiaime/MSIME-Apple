@@ -35,6 +35,57 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_no_unapplied_character_set_membership_predicate(self):
+        # 把 CharacterSet.contains 当方法引用传进 contains(where:),在 iOS 26 上会把普通汉字
+        # 判成控制字符。Each scalar of 青瓷庭院 tests false on its own; the same predicate handed
+        # to contains(where:) says the string holds one, so every AI design with a Chinese name was
+        # rejected as malformed. A closure, or the scalar's own Unicode category, answers correctly.
+        roots = [IOS_ROOT, IOS_ROOT.parents[0] / "macos"]
+        offenders = []
+        for root in roots:
+            for path in root.rglob("*.swift"):
+                if "Pods" in path.parts:
+                    continue
+                if re.search(r"CharacterSet\.\w+\.contains\s*\)", path.read_text()):
+                    offenders.append(str(path.relative_to(IOS_ROOT.parents[0])))
+        self.assertEqual(sorted(offenders), [],
+                         "pass a closure instead of CharacterSet.contains as a method reference")
+
+    def test_brand_logo_is_a_template_without_a_baked_in_background(self):
+        # 启动页、欢迎页和关于页共用这一张图。It was exported as RGB, so the white it was drawn on
+        # travelled with it and showed as a white tile on the launch screen's grouped background --
+        # and as a white block in dark mode. Alpha alone is not enough: without the template intent
+        # the black ink would then be invisible on a dark background.
+        asset = IOS_ROOT / "App/Resources/Assets.xcassets/MSIMELogo.imageset"
+        contents = json.loads((asset / "Contents.json").read_text())
+        self.assertEqual(contents["properties"]["template-rendering-intent"], "template")
+        image = (asset / contents["images"][0]["filename"]).read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        # Colour type 6 is RGBA, 4 is grey+alpha; anything else carries no transparency.
+        self.assertIn(image[25], (4, 6), "brand logo must keep an alpha channel")
+        storyboard = (IOS_ROOT / "App/Resources/LaunchScreen.storyboard").read_text()
+        self.assertIn('<color key="tintColor" systemColor="labelColor"/>', storyboard)
+
+    def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
+        # The effect assumes edges hold empty space. Keyboard panels are a few rows tall, so the
+        # gradient lands on the content: it smudged the candidate chips and sat over the first line
+        # of text in the service panels. It is on by default, so each new scroll view reintroduces
+        # it, and it looks like a rendering glitch rather than a setting anyone chose.
+        roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]
+        sources = sorted(path for root in roots for path in root.glob("*.swift"))
+        self.assertTrue(sources)
+        uikit, swiftui = [], []
+        for path in sources:
+            if path.name == "ScrollEdgeEffects.swift":
+                continue
+            text = path.read_text()
+            if re.search(r"= UIScrollView\(\)|: UIScrollView \{", text) and "disableEdgeEffects()" not in text:
+                uikit.append(path.name)
+            if re.search(r"^\s*ScrollView \{", text, re.M) and "disablingScrollEdgeEffects()" not in text:
+                swiftui.append(path.name)
+        self.assertEqual(uikit, [], "UIKit scroll views must call disableEdgeEffects()")
+        self.assertEqual(swiftui, [], "SwiftUI scroll views must call disablingScrollEdgeEffects()")
+
     def test_testflight_upload_passes_xcode16_credentials_and_cleans_up_key(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
         upload = script[script.index('private_keys_dir="$build_root/private_keys"'):]
