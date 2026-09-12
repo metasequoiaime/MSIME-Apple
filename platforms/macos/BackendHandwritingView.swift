@@ -28,6 +28,10 @@ private struct MacInkCanvas: NSViewRepresentable {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
       NSColor.controlBackgroundColor.setFill(); dirtyRect.fill()
+      if strokes.isEmpty && active.isEmpty {
+        NSColor.secondaryLabelColor.set();
+        NSString(string: "请在这里书写").draw(in: bounds, withAttributes: [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor])
+      }
       NSColor.labelColor.setStroke()
       for stroke in strokes + (active.isEmpty ? [] : [MacInkStroke(points: active)]) {
         guard stroke.points.count > 1 else { continue }
