@@ -1482,6 +1482,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
         skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
+  if (skin != "fluent" && skin != "wechat" && skin != "graphite" && skin != "willow_green") {
+    auto item = ibus_property_new(
+        (std::string("CandidateSkin/") + skin).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string((std::string("外部：") + skin).c_str()), "",
+        ibus_text_new_from_static_string("当前配置的外部候选皮肤"), TRUE, TRUE,
+        PROP_STATE_CHECKED, nullptr);
+    ibus_prop_list_append(skin_menu, item);
+  }
   ibus_property_set_sub_props(skin_property, skin_menu);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
