@@ -1972,7 +1972,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory/Refresh", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("刷新历史"), "",
       ibus_text_new_from_static_string("重新加载本地历史列表"),
-      clipboard_available && !s.clipboard_loading, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      clipboard_menu_available && !s.clipboard_loading, TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, refresh_clipboard);
   IBusPropList *page = nullptr;
   for (size_t index = 0; clipboard_available && index < items.size(); ++index) {
