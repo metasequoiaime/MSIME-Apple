@@ -74,6 +74,20 @@ int main() {
     document["floating_toolbar_enabled"] = 1;
     reject(document);
     document["floating_toolbar_enabled"] = true;
+    const nlohmann::json toolbar_items{
+        {"character_set", false}, {"punctuation", true}, {"fullwidth", false},
+        {"emoji", true}, {"screen_keyboard", true}, {"settings", false}};
+    document["floating_toolbar_items"] = toolbar_items;
+    const auto configured_items = PreviewConfig::parse(document.dump());
+    require(!configured_items.floating_toolbar_items[0] &&
+            configured_items.floating_toolbar_items[1] &&
+            !configured_items.floating_toolbar_items[2] &&
+            configured_items.floating_toolbar_items[3] &&
+            configured_items.floating_toolbar_items[4] &&
+            !configured_items.floating_toolbar_items[5]);
+    document["floating_toolbar_items"]["extra"] = true;
+    reject(document);
+    document["floating_toolbar_items"] = toolbar_items;
     const nlohmann::json bindings{
         {"minus_equal", false},        {"comma_period", false},
         {"brackets", false},           {"tab", false},
