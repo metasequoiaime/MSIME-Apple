@@ -3415,8 +3415,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = false;
     } else
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
-    if (!handled && key >= 0x21 && key <= 0x7e)
-      handled = fullwidth_idle_commit(key);
+    if (!handled) {
+      guint fullwidth_value = key;
+      if (key >= IBUS_KP_0 && key <= IBUS_KP_9)
+        fullwidth_value = '0' + key - IBUS_KP_0;
+      handled = fullwidth_idle_commit(fullwidth_value);
+    }
   });
   return handled;
 }
