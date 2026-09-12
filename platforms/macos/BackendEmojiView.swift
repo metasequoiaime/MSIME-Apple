@@ -27,6 +27,8 @@ struct MacEmojiView: View {
   @State private var recent = MacEmojiRecents()
   @State private var clipboardNotice = ""
   @State private var historyRevision = 0
+  @State private var deletingHistory = false
+  @State private var deletionNotice = ""
   @State private var loadedQuery: [String] = []
   private var queryID: [String] { [search, category, parent, group, String(offset), String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0)] }
   @State private var items: [MacEmojiCatalogItem] = []
@@ -41,6 +43,28 @@ struct MacEmojiView: View {
       clipboardNotice = "已复制到剪贴板"
     } else {
       clipboardNotice = "无法访问剪贴板，请重试"
+    }
+  }
+
+  private func removeHistory(_ text: String) {
+    guard !deletingHistory else { return }
+    deletingHistory = true
+    deletionNotice = ""
+    let directory = preferencesDirectory
+    let requestedID = queryID
+    Task {
+      defer { deletingHistory = false }
+      do {
+        let removed = try await Task.detached {
+          try MacEmojiClipboardHistory.remove(directory: directory, text: text)
+        }.value
+        guard queryID == requestedID else { return }
+        historyRevision += 1
+        deletionNotice = removed ? "已删除历史记录（不会清空系统剪贴板）" : "记录已不存在"
+      } catch {
+        guard queryID == requestedID else { return }
+        deletionNotice = "无法删除历史记录，请重试"
+      }
     }
   }
   var body: some View {
@@ -75,6 +99,7 @@ struct MacEmojiView: View {
           Spacer()
           Button("刷新") { historyRevision += 1 }
         }
+        if !deletionNotice.isEmpty { Text(deletionNotice).font(.caption) }
       }
       Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
       if !clipboardNotice.isEmpty { Text(clipboardNotice).font(.caption) }
@@ -103,6 +128,7 @@ struct MacEmojiView: View {
           ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
+                HStack {
                 Button(item.text) { selectedIndex = index; copyItem(item) }
                   .font(usesWideCells ? .body : .title2)
                   .lineLimit(category == "clipboard" ? 3 : nil)
@@ -110,6 +136,15 @@ struct MacEmojiView: View {
                   .id(index)
                   .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
                   .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
+                  if category == "clipboard" {
+                    Spacer(minLength: 4)
+                    Button { removeHistory(item.text) } label: { Image(systemName: "trash") }
+                      .buttonStyle(.plain)
+                      .accessibilityLabel("删除此条历史记录")
+                      .help("删除此条历史记录，不会清空系统剪贴板")
+                      .disabled(deletingHistory)
+                  }
+                }
               }
             }
           }

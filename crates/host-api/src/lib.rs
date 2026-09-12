@@ -543,6 +543,53 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
     })
 }
 
+/// Remove one saved history entry by exact content, without touching the clipboard.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_remove_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 131072 {
+            return Err("invalid history removal buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Removal {
+            directory: String,
+            text: String,
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let removal: Removal =
+            serde_json::from_slice(bytes).map_err(|_| "invalid history removal document")?;
+        let path = std::path::Path::new(&removal.directory);
+        if !path.is_absolute() || removal.directory.len() > 16384 {
+            return Err("invalid history directory".into());
+        }
+        if removal.text.is_empty() || removal.text.len() > 4096 {
+            return Err("invalid history entry".into());
+        }
+        if !PreferencesStore::new(path)
+            .load()
+            .map_err(|_| "history preferences unavailable")?
+            .preferences
+            .clipboard_history
+        {
+            return Err("clipboard history disabled".into());
+        }
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+            path.join("clipboard_history.json"),
+        );
+        let removed = history
+            .remove(&removal.text)
+            .map_err(|_| "clipboard history removal failed")?;
+        Ok(json!({"removed": removed}))
+    })
+}
+
 /// Try to read preferences without waiting for the writer lock.
 /// # Safety
 /// `directory` must point to `length` readable bytes. Null is rejected.
@@ -2189,6 +2236,50 @@ mod tests {
         );
         assert_eq!(
             read(unsafe { msime_client_load_clipboard_history([255u8].as_ptr(), 1) })["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn history_removal_is_exact_idempotent_and_respects_disabled_setting() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("clipboard_history.json");
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, Preferences::default()).unwrap();
+        let remove = |path: &std::path::Path, text: &str| {
+            let request = serde_json::to_vec(&json!({"directory": path, "text": text})).unwrap();
+            read(unsafe { msime_client_remove_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        std::fs::write(&file, br#"["synthetic first","synthetic second"]"#).unwrap();
+        assert_eq!(
+            remove(directory.path(), "synthetic first")["value"]["removed"],
+            true
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        assert_eq!(
+            remove(directory.path(), "synthetic first")["value"]["removed"],
+            false
+        );
+        assert_eq!(remove(directory.path(), "")["ok"], false);
+        assert_eq!(
+            remove(std::path::Path::new("relative"), "synthetic")["ok"],
+            false
+        );
+        assert_eq!(remove(directory.path(), &"x".repeat(4097))["ok"], false);
+        let mut preferences = saved.preferences;
+        preferences.clipboard_history = false;
+        store.save(saved.revision, preferences).unwrap();
+        assert_eq!(
+            remove(directory.path(), "synthetic second")["error"],
+            "clipboard history disabled"
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        assert_eq!(
+            read(unsafe { msime_client_remove_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_remove_clipboard_history(b"{".as_ptr(), 1) })["ok"],
             false
         );
     }
