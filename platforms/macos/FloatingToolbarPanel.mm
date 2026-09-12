@@ -164,6 +164,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSSize _preferredSize;
     CGFloat _appliedScale;
     CGFloat _appliedFontSize;
+    NSUInteger _appliedComponentMask;
 }
 
 + (instancetype)sharedPanel
@@ -264,9 +265,21 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     id fontValue = toolbar[@"font_size"] ?: @24;
     const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
     const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
-    if (scale == _appliedScale && fontSize == _appliedFontSize) return;
+    NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"settings"];
+    NSArray<NSButton *> *optionalButtons = @[_punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton];
+    NSUInteger mask = 0;
+    NSUInteger count = 1; // Language switching is always present.
+    for (NSUInteger index = 0; index < keys.count; ++index) {
+        id value = toolbar[keys[index]];
+        const BOOL enabled = ![value isKindOfClass:NSNumber.class] || [value boolValue];
+        if (enabled) { mask |= 1u << index; ++count; }
+    }
+    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask) return;
     _appliedScale = scale;
     _appliedFontSize = fontSize;
+    _appliedComponentMask = mask;
+    for (NSUInteger index = 0; index < optionalButtons.count; ++index)
+        optionalButtons[index].hidden = (mask & (1u << index)) == 0;
     for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton]) {
         for (NSLayoutConstraint *constraint in button.constraints) {
             if (constraint.firstItem != button || constraint.secondItem != nil) continue;
@@ -281,7 +294,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _trailingInset.constant = -10.0 * scale;
     _chrome.layer.cornerRadius = 10.0 * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
-    _preferredSize = NSMakeSize(std::ceil((kToolbarWidth + 5.0 * (fontSize - 24.0)) * scale), std::ceil((fontSize + 20.0) * scale));
+    _preferredSize = NSMakeSize(std::ceil((count * (fontSize + 18.0) + (count - 1) * 8.0 + 30.0) * scale), std::ceil((fontSize + 20.0) * scale));
     NSRect frame = self.frame;
     frame.size = _preferredSize;
     NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
