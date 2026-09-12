@@ -161,6 +161,7 @@ struct State {
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
   bool mode_chord_held = false;
+  std::set<guint> host_shortcut_strokes;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
     pure_shift_candidate = false;
@@ -171,6 +172,7 @@ struct State {
     left_ctrl_down = false;
     modifier_toggle_deadline = 0;
     mode_chord_held = false;
+    host_shortcut_strokes.clear();
   }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
@@ -3612,6 +3614,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 }
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
+    state(engine).host_shortcut_strokes.clear();
     state(engine).ai_context.clear();
     state(engine).native_compose.reset();
     if (state(engine).voice_active)
@@ -3778,6 +3781,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Physical key identity survives releasing Shift before the letter. Use a
+  // normalized keysym only for synthetic events without a hardware keycode.
+  const guint host_stroke = keycode != 0 ? keycode
+      : ((key >= 'A' && key <= 'Z' ? key - 'A' + 'a' : key) | 0x80000000u);
+  if (s.host_shortcut_strokes.count(host_stroke) != 0) {
+    if (release) s.host_shortcut_strokes.erase(host_stroke);
+    return TRUE;
+  }
   // A held key can repeat after stop, cancellation or a fast final result.
   // Keep consuming its stroke even if modifiers or voice settings changed.
   if (!release &&
@@ -3882,17 +3893,24 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool screen_keyboard_key =
       (key == IBUS_k || key == IBUS_K) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);
-  if (!release && screen_keyboard_key && s.focused && !s.blocked)
-    return launch_desktop_panel("keyboard") ? TRUE : FALSE;
+  if (!release && screen_keyboard_key && s.focused && !s.blocked) {
+    if (!launch_desktop_panel("keyboard")) return FALSE;
+    s.host_shortcut_strokes.insert(host_stroke);
+    return TRUE;
+  }
   const bool maintenance_restart_key =
       (key == IBUS_r || key == IBUS_R) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
-  if (!release && maintenance_restart_key && s.focused && !s.blocked)
-    return restart_ibus_service() ? TRUE : FALSE;
+  if (!release && maintenance_restart_key && s.focused && !s.blocked) {
+    if (!restart_ibus_service()) return FALSE;
+    s.host_shortcut_strokes.insert(host_stroke);
+    return TRUE;
+  }
   const bool maintenance_clear_cache_key =
       (key == IBUS_c || key == IBUS_C) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_clear_cache_key && s.focused && !s.blocked) {
+    s.host_shortcut_strokes.insert(host_stroke);
     guarded(engine, "reset_engine_cache", [&] {
       s.open();
       if (s.session)
@@ -3904,6 +3922,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       (key == IBUS_t || key == IBUS_T) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_exit_key && s.focused && !s.blocked) {
+    s.host_shortcut_strokes.insert(host_stroke);
     // Match the Windows maintenance shortcut: stop this user-owned IBus
     // preview process without touching another IBus daemon or input source.
     ibus_quit();
