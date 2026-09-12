@@ -1,16 +1,38 @@
 #import "../CloudCandidateRequest.h"
+#import "MSIMEClientSession.h"
 #include <cassert>
 
 static NSInteger ResponseStatus = 200;
 static NSUInteger ResponseBytes = 8;
 static BOOL FailWithTimeout = NO;
 static BOOL TranslationMode = NO;
+static BOOL TencentMode = NO;
+static NSData *TencentPayload;
+static NSString *TencentAuthorization;
 @interface SyntheticCloudProtocol : NSURLProtocol
 @end
 @implementation SyntheticCloudProtocol
 + (BOOL)canInitWithRequest:(NSURLRequest *)request { (void)request; return YES; }
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request { return request; }
 - (void)startLoading {
+    if (TencentMode) {
+        assert([self.request.URL.absoluteString isEqual:@"https://tmt.tencentcloudapi.com"]);
+        assert([self.request.HTTPMethod isEqual:@"POST"]);
+        assert([[self.request valueForHTTPHeaderField:@"Authorization"] isEqual:TencentAuthorization]);
+        assert([[self.request valueForHTTPHeaderField:@"Content-Type"] isEqual:@"application/json; charset=utf-8"]);
+        assert([[self.request valueForHTTPHeaderField:@"X-TC-Action"] isEqual:@"TextTranslateBatch"]);
+        NSData *body = self.request.HTTPBody;
+        if (!body) {
+            NSInputStream *stream = self.request.HTTPBodyStream;
+            assert(stream);
+            NSMutableData *bytes = [NSMutableData data];
+            [stream open];
+            uint8_t buffer[1024]; NSInteger count;
+            while ((count = [stream read:buffer maxLength:sizeof(buffer)]) > 0) [bytes appendBytes:buffer length:(NSUInteger)count];
+            [stream close]; assert(count == 0); body = bytes;
+        }
+        assert([body isEqual:TencentPayload]);
+    }
     if (TranslationMode) {
         assert([self.request.HTTPMethod isEqual:@"POST"]);
         assert([[self.request valueForHTTPHeaderField:@"Authorization"] isEqual:@"Bearer synthetic"]);
@@ -80,9 +102,74 @@ static void TestTranslationTransport() {
     TranslationMode = NO;
 }
 
+static void TestTencentTransport() {
+    NSError *error = nil;
+    NSDictionary *descriptor = [MSIMEClientSession tencentTranslationHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@""},
+        @"texts":@[@"测试", @"line\nquote\"😀"], @"source_language":@"zh", @"target_language":@"en", @"timestamp":@1704067200} error:&error];
+    assert(descriptor && !error);
+    TencentMode = YES;
+    TencentPayload = [descriptor[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding];
+    TencentAuthorization = descriptor[@"headers"][@"Authorization"];
+    NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    configuration.protocolClasses = @[SyntheticCloudProtocol.class];
+    for (NSNumber *bytes in @[@8, @1048576, @1048577]) {
+        for (NSNumber *status in @[@200, @201, @503]) {
+            ResponseBytes = bytes.unsignedIntegerValue; ResponseStatus = status.integerValue;
+            __block BOOL done = NO;
+            MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:descriptor configuration:configuration completion:^(NSData *body) {
+                assert(NSThread.isMainThread && !done);
+                assert((body != nil) == (ResponseStatus < 300 && ResponseBytes <= 1048576)); done = YES;
+            }];
+            NSURLRequest *prepared = [request valueForKey:@"translationRequest"];
+            assert([prepared.HTTPBody isEqual:TencentPayload] && prepared.timeoutInterval == 2.5 && !prepared.HTTPShouldHandleCookies);
+            [request start];
+            NSURLSessionConfiguration *effective = [(NSURLSession *)[request valueForKey:@"session"] configuration];
+            assert(effective.timeoutIntervalForResource == 2.5 && !effective.URLCache && !effective.HTTPCookieStorage && !effective.URLCredentialStorage);
+            Wait(^BOOL { return done; });
+            assert(![request valueForKey:@"translationRequest"]);
+        }
+    }
+    for (NSDictionary *override in @[@{@"url":@"http://tmt.tencentcloudapi.com"}, @{@"url":@"https://elsewhere.invalid"},
+        @{@"url":@"https://tmt.tencentcloudapi.com/extra"}, @{@"method":@"GET"}, @{@"body_utf8":@""},
+        @{@"body_utf8":[@"x" stringByPaddingToLength:16385 withString:@"x" startingAtIndex:0]}, @{@"timeout_ms":@5000}]) {
+        NSMutableDictionary *invalid = [descriptor mutableCopy]; [invalid addEntriesFromDictionary:override];
+        __block BOOL done = NO;
+        MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:invalid configuration:configuration completion:^(NSData *body) { assert(!body); done = YES; }];
+        [request start]; assert(done && ![request valueForKey:@"session"]);
+    }
+    for (NSDictionary *override in @[@{@"Authorization":@"Bearer wrong"}, @{@"X-TC-Region":@"region\r\nInjected"},
+        @{@"X-TC-Timestamp":@"not-a-time"}, @{@"Host":@"elsewhere.invalid"}, @{@"Extra":@"not-allowed"}]) {
+        NSMutableDictionary *invalid = [descriptor mutableCopy], *headers = [descriptor[@"headers"] mutableCopy];
+        [headers addEntriesFromDictionary:override]; invalid[@"headers"] = headers;
+        __block BOOL done = NO;
+        MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:invalid configuration:configuration completion:^(NSData *body) { assert(!body); done = YES; }];
+        [request start]; assert(done && ![request valueForKey:@"session"]);
+    }
+    __block NSUInteger completions = 0;
+    MSIMECloudCandidateRequest *redirected = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:descriptor configuration:configuration completion:^(NSData *body) { assert(!body); ++completions; }];
+    [redirected start];
+    NSURLSession *redirectSession = [redirected valueForKey:@"session"];
+    NSURL *originalURL = [NSURL URLWithString:@"https://tmt.tencentcloudapi.com"];
+    NSURLSessionDataTask *redirectTask = [redirectSession dataTaskWithURL:originalURL];
+    NSHTTPURLResponse *redirectResponse = [[NSHTTPURLResponse alloc] initWithURL:originalURL statusCode:302 HTTPVersion:@"HTTP/1.1" headerFields:@{@"Location":@"https://elsewhere.invalid"}];
+    [redirected URLSession:redirectSession task:redirectTask willPerformHTTPRedirection:redirectResponse newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://elsewhere.invalid"]]
+        completionHandler:^(NSURLRequest *next) { assert(!next); }];
+    [redirected start]; assert(completions == 1 && ![redirected valueForKey:@"translationRequest"]);
+    FailWithTimeout = YES;
+    __block BOOL timedOut = NO;
+    MSIMECloudCandidateRequest *timeout = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:descriptor configuration:configuration completion:^(NSData *body) { assert(!body); timedOut = YES; }];
+    [timeout start]; Wait(^BOOL { return timedOut; }); FailWithTimeout = NO;
+    MSIMECloudCandidateRequest *cancelled = [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:descriptor configuration:configuration completion:^(NSData *body) { (void)body; assert(false); }];
+    [cancelled start]; [cancelled cancel];
+    assert(![cancelled valueForKey:@"translationRequest"]);
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    TencentMode = NO; TencentPayload = nil; TencentAuthorization = nil;
+}
 int main() {
     @autoreleasepool {
         TestTranslationTransport();
+        TestTencentTransport();
         for (NSNumber *bytes in @[@8, @262144, @262145]) {
             for (NSNumber *status in @[@200, @503]) {
                 ResponseBytes = bytes.unsignedIntegerValue;
