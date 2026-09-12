@@ -1,6 +1,7 @@
 """Real GTK3 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
 import ctypes
 import os
+import sys
 import subprocess
 import time
 
@@ -163,6 +164,14 @@ password.grab_focus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.get_text() == "nihao ", "GTK password input was intercepted by the IME")
+if "--custom-compose" in sys.argv:
+    assert os.environ.get("XCOMPOSEFILE"), "Custom Compose fixture was not configured"
+    first.grab_focus()
+    first.set_text("")
+    pump()
+    keys("n", "i", "h", "a", "o", "Multi_key", "x", "x")
+    wait(lambda: first.get_text() == "nihao水杉😀", "Custom Compose table did not insert its UTF-8 sequence")
+    print("GTK3 custom Compose table acceptance passed")
 window.destroy()
 pump()
 print("GTK3 X11 IM-module candidate/edit/layout/focus/password acceptance passed")
