@@ -1319,15 +1319,16 @@ fn send_panel_text_to_target(
     }
     release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
-        let status = std::process::Command::new("xdotool")
-            .args(["type", "--window", window.as_str(), "--delay", "0", "--", text])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        // Use focused XTEST input for applications that reject XSendEvent.
+        // --file - reads stdin, keeping the text out of process arguments.
+        return linux_process::write_input(
+            "xdotool",
+            &["windowactivate", "--sync", window.as_str(), "type", "--delay", "0", "--file", "-"],
+            text.as_bytes(),
+            std::time::Duration::from_secs(3),
+        )
+        .then_some(())
+        .ok_or(HostActionError { code: "unavailable" });
     }
     if let PanelInputTarget::Ydotool = target {
         return run_ydotool(&[
