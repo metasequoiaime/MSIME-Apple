@@ -292,10 +292,10 @@ bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
 rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
                                                rust::Str category, std::size_t offset,
                                                std::uint16_t limit) {
-    return emoji_catalog_filtered_page(resources, search, category, "", offset, limit);
+    return emoji_catalog_filtered_page(resources, search, category, "", offset, limit, "");
 }
 rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rust::Str search,
-    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit) {
+    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent) {
     rust::Vec<EmojiCatalogItem> result;
     if (limit == 0 || limit > 4096 || offset > static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
         throw std::invalid_argument("Invalid emoji catalog page");
@@ -308,6 +308,7 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rus
         throw std::runtime_error("Emoji catalog unavailable");
     const std::string category_text(category);
     const std::string group_text(group);
+    const std::string parent_text(parent);
     const bool kaomoji = category_text == "kaomoji";
     const bool symbols = category_text == "symbols";
     const char *sql = nullptr;
@@ -321,6 +322,7 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rus
               "WHERE (?1 = '' OR symbol LIKE ?2 OR category LIKE ?2 OR "
               "parent_category LIKE ?2 OR keywords LIKE ?2) "
               "AND (?5 = '' OR category = ?5) "
+              "AND (?6 = '' OR COALESCE(NULLIF(parent_category,''),category) = ?6) "
               "ORDER BY sort_order LIMIT ?3 OFFSET ?4";
     } else {
         sql = "SELECT emoji,category,keywords FROM emoji "
@@ -346,6 +348,7 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rus
         check_bind(sqlite3_bind_int(statement, 3, limit));
         check_bind(sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(offset)));
         check_bind(sqlite3_bind_text(statement, 5, group_text.c_str(), -1, SQLITE_TRANSIENT));
+        if (symbols) check_bind(sqlite3_bind_text(statement, 6, parent_text.c_str(), -1, SQLITE_TRANSIENT));
     } else {
         const auto &selected_group = group_text.empty() ? category_text : group_text;
         check_bind(sqlite3_bind_text(statement, 1, selected_group.c_str(), -1, SQLITE_TRANSIENT));
@@ -394,6 +397,30 @@ rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str cate
     while ((status = sqlite3_step(statement)) == SQLITE_ROW) {
         const auto *value = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
         if (value) groups.push_back(rust::String(value));
+    }
+    if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
+    return groups;
+}
+rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources) {
+    const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
+    sqlite3 *database = nullptr;
+    const int opened = sqlite3_open_v2(path.u8string().c_str(), &database,
+                                     SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database_guard(database, sqlite3_close);
+    if (opened != SQLITE_OK) throw std::runtime_error("Emoji catalog unavailable");
+    const char *sql = "SELECT COALESCE(NULLIF(parent_category,''),category) AS parent, category "
+        "FROM symbol_catalog WHERE category IS NOT NULL AND category != '' "
+        "GROUP BY parent, category ORDER BY MIN(sort_order), parent, category";
+    sqlite3_stmt *statement = nullptr;
+    const int prepared = sqlite3_prepare_v2(database, sql, -1, &statement, nullptr);
+    const std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> statement_guard(statement, sqlite3_finalize);
+    if (prepared != SQLITE_OK) throw std::runtime_error("Emoji catalog query unavailable");
+    rust::Vec<EmojiSymbolGroup> groups;
+    int status = SQLITE_OK;
+    while ((status = sqlite3_step(statement)) == SQLITE_ROW) {
+        const auto *parent = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
+        const auto *title = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
+        if (parent && title) groups.push_back({rust::String(parent), rust::String(title)});
     }
     if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
     return groups;
