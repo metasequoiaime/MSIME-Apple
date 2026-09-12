@@ -286,3 +286,5 @@ systemctl --user enable --now msime-client-voice.service
 可通过 `systemctl --user edit msime-client-voice.service` 的 `[Service]` 段设置 `Environment=MSIME_VOICE_CAPTURE=pipewire`、`Environment=MSIME_VOICE_CAPTURE_DEVICE=设备名` 和 `Environment=MSIME_VOICE_MAX_RECORDING_SECONDS=300`；凭据仍放在私有 JSON 中。无 systemd 的桌面可直接运行 `msime-client-provider-session online` 或 `voice`。自定义安装前缀可用 CMake 的 `MSIME_SYSTEMD_USER_UNIT_DIR` 指定用户服务搜索目录。
 
 在线和语音默认 socket 的发现由宿主每秒独立刷新，不依赖偏好目录是否配置或偏好文件能否成功读取。服务晚启动后会更新菜单可用状态并重新调度当前在线查询；默认路径仅接受实际 socket，缺失或不可访问的路径不会抛出文件系统异常。活动语音端点切换时先向旧端点取消录音，再保存新端点。
+
+未配置偏好存储目录时，活动 IBus 会话每秒应用 runtime-options 中更新的 preferences，无需切换焦点。配置偏好目录时仍使用持久化快照。两种来源共用会话内递增版本号，菜单覆盖也可形成新版本；相同有效设置不重复提交。runtime-options 更新后忽略此前发出的旧配置读取结果。资源目录等需重建会话的配置仍在下次会话打开时使用。

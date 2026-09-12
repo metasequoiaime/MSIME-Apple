@@ -27,6 +27,7 @@ using Json = nlohmann::json;
 struct MsimePreviewEngine;
 namespace {
 Json configured;
+uint64_t configuration_generation = 0;
 std::optional<bool> global_input_enabled;
 void register_properties(IBusEngine *engine);
 Json response(char *raw) {
@@ -175,6 +176,8 @@ struct State {
   std::vector<std::string> clipboard_items_cache;
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
+  uint64_t applied_preferences_revision = 0;
+  Json applied_preferences_snapshot;
   GFileMonitor *clipboard_monitor = nullptr;
   GFile *clipboard_watch_file = nullptr;
   void stop_clipboard_monitor() {
@@ -208,6 +211,8 @@ struct State {
     close();
   }
   void close() {
+    applied_preferences_revision = 0;
+    applied_preferences_snapshot = nullptr;
     stop_clipboard_monitor();
     ai_context.clear();
     if (voice_active && !voice_provider_socket.empty())
@@ -4049,7 +4054,34 @@ void page(IBusEngine *engine, uint32_t command) {
 struct PreferencesRead {
   std::string directory;
   uint64_t session;
+  uint64_t configuration_generation;
 };
+void apply_live_preferences(IBusEngine *engine, Json snapshot) {
+  auto &s = state(engine);
+  if (!s.session || !s.focused || s.blocked)
+    return;
+  s.apply_session_overrides(snapshot);
+  const auto &preferences = snapshot.at("preferences");
+  if (preferences == s.applied_preferences_snapshot) {
+    sync_global_input_mode(engine);
+    return;
+  }
+  // Store revisions belong to the store. The runtime needs an increasing
+  // revision for each effective change, including local menu overrides.
+  snapshot["revision"] = s.applied_preferences_revision + 1;
+  const auto encoded = snapshot.dump();
+  auto updated = response(msime_client_update_preferences(
+      s.session, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+  ++s.applied_preferences_revision;
+  s.applied_preferences_snapshot = preferences;
+  s.refresh_host_preferences(preferences);
+  sync_global_input_mode(engine);
+  if (s.voice_active && !s.voice_enabled)
+    voice_cancel(engine);
+  s.view = updated.at("view");
+  render(engine, s.view);
+  publish_mode(engine);
+}
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
@@ -4065,8 +4097,13 @@ gboolean reload_preferences(gpointer data) {
   const auto directory = configured.find("preferences_directory");
   if (directory == configured.end() || !directory->is_string() ||
       directory->get<std::string>().empty() ||
-      directory->get<std::string>().front() != '/')
+      directory->get<std::string>().front() != '/') {
+    guarded(engine, "runtime_preferences", [&] {
+      apply_live_preferences(engine, Json{{"format_version", 1}, {"revision", 0},
+                                         {"preferences", configured.at("preferences")}});
+    });
     return G_SOURCE_CONTINUE;
+  }
   s.preferences_loading = true;
   auto task = g_task_new(G_OBJECT(engine), nullptr,
                          +[](GObject *source, GAsyncResult *result, gpointer) {
@@ -4081,7 +4118,8 @@ gboolean reload_preferences(gpointer data) {
                            s.preferences_loading = false;
                            const auto *request = static_cast<const PreferencesRead *>(
                                g_task_get_task_data(G_TASK(result)));
-                           if (!request || !raw)
+                           if (!request || !raw ||
+                               request->configuration_generation != configuration_generation)
                              return;
                            try {
                              auto snapshot = response(raw.release());
@@ -4092,19 +4130,7 @@ gboolean reload_preferences(gpointer data) {
                                  s.session != request->session || !s.focused ||
                                  s.blocked)
                                return;
-                             s.apply_session_overrides(snapshot);
-                             s.refresh_host_preferences(snapshot.at("preferences"));
-                             sync_global_input_mode(IBUS_ENGINE(source));
-                             if (s.voice_active && !s.voice_enabled)
-                               voice_cancel(IBUS_ENGINE(source));
-                             const auto encoded = snapshot.dump();
-                             auto updated = response(msime_client_update_preferences(
-                                 s.session,
-                                 reinterpret_cast<const uint8_t *>(encoded.data()),
-                                 encoded.size()));
-                             s.view = updated.at("view");
-                             render(IBUS_ENGINE(source), s.view);
-                             publish_mode(IBUS_ENGINE(source));
+                             apply_live_preferences(IBUS_ENGINE(source), std::move(snapshot));
                            } catch (...) {
                              // Retry on the next tick without logging paths or input.
                            }
@@ -4112,7 +4138,7 @@ gboolean reload_preferences(gpointer data) {
                          nullptr);
   g_task_set_task_data(
       task,
-      new PreferencesRead{directory->get<std::string>(), s.session},
+      new PreferencesRead{directory->get<std::string>(), s.session, configuration_generation},
       +[](gpointer value) { delete static_cast<PreferencesRead *>(value); });
   g_task_run_in_thread(
       task,
@@ -4167,5 +4193,12 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
 void msime_preview_configure(const std::string &options) {
   if (options.size() > 16384 || msime_client_abi_version() != 1)
     throw std::runtime_error("Invalid host configuration");
-  configured = Json::parse(options);
+  auto next = Json::parse(options);
+  if (!next.is_object() || !next.contains("preferences") ||
+      !next.at("preferences").is_object())
+    throw std::runtime_error("Invalid host preferences");
+  if (next != configured) {
+    configured = std::move(next);
+    ++configuration_generation;
+  }
 }
