@@ -2057,6 +2057,10 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           continue;
         if (id.at("session").get<uint64_t>() != s.session)
           return;
+        const auto source = candidate.value("source", 0);
+        if (s.view.value("scheme", 255) == 3 ||
+            (source != 0 && source != 1 && source != 4))
+          return;
         const auto generation = id.at("generation").get<uint64_t>();
         const auto index = id.at("index").get<size_t>();
         if (pin)
