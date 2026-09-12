@@ -78,12 +78,14 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 表情主导航只在首页显示，顺序按固定 Windows 的 Page 枚举与图标表校正为首页、表情、贴纸、GIF、颜文字、符号、剪贴板。最近使用属于表情页二级分类：从首页入口或“更多”进入表情时，有最近记录则优先显示最近，无记录则在分类元数据载入后选择第一个分类；从最近切换具体分类保留明确选择。详情页显示返回首页及对应分类／标题，切换保留搜索文字。测试覆盖入口顺序、默认路由及异步分类解析规则，不替代安装后的导航和焦点验证。
 
-主标签按 `emoji_panel_icons.cpp` 的码位依次解析已安装的 Segoe Fluent Icons / Segoe MDL2 Assets，逐字检查是否存在字形；不下载、捆绑或安装字体。两者都不可用时使用原版中文回退文字，其中首页的可见回退为“最近”，但辅助功能标签及路由仍为首页。标签相对宽度、间距、高度、悬停颜色、选中下划线及字号采用原版 2/3 比例；本地测试强制覆盖缺字回退，检查两种主题的七种选中位置像素。Windows 字体图形在缺少相应字体的主机上不宣称已渲染验证；二级分类图标及完整面板位置仍需继续对齐。
+主标签按 `emoji_panel_icons.cpp` 的码位依次解析已安装的 Segoe Fluent Icons / Segoe MDL2 Assets，逐字检查是否存在字形；不下载、捆绑或安装字体。两者都不可用时使用原版中文回退文字，其中首页的可见回退为“最近”，但辅助功能标签及路由仍为首页。标签相对宽度、间距、高度、悬停颜色、选中下划线及字号采用原版 2/3 比例；本地测试强制覆盖缺字回退，检查两种主题的七种选中位置像素。Windows 字体图形在缺少相应字体的主机上不宣称已渲染验证；完整面板位置仍需继续对齐。
+
+表情二级分类使用原版区分大小写的分类名称映射，最近使用显示秒表图标，未知名称使用微笑回退。符号大类按元数据顺序取各大类第一个符号作为图标，默认选择首个有效大类；元数据和图标一并加载，取消页面任务会取消后续图标读取。分类标签宽度不超过原版 52 单位的 2/3，并随可用宽度均分收窄；标题通过辅助功能标签与悬停帮助提供。符号搜索忽略当前大类和子分类，匹配原版全局搜索行为。测试使用合成目录回调验证映射、顺序、缺失／失败、搜索过滤及两种主题的选中下划线像素；不代表跨平台字体图形或安装后导航已验证。
 
 表情首页、普通网格与颜文字流式布局同样提供独立的本地测试：
 
 ```sh
-cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build --parallel
+cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build --parallel
 ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 ```
 
