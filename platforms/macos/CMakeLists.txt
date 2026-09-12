@@ -298,6 +298,10 @@ add_executable(custom-translation-batch-test tests/CustomTranslationBatchTest.mm
 target_compile_options(custom-translation-batch-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(custom-translation-batch-test PRIVATE apple-client)
 add_test(NAME custom-translation-batch COMMAND custom-translation-batch-test)
+add_executable(translation-settings-test tests/TranslationSettingsTest.mm TranslationSettingsWindow.mm)
+target_compile_options(translation-settings-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(translation-settings-test PRIVATE apple-client "-framework AppKit")
+add_test(NAME translation-settings COMMAND translation-settings-test)
 # Run explicitly with the directory matching desktop-dictionary.lock.json.
 # This resource-dependent integration test does not enable or trigger CI.
 add_executable(snapshot-activation-test tests/SnapshotActivationTest.mm)
@@ -351,6 +355,12 @@ target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werro
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
 add_executable(skin-settings-test tests/SkinSettingsTest.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm)
+foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
+  target_sources(${translation_settings_consumer} PRIVATE TranslationSettingsWindow.mm)
+endforeach()
+foreach(translation_settings_consumer toolbar-visibility-preferences-test skin-preview-test skin-settings-test)
+  target_link_libraries(${translation_settings_consumer} PRIVATE apple-client)
+endforeach()
 target_include_directories(skin-settings-test PRIVATE .)
 target_compile_options(skin-settings-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(skin-settings-test PRIVATE "-framework AppKit")

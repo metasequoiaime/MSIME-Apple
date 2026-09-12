@@ -2139,6 +2139,13 @@ static void TestCandidateTranslationPreference() {
     assert(saved && !error);
     NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(loaded && !error && [loaded[@"preferences"][@"candidate_translations"] isEqual:@NO]);
+    [prefs setTranslationPreferencesDirectory:root];
+    NSControl *translationEntry = PreferenceControl(prefs, @selector(showTranslationSettings:));
+    assert(translationEntry);
+    [NSApp sendAction:translationEntry.action to:translationEntry.target from:translationEntry];
+    NSWindowController *translationWindow = [prefs valueForKey:@"translationWindow"];
+    assert(translationWindow.window.visible);
+    [translationWindow close];
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     [defaults removePersistentDomainForName:suite];
     MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];

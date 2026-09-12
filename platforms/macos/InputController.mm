@@ -409,7 +409,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_appearance) return;
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
+}
+- (void)translationPreferencesSaved:(NSNotification *)notification {
+    _preferenceLoadState.reset();
+    [self applySharedToolbarPreferences:notification.userInfo];
+    _view = [_session viewWithError:nil] ?: _view;
+    if (_activeClient) { [self renderCandidates]; [self reloadPreferences]; }
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
@@ -816,6 +823,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
     }
     if (_activeClient && _preferencesDirectory) {
+        [_appearance setTranslationPreferencesDirectory:_preferencesDirectory];
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {

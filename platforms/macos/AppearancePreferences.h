@@ -3,6 +3,7 @@
 #include "CandidateSkin.h"
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
+FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNotification;
 
 // macOS-only presentation settings; never change Engine composition/configuration.
 @interface MSIMEAppearancePreferences : NSWindowController
@@ -13,6 +14,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values;
 - (NSDictionary *)cloudSettingsSnapshot;
 - (NSWindowController *)skinCatalogController;
+- (void)setTranslationPreferencesDirectory:(NSString *)directory;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
