@@ -82,10 +82,12 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 表情二级分类使用原版区分大小写的分类名称映射，最近使用显示秒表图标，未知名称使用微笑回退。符号大类按元数据顺序取各大类第一个符号作为图标，默认选择首个有效大类；元数据和图标一并加载，取消页面任务会取消后续图标读取。分类标签宽度不超过原版 52 单位的 2/3，并随可用宽度均分收窄；标题通过辅助功能标签与悬停帮助提供。符号搜索忽略当前大类和子分类，匹配原版全局搜索行为。测试使用合成目录回调验证映射、顺序、缺失／失败、搜索过滤及两种主题的选中下划线像素；不代表跨平台字体图形或安装后导航已验证。
 
+符号内容按目录中连续的子分类分段展示标题及独立六列网格，移除额外的子分类下拉过滤。标题高度、半粗字号、相对缩进和分组尾部留白采用固定 Windows 版本的 2/3 比例；相同标题的非连续分组不合并、不重排。分组内按钮保留页内全局索引，复制和键盘步长不因独立起行而指向其他条目。当前仍保留 255 项分页，跨页分组会在新页继续展示标题；本轮不代表全目录连续滚动已实现。合成测试覆盖重复标题、页边界、全局索引、部分行之间的导航及两种主题的原生尺寸／选中像素。
+
 表情首页、普通网格与颜文字流式布局同样提供独立的本地测试：
 
 ```sh
-cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build --parallel
+cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build emoji-symbol-sections-test-build --parallel
 ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 ```
 
