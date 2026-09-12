@@ -1,4 +1,5 @@
 #include "PreviewConfig.h"
+#include "TrayMenuWindow.h"
 #include "CandidateSkin.h"
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
@@ -156,11 +157,29 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     toolbar.set_palette(palette);
+    // The Server owns the floating toolbar, so that row works here. The other
+    // entries open shell surfaces this process cannot reach, so they stay
+    // visible and disabled rather than accepting a click that does nothing.
+    bool toolbar_visible = config.floating_toolbar_enabled;
+    TrayMenuCapabilities menu_capabilities;
+    TrayMenuWindow tray(
+        menu_capabilities,
+        [&](TrayMenuCommand command) {
+          if (command != TrayMenuCommand::ToggleFloatingToolbar)
+            return false;
+          toolbar_visible = !toolbar_visible;
+          if (!toolbar_visible)
+            toolbar.hide();
+          return true;
+        },
+        [&] { return toolbar_visible; });
+    tray.set_palette(palette);
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() &&
-           !modes.failed() && !mode_clicks.failed() && !toolbar.failed()) {
+           !modes.failed() && !mode_clicks.failed() && !toolbar.failed() &&
+           !tray.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -176,7 +195,7 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
-      toolbar.refresh(config.floating_toolbar_enabled);
+      toolbar.refresh(toolbar_visible);
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
@@ -184,6 +203,7 @@ int wmain(int argc, wchar_t **argv) {
     candidates.hide();
     modes.hide();
     toolbar.hide();
+    tray.hide();
     clicks.request_stop();
     mode_clicks.request_stop();
     server.stop();
