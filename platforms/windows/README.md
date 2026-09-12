@@ -2,6 +2,14 @@
 
 本阶段将固定 Engine 的 `FanyImeNamedpipeData` 键包接到 `msime-host-api`，不是完整 Windows 输入法。共享库只进入独立 Server，不能加载到注入应用的 TSF DLL 中。后续仍保留 TSF DLL / Server 进程隔离、现有版本化 Named Pipe 契约及 UI 原生窗口所有权。
 
+## 原生界面渲染与皮肤
+
+候选窗、模式面板、悬浮工具条和三个面板都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。
+
+皮肤经 `msime_client_skin_catalog` 从共享目录进入原生宿主，Server 按 `PreviewConfig` 的可选 `appearance`（`skin_directory` 绝对路径、`skin`、`dark_theme`）解析后下发给三个 Server 界面。兼容性以清单为准：没有声明当前布局和主题的包保留内置 token，不做半套应用；目录不可读、id 未知或条目畸形都不改变主题，也不让运行中的 Server 失败。三个独立面板目前仍从内置深色 token 起步，把已解析皮肤交给它们是后续改动。
+
+Direct2D 的成像工厂是 COM 服务器，这些窗口各自进入套间（`S_FALSE` 仍需配对释放，`RPC_E_CHANGED_MODE` 不动其他模式）；面板在 `--help` 返回之后才进入套间，冒烟运行器不需要额外条件。以上为本机 MSVC 构建与窗口实测，仍不等于 TSF 注册后的实机验收。
+
 ## 已确认候选展示接口
 
 模式面板布局现在受工作区宽高约束，绘制与命中使用同一网格；小工作区缩小按钮并省略长文本，无法分配六个像素单元时隐藏。DPI/显示设置变化清除旧布局和按下状态，下一次刷新重新计算；布局测试覆盖负坐标、极端整数及 48–960 DPI。极小单元仅保证边界安全，不代表可用触摸尺寸，混合 DPI 实机交互仍待验收。
