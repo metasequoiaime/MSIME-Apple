@@ -1432,7 +1432,8 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
         Ok(UnixSocketProvider::new(path)
             .query_candidates(query)
             .map(|candidates| {
-                let rows: Vec<_> = candidates.into_iter()
+                let rows: Vec<_> = candidates
+                    .into_iter()
                     .map(|(text, source)| json!({"text": text, "source": source}))
                     .collect();
                 // Preserve the single-result fields for older CLI consumers.
@@ -1446,6 +1447,10 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
 
 /// Forward one account-backed dictionary operation to a user-owned Linux
 /// provider. The request is validated before it crosses the Unix socket.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
@@ -1483,6 +1488,10 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
 
 /// Forward one validated account-backed cloud clipboard operation to a
 /// user-owned Linux provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
@@ -1593,6 +1602,10 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
 /// Run the Engine's optional offline handwriting recognizer against a trusted
 /// packaged model. The model path is supplied by the native host, never by a
 /// webview or remote provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_handwriting_local_request(
@@ -2690,12 +2703,18 @@ mod tests {
     #[test]
     fn shuangpin_preedit_mode_is_applied_after_composition() {
         let dir = tempfile::tempdir().unwrap();
-        let raw = Preferences { scheme: InputScheme::Shuangpin, ..Preferences::default() };
+        let raw = Preferences {
+            scheme: InputScheme::Shuangpin,
+            ..Preferences::default()
+        };
         let handle = test_host_preferences(dir.path(), raw.clone());
         read(msime_client_focus(handle, true));
         read(msime_client_character(handle, b'h', false));
         let before = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
-        let expanded = Preferences { shuangpin_preedit_uses_raw: false, ..raw.clone() };
+        let expanded = Preferences {
+            shuangpin_preedit_uses_raw: false,
+            ..raw.clone()
+        };
         let queued = update(handle, 1, &expanded);
         assert_eq!(queued["value"]["deferred"], true);
         assert_eq!(queued["value"]["view"], before);

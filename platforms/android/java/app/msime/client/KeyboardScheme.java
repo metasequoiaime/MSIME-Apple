@@ -1,24 +1,30 @@
 package app.msime.client;
 
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
 /** Shared-Engine keyboard schemes currently exposed by the Android host. */
 public enum KeyboardScheme {
-    QUANPIN("quanpin", null, "twenty_six_key", "全拼 26 键", "拼", "26"),
-    QUANPIN_NINE_KEY("quanpin", null, "nine_key", "全拼 9 键", "拼", "9"),
-    XIAOHE("shuangpin", "xiaohe", "twenty_six_key", "小鹤双拼", "鹤", "双"),
-    ZIRANMA("shuangpin", "ziranma", "twenty_six_key", "自然码双拼", "自", "双"),
-    MICROSOFT("shuangpin", "microsoft", "twenty_six_key", "微软双拼", "微", "双"),
-    SHOUDAO("shuangpin", "shoudao", "twenty_six_key", "首道双拼", "S", "双"),
-    WUBI("wubi", null, "twenty_six_key", "86 五笔", "五", "86"),
-    JAPANESE("japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
-    JAPANESE_NINE_KEY("japanese", null, "nine_key", "日语 9 键", "あ", "9"),
-    HANDWRITING("quanpin", null, "handwriting", "手写", "写", "手"),
-    THOUGHTFUL_REPLY("quanpin", null, "twenty_six_key", "高情商回复", "聊", "AI");
+    QUANPIN("quanpin", "quanpin", null, "twenty_six_key", "全拼 26 键", "拼", "26"),
+    QUANPIN_NINE_KEY("nine_key", "quanpin", null, "nine_key", "全拼 9 键", "拼", "9"),
+    XIAOHE("xiaohe", "shuangpin", "xiaohe", "twenty_six_key", "小鹤双拼", "鹤", "双"),
+    ZIRANMA("ziranma", "shuangpin", "ziranma", "twenty_six_key", "自然码双拼", "自", "双"),
+    MICROSOFT("microsoft", "shuangpin", "microsoft", "twenty_six_key", "微软双拼", "微", "双"),
+    SHOUDAO("shoudao", "shuangpin", "shoudao", "twenty_six_key", "首道双拼", "S", "双"),
+    WUBI("wubi", "wubi", null, "twenty_six_key", "86 五笔", "五", "86"),
+    JAPANESE_NINE_KEY("japanese_nine_key", "japanese", null, "nine_key", "日语 9 键", "あ", "9"),
+    JAPANESE("japanese", "japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
+    HANDWRITING("handwriting", "quanpin", null, "handwriting", "手写", "写", "手"),
+    THOUGHTFUL_REPLY("thoughtful_reply", "quanpin", null, "twenty_six_key", "高情商回复", "聊", "AI");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
         String scheme, String lastChineseScheme, String shuangpinProfile,
         String touchKeyboardLayout) {}
 
+    private final String preferenceId;
     private final String engineScheme;
     private final String shuangpinProfile;
     private final String touchKeyboardLayout;
@@ -26,8 +32,9 @@ public enum KeyboardScheme {
     private final String glyph;
     private final String badge;
 
-    KeyboardScheme(String engineScheme, String shuangpinProfile, String touchKeyboardLayout, String title,
-                   String glyph, String badge) {
+    KeyboardScheme(String preferenceId, String engineScheme, String shuangpinProfile,
+                   String touchKeyboardLayout, String title, String glyph, String badge) {
+        this.preferenceId = preferenceId;
         this.engineScheme = engineScheme;
         this.shuangpinProfile = shuangpinProfile;
         this.touchKeyboardLayout = touchKeyboardLayout;
@@ -36,12 +43,41 @@ public enum KeyboardScheme {
         this.badge = badge;
     }
 
+    public String preferenceId() { return preferenceId; }
     public String engineScheme() { return engineScheme; }
     public String shuangpinProfile() { return shuangpinProfile; }
     public String touchKeyboardLayout() { return touchKeyboardLayout; }
     public String title() { return title; }
     public String glyph() { return glyph; }
     public String badge() { return badge; }
+
+    public static KeyboardScheme fromPreferenceId(String value) {
+        if (value == null) return null;
+        for (KeyboardScheme candidate : values()) {
+            if (candidate.preferenceId.equals(value)) return candidate;
+        }
+        return null;
+    }
+
+    /** Resolves preference IDs in the fixed Apple order and ignores unknown duplicates. */
+    public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids) {
+        if (ids == null) return List.of(values());
+        Set<String> requested = new LinkedHashSet<>(ids);
+        List<KeyboardScheme> enabled = Arrays.stream(values())
+            .filter(candidate -> requested.contains(candidate.preferenceId)).toList();
+        return enabled.isEmpty() ? List.of(QUANPIN) : enabled;
+    }
+
+    /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
+    public static KeyboardScheme resolveEnabledSelection(
+            KeyboardScheme applied, String selectedPreferenceId, List<KeyboardScheme> enabled) {
+        List<KeyboardScheme> available = enabled == null || enabled.isEmpty()
+            ? List.of(QUANPIN) : enabled;
+        KeyboardScheme selected = fromPreferenceId(selectedPreferenceId);
+        if (selected != null && available.contains(selected)) return selected;
+        if (selectedPreferenceId == null && applied != null && available.contains(applied)) return applied;
+        return available.get(0);
+    }
 
     public static KeyboardScheme fromHostSelection(String value, boolean thoughtfulEnabled,
                                                     KeyboardScheme engineSelection) {

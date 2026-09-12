@@ -82,7 +82,9 @@ pub enum RuntimeError {
 
 pub trait InputEngine {
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
-        Err(RuntimeError::Engine("Engine cache reset is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Engine cache reset is unsupported".into(),
+        ))
     }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
@@ -534,14 +536,13 @@ impl UnixSocketProvider {
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
-        let timeout = if query.ai_eligible
-            && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled)
-        {
-            // Windows ai_assistant.cpp permits eight seconds for model inference.
-            std::time::Duration::from_secs(8)
-        } else {
-            std::time::Duration::from_millis(500)
-        };
+        let timeout =
+            if query.ai_eligible && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+                // Windows ai_assistant.cpp permits eight seconds for model inference.
+                std::time::Duration::from_secs(8)
+            } else {
+                std::time::Duration::from_millis(500)
+            };
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
@@ -666,15 +667,12 @@ impl UnixSocketProvider {
         }
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.translations.len() > 9
-            || reply
-                .translations
-                .iter()
-                .any(|item| {
-                    item.text.len() > 4096
-                        || item.translation.is_empty()
-                        || item.translation.len() > 4096
-                        || !query.candidates.contains(&item.text)
-                })
+            || reply.translations.iter().any(|item| {
+                item.text.len() > 4096
+                    || item.translation.is_empty()
+                    || item.translation.len() > 4096
+                    || !query.candidates.contains(&item.text)
+            })
         {
             return None;
         }
@@ -844,8 +842,7 @@ impl UnixSocketProvider {
         loop {
             let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-            if let Some(event_generation) = value.get("generation").and_then(Value::as_u64)
-            {
+            if let Some(event_generation) = value.get("generation").and_then(Value::as_u64) {
                 if event_generation != generation {
                     return None;
                 }
