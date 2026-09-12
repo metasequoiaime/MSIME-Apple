@@ -2688,11 +2688,6 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
     return s.voice_hotkey_ctrl_win;
   return false;
 }
-bool voice_hold_hotkey(const State &s, guint key, guint modifiers) {
-  if (key == IBUS_F9)
-    return false;
-  return voice_hotkey(s, key, modifiers);
-}
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
@@ -3784,10 +3779,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // the Space stroke so it cannot leak into the focused editor while voice
   // recognition is active. With the option disabled, Space follows the
   // regular editor/Engine path. Menu and Ctrl+F9 recordings have no held
-  // shortcut, and recognition/polishing can no longer be locked.
+  // shortcut, and recognition/polishing can no longer be locked. Use the
+  // active hold captured on key-down: extra modifiers pressed afterwards
+  // must not invalidate it. Releasing a required key clears voice_hold_key.
   if (s.voice_active && !s.voice_stopping && s.voice_hotkey_hold_space_lock &&
-      key == IBUS_space &&
-      voice_hold_hotkey(s, s.voice_hold_key, modifiers)) {
+      key == IBUS_space && s.voice_hold_key != 0) {
     s.voice_space_consumed = true;
     if (!s.voice_space_locked) {
       guarded(engine, "voice_space_lock", [&] {
