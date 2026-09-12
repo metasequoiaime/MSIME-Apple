@@ -1310,7 +1310,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const homeGroups: DisplayGroup[] = [
     { ...recentGroup, items: recent.filter(item => matchesEmojiItem(item, query)) },
     { title: "Emoji", icon: catalog.emoji[0]?.icon ?? "😀", moreTarget: "emoji", items: flattenGroups(catalog.emoji).filter(item => matchesEmojiItem(item, query)).slice(0, 18) },
-    { title: "Kaomoji", icon: catalog.kaomoji[0]?.icon ?? "ヾ", moreTarget: "kaomoji", flow: true, items: flattenGroups(catalog.kaomoji).filter(item => matchesEmojiItem(item, query)).slice(0, 12) },
+    { title: "Kaomoji", icon: catalog.kaomoji[0]?.icon ?? "ヾ", moreTarget: "kaomoji", flow: true, items: flattenGroups(catalog.kaomoji).filter(item => matchesEmojiItem(item, query)).slice(0, 15) },
     { title: "Symbols", icon: catalog.symbols[0]?.icon ?? "★", moreTarget: "symbols", items: symbolPreview },
   ];
 
