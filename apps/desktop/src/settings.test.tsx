@@ -547,20 +547,50 @@ test("automatic color swatch follows candidate theme without persisting a color 
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
 });
 
+test("screen keyboard matches upstream Shift and Caps posting combinations", async () => {
+  for (const caps of [false, true]) for (const shift of [false, true]) {
+    const sendKey = vi.fn().mockResolvedValue(undefined);
+    const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+    if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
+    if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    const letter = panel.container.querySelectorAll(".keyboard-row")[2].querySelectorAll("button")[1];
+    expect(letter.textContent).toBe(shift ? "A" : "a");
+    expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
+    fireEvent.click(letter);
+    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps || shift, include_sticky_modifiers: true }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+    expect(letter.textContent).toBe("a");
+    panel.unmount();
+  }
+});
+
 test("screen keyboard sends every digit as an unmodified IME selection key", async () => {
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
   for (const modifier of ["Ctrl", "Alt", "Win"]) {
     fireEvent.click(screen.getAllByRole("button", { name: modifier })[0]);
   }
-  for (const digit of "1234567890") {
+  for (const [index, digit] of [..."1234567890"].entries()) {
     fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: digit }));
+    fireEvent.click(screen.getByRole("button", { name: [..."!@#$%^&*()"][index] }));
     expect(sendKey).toHaveBeenLastCalledWith({
       virtual_key: digit.charCodeAt(0), shift: false,
       modifiers: { ctrl: true, alt: true, win: true }, include_sticky_modifiers: false,
     });
     expect(screen.getAllByRole("button", { name: "Shift" })[0].getAttribute("aria-pressed")).toBe("false");
+  }
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+});
+
+test("screen keyboard Shift key faces match punctuation and preserve virtual keys", async () => {
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+  const keys: [string, string, number][] = [["`", "~", 0xc0], ["-", "_", 0xbd], ["=", "+", 0xbb], ["[", "{", 0xdb], ["]", "}", 0xdd], ["\\", "|", 0xdc], [";", ":", 0xba], ["'", '"', 0xde], [",", "<", 0xbc], [".", ">", 0xbe], ["/", "?", 0xbf]];
+  for (const [normal, shifted, code] of keys) {
+    fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: shifted }));
+    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: code, shift: true, include_sticky_modifiers: true }));
+    expect(screen.getByRole("button", { name: normal })).toBeDefined();
   }
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
 });

@@ -102,7 +102,8 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
     const letter = keyToPress.label.length === 1 && /[a-z]/i.test(keyToPress.label);
-    const withShift = letter ? caps !== shift : shift;
+    // Upstream shifted key faces take precedence over Caps/Shift inversion.
+    const withShift = shift || (letter && caps);
     const modifiers = { ctrl: activeModifiers.has("Ctrl"), alt: activeModifiers.has("Alt"), win: activeModifiers.has("Win") };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
     const prefix = modifierPrefix(activeModifiers);
@@ -120,8 +121,8 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
       <div className="keyboard-layout">
         {keyboardRows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
-          const uppercase = letter && activeModifiers.has("Caps Lock") !== activeModifiers.has("Shift");
-          const label = keyToRender.label === "Space" ? "" : uppercase ? keyToRender.label.toUpperCase() : keyToRender.label;
+          const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
+          const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
           return <button type="button" key={`${keyToRender.label}-${keyIndex}`} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
         })}</div>)}
       </div>
