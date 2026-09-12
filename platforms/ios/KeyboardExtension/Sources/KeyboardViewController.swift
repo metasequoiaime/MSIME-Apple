@@ -65,7 +65,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
-  private var moreMenu: UIMenu?
+  private var moreTools: [KeyboardToolSection] = []
+  private var showsLocalModeTools = false
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
   private var microsoftFinalKey: UIButton?
@@ -795,66 +796,98 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
-    moreMenu = UIMenu(children: [
-      UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
-        self?.showClipboardHistory()
-      },
-      UIAction(title: "表情", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showEmojiPicker()
-      },
-      UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
-        self?.closeKeyboardPicker()
-        self?.showKeyboardAI()
-      },
-      UIMenu(title: "输出字形", options: .displayInline, children: [
-        UIAction(title: "简体", image: UIImage(systemName: "character.textbox"),
-          attributes: isChineseMode && inputScheme.isJapanese ? .disabled : [],
-          state: usesTraditionalOutput ? .off : .on) { [weak self] _ in
-          self?.selectTraditionalOutput(false)
+    moreTools = makeToolSections()
+    morePicker?.update(sections: showsLocalModeTools ? makeLocalModeSections() : moreTools)
+    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+  }
+
+  /// logo 面板的一级:工具在上,设置在下。
+  ///
+  /// 这一屏的高度就是键盘的高度。Eight local input modes and a settings list used to sit in the
+  /// same scroll as the tools, which put the last of them 360pt down a 292pt panel -- past the
+  /// bottom of the keyboard, where nothing said they were there. The modes moved one level in.
+  private func makeToolSections() -> [KeyboardToolSection] {
+    [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in
+          self?.closeKeyboardPicker()
+          self?.showEmojiPicker()
         },
-        UIAction(title: "繁体", image: UIImage(systemName: "character.textbox"),
-          attributes: isChineseMode && inputScheme.isJapanese ? .disabled : [],
-          state: usesTraditionalOutput ? .on : .off) { [weak self] _ in
-          self?.selectTraditionalOutput(true)
+        KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in
+          self?.showClipboardHistory()
+        },
+        KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
+          self?.closeKeyboardPicker()
+          self?.showKeyboardAI()
+        },
+        KeyboardTool(title: "本地输入", symbol: "textformat.123",
+                     enabled: supportsLocalTools) { [weak self] in
+          guard let self else { return }
+          showsLocalModeTools = true
+          morePicker?.update(sections: makeLocalModeSections())
         },
       ]),
-      UIMenu(title: "按键反馈", options: .displayInline, children: [
-        UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
-          state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled, forKey: KeyboardFeedbackPreference.soundKey)
+      KeyboardToolSection(title: "设置", kind: .toggle, columns: 2, tools: [
+        // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
+        KeyboardTool(title: "繁体输出", symbol: "character.textbox",
+                     selected: usesTraditionalOutput,
+                     enabled: !(isChineseMode && inputScheme.isJapanese)) { [weak self] in
+          guard let self else { return }
+          selectTraditionalOutput(!usesTraditionalOutput)
+        },
+        KeyboardTool(title: "按键音", symbol: "speaker.wave.2",
+                     selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
+                                                  forKey: KeyboardFeedbackPreference.soundKey)
           if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
           self?.updateShortcutButtons()
         },
-        UIAction(title: "按键振动", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
-          state: KeyboardFeedbackPreference.hapticsEnabled ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled, forKey: KeyboardFeedbackPreference.hapticsKey)
+        KeyboardTool(title: "按键振动", symbol: "iphone.radiowaves.left.and.right",
+                     selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
+          KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
+                                                  forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
             self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
         },
+        // 一张卡显示当前档位并循环,而不是三张并排:三个档位撑出的那一行正好把面板顶出键盘高度。
+        KeyboardTool(title: "振动强度", symbol: "waveform",
+                     enabled: KeyboardFeedbackPreference.hapticsEnabled,
+                     caption: KeyboardFeedbackPreference.hapticStrength.title) { [weak self] in
+          guard let self else { return }
+          let all = KeyboardHapticStrength.allCases
+          let current = all.firstIndex(of: KeyboardFeedbackPreference.hapticStrength) ?? 0
+          let next = all[(current + 1) % all.count]
+          KeyboardFeedbackPreference.defaults.set(next.rawValue,
+                                                  forKey: KeyboardFeedbackPreference.strengthKey)
+          keyFeedback.impactOccurred(intensity: next.intensity)
+          prepareKeyFeedback()
+          updateShortcutButtons()
+        },
       ]),
-      UIMenu(title: "振动强度", image: UIImage(systemName: "waveform"), children: KeyboardHapticStrength.allCases.map { strength in
-        UIAction(title: strength.title, state: strength == KeyboardFeedbackPreference.hapticStrength ? .on : .off) { [weak self] _ in
-          KeyboardFeedbackPreference.defaults.set(strength.rawValue, forKey: KeyboardFeedbackPreference.strengthKey)
-          if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: strength.intensity)
-            self?.prepareKeyFeedback()
-          }
-          self?.updateShortcutButtons()
-        }
-      }),
-      UIMenu(title: "本地输入", children: Self.localInputModes.map { mode in
-        UIAction(title: mode.title, attributes: supportsLocalTools ? [] : .disabled) { [weak self] _ in
+    ]
+  }
+
+  /// 二级:八个本地输入模式,外加一条回到工具的路。
+  private func makeLocalModeSections() -> [KeyboardToolSection] {
+    [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 1, tools: [
+        KeyboardTool(title: "返回工具", symbol: "chevron.left") { [weak self] in
+          guard let self else { return }
+          showsLocalModeTools = false
+          morePicker?.update(sections: moreTools)
+        },
+      ]),
+      KeyboardToolSection(title: "本地输入", kind: .opens, columns: 2,
+                          tools: Self.localInputModes.map { mode in
+        KeyboardTool(title: mode.title, enabled: supportsLocalTools) { [weak self] in
           self?.closeKeyboardPicker()
           self?.openLocalInputMode(mode.trigger)
         }
       }),
-    ])
-    if let moreMenu { morePicker?.update(menu: moreMenu) }
-    configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
+    ]
   }
 
   private func makeSpellingStrip() -> UIView {
@@ -2459,8 +2492,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     updateShortcutButtons()
-    guard let moreMenu else { return }
-    let picker = KeyboardMorePickerView(menu: moreMenu, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    showsLocalModeTools = false
+    if moreTools.isEmpty { moreTools = makeToolSections() }
+    let picker = KeyboardMorePickerView(sections: moreTools,
+      onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(picker)

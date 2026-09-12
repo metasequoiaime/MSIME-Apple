@@ -29,7 +29,10 @@ enum EmojiCatalog {
   static let sections: [Section] = load()
 
   private static func load() -> [Section] {
-    guard let path = Bundle.main.path(forResource: "others", ofType: "db") else { return [] }
+    // Bundle(for:) rather than Bundle.main: in the extension the two agree, but under the unit
+    // tests main is the host app and the database travels with the test bundle.
+    let bundle = Bundle(for: KeyboardEmojiPickerView.self)
+    guard let path = bundle.path(forResource: "others", ofType: "db") else { return [] }
     var handle: OpaquePointer?
     guard sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
       sqlite3_close(handle)

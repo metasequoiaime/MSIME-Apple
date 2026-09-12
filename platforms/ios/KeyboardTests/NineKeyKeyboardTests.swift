@@ -571,7 +571,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
     try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertNotNil(try button("scriptShortcut", in: controller))
+    XCTAssertNotNil(try button("emojiShortcut", in: controller))
   }
 
   func testBrandOpensCompactToolsAndUpdatesFeedbackState() throws {
@@ -598,19 +598,30 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      for title in ["剪贴板历史", "AI 润色", "语音结果", "按键音", "按键振动", "日期时间", "Unicode 码点"] {
+      for title in ["剪贴板历史", "AI 润色", "表情", "本地输入", "繁体输出", "按键音", "按键振动"] {
         let card = try button("moreCard-" + title, in: controller)
-        XCTAssertGreaterThan(card.bounds.width, 140)
+        XCTAssertGreaterThan(card.bounds.width, 100)
         XCTAssertEqual(card.bounds.height, 48)
         XCTAssertEqual(card.configuration?.imagePlacement, .leading)
       }
+      // 本地输入的八个模式收在二级,一级里不该出现。
+      XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-日期时间" })
+      try button("moreCard-本地输入", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNotNil(try button("moreCard-Unicode 码点", in: controller))
+      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNotNil(try button("moreCard-表情", in: controller))
       let back = try button("closeMorePicker", in: controller)
       XCTAssertEqual(back.configuration?.title, "返回")
       XCTAssertEqual(back.accessibilityLabel, "返回键盘")
       XCTAssertGreaterThanOrEqual(back.bounds.height, 44)
       XCTAssertLessThan(back.frame.midX, panel.bounds.midX)
-      let feedback = try button("moreCard-按键振动", in: controller)
-      XCTAssertLessThanOrEqual(feedback.convert(feedback.bounds, to: panel).maxY, panel.bounds.height)
+      // 每一张卡都要落在键盘高度以内。这条之前抓到过面板长到 360pt、末尾整段看不见。
+      for card in descendants(panel) where card.accessibilityIdentifier?.hasPrefix("moreCard-") == true {
+        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height,
+                                 "\(card.accessibilityIdentifier ?? "?") 超出面板")
+      }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
       })
@@ -901,9 +912,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       // 简繁不再占常驻工具位,改从「更多」里切。
       XCTAssertTrue(try button("replyShortcut", in: controller).isHidden)
       try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-      try button("moreCard-繁体", in: controller).sendActions(for: .primaryActionTriggered)
+      let script = try button("moreCard-繁体输出", in: controller)
+      XCTAssertEqual(script.accessibilityValue, "已关闭")
+      script.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)
-      try button("moreCard-简体", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(try button("moreCard-繁体输出", in: controller).accessibilityValue, "已开启")
+      try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(ChineseOutputPreference.usesTraditional)
       try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
       let key = try button("nineKey6", in: controller)
