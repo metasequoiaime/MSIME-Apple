@@ -153,11 +153,13 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
+  const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
-  const inputQueue = useRef<{ active: boolean; running: boolean; pending: QueuedKey[] }>({ active: true, running: false, pending: [] });
+  const inputQueue = useRef<{ active: boolean; running: boolean; openingVoice: boolean; pending: QueuedKey[] }>({ active: true, running: false, openingVoice: false, pending: [] });
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   useEffect(() => {
-    const queue = { active: true, running: false, pending: [] as QueuedKey[] };
+    const queue = { active: true, running: false, openingVoice: false, pending: [] as QueuedKey[] };
+    setOpeningVoice(false);
     inputQueue.current = queue;
     modifiersRef.current = new Set();
     setActiveModifiers(new Set());
@@ -191,6 +193,26 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
       }
     } finally { queue.running = false; }
   }
+  async function openVoiceKeyboard() {
+    const queue = inputQueue.current;
+    if (!queue.active || queue.openingVoice || !client.openVoice) return;
+    if (queue.running || queue.pending.length) {
+      setNotice("请等待按键发送完成后打开语音输入");
+      return;
+    }
+    queue.openingVoice = true;
+    setOpeningVoice(true);
+    setNotice("正在打开语音输入…");
+    try {
+      await client.openVoice();
+      if (queue.active) setNotice("已打开语音输入");
+    } catch {
+      if (queue.active) setNotice("无法打开语音输入，请重试");
+    } finally {
+      queue.openingVoice = false;
+      if (queue.active && inputQueue.current === queue) setOpeningVoice(false);
+    }
+  }
   function closeKeyboard() {
     const queue = inputQueue.current;
     queue.active = false;
@@ -203,9 +225,9 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     });
   }
   function pressKey(keyToPress: KeyboardKey) {
-    if (keyToPress.modifier) { toggleModifier(keyToPress.modifier); return; }
     const queue = inputQueue.current;
-    if (!queue.active) return;
+    if (!queue.active || queue.openingVoice) return;
+    if (keyToPress.modifier) { toggleModifier(keyToPress.modifier); return; }
     if (queue.pending.length >= 64) { setNotice("按键正在发送，请稍候再继续输入"); return; }
     const activeModifiers = modifiersRef.current;
     const shift = activeModifiers.has("Shift");
@@ -236,14 +258,14 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
   const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" onClick={() => void client.openVoice?.()}>语音</button>}<button type="button" aria-label="关闭" onClick={closeKeyboard}>×</button></header>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout" style={keyboardStyle}>
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
         })}</div>)}
       </div>
     </div>
