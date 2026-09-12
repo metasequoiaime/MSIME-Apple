@@ -1058,21 +1058,32 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       continue;
     editable_candidates = true;
     const auto slot = index + 1;
+    const auto fixed_position = candidate.value("fixed_position", 0);
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"},
                                        std::pair{"CandidateFix1", "固定到 1"},
                                        std::pair{"CandidateFix2", "固定到 2"},
                                        std::pair{"CandidateFix3", "固定到 3"},
                                        std::pair{"CandidateFix4", "固定到 4"},
-                                       std::pair{"CandidateFix5", "固定到 5"},
-                                       std::pair{"CandidateClear", "取消固定"}}) {
+                                       std::pair{"CandidateFix5", "固定到 5"}}) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto title = std::string(label) + " " + std::to_string(slot);
+      const auto state = action.rfind("CandidateFix", 0) == 0 &&
+                                 fixed_position ==
+                                     std::stoi(std::string(action).substr(12))
+                             ? PROP_STATE_CHECKED
+                             : PROP_STATE_UNCHECKED;
       ibus_prop_list_append(items, ibus_property_new(
           name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
           ibus_text_new_from_static_string("操作当前页候选"), TRUE, TRUE,
-          PROP_STATE_UNCHECKED, nullptr));
+          state, nullptr));
     }
+    const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
+    ibus_prop_list_append(items, ibus_property_new(
+        clear_name.c_str(), PROP_TYPE_NORMAL,
+        ibus_text_new_from_string((std::string("取消固定 ") + std::to_string(slot)).c_str()), "",
+        ibus_text_new_from_static_string("取消当前候选的位置固定"), fixed_position > 0, TRUE,
+        PROP_STATE_UNCHECKED, nullptr));
   }
   return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选操作"), "",
