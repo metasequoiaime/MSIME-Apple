@@ -1807,7 +1807,7 @@ void sync_global_input_mode(IBusEngine *engine) {
     return;
   s.invalidate_providers();
   if (!*global_input_enabled && s.session)
-    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+    apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = *global_input_enabled;
   s.open();
   if (s.session)
@@ -2951,7 +2951,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.invalidate_providers();
       if (!enabled && s.session)
         apply(engine,
-              msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+              msime_client_command(s.session, MSIME_COMMIT_RAW));
       if (s.mode_scope_global)
         global_input_enabled = enabled;
       s.input_enabled = enabled;
@@ -3110,8 +3110,9 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.voice_active)
     voice_cancel(engine);
   s.invalidate_providers();
+  // Windows mode switching commits the reading string, not the candidate.
   if (s.input_enabled && s.session)
-    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+    apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = !s.input_enabled;
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
@@ -3137,8 +3138,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.pure_shift_candidate = false;
     if (!s.focused || s.blocked)
       return FALSE;
-    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
-      return FALSE;
     guarded(engine, "process_key", [&] {
       toggle_input_mode(engine);
     });
@@ -3161,8 +3160,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     s.pure_ctrl_candidate = false;
     if (!s.focused || s.blocked)
-      return FALSE;
-    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
       return FALSE;
     guarded(engine, "process_key", [&] { toggle_input_mode(engine); });
     return TRUE;

@@ -295,6 +295,32 @@ int main(int argc, char **argv) {
               "Bare modifier no longer restored input");
     }
     require(seen.committed.empty(), "Mode setup unexpectedly committed text");
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      phrase();
+      require(!key(modifier_key), "Composing modifier press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled &&
+                  seen.committed == "nihao" && !seen.preedit_visible && !seen.lookup_visible,
+              "Bare modifier did not switch mode and commit original spelling");
+      require(!key('a'), "Direct mode intercepted text after modifier toggle");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.committed == "nihao",
+              "Repeated modifier release committed twice");
+      require(!key(modifier_key) && key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Modifier did not restore mode after composition");
+      seen.committed.clear();
+    }
+
+    for (guint toggle_mask : {guint(IBUS_CONTROL_MASK),
+                              guint(IBUS_CONTROL_MASK | IBUS_MOD1_MASK)}) {
+      phrase();
+      require(key(IBUS_space, toggle_mask) && !seen.input_enabled &&
+                  seen.committed == "nihao" && !seen.preedit_visible && !seen.lookup_visible,
+              "Space shortcut did not switch mode and commit original spelling");
+      key(IBUS_space, toggle_mask | IBUS_RELEASE_MASK);
+      require(key(IBUS_space, toggle_mask) && seen.input_enabled && seen.committed == "nihao",
+              "Space shortcut restore committed twice");
+      key(IBUS_space, toggle_mask | IBUS_RELEASE_MASK);
+      seen.committed.clear();
+    }
     phrase();
     require(seen.committed.empty(), "Phrase unexpectedly committed before selection");
     require(key(IBUS_period, IBUS_CONTROL_MASK),
@@ -308,10 +334,10 @@ int main(int argc, char **argv) {
     require(seen.committed.empty(), "Punctuation toggle unexpectedly committed text");
     invoke("CursorDown");
     require(seen.committed.empty(), "CursorDown unexpectedly committed text");
-    auto mode_commit = seen.candidates.at(seen.cursor);
+    const std::string mode_commit = "nihao";
     mode(PROP_STATE_UNCHECKED);
     require(!seen.input_enabled, "Direct mode remained enabled");
-    require(seen.committed == mode_commit, "Direct mode lost highlighted composition");
+    require(seen.committed == mode_commit, "Direct mode did not commit original spelling");
     require(!seen.preedit_visible, "Direct mode left preedit visible");
     require(!seen.lookup_visible, "Direct mode left candidates visible");
     mode(PROP_STATE_UNCHECKED);
