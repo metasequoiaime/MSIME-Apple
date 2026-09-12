@@ -582,16 +582,17 @@ def mute_audio(enabled, session, muted=None, seen=None):
         except Exception:
             pass
     if streams is not None:
-        try:
-            unseen = [stream for stream in streams if (backend, stream_identity(stream)) not in seen]
-            for stream in unseen[:32]:
-                if session.stopped.is_set():
-                    break
+        attempted = 0
+        for stream in streams:
+            if session.stopped.is_set() or attempted >= 32:
+                break
+            if len(seen) >= 1024 or len(muted) >= 256:
+                break
+            try:
                 identity = (backend, stream_identity(stream))
                 if identity in seen:
                     continue
-                if len(seen) >= 1024 or len(muted) >= 256:
-                    break
+                attempted += 1
                 if not stream.get("mute"):
                     journal = getattr(session, "mute_journal", None)
                     if journal is not None and not journal.record(backend, stream):
@@ -600,8 +601,11 @@ def mute_audio(enabled, session, muted=None, seen=None):
                     set_stream_mute(backend, stream["index"], True)
                     muted.append(identity)
                 seen.add(identity)
-        except Exception:
-            pass
+            except Exception:
+                # A vanished or inaccessible stream must not prevent muting
+                # other applications. Keep any persisted recovery intent:
+                # a failed command may still have reached the audio server.
+                continue
     return muted
 
 
