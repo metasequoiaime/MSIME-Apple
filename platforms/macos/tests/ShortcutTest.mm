@@ -1889,10 +1889,13 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic) NSUInteger applications;
 @property(nonatomic) NSUInteger clears;
 @property(nonatomic) BOOL enabled;
+@property(nonatomic, copy) NSString *targetLanguage;
+@property(nonatomic, copy) NSString *localMode;
+@property(nonatomic) NSUInteger scheme;
 @end
 @implementation GlossSession
-- (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return self.enabled ? @{@"generation":@1} : nil; }
-- (NSDictionary *)viewWithError:(NSError **)error { (void)error; return @{@"generation":@1, @"candidates":@[@{@"text":@"hello", @"source":@4}]}; }
+- (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return self.enabled ? @{@"generation":@1, @"target_language":self.targetLanguage ?: @"en"} : nil; }
+- (NSDictionary *)viewWithError:(NSError **)error { (void)error; return @{@"generation":@1, @"scheme":@(self.scheme), @"local_mode":self.localMode ?: @"none", @"candidates":@[@{@"text":@"hello", @"source":@4}]}; }
 - (NSDictionary *)hostOptions { return @{@"resources":@"/synthetic"}; }
 - (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 1 && translations.count <= 1);
@@ -2001,6 +2004,49 @@ static void TestCandidateTranslationPreference() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+static void TestGlossModePolicy() {
+    GlossController *controller = [GlossController alloc];
+    controller.started = dispatch_semaphore_create(0);
+    controller.released = dispatch_semaphore_create(0);
+    GlossSession *session = [GlossSession new]; session.enabled = YES;
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    assert([controller currentGlossRequest]);
+    for (NSString *target in @[@"fr", @"ja", @"es", @"ru", @"de", @"ko", @"unknown"]) {
+        session.targetLanguage = target;
+        assert(![controller currentGlossRequest]);
+    }
+    session.targetLanguage = @"en";
+    session.scheme = 3;
+    assert(![controller currentGlossRequest]);
+    for (NSNumber *scheme in @[@0, @1]) {
+        session.scheme = scheme.unsignedIntegerValue;
+        session.localMode = @"temporary_japanese";
+        assert(![controller currentGlossRequest]);
+    }
+    session.localMode = @"none";
+    assert([controller currentGlossRequest]);
+    [controller synchronizeCandidateGloss];
+    assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    // Requested settings take effect before the Engine applies its deferred snapshot.
+    [controller applySharedToolbarPreferences:@{@"translation_target_language":@"fr"}];
+    assert(![controller currentGlossRequest] && session.clears == 1);
+    dispatch_semaphore_signal(controller.released);
+    [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    assert(session.applications == 0);
+    [controller applySharedToolbarPreferences:@{@"translation_target_language":@"en"}];
+    assert([controller currentGlossRequest]);
+    [controller synchronizeCandidateGloss];
+    assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    session.localMode = @"temporary_japanese";
+    dispatch_semaphore_signal(controller.released);
+    [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    assert(session.applications == 0);
+    [controller cancelCandidateGloss];
+}
+
 int main() {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
@@ -2012,6 +2058,7 @@ int main() {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestCandidateTranslationPreference();
+        TestGlossModePolicy();
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();
