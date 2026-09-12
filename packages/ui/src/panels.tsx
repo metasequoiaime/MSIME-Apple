@@ -1509,7 +1509,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     {page !== "clipboard" && page !== "sticker" && page !== "gif" && catalogUnavailable.length > 0 && <div className="emoji-panel-toolbar emoji-panel-catalog-status" role="status" aria-busy={catalogLoading}>
       <span>{catalogUnavailable.map(kind => ({ emoji: "Emoji", kaomoji: "颜文字", symbols: "符号" })[kind]).join("、")}目录加载失败，暂用已有目录</span>
       <button type="button" disabled={catalogLoading || clipboardBusy} onClick={() => { setCatalogLoading(true); setCatalogRetry(value => value + 1); }}>{catalogLoading ? "正在加载…" : "重新加载"}</button>
-    </div>
+    </div>}
     {page !== "clipboard" && page !== "sticker" && page !== "gif" && canCopy && client.sendText && <div className="emoji-panel-activation" role="group" aria-label="点击项目时的操作">
       <span>点击项目：</span><button type="button" aria-pressed={effectiveMode === "copy"} disabled={clipboardBusy} onClick={() => { setActivationMode("copy"); setNotice("点击项目即可复制"); }}>复制</button><button type="button" aria-pressed={effectiveMode === "input"} disabled={clipboardBusy} onClick={() => { setActivationMode("input"); setNotice("点击项目即可输入到原应用"); }}>输入到原应用</button>
     </div>}
