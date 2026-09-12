@@ -21,6 +21,7 @@ public:
   void set_keyboard_action(Action action) { keyboard_action_ = std::move(action); }
   void set_voice_action(Action action) { voice_action_ = std::move(action); }
   void set_about_action(Action action) { about_action_ = std::move(action); }
+  void set_hide_action(Action action) { hide_action_ = std::move(action); }
   FloatingToolbarWindow(const FloatingToolbarWindow &) = delete;
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
   void refresh(bool enabled);
@@ -48,6 +49,7 @@ private:
   Action keyboard_action_;
   Action voice_action_;
   Action about_action_;
+  Action hide_action_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   bool failed_ = false;
