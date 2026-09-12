@@ -62,3 +62,5 @@ dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime
 GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/gtk_smoke.py
 
 QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/qt_smoke.py
+
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/qt_smoke.py --qt6

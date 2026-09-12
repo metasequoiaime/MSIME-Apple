@@ -1,5 +1,6 @@
-"""Real Qt5 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
+"""Real Qt5/Qt6 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
 import os
+import sys
 import subprocess
 import time
 
@@ -7,7 +8,12 @@ import gi
 
 gi.require_version("IBus", "1.0")
 from gi.repository import GLib, IBus
-from PyQt5.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+if "--qt6" in sys.argv:
+    from PyQt6.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+    qt_version = "Qt6"
+else:
+    from PyQt5.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+    qt_version = "Qt5"
 
 assert os.environ.get("MSIME_ISOLATED_LINUX_TEST") == "1"
 assert os.environ.get("QT_IM_MODULE") == "ibus"
@@ -58,7 +64,7 @@ window = QWidget()
 window.setWindowTitle("MSIME synthetic Qt acceptance")
 layout = QVBoxLayout(window)
 first, second, password = Entry(), Entry(), Entry()
-password.setEchoMode(QLineEdit.Password)
+password.setEchoMode(QLineEdit.EchoMode.Password)
 for entry in (first, second, password):
     layout.addWidget(entry)
 window.show()
@@ -131,4 +137,4 @@ keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.text() == "nihao ", "Qt password input was intercepted by the IME")
 window.close()
 pump()
-print("Qt5 X11 IM-module candidate/edit/focus/password acceptance passed")
+print(f"{qt_version} X11 IM-module candidate/edit/focus/password acceptance passed")
