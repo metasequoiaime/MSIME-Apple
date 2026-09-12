@@ -1,6 +1,6 @@
 import { decodeCssUrl } from "./css-image-value.js";
 import { animationVariables } from "./skin-animation-variables.js";
-import { preserveAnimationShorthands } from "./animation-shorthand-source.js";
+import { preserveAnimationShorthands, preserveFontShorthands } from "./animation-shorthand-source.js";
 import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts.js";
 
 export function splitCssFontList(value: string): string[] {
@@ -36,7 +36,9 @@ const genericFamilies = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|
 let generation = 0;
 
 export async function prepareToolbarFonts(css: string, resolve: (relative: string) => Promise<ArrayBuffer>) {
-  const preserved = preserveAnimationShorthands(css);
+  const fontSource = preserveFontShorthands(css);
+  const preserved = preserveAnimationShorthands(fontSource.css);
+  preserved.partial ||= fontSource.partial;
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(preserved.css);
   const definitions: { style: CSSStyleDeclaration; media: MediaQueryList[]; supported: boolean }[] = [];

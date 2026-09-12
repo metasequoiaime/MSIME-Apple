@@ -230,6 +230,25 @@ with sync_playwright() as playwright:
       if (document.fonts.size !== initialFonts + 1) throw Error('font cleanup affected another card');
       fontStyleB.remove(); removeFontB();
       if (document.fonts.size !== initialFonts) throw Error('font leaked');
+      const shorthandCases = [
+        ['.sample{--字体:italic 400 12px/1.5 "Synthetic Font",monospace;font:var(--字体);font-size:20px}', '20px', 'italic', '30px'],
+        ['.sample{font-size:20px!important;--f:italic 12px/1.5 "Synthetic Font",monospace;font:var(--f)}', '20px', 'italic', '30px'],
+        [':root{--f:12px/2 "Synthetic Font",monospace}.sample{font-style:italic;font:var(--f);font-size:20px}', '20px', 'normal', '40px'],
+        ['.sample{font:var(--missing,var(--fallback,12px/1.5 "Synthetic Font",monospace));font-size:20px}', '20px', 'normal', '30px'],
+        [':root{--f:10px/2 serif}@supports (font-family:serif){:root{--f:12px/1.5 "Synthetic Font",monospace!important}}.sample{font:var(--f);font-size:20px}', '20px', 'normal', '30px'],
+        ['.sample{--f:var(--cycle);--cycle:var(--f);font:var(--f,12px/1.5 "Synthetic Font",monospace);font-size:20px}', '20px', 'normal', '30px'],
+      ];
+      for (const [rules, size, style, lineHeight] of shorthandCases) {
+        const shorthandFont = await prepareToolbarFonts('@font-face{font-family:"Synthetic Font";src:url(fonts/test.ttf)}' + rules, async () => fontBytes);
+        const shorthandImages = await prepareToolbarImages(shorthandFont.css, async () => {throw Error('font shorthand must not read images');});
+        const shorthandSheet = installToolbarCss('card1', shorthandImages.css), removeShorthandFont = shorthandFont.install();
+        const computed = getComputedStyle(first);
+        if (shorthandFont.partial || shorthandImages.partial || shorthandSheet.partial || computed.fontSize !== size || computed.fontStyle !== style || computed.lineHeight !== lineHeight) throw Error('font shorthand overrides lost: ' + rules);
+        context.font = '20px ' + computed.fontFamily;
+        if (Math.abs(context.measureText('A').width - 20) > .01 || getComputedStyle(second).fontFamily === computed.fontFamily) throw Error('font shorthand family not rendered or isolated');
+        shorthandSheet.remove(); removeShorthandFont();
+        if (document.fonts.size !== initialFonts) throw Error('font shorthand leaked');
+      }
       let unsafeFontReads = 0;
       const unsafeFont = await prepareToolbarFonts('@font-face{font-family:Bad;src:url(https://invalid.example/font.woff2)}.sample{font-family:Bad,serif}', async () => { unsafeFontReads++; return fontBytes; });
       if (!unsafeFont.partial || unsafeFontReads || unsafeFont.css.includes('invalid.example')) throw Error('remote font reached reader or survived');
@@ -273,5 +292,6 @@ with sync_playwright() as playwright:
       delete window.conditionalFontFixture;
     }""")
     result["conditionalFonts"] = True
+    result["fontShorthandOverrides"] = True
     print(result)
     browser.close()
