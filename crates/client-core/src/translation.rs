@@ -374,13 +374,17 @@ pub fn parse_translation_response(response: &str) -> Option<String> {
 }
 
 fn value_as_text(value: &Value) -> Option<String> {
-    value.as_str().map(str::to_owned).or_else(|| {
-        value.as_object().and_then(|object| {
-            ["text", "translation", "data"]
-                .iter()
-                .find_map(|key| object.get(*key).and_then(Value::as_str).map(str::to_owned))
+    value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| {
+            value.as_object().and_then(|object| {
+                ["text", "translation", "data"]
+                    .iter()
+                    .find_map(|key| object.get(*key).and_then(Value::as_str).map(str::to_owned))
+            })
         })
-    })
+        .filter(|text| !text.is_empty())
 }
 
 #[cfg(test)]
@@ -450,6 +454,34 @@ mod tests {
     }
 
     #[test]
+    fn empty_response_fields_do_not_hide_later_translations() {
+        for response in [
+            r#"{"data":"","translation":"synthetic"}"#,
+            r#"{"data":{"text":""},"result":"synthetic"}"#,
+            r#"{"data":[""],"translation":{"text":"synthetic"}}"#,
+            r#"{"data":[{"text":""}],"translations":[{"text":"synthetic"}]}"#,
+            r#"{"data":"","translation":"","result":"","translations":["synthetic"]}"#,
+        ] {
+            assert_eq!(
+                parse_translation_response(response).as_deref(),
+                Some("synthetic")
+            );
+        }
+        for response in [
+            r#"{"data":""}"#,
+            r#"{"translations":[{"text":""}]}"#,
+            r#"{"data":["","synthetic"]}"#,
+            r#"{"code":500,"data":"","translation":"synthetic"}"#,
+        ] {
+            assert!(parse_translation_response(response).is_none());
+        }
+        assert_eq!(
+            parse_translation_response(r#"{"data":"first","translation":"second"}"#).as_deref(),
+            Some("first")
+        );
+    }
+
+    #[test]
     fn translates_batch_with_deeplx_contract() {
         use std::io::{BufRead, BufReader, Write};
         use std::net::TcpListener;
@@ -481,7 +513,7 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("authorization: bearer test-key"));
             assert!(request.contains("source_lang\":\"EN\""));
-            let body = r#"{"data":"你好"}"#;
+            let body = r#"{"data":"","translation":"你好"}"#;
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
