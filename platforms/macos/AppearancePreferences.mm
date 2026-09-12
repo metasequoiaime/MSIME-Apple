@@ -31,6 +31,8 @@ static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
+static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
+static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
 static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
 static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"]; }
@@ -53,6 +55,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
     NSNumber *_sharedAutocorrect;
+    id _sharedTransposition;
+    id _sharedNeighbor;
     NSNumber *_sharedQuanpinHelpcode;
     NSNumber *_sharedShuangpinHelpcode;
     NSNumber *_sharedVertical;
@@ -85,7 +89,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_wubiButton;
     NSButton *_punctuationButton;
     NSButton *_toolbarButton;
-    NSButton *_autocorrectButton;
+    NSButton *_transpositionButton;
+    NSButton *_neighborButton;
     NSButton *_quanpinHelpcodeButton;
     NSButton *_shuangpinHelpcodeButton;
 }
@@ -134,6 +139,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"candidate_font_size"] = @(self.fontSize);
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"autocorrect"] = @(self.autocorrect);
+    NSMutableDictionary *quanpin = [merged[@"quanpin"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (LocalModeBoolean([_defaults objectForKey:TranspositionKey]))
+        quanpin[@"autocorrect_transposition"] = _sharedTransposition ?: @(self.autocorrectTransposition);
+    if (LocalModeBoolean([_defaults objectForKey:NeighborKey]))
+        quanpin[@"autocorrect_neighbor"] = _sharedNeighbor ?: @(self.autocorrectNeighbor);
+    if (quanpin.count) merged[@"quanpin"] = quanpin;
     NSMutableDictionary *voice = [merged[@"voice_input"] mutableCopy] ?: [NSMutableDictionary dictionary];
     NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"];
     if ([language isEqualToString:@"zh-CN"] || [language isEqualToString:@"en-US"]) voice[@"language"] = language;
@@ -199,6 +210,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
+- (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : self.autocorrect; }
+- (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : self.autocorrect; }
+- (void)setAutocorrectTransposition:(BOOL)value { _sharedTransposition = nil; [_defaults setBool:value forKey:TranspositionKey]; [self preferencesChanged]; }
+- (void)setAutocorrectNeighbor:(BOOL)value { _sharedNeighbor = nil; [_defaults setBool:value forKey:NeighborKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
 - (void)setHelpcodeEnabled:(BOOL)value {
     _sharedQuanpinHelpcode = nil;
@@ -218,6 +233,16 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id quanpin = preferences[@"quanpin_helpcode"];
     id shuangpin = preferences[@"shuangpin_helpcode"];
     if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
+    id correction = preferences[@"quanpin"];
+    if (!correction && LocalModeBoolean(autocorrect)) correction = @{};
+    if ([correction isKindOfClass:NSDictionary.class]) {
+        id transposition = correction[@"autocorrect_transposition"];
+        id neighbor = correction[@"autocorrect_neighbor"];
+        // Missing optional fields inherit the legacy default, including when
+        // a new shared snapshot removes a previously explicit override.
+        if (!transposition || transposition == NSNull.null || LocalModeBoolean(transposition)) _sharedTransposition = transposition ?: NSNull.null;
+        if (!neighbor || neighbor == NSNull.null || LocalModeBoolean(neighbor)) _sharedNeighbor = neighbor ?: NSNull.null;
+    }
     if ([quanpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(quanpin[@"enabled"])) _sharedQuanpinHelpcode = quanpin[@"enabled"];
     if ([shuangpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(shuangpin[@"enabled"])) _sharedShuangpinHelpcode = shuangpin[@"enabled"];
     if (!_sharedHelpcodeOptions) _sharedHelpcodeOptions = [NSMutableDictionary dictionary];
@@ -381,7 +406,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-    _autocorrectButton.state = self.autocorrect ? NSControlStateValueOn : NSControlStateValueOff;
+    _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
+    _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
     _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinHelpcodeButton.state = self.shuangpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSButton *button in _localModeButtons)
@@ -466,7 +492,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
-    _autocorrectButton = [NSButton checkboxWithTitle:@"自动纠错" target:self action:@selector(autocorrectChanged:)];
+    _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
+    _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
     _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
     _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
@@ -486,7 +513,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
-        @[[NSTextField labelWithString:@"输入辅助"], _autocorrectButton],
+        @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
+        @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
         @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
         @[[NSTextField labelWithString:@"双拼辅助码"], _shuangpinHelpcodeButton]
     ]];
@@ -564,7 +592,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [window center];
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
-- (void)autocorrectChanged:(NSButton *)sender { self.autocorrect = sender.state == NSControlStateValueOn; }
+- (void)transpositionChanged:(NSButton *)sender { self.autocorrectTransposition = sender.state == NSControlStateValueOn; }
+- (void)neighborChanged:(NSButton *)sender { self.autocorrectNeighbor = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }

@@ -259,7 +259,7 @@ static void TestIndependentAssistancePreferences() {
     [controller setValue:prefs forKey:@"appearance"];
     NSButton *quanpin = (id)PreferenceControl(prefs, @selector(quanpinHelpcodeChanged:));
     NSButton *shuangpin = (id)PreferenceControl(prefs, @selector(shuangpinHelpcodeChanged:));
-    NSButton *autocorrect = (id)PreferenceControl(prefs, @selector(autocorrectChanged:));
+    NSButton *autocorrect = (id)PreferenceControl(prefs, @selector(transpositionChanged:));
     __block NSUInteger saves = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
     NSDictionary *shared = @{@"autocorrect": @NO, @"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
@@ -274,8 +274,7 @@ static void TestIndependentAssistancePreferences() {
     assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 1);
     shuangpin.state = NSControlStateValueOn;
     [NSApp sendAction:shuangpin.action to:shuangpin.target from:shuangpin];
-    autocorrect.state = NSControlStateValueOn;
-    [NSApp sendAction:autocorrect.action to:autocorrect.target from:autocorrect];
+    prefs.autocorrect = YES;
     assert(!prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled && prefs.autocorrect && saves == 3);
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(!reopened.quanpinHelpcodeEnabled && reopened.shuangpinHelpcodeEnabled && reopened.autocorrect);
@@ -322,6 +321,24 @@ static void TestIndependentAssistancePreferences() {
     assert(saves == beforeRefresh);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
+    NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
+    [prefs applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
+    assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
+    assert(prefs.autocorrectTransposition && !prefs.autocorrectNeighbor);
+    autocorrect.state = NSControlStateValueOff;
+    [NSApp sendAction:autocorrect.action to:autocorrect.target from:autocorrect];
+    neighbor.state = NSControlStateValueOn;
+    [NSApp sendAction:neighbor.action to:neighbor.target from:neighbor];
+    MSIMEAppearancePreferences *correctionRestored = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!correctionRestored.autocorrectTransposition && correctionRestored.autocorrectNeighbor);
+    NSDictionary *correctionMerged = [prefs sharedPreferencesByMerging:@{@"quanpin": @{@"future": @7}}][@"quanpin"];
+    assert([correctionMerged[@"autocorrect_transposition"] isEqual:@NO] && [correctionMerged[@"autocorrect_neighbor"] isEqual:@YES] && [correctionMerged[@"future"] isEqual:@7]);
+    NSUInteger beforeCorrectionRefresh = saves;
+    [prefs applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{}}];
+    assert(!prefs.autocorrectTransposition && !prefs.autocorrectNeighbor && saves == beforeCorrectionRefresh);
+    assert([prefs sharedPreferencesByMerging:@{}][@"quanpin"][@"autocorrect_neighbor"] == NSNull.null);
+    [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_neighbor": @1}}];
+    assert(!prefs.autocorrectNeighbor);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     [defaults removePersistentDomainForName:suite];
 }
