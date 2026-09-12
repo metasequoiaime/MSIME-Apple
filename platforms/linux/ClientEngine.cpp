@@ -3121,6 +3121,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
+    const bool ordinary_candidate_digit =
+        !s.english_mode && s.view.value("local_mode", "none") == "none" &&
+        !s.view.value("nine_key", false) && !s.view.at("candidates").empty() &&
+        ((key >= IBUS_0 && key <= IBUS_9) ||
+         (key >= IBUS_KP_0 && key <= IBUS_KP_9));
+    if (ordinary_candidate_digit &&
+        (!s.number_row_selection || modifiers != 0)) {
+      // The shared runtime's character action has a legacy numeric fallback
+      // that selects candidates. Keep that fallback behind the Linux host
+      // toggle, and never turn shifted digits into candidate selection.
+      return;
+    }
     if (const auto keypad = keypad_punctuation(key)) {
       const auto &editing_text = s.view.at("editing_text").get<std::string>();
       const auto &candidates = s.view.at("candidates");
