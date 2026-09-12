@@ -45,7 +45,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 use serde_json::{json, Value};
 #[cfg(unix)]
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
@@ -472,6 +472,57 @@ pub struct UnixSocketProvider {
     path: PathBuf,
 }
 
+// One-shot panel providers have a fixed transfer deadline, including writes.
+// Check the response envelope before appending bytes, not after allocating it.
+#[cfg(unix)]
+fn exchange_panel_request(
+    stream: &mut UnixStream,
+    request: &str,
+    response_limit: usize,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    let deadline = std::time::Instant::now() + timeout;
+    for mut bytes in [request.as_bytes(), b"\n".as_slice()] {
+        while !bytes.is_empty() {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_write_timeout(Some(remaining)).ok()?;
+            match stream.write(bytes) {
+                Ok(0) => return None,
+                Ok(count) => bytes = &bytes[count..],
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return None,
+            }
+        }
+    }
+    let mut bytes = Vec::new();
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        stream.set_read_timeout(Some(remaining)).ok()?;
+        let mut chunk = [0_u8; 1024];
+        let count = match stream.read(&mut chunk) {
+            Ok(0) => return String::from_utf8(bytes).ok(),
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+        let consumed = end.map_or(count, |index| index + 1);
+        if bytes.len() + consumed > response_limit {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk[..consumed]);
+        if end.is_some() {
+            return String::from_utf8(bytes).ok();
+        }
+    }
+}
+
 // Retain incomplete UTF-8/JSON lines across polling timeouts. Bound the
 // buffer while reading, rather than after read_line has allocated the payload.
 #[cfg(unix)]
@@ -693,19 +744,17 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
-            .ok()?;
         let request = json!({"version": 1, "kind": "handwriting", "query": query}).to_string();
-        if request.len() > 262_144
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
-        {
+        if request.len() > 262_144 {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let line = exchange_panel_request(
+            &mut stream,
+            &request,
+            524_288,
+            std::time::Duration::from_millis(500),
+        )?;
         #[derive(Deserialize)]
         struct Reply {
             candidates: Vec<String>,
@@ -731,19 +780,17 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
-            .ok()?;
         let request = json!({"version": 1, "kind": "emoji", "query": query}).to_string();
-        if request.len() > 16_384
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
-        {
+        if request.len() > 16_384 {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let line = exchange_panel_request(
+            &mut stream,
+            &request,
+            262_144,
+            std::time::Duration::from_millis(500),
+        )?;
         #[derive(Deserialize)]
         struct Reply {
             items: Vec<EmojiPanelItem>,
@@ -939,17 +986,12 @@ impl UnixSocketProvider {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-            .ok()?;
-        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
-            return None;
-        }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
-        if line.len() > 65_536 {
-            return None;
-        }
+        let line = exchange_panel_request(
+            &mut stream,
+            &encoded,
+            65_536,
+            std::time::Duration::from_secs(30),
+        )?;
         let response = serde_json::from_str::<Value>(&line).ok()?;
         response.is_object().then_some(response)
     }
@@ -967,17 +1009,12 @@ impl UnixSocketProvider {
             return None;
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-            .ok()?;
-        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
-            return None;
-        }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
-        if line.len() > 65_536 {
-            return None;
-        }
+        let line = exchange_panel_request(
+            &mut stream,
+            &encoded,
+            65_536,
+            std::time::Duration::from_secs(30),
+        )?;
         let response = serde_json::from_str::<Value>(&line).ok()?;
         response.is_object().then_some(response)
     }
