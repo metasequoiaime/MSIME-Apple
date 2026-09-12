@@ -4377,7 +4377,12 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
     s.surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
     focus_in(engine);
   };
-  engine->focus_out_id = [](IBusEngine *engine, const gchar *) { focus_out(engine); };
+  engine->focus_out_id = [](IBusEngine *engine, const gchar *context) {
+    const auto &current = state(engine).focused_context;
+    if (!current.empty() && current != (context ? context : ""))
+      return;
+    focus_out(engine);
+  };
 #endif
   engine->disable = focus_out;
   engine->reset = reset;

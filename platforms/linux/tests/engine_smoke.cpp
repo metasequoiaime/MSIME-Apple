@@ -258,6 +258,19 @@ int main(int argc, char **argv) {
     invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/context2", "msime-test"));
     require(!seen.preedit_visible && !seen.lookup_visible && !key(IBUS_Return),
             "Different context retained old composition");
+    phrase();
+    invoke("FocusOutId", g_variant_new("(s)", "/app/msime/test/context1"));
+    require(seen.preedit_visible && seen.preedit == "nihao" && key('x'),
+            "Old context focus loss cancelled the active context");
+    invoke("FocusOutId", g_variant_new("(s)", "/app/msime/test/context2"));
+    require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
+            "Current context focus loss did not stop input");
+    invoke("FocusIn");
+    phrase();
+    invoke("FocusOutId", g_variant_new("(s)", "/app/msime/test/legacy"));
+    require(!seen.preedit_visible && !key('n'),
+            "Focus loss without a known context identity did not stop input");
+    invoke("FocusIn");
 #endif
     invoke("Reset");
     invoke("PropertyActivate",
