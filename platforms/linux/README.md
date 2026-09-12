@@ -452,3 +452,5 @@ X11 屏幕键盘及工具面板的 Ctrl+V 先通过 `windowactivate --sync` 激�
 X11 工具面板的单行文本提交也使用激活目标后的 XTEST 输入，文本经匿名管道送入 `xdotool type --file -`，不放进命令行或临时文件。激活、管道写入和输入共用 3 秒期限；超时终止并回收工具，不自动重放可能部分提交的文本。换行/制表符文本保留剪贴板粘贴路径。依据 [xdotool type 官方实现](https://raw.githubusercontent.com/jordansissel/xdotool/master/cmd_type.c)。
 
 Wayland 单行文本通过匿名管道传给 `wtype -` 或 `ydotool type --file -`，不进入进程参数。wtype 发送限时 3 秒；ydotool 为默认按键保持时间预留每个 ASCII 字符 30 毫秒并加 3 秒余量。超时终止并回收工具，不自动重发。Sway 先切回原目标；多行文本和 ydotool 非 ASCII 文本保留剪贴板粘贴。接口依据 [wtype](https://raw.githubusercontent.com/atx/wtype/master/README.md) 和 [ydotool](https://raw.githubusercontent.com/ReimuNotMoe/ydotool/master/manpage/ydotool.1.scd) 官方说明。
+
+Sway 面板输入在发送前解析窗口切换命令的成功回复，并读取窗口树确认原目标已获得焦点；目标关闭、切换失败或焦点不匹配时停止发送。命令等待限时 2 秒，焦点读取限时 1 秒，回复均有大小限制且不写入日志。wtype 按键发送也设置 3 秒期限，失败不自动重放。协议依据 [Sway IPC 官方说明](https://raw.githubusercontent.com/swaywm/sway/master/sway/sway-ipc.7.scd)。

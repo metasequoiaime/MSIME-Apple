@@ -1144,17 +1144,34 @@ fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn focus_wtype_target(target: &PanelInputTarget) -> Result<(), HostActionError> {
     if let PanelInputTarget::Sway(id) = target {
-        let id = id.to_string();
-        let status = std::process::Command::new("swaymsg")
-            .arg(format!("[con_id={id}] focus"))
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        if !status.success() {
-            return Err(HostActionError {
-                code: "unavailable",
-            });
+        let command = format!("[con_id={id}] focus");
+        let reply = linux_process::read_text(
+            "swaymsg",
+            &["-r", &command],
+            4096,
+            std::time::Duration::from_secs(2),
+        )
+        .ok_or(HostActionError { code: "unavailable" })?;
+        let results: Vec<serde_json::Value> = serde_json::from_str(&reply)
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        if results.is_empty() || results.iter().any(|result| {
+            result.get("success").and_then(serde_json::Value::as_bool) != Some(true)
+        }) {
+            return Err(HostActionError { code: "unavailable" });
+        }
+        // A successful command is insufficient when the window disappeared or
+        // focus changed. Confirm the actual destination before virtual input.
+        let tree = linux_process::read_text(
+            "swaymsg",
+            &["-t", "get_tree", "-r"],
+            1024 * 1024,
+            std::time::Duration::from_secs(1),
+        )
+        .ok_or(HostActionError { code: "unavailable" })?;
+        let tree: serde_json::Value = serde_json::from_str(&tree)
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        if focused_sway_container(&tree) != Some(*id) {
+            return Err(HostActionError { code: "unavailable" });
         }
     }
     Ok(())
@@ -1166,17 +1183,15 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
         return run_ydotool(args);
     }
     focus_wtype_target(target)?;
-    std::process::Command::new("wtype")
-        .args(args)
-        .status()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .success()
-        .then_some(())
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })
+    let arguments: Vec<&str> = args.iter().map(String::as_str).collect();
+    linux_process::read_text(
+        "wtype",
+        &arguments,
+        64,
+        std::time::Duration::from_secs(3),
+    )
+    .map(|_| ())
+    .ok_or(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
