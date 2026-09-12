@@ -72,6 +72,15 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 该标签涵盖历史适配与观察、采样过滤、监听重试与取消、单服务生命周期、行/提示像素、窗口释放、复制与最近记录、开启设置的保留语义。测试仅使用合成回调和独立命名的剪贴板，不启动输入法、不访问系统通用剪贴板或真实历史。Swift 测试以当前构建主机架构和配置的最低 macOS 版本编译，显式保持断言开启；每项有 30 秒超时。这不替代安装后的输入法与真实桌面交互验证。
 
+表情首页与颜文字流式布局同样提供独立的本地测试：
+
+```sh
+cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build --parallel
+ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
+```
+
+首页预览和完整颜文字目录共用文本测量、按宽度换行和长文本缩字逻辑，键盘上下移动使用同一布局的行号及横向中心。间距、留白、最小宽度、字号边界和换行容差以 Windows 固定提交 `04a8df56f86312474a069f4335a1b58da7afaa9e` 为准，应用其 2/3 面板比例；字体测量使用 macOS 系统字体，不声称与 Windows 字体逐像素一致。测试覆盖合成文本的换行、缩字、窄宽度边界、不同宽度下首页导航与流式导航一致性，以及 SwiftUI 原生渲染的尺寸与选中背景像素；不读取真实输入或剪贴板，也不代表安装后的 IMK 交互验证。
+
 Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键提供减号/等号（默认）、方括号、Page Up/Page Down 三种设置。字符键仅在候选可见且无 Shift/Command/Control/Option 时按所选键组翻页；未匹配或有 Shift 时将实际字符交给 Engine。Page Up/Page Down 在三种设置下均有效，与 Apple 路由一致。设置保存在新宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
 
 迁移对照固定为 MSIME-Apple 远端默认分支 develop 的提交 `b637828e15eafcb5e459edd270a962dd14517285`。Command、Control、Option 快捷键沿用其 `MetasequoiaInputController.mm` 行为：先通过 Engine finish 提交当前高亮对应组合，再放行快捷键。原生控制器测试覆盖三个修饰键的分派、提交、清空预编辑和返回未处理；使用替身会话，不代表系统安装后的端到端验收。

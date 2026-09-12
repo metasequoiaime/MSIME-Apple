@@ -14,17 +14,20 @@ struct MacEmojiHomeEntry {
 }
 
 enum MacEmojiHomeNavigation {
-  static func entries(_ sections: [MacEmojiHomeSection]) -> [MacEmojiHomeEntry] {
+  static func entries(_ sections: [MacEmojiHomeSection], flowCells: [MacEmojiFlowCell]) -> [MacEmojiHomeEntry] {
     var result: [MacEmojiHomeEntry] = []
     var row = 0
     for section in sections {
-      let columns = section.category == "kaomoji" ? 5 : 6
+      let flow = section.category == "kaomoji"
+      let columns = 6
       for (index, item) in section.items.enumerated() {
+        if flow && !flowCells.indices.contains(index) { continue }
         result.append(MacEmojiHomeEntry(
           key: MacEmojiHomeKey(category: section.category, text: item.text, group: item.group),
-          item: item, row: row + index / columns, center: (Double(index % columns) + 0.5) / Double(columns)))
+          item: item, row: row + (flow ? flowCells[index].row : index / columns),
+          center: flow ? Double(flowCells[index].rect.midX) : (Double(index % columns) + 0.5) / Double(columns)))
       }
-      row += (section.items.count + columns - 1) / columns
+      row += flow ? (flowCells.last.map { $0.row + 1 } ?? 0) : (section.items.count + columns - 1) / columns
     }
     return result
   }
@@ -47,7 +50,6 @@ enum MacEmojiHomeNavigation {
         return entries[max(0, min(entries.count - 1, index + (command == .up ? -6 : 6)))]
       }
       // Preserve flow navigation's section boundary and nearest horizontal center.
-      // Centers currently describe the native five-column grid, not variable-width flow.
       let nextRow = current.row + (command == .up ? -1 : 1)
       return entries.filter { $0.key.category == current.key.category && $0.row == nextRow }.min {
         abs($0.center - current.center) < abs($1.center - current.center)

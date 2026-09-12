@@ -11,7 +11,7 @@ struct MacEmojiView: View {
   }
   @State private var search = ""
   @State private var category = "home"
-  private var usesWideCells: Bool { category == "kaomoji" || category == "recent" || category == "clipboard" }
+  private var usesWideCells: Bool { category == "recent" || category == "clipboard" }
   private var columns: Int { category == "clipboard" ? 1 : usesWideCells ? 3 : 8 }
   @State private var group = ""
   @State private var parent = ""
@@ -155,17 +155,28 @@ struct MacEmojiView: View {
         Button("下一页") { offset += 255 }
           .disabled(category == "recent" || category == "clipboard" || loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
       }
+      GeometryReader { geometry in
+      let flowWidth = max(0, geometry.size.width - 16)
+      let flowItems = loadedQuery == queryID && category == "kaomoji" ? items : []
+      let flowCells = MacEmojiFlow.cells(texts: flowItems.map(\.text), width: flowWidth)
       ScrollViewReader { proxy in
         VStack(spacing: 4) {
           MacEmojiKeyboardEntry(enabled: loadedQuery == queryID && !items.isEmpty) { command in
             if command == .activate && !items.indices.contains(selectedIndex) { return }
             guard loadedQuery == queryID,
-                  let index = command.destination(from: selectedIndex, count: items.count, columns: columns) else { return }
+                  let index = category == "kaomoji" && (command == .up || command == .down)
+                    ? MacEmojiFlow.vertical(from: selectedIndex, direction: command == .up ? -1 : 1, cells: flowCells)
+                    : command.destination(from: selectedIndex, count: items.count, columns: columns) else { return }
             selectedIndex = index
             proxy.scrollTo(index)
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           ScrollView {
+            if category == "kaomoji" {
+              MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
+                selected: { selectedIndex == $0 }, identity: { $0 },
+                copy: { selectedIndex = $0; copyItem(flowItems[$0]) })
+            } else {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: category == "clipboard" ? MacClipboardPreview.gap : 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
                 if category == "clipboard" {
@@ -183,8 +194,10 @@ struct MacEmojiView: View {
                 }
               }
             }
+            }
           }
         }
+      }
       }
       .overlayPreferenceValue(MacClipboardTooltipPreference.self) { anchors in
         MacClipboardTooltipOverlay(anchors: anchors, light: palette.background == 0xF7F7FA)

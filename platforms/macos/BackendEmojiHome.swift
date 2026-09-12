@@ -61,7 +61,8 @@ struct MacEmojiHomeView: View {
     return recentSection + (loaded == [resources, search] ? sections : [])
   }
 
-  private func section(_ title: String, category: String, items: [MacEmojiCatalogItem], showMore: Bool) -> some View {
+  private func section(_ title: String, category: String, items: [MacEmojiCatalogItem], showMore: Bool,
+    width: CGFloat, flowCells: [MacEmojiFlowCell]) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text(title).font(.headline)
@@ -69,25 +70,38 @@ struct MacEmojiHomeView: View {
         if showMore { Button("更多") { more(category) }.accessibilityLabel("更多\(title)") }
       }
       if items.isEmpty { Text("没有匹配项").font(.caption) }
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 5 : 6), spacing: 8) {
+      if category == "kaomoji" {
+        MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
+          selected: { selected == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          copy: { index in
+            selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
+            copy(items[index])
+          })
+      } else {
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
           let key = MacEmojiHomeKey(category: category, text: item.text, group: item.group)
           Button(item.text) { selected = key; copy(item) }
-            .font(category == "kaomoji" ? .body : .title2)
+            .font(.title2)
             .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selected == key))
             .id(key)
             .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
             .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
         }
       }
+      }
     }
   }
 
   var body: some View {
+    GeometryReader { geometry in
+    let width = max(0, geometry.size.width - 16)
+    let flowCells = MacEmojiFlow.cells(texts: visibleSections.first { $0.category == "kaomoji" }?.items.map(\.text) ?? [], width: width)
     ScrollViewReader { proxy in
       VStack(spacing: 4) {
         MacEmojiKeyboardEntry(enabled: !visibleSections.allSatisfy { $0.items.isEmpty }) { command in
-          let entries = MacEmojiHomeNavigation.entries(visibleSections)
+          let entries = MacEmojiHomeNavigation.entries(visibleSections, flowCells: flowCells)
           guard let entry = MacEmojiHomeNavigation.destination(command, selected: selected, entries: entries) else { return }
           selected = entry.key
           proxy.scrollTo(entry.key)
@@ -95,15 +109,16 @@ struct MacEmojiHomeView: View {
         }.frame(height: 24)
         ScrollView {
           VStack(alignment: .leading, spacing: 20) {
-            if !recent.isEmpty { section("最近使用", category: "recent", items: recent, showMore: false) }
+            if !recent.isEmpty { section("最近使用", category: "recent", items: recent, showMore: false, width: width, flowCells: []) }
             if loaded == [resources, search] {
-              ForEach(sections, id: \.category) { section($0.title, category: $0.category, items: $0.items, showMore: true) }
+              ForEach(sections, id: \.category) { section($0.title, category: $0.category, items: $0.items, showMore: true, width: width, flowCells: flowCells) }
             } else {
               Text(failed ? "首页目录加载失败，请切换目录重试" : "正在加载首页…").font(.caption)
             }
-          }
+          }.frame(width: width, alignment: .leading)
         }
       }
+    }
     }.task(id: [resources, search]) {
       selected = nil
       loaded = []; sections = []; failed = false
