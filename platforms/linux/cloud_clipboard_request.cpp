@@ -7,6 +7,10 @@
 #include <string>
 
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-cloud-clipboard <provider-socket>\n";
+    return 0;
+  }
   if (argc != 2 || argv[1][0] != '/')
     return 2;
   std::array<char, 65537> buffer;

@@ -17,6 +17,10 @@ void print_stream_update(const uint8_t *text, size_t length, bool final,
 }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-voice [--stream] <provider-socket>\n";
+    return 0;
+  }
   const bool stream = argc == 3 && std::string(argv[1]) == "--stream";
   const int socket_argument = stream ? 2 : 1;
   if ((stream ? argc != 3 : argc != 2) || argv[socket_argument][0] != '/')
