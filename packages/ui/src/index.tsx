@@ -542,6 +542,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const themeMode = draft?.theme ?? "dark";
   const settingsTheme = draft?.settings_theme ?? "follow";
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
+  useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
@@ -669,22 +670,22 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="skin-grid">
           {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
             <div className="skin-card-header">
-              <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? "dark") === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
+              <div className="skin-card-body"><span className="skin-card-title">{title} ({(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark" ? "Dark" : "Light"})</span><span className="skin-card-description">{description}</span></div>
               <div className="skin-card-actions">
                 <button type="button" role="switch" aria-label={title} aria-checked={(draft.candidate_skin ?? "fluent") === id} className="skin-selection-switch" onClick={() => setDraft({ ...draft, candidate_skin: id })}><span /></button>
-                <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? "dark") === "dark" ? "light" : "dark" }))}>
-                  {(skinPreviewThemes[id] ?? "dark") === "dark" ? "预览浅色" : "预览深色"}
+                <button type="button" className="skin-preview-switch" onClick={() => setSkinPreviewThemes(current => ({ ...current, [id]: (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark" }))}>
+                  {(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark" ? "预览浅色" : "预览深色"}
                 </button>
               </div>
             </div>
-            <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? "dark"} aria-hidden="true">
+            <div className={`skin-card-preview skin-${id}`} data-preview-theme={skinPreviewThemes[id] ?? candidatePreviewTheme} aria-hidden="true">
               <div className="skin-preview-stage"><SkinCandidatePreview orientation="horizontal" /></div>
               <div className="skin-preview-stage"><SkinCandidatePreview orientation="vertical" /></div>
               <div className="skin-preview-stage"><SkinToolbarPreview /></div>
             </div>
           </article>)}
         </div>
-        <ExternalSkins scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} readImage={client.readSkinImage} readFont={client.readSkinFont} readToolbarCss={client.readSkinToolbarCss} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
+        <ExternalSkins activeTheme={candidatePreviewTheme} scan={client.scanSkinCatalog} openDirectory={client.openSkinDirectory} readImage={client.readSkinImage} readFont={client.readSkinFont} readToolbarCss={client.readSkinToolbarCss} selected={draft.candidate_skin ?? "fluent"} layout={draft.candidate_layout ?? "vertical"} onSelect={id => setDraft({ ...draft, candidate_skin: id })} />
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
         <div className="section floating-toolbar-card">

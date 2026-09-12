@@ -321,6 +321,49 @@ test("external selection enters the revisioned draft; preview toggles never save
   expect(save).toHaveBeenCalledWith(3, expect.objectContaining({ candidate_skin: "sample" }));
 });
 
+test("light-only skin compatibility follows actual theme, not card override", async () => {
+  const scan = vi.fn().mockResolvedValue({ ...catalog, packages: [{ ...catalog.packages[0], themes: ["light"] }] });
+  const onSelect = vi.fn();
+  const view = render(<ExternalSkins {...props} onSelect={onSelect} scan={scan} activeTheme="dark" />);
+  refresh();
+  const toggle = await screen.findByRole("switch");
+  expect((toggle as HTMLButtonElement).disabled).toBe(true);
+  view.rerender(<ExternalSkins {...props} onSelect={onSelect} scan={scan} activeTheme="light" />);
+  expect((toggle as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "预览深色" }));
+  expect((toggle as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(toggle);
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith("sample");
+  view.rerender(<ExternalSkins {...props} onSelect={onSelect} scan={scan} activeTheme="dark" />);
+  expect((toggle as HTMLButtonElement).disabled).toBe(true);
+  expect(view.container.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+  expect(scan).toHaveBeenCalledTimes(1);
+});
+
+test("settings synchronize all cards and reset local overrides on candidate theme changes", async () => {
+  const save = vi.fn(), scan = vi.fn().mockResolvedValue(catalog);
+  render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
+  await screen.findByLabelText("全局主题");
+  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  refresh();
+  await screen.findByRole("article", { name: "Sample skin" });
+  const cards = screen.getAllByRole("article");
+  expect(cards).toHaveLength(5);
+  for (const card of cards) {
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+    fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
+  }
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "dark" } });
+  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  for (const card of cards) expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+  expect(scan).toHaveBeenCalledTimes(1);
+  expect(save).not.toHaveBeenCalled();
+});
+
 test("manifest compatibility follows actual layout and dark host theme, not preview override", async () => {
   const onSelect = vi.fn();
   const mounted = render(<ExternalSkins {...props} onSelect={onSelect} scan={async () => catalog} layout="vertical" />);
