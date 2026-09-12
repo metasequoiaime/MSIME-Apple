@@ -954,24 +954,29 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 fn panel_position(state: &PanelInputState, width: f64, _height: f64) -> Option<tauri::Position> {
     let target = state.0.lock().ok()?.clone()?;
     let physical = matches!(&target, PanelInputTarget::X11(_));
+    let read = |program: &str, arguments: &[&str], limit: usize| {
+        linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
+    };
     let rect = match target {
-        PanelInputTarget::X11(window) => std::process::Command::new("xdotool")
-            .args(["getwindowgeometry", "--shell", window.as_str()])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| parse_xdotool_geometry(&String::from_utf8_lossy(&output.stdout))),
-        PanelInputTarget::Sway(id) => std::process::Command::new("swaymsg")
-            .args(["-t", "get_tree", "-r"])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+        PanelInputTarget::X11(window) => read(
+            "xdotool", &["getwindowgeometry", "--shell", window.as_str()], 4096,
+        )
+            .and_then(|output| parse_xdotool_geometry(&output)),
+        PanelInputTarget::Sway(id) => read("swaymsg", &["-t", "get_tree", "-r"], 1024 * 1024)
+            .and_then(|output| serde_json::from_str::<serde_json::Value>(&output).ok())
             .and_then(|tree| sway_rect_for_container(&tree, id)),
         PanelInputTarget::Wayland | PanelInputTarget::Ydotool => None,
     }?;
+    if ![rect.0, rect.1, rect.2, rect.3].iter().all(|value| value.is_finite())
+        || rect.2 <= 0.0 || rect.3 <= 0.0
+    {
+        return None;
+    }
     let x = rect.0 + (rect.2 - width) / 2.0;
     let y = rect.1 + rect.3 + 16.0;
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
     Some(if physical {
         tauri::Position::Physical(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32))
     } else {
