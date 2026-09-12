@@ -637,6 +637,25 @@ struct HostActionError {
     code: &'static str,
 }
 
+#[tauri::command]
+fn restart_input_method() -> Result<(), HostActionError> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return Err(HostActionError { code: "unavailable" });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::process::Command::new("ibus")
+            .arg("restart")
+            .status()
+            .map_err(|_| HostActionError { code: "unavailable" })?;
+        status
+            .success()
+            .then_some(())
+            .ok_or(HostActionError { code: "unavailable" })
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
     if value.get("focused").and_then(serde_json::Value::as_bool) == Some(true) {
@@ -2456,7 +2475,8 @@ pub fn run() {
             dictionary_request,
             cloud_clipboard_request,
             cloud_dictionary_request,
-            load_emoji_catalog
+            load_emoji_catalog,
+            restart_input_method
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
