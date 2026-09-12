@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2186,7 +2186,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ShuangpinProfile", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("双拼方案"), "",
       ibus_text_new_from_static_string("选择双拼键位方案"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto profile_menu = ibus_prop_list_new();
   const auto configured_profile = s.shuangpin_profile_override.value_or(
       configured.at("preferences").value("shuangpin_profile", "xiaohe"));
@@ -2197,7 +2197,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("ShuangpinProfile/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("切换双拼键位方案"), TRUE, TRUE,
+        ibus_text_new_from_static_string("切换双拼键位方案"), !menu_save_pending, TRUE,
         configured_profile == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_prop_list_append(profile_menu, item);
@@ -3333,6 +3333,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name.rfind("ShuangpinProfile/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED || menu_save_pending) return;
       const auto selected = property_name.substr(std::string("ShuangpinProfile/").size());
       if (selected != "xiaohe" && selected != "ziranma" && selected != "shoudao" &&
           selected != "microsoft")
@@ -3340,6 +3341,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.shuangpin_profile_override.value_or(
               configured.at("preferences").value("shuangpin_profile", "xiaohe")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::ShuangpinProfile, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4862,6 +4868,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           if (request.preference == MenuPreference::ShuangpinHelpcodeSchema &&
               self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "shuangpin")
             self->state->helpcode_schema_override.reset();
+          if (request.preference == MenuPreference::ShuangpinProfile)
+            self->state->shuangpin_profile_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4936,6 +4944,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::ShuangpinHelpcodeSchema:
             snapshot["preferences"]["shuangpin_helpcode"]["schema"] = request.value;
+            break;
+          case MenuPreference::ShuangpinProfile:
+            snapshot["preferences"]["shuangpin_profile"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
