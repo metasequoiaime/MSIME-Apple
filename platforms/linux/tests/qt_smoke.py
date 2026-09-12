@@ -94,6 +94,15 @@ end = time.monotonic() + 0.3
 while time.monotonic() < end:
     pump()
     time.sleep(0.01)
+if os.environ.get("MSIME_TEST_INITIAL_FOCUS") == "1":
+    first.setText("😀a尾")
+    first.setCursorPosition(3)  # Qt positions count the emoji's UTF-16 pair.
+    pump()
+    keys("period")
+    wait(lambda: first.text() == "😀a.尾",
+         "Initial Qt focus did not identify UTF-16 document positions")
+    first.setText("")
+    print(f"{qt_version} initial-focus Unicode document acceptance passed")
 keys("n", "i", "h", "a", "o")
 wait(lambda: bool(first.preedit), "Qt did not receive composition preedit")
 assert first.text() == "", "Qt committed spelling before selection"
@@ -158,19 +167,20 @@ password.setFocus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.text() == "nihao ", "Qt password input was intercepted by the IME")
-# IBus 1.5.27 negotiates FocusId asynchronously without replaying the first
-# focus. Exercise the identified-client path after a separate context transfer.
-other_context = bus.create_input_context("msime-test-context-transfer")
-other_context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT)
-other_context.focus_in()
-end = time.monotonic() + 0.3
-while time.monotonic() < end:
+if os.environ.get("MSIME_TEST_INITIAL_FOCUS") != "1":
+    # IBus 1.5.27 negotiates FocusId asynchronously without replaying the first
+    # focus. Exercise the identified-client path after a separate context transfer.
+    other_context = bus.create_input_context("msime-test-context-transfer")
+    other_context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT)
+    other_context.focus_in()
+    end = time.monotonic() + 0.3
+    while time.monotonic() < end:
+        pump()
+        time.sleep(0.01)
+    other_context.focus_out()
+    first.clearFocus()
+    first.setFocus()
     pump()
-    time.sleep(0.01)
-other_context.focus_out()
-first.clearFocus()
-first.setFocus()
-pump()
 
 from surrounding_text import check_surrounding
 

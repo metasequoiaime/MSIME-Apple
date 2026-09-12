@@ -116,6 +116,7 @@ struct State {
   uint64_t session = 0;
   Json view;
   bool focused = false;
+  std::string focused_context;
   bool blocked = false;
   bool private_input = false;
   guint preferences_timer = 0;
@@ -2566,12 +2567,16 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
+    const bool already_focused = s.focused;
+    const auto previous_session = s.session;
     s.focused = true;
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     s.open();
     watch_clipboard_history(engine);
     sync_global_input_mode(engine);
-    if (s.session)
+    // IBus may replay focus after negotiating client identity. Re-focusing
+    // the same runtime would cancel input already typed during negotiation.
+    if (s.session && (!already_focused || s.session != previous_session))
       apply(engine, msime_client_focus(s.session, s.input_enabled));
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
@@ -2586,6 +2591,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.focused_context.clear();
     s.surrounding_utf16 = false;
     s.stop_clipboard_monitor();
     s.native_compose.reset();
@@ -4362,8 +4368,13 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
 #if IBUS_CHECK_VERSION(1, 5, 27)
-  engine->focus_in_id = [](IBusEngine *engine, const gchar *, const gchar *client) {
-    state(engine).surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
+  engine->focus_in_id = [](IBusEngine *engine, const gchar *context, const gchar *client) {
+    auto &s = state(engine);
+    if (s.focused && !s.focused_context.empty() &&
+        s.focused_context != (context ? context : ""))
+      focus_out(engine);
+    s.focused_context = context ? context : "";
+    s.surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
     focus_in(engine);
   };
   engine->focus_out_id = [](IBusEngine *engine, const gchar *) { focus_out(engine); };

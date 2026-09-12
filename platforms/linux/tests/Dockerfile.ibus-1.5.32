@@ -1,0 +1,18 @@
+# Build after the base test Dockerfile; optional local modern-IBus coverage.
+ARG BASE_IMAGE=msime-client-linux-test:local
+FROM ${BASE_IMAGE}
+RUN apt-get update && apt-get install -y --no-install-recommends autoconf automake autopoint gettext libtool intltool gtk-doc-tools valac gobject-introspection libgirepository1.0-dev libgtk-3-dev libdbus-1-dev libxtst-dev iso-codes && rm -rf /var/lib/apt/lists/*
+# IBus 1.5.32 tag, fixed commit and archive digest. The source version is
+# 1.5.32-rc2; preserve it rather than relabeling the build.
+# The standalone compositor bridge is omitted; GTK/Qt IBus modules are tested.
+RUN curl -fsSL https://codeload.github.com/ibus/ibus/tar.gz/0fd4e408a52d3d15179c643fd54d310aafd8875f -o /tmp/ibus.tar.gz && \
+    echo '00ebd864f1d030350807e8bcc0f942e0e4ee30fed61ed310d25e5192d3afa725  /tmp/ibus.tar.gz' | sha256sum -c - && \
+    mkdir /tmp/ibus-source && tar -xzf /tmp/ibus.tar.gz --strip-components=1 -C /tmp/ibus-source && \
+    cd /tmp/ibus-source && NOCONFIGURE=1 ./autogen.sh && \
+    ./configure --prefix=/usr --libdir=/usr/lib/$(gcc -dumpmachine) --libexecdir=/usr/libexec \
+      --disable-gtk2 --disable-gtk4 --disable-wayland --disable-ui --disable-setup --disable-dconf \
+      --disable-appindicator --disable-libnotify --disable-emoji-dict --disable-unicode-dict \
+      --disable-tests --disable-gtk-doc --disable-python-library --disable-systemd-services && \
+    make -j4 && make install && ldconfig && \
+    rm -rf /tmp/ibus-source /tmp/ibus.tar.gz
+ENV MSIME_TEST_INITIAL_FOCUS=1

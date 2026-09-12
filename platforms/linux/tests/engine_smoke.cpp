@@ -244,6 +244,22 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
+    phrase();
+    invoke("FocusIn");
+    require(seen.preedit_visible && seen.preedit == "nihao",
+            "Repeated focus cancelled active composition");
+#if IBUS_CHECK_VERSION(1, 5, 27)
+    invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/context1", "msime-test"));
+    require(seen.preedit_visible && seen.preedit == "nihao",
+            "Delayed focus identity cancelled composition");
+    invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/context1", "msime-test"));
+    require(seen.preedit_visible && seen.preedit == "nihao",
+            "Repeated focus identity cancelled composition");
+    invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/context2", "msime-test"));
+    require(!seen.preedit_visible && !seen.lookup_visible && !key(IBUS_Return),
+            "Different context retained old composition");
+#endif
+    invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
     invoke("PropertyActivate",

@@ -30,7 +30,7 @@ commits = []
 context.connect("commit-text", lambda _context, text: commits.append(text.get_text()))
 context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.LOOKUP_TABLE)
 context.focus_in()
-context.set_engine("msime-client-preview")
+assert bus.set_global_engine("msime-client-preview"), "Global engine activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
 context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
 context.property_activate("EnglishCandidates", IBus.PropState.CHECKED)
