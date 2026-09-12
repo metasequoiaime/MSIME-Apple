@@ -219,6 +219,7 @@ struct State {
   uint64_t voice_generation = 0;
   std::string voice_preedit;
   std::string voice_phase = "正在录音…";
+  std::optional<unsigned> voice_level;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -2189,8 +2190,15 @@ void render(IBusEngine *engine, const Json &view) {
         static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)),
         !state(engine).voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
+    auto feedback = state(engine).voice_phase;
+    if (!state(engine).voice_stopping && state(engine).voice_level) {
+      feedback += "  麦克风 [";
+      for (unsigned index = 0; index < 10; ++index)
+        feedback += index < *state(engine).voice_level ? "▰" : "▱";
+      feedback += "]";
+    }
     ibus_engine_update_auxiliary_text(engine,
-        ibus_text_new_from_string(state(engine).voice_phase.c_str()), TRUE);
+        ibus_text_new_from_string(feedback.c_str()), TRUE);
     return;
   }
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
@@ -2330,11 +2338,19 @@ struct VoiceResult {
   uint64_t generation;
   std::string text;
   bool final = true;
+  unsigned level = 0;
 };
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
   std::function<void(uint8_t)> status;
+  std::function<void(float)> level;
 };
+extern "C" void voice_provider_level_update(float level, void *context) {
+  auto *stream = static_cast<VoiceStreamContext *>(context);
+  try {
+    if (stream && stream->level && level >= 0.0f && level <= 1.0f) stream->level(level);
+  } catch (...) {}
+}
 extern "C" void voice_provider_status_update(uint8_t phase, void *context) {
   auto *stream = static_cast<VoiceStreamContext *>(context);
   try {
@@ -2455,6 +2471,7 @@ void voice_start(IBusEngine *engine) {
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
   s.voice_phase = "正在录音…";
+  s.voice_level.reset();
   s.voice_stopping = false;
   s.voice_requires_control = false;
   s.voice_generation = generation;
@@ -2493,11 +2510,28 @@ void voice_start(IBusEngine *engine) {
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
           }, result, nullptr);
+        }, [engine, alive, generation, &cancelled](float level) {
+          if (cancelled.load()) return;
+          auto *result = new VoiceResult{engine, alive, generation, {}, false,
+              static_cast<unsigned>(level * 10.0f + 0.5f)};
+          g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
+            std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
+            if (!result->alive->load()) return G_SOURCE_REMOVE;
+            auto &s = state(result->engine);
+            if (!s.voice_active || s.voice_stopping || s.voice_generation != result->generation ||
+                !s.session || !s.focused || s.blocked || !s.input_enabled)
+              return G_SOURCE_REMOVE;
+            if (s.voice_level != result->level) {
+              s.voice_level = result->level;
+              render(result->engine, s.view);
+            }
+            return G_SOURCE_REMOVE;
+          }, result, nullptr);
         }};
-        auto *raw = msime_client_voice_provider_stream_events(
+        auto *raw = msime_client_voice_provider_stream_feedback(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-            voice_provider_stream_update, voice_provider_status_update, &stream);
+            voice_provider_stream_update, voice_provider_status_update, voice_provider_level_update, &stream);
         std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
             raw, msime_client_string_free);
         if (cancelled.load() || !raw)

@@ -294,6 +294,14 @@ char *msime_client_voice_provider_stream_events(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
     size_t socket_length, msime_client_voice_update_callback callback,
     msime_client_voice_status_callback status_callback, void *context);
+/* Normalized microphone level in [0, 1]; never transcript text or audio.
+ * Callback runs synchronously on the caller thread and must not throw. */
+typedef void (*msime_client_voice_level_callback)(float level, void *context);
+char *msime_client_voice_provider_stream_feedback(
+    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
+    size_t socket_length, msime_client_voice_update_callback callback,
+    msime_client_voice_status_callback status_callback,
+    msime_client_voice_level_callback level_callback, void *context);
 /* Request cancellation of a provider capture session by generation. */
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,

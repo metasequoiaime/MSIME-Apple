@@ -1984,6 +1984,28 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_events(
     status_callback: Option<unsafe extern "C" fn(u8, *mut c_void)>,
     context: *mut c_void,
 ) -> *mut c_char {
+    unsafe {
+        msime_client_voice_provider_stream_feedback(query, query_length, socket_path, socket_length,
+                                                    callback, status_callback, None, context)
+    }
+}
+
+/// Stream voice text, phases and optional normalized microphone levels.
+///
+/// # Safety
+/// Buffers and callbacks must remain valid for this synchronous call. Callbacks must not unwind.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+    callback: Option<unsafe extern "C" fn(*const u8, usize, bool, *mut c_void)>,
+    status_callback: Option<unsafe extern "C" fn(u8, *mut c_void)>,
+    level_callback: Option<unsafe extern "C" fn(f32, *mut c_void)>,
+    context: *mut c_void,
+) -> *mut c_char {
     response(|| {
         if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
         {
@@ -2024,13 +2046,19 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_events(
                 unsafe { callback(value, context); }
             }
         };
-        let value = UnixSocketProvider::new(path).voice_stream_with_options_events(
+        let mut level = |value: f32| {
+            if let Some(callback) = level_callback {
+                unsafe { callback(value, context); }
+            }
+        };
+        let value = UnixSocketProvider::new(path).voice_stream_with_options_feedback(
             &query.language,
             query.generation,
             &query.options,
             None,
             &mut update,
             if status_callback.is_some() { Some(&mut status) } else { None },
+            if level_callback.is_some() { Some(&mut level) } else { None },
         );
         Ok(value
             .map(|text| json!({"text": text}))
