@@ -2365,6 +2365,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
+      s.last_smart_punctuation = 0;
+      s.last_smart_punctuation_time = 0;
+      s.smart_punctuation_rejected = 0;
       clear(engine);
       publish_mode(engine);
       handled = true;
