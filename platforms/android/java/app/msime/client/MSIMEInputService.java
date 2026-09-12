@@ -123,6 +123,7 @@ public final class MSIMEInputService extends InputMethodService {
     private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
     private Button layerButton;
     private Button shiftButton;
+    private Button enterButton;
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
@@ -521,10 +522,23 @@ public final class MSIMEInputService extends InputMethodService {
         command(9);
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
-        if (info != null && (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) == 0
-                && action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED
+        boolean disabled = info == null
+                || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
+        if (ReturnKeyAction.performsEditorAction(action, disabled)
                 && connection.performEditorAction(action)) return;
         connection.commitText("\n", 1);
+    }
+
+    private void updateReturnKey() {
+        if (enterButton == null) return;
+        EditorInfo info = getCurrentInputEditorInfo();
+        int action = info == null ? EditorInfo.IME_ACTION_NONE
+                : info.imeOptions & EditorInfo.IME_MASK_ACTION;
+        boolean disabled = info == null
+                || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
+        String title = ReturnKeyAction.title(action, disabled);
+        enterButton.setText(title);
+        enterButton.setContentDescription(title);
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -2771,7 +2785,8 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
         button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
-        button(controls, "回车", this::enter);
+        enterButton = button(controls, "换行", this::enter);
+        enterButton.setContentDescription("换行");
         button(controls, "切换", () -> switchToNextInputMethod(false));
         schemeButton = button(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
@@ -2958,6 +2973,7 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? "切换符号键盘" : "切换字母键盘");
         }
+        updateReturnKey();
         if (shiftButton != null)
             shiftButton.setVisibility(touchLayout(view) != STANDARD_TOUCH_LAYOUT
                 && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
