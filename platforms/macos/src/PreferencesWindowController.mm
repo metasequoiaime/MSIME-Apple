@@ -103,6 +103,7 @@ NSString *const kChinesePunctuationPreferenceKey = @"MetasequoiaImeChinesePunctu
 NSString *const kCandidatePanelStylePreferenceKey = @"MetasequoiaImeCandidatePanelStyle";
 NSString *const kCandidatePageSizePreferenceKey = @"MetasequoiaImeCandidatePageSize";
 NSString *const kCandidateFontSizePreferenceKey = @"MetasequoiaImeCandidateFontSize";
+NSString *const kCandidateTranslationsPreferenceKey = @"MetasequoiaImeCandidateTranslationsEnabled";
 NSString *const kCandidatePageShortcutPreferenceKey = @"MetasequoiaImeCandidatePageShortcut";
 NSString *const kCandidateLearningPreferenceKey = @"MetasequoiaImeCandidateLearning";
 NSString *const kFrequencyAdjustmentModePreferenceKey = @"MetasequoiaImeFrequencyAdjustmentMode";
@@ -311,6 +312,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     NSPopUpButton *_candidatePanelStyleButton;
     NSPopUpButton *_candidatePageSizeButton;
     NSPopUpButton *_candidateFontSizeButton;
+    NSButton *_candidateTranslationsButton;
     NSPopUpButton *_candidateFontButton;
     NSPopUpButton *_candidateFallbackFontButton;
     NSPopUpButton *_preeditFontSizeButton;
@@ -762,6 +764,19 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         MetasequoiaSetAppearancePreference(@"fontSize", @(normalizedFontSize));
     [[NSNotificationCenter defaultCenter] postNotificationName:@"MetasequoiaCandidateFontSizeDidChangeNotification"
                                                         object:@(normalizedFontSize)];
+}
+
++ (BOOL)storedCandidateTranslationsEnabled
+{
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:kCandidateTranslationsPreferenceKey];
+    return value == nil ? YES : [value boolValue];
+}
+
++ (void)setCandidateTranslationsEnabled:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:kCandidateTranslationsPreferenceKey];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"MetasequoiaCandidateTranslationsDidChangeNotification"
+                                                        object:@(enabled)];
 }
 
 + (NSInteger)storedCandidatePageShortcut
@@ -1466,6 +1481,12 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     _candidateFontSizeButton.target = self;
     _candidateFontSizeButton.action = @selector(candidateFontSizeChanged:);
     _candidateFontSizeButton.accessibilityLabel = @"候选字号";
+    _candidateTranslationsButton = [NSButton checkboxWithTitle:@"竖排候选显示英文释义"
+                                                        target:self
+                                                        action:@selector(candidateTranslationsChanged:)];
+    _candidateTranslationsButton.accessibilityLabel = @"竖排候选显示英文释义";
+    _candidateTranslationsButton.toolTip =
+        @"仅竖排候选窗口在词条右侧显示本地英文释义。开启「候选词翻译」时改用在线译文。";
 
     _candidateFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _candidateFallbackFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1526,6 +1547,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
             PreferenceRow(@"候选文字颜色", colorControls),
             CardSeparator(),
             PreferenceRow(@"每页候选项数量", _candidatePageSizeButton),
+            CardSeparator(),
+            _candidateTranslationsButton,
         ],
         4.0);
     appearanceCard.accessibilityLabel = @"候选窗口卡片";
@@ -1994,9 +2017,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         selectItemAtIndex:[MetasequoiaPreferencesWindowController storedCandidatePageShortcut]];
     [self refreshInputBehaviorControls];
     [self refreshSkinControl];
-    [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
-                               pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
-                               fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
+    [self refreshCandidatePreview];
+    _candidateTranslationsButton.state = [MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled]
+                                             ? NSControlStateValueOn
+                                             : NSControlStateValueOff;
     _candidateLearningButton.state = [MetasequoiaPreferencesWindowController storedCandidateLearningEnabled]
                                          ? NSControlStateValueOn
                                          : NSControlStateValueOff;
@@ -2148,6 +2172,15 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     [self refreshControls];
 }
 
+- (void)refreshCandidatePreview
+{
+    [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
+                               pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
+                               fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
+    [_candidatePreview
+        setTranslationsEnabled:[MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled]];
+}
+
 - (void)shuangpinSchemaChanged:(id)sender
 {
     NSPopUpButton *schemaButton = (NSPopUpButton *)sender;
@@ -2158,9 +2191,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     NSPopUpButton *styleButton = (NSPopUpButton *)sender;
     [MetasequoiaPreferencesWindowController setCandidatePanelStyle:styleButton.indexOfSelectedItem];
-    [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
-                               pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
-                               fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
+    [self refreshCandidatePreview];
 }
 
 - (void)candidatePageSizeChanged:(id)sender
@@ -2169,9 +2200,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     const size_t pageSize =
         metasequoia::mac::CandidatePageSizeForOptionIndex(static_cast<size_t>(pageSizeButton.indexOfSelectedItem));
     [MetasequoiaPreferencesWindowController setCandidatePageSize:static_cast<NSInteger>(pageSize)];
-    [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
-                               pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
-                               fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
+    [self refreshCandidatePreview];
 }
 
 - (void)candidateFontSizeChanged:(id)sender
@@ -2180,9 +2209,14 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
     const size_t fontSize =
         metasequoia::mac::CandidateFontSizeForOptionIndex(static_cast<size_t>(fontSizeButton.indexOfSelectedItem));
     [MetasequoiaPreferencesWindowController setCandidateFontSize:static_cast<NSInteger>(fontSize)];
-    [_candidatePreview updatePanelStyle:[MetasequoiaPreferencesWindowController storedCandidatePanelStyle]
-                               pageSize:[MetasequoiaPreferencesWindowController storedCandidatePageSize]
-                               fontSize:[MetasequoiaPreferencesWindowController storedCandidateFontSize]];
+    [self refreshCandidatePreview];
+}
+
+- (void)candidateTranslationsChanged:(id)sender
+{
+    NSButton *button = (NSButton *)sender;
+    [MetasequoiaPreferencesWindowController setCandidateTranslationsEnabled:button.state == NSControlStateValueOn];
+    [self refreshCandidatePreview];
 }
 
 - (void)refreshSkinControl
@@ -2451,6 +2485,7 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
              @"MetasequoiaImeCandidateSkin",
              kCandidatePageSizePreferenceKey,
              kCandidateFontSizePreferenceKey,
+             kCandidateTranslationsPreferenceKey,
              kCandidatePageShortcutPreferenceKey,
              kCandidateLearningPreferenceKey,
              kFrequencyAdjustmentModePreferenceKey,
@@ -2497,6 +2532,8 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                                  object:@([MetasequoiaPreferencesWindowController storedCandidatePageSize])];
     [notifications postNotificationName:@"MetasequoiaCandidateFontSizeDidChangeNotification"
                                  object:@([MetasequoiaPreferencesWindowController storedCandidateFontSize])];
+    [notifications postNotificationName:@"MetasequoiaCandidateTranslationsDidChangeNotification"
+                                 object:@([MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled])];
     [notifications postNotificationName:@"MetasequoiaCandidatePageShortcutDidChangeNotification"
                                  object:@([MetasequoiaPreferencesWindowController storedCandidatePageShortcut])];
     [notifications postNotificationName:@"MetasequoiaCandidateLearningDidChangeNotification"

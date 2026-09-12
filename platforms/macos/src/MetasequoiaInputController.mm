@@ -30,10 +30,12 @@ extern "C" void MSIMETranslateCandidates(const char *wordsJSON, const char *lang
 #import "TranslationClient.h"
 #include "StringConversion.h"
 #include "CandidateSelectionState.h"
+#include "CandidateTranslation.h"
 #include "InputControllerKeyRouting.h"
 #include "InputBehaviorPreferences.h"
 #include "CandidateTranslationLanguage.h"
 #include <metasequoia/session.h>
+#include "english/english_dictionary.h"
 #include "contracts/punctuation/policy.h"
 #include "quanpin/quanpin_utils.h"
 
@@ -157,6 +159,7 @@ static NSHashTable *LiveDictionaryControllers()
 {
     std::unique_ptr<metasequoia::apple::DictionarySessionLease> _dictionaryLease;
     std::unique_ptr<metasequoia::Session> _session;
+    std::unique_ptr<EnglishDictionary> _translationDictionary;
     metasequoia::SessionOptions _sessionOptions;
     metasequoia::SessionSnapshot _sessionSnapshot;
     std::string _activeHelpcodeSchema;
@@ -1009,6 +1012,21 @@ static NSHashTable *LiveDictionaryControllers()
     [self rebuildCandidatePanelPreservingSelection:YES];
 }
 
+- (EnglishDictionary *)translationDictionary
+{
+    if (_translationDictionary)
+        return _translationDictionary.get();
+    NSBundle *bundle = [NSBundle bundleForClass:self.class];
+    NSString *databasePath = [bundle pathForResource:@"english" ofType:@"db"];
+    if (databasePath.length == 0)
+        return nullptr;
+    NSString *translationsPath = [bundle pathForResource:@"custom_translations" ofType:@"txt"];
+    _translationDictionary = std::make_unique<EnglishDictionary>(
+        databasePath.fileSystemRepresentation, false,
+        translationsPath.length > 0 ? translationsPath.fileSystemRepresentation : "");
+    return _translationDictionary.get();
+}
+
 - (void)rebuildCandidatePanelPreservingSelection:(BOOL)preserveSelection
 {
     ++_translationGeneration;
@@ -1041,13 +1059,23 @@ static NSHashTable *LiveDictionaryControllers()
                                    !_sessionSnapshot.answered_by_pinyin_fallback &&
                                    [MetasequoiaPreferencesWindowController storedWubiCodeHintEnabled];
     const std::string wubiTypedCode = annotateWubiCodes ? _sessionSnapshot.preedit : std::string{};
+    const BOOL verticalPanel = metasequoia::mac::NormalizeCandidatePanelStyle(
+                                   [MetasequoiaPreferencesWindowController storedCandidatePanelStyle]) ==
+                               metasequoia::mac::CandidatePanelStyle::Vertical;
+    const BOOL onlineTranslation = MetasequoiaInputFlag(@"candidateTranslation");
+    EnglishDictionary *glossDictionary = nullptr;
+    if (!onlineTranslation && [MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
+        verticalPanel && _sessionSnapshot.scheme != SchemeType::JapaneseRomaji)
+    {
+        glossDictionary = [self translationDictionary];
+    }
     NSUInteger candidateIndex = 0;
     for (const WordItem &candidate : _sessionSnapshot.candidates)
     {
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
             candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get(), wubiTypedCode));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
-        if (MetasequoiaInputFlag(@"candidateTranslation"))
+        if (onlineTranslation)
         {
             NSString *language =
                 @(metasequoia::mac::CandidateTranslationLanguageAt(
@@ -1059,7 +1087,17 @@ static NSHashTable *LiveDictionaryControllers()
             if (translation.length)
                 convertedDisplay = [NSString stringWithFormat:@"%@  %@", convertedDisplay, translation];
         }
-        [data addObject:MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex)];
+        NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
+        if (glossDictionary != nullptr)
+        {
+            if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
+            {
+                const std::string gloss = metasequoia::mac::LookupCandidateGloss(*glossDictionary, *query);
+                if (!gloss.empty())
+                    indexed = MetasequoiaCandidateStringByAddingTranslation(indexed, MetasequoiaStringFromUtf8(gloss));
+            }
+        }
+        [data addObject:indexed];
         ++candidateIndex;
     }
     _candidateData = [data copy];

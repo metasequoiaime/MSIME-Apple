@@ -6,6 +6,7 @@
 
 @interface MetasequoiaCandidatePreviewView : NSView
 - (void)updatePanelStyle:(NSInteger)panelStyle pageSize:(NSInteger)pageSize fontSize:(NSInteger)fontSize;
+- (void)setTranslationsEnabled:(BOOL)enabled;
 - (void)setPreviewSkinId:(NSString *)skinId;
 - (NSString *)previewSkinId;
 - (void)setShowsLayoutShowcase:(BOOL)showsLayoutShowcase;

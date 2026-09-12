@@ -1,6 +1,7 @@
 #import "CandidatePanel.h"
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
+#include "StringConversion.h"
 
 #include <cmath>
 
@@ -24,6 +25,7 @@
 @property(nonatomic, copy) NSColor *numberColor;
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
+@property(nonatomic, copy) NSString *candidateTranslation;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -67,23 +69,52 @@
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
     const CGFloat textLeft = 8.0 + (self.showSelectedBar ? 6.0 : 0.0);
+    NSString *translation = self.candidateTranslation;
+    CGFloat translationWidth = 0.0;
+    NSDictionary *translationAttributes = nil;
+    if (translation.length > 0)
+    {
+        NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, self.font.pointSize - 3.0)];
+        NSColor *base = self.titleColor != nil ? self.titleColor : NSColor.labelColor;
+        NSColor *translationColor =
+            self.candidateHighlighted ? [base colorWithAlphaComponent:0.82] : NSColor.secondaryLabelColor;
+        translationAttributes = @{
+            NSFontAttributeName : translationFont,
+            NSForegroundColorAttributeName : translationColor,
+            NSParagraphStyleAttributeName : paragraph,
+        };
+        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
+        translationWidth = MIN(translationSize.width, MAX(0.0, self.bounds.size.width - textLeft - 8.0));
+    }
+    const CGFloat gap = translationWidth > 0.0 ? 12.0 : 0.0;
+    const CGFloat rightPad = 8.0 + translationWidth + gap;
     if (split.location == NSNotFound)
     {
         const NSSize size = [title sizeWithAttributes:titleAttributes];
-        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - 8.0);
+        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - rightPad);
         [title drawInRect:NSMakeRect(textLeft, (self.bounds.size.height - size.height) / 2, maxWidth, size.height)
             withAttributes:titleAttributes];
-        return;
     }
-    NSString *number = [title substringToIndex:split.location];
-    NSString *word = [title substringFromIndex:NSMaxRange(split)];
-    const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
-    const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-    const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
-    [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-    const CGFloat wordX = textLeft + numberSize.width + 6.0;
-    const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
-    [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    else
+    {
+        NSString *number = [title substringToIndex:split.location];
+        NSString *word = [title substringFromIndex:NSMaxRange(split)];
+        const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
+        const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
+        const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
+        [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
+        const CGFloat wordX = textLeft + numberSize.width + 6.0;
+        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - rightPad);
+        [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    }
+    if (translationWidth > 0.0)
+    {
+        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
+        const CGFloat translationY = (self.bounds.size.height - translationSize.height) / 2;
+        [translation drawInRect:NSMakeRect(self.bounds.size.width - 8.0 - translationWidth, translationY,
+                                           translationWidth, translationSize.height)
+                 withAttributes:translationAttributes];
+    }
 }
 @end
 
@@ -271,14 +302,25 @@
     const CGFloat availableWidth = MAX(80, screenWidth - 20 - 2 * inset - (paging && !vertical ? 56 : 0));
     const CGFloat leftPad = 8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0);
     NSDictionary *measure = @{NSFontAttributeName : _font};
+    NSMutableArray<NSString *> *translations = [NSMutableArray array];
+    NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, _font.pointSize - 3.0)];
+    NSDictionary *translationMeasure = @{NSFontAttributeName : translationFont};
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
-                                       [word sizeWithAttributes:measure].width + 8.0);
+        NSString *translation = vertical ? MetasequoiaCandidateTranslation(_data[index]) : nil;
+        CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
+                                 [word sizeWithAttributes:measure].width + 8.0);
+        if (translation.length > 0)
+        {
+            const CGFloat translationWidth =
+                MIN(ceil([translation sizeWithAttributes:translationMeasure].width) + 12.0, 220.0);
+            itemWidth += 12.0 + translationWidth;
+        }
         [titles addObject:title];
+        [translations addObject:translation.length > 0 ? translation : @""];
         [widths addObject:@(itemWidth)];
         width = vertical ? MAX(width, itemWidth) : width + itemWidth;
     }
@@ -362,8 +404,13 @@
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
-        button.accessibilityLabel = titles[index];
-        button.toolTip = _data[index].string;
+        button.candidateTranslation = translations[index];
+        button.accessibilityLabel = translations[index].length > 0
+                                        ? [NSString stringWithFormat:@"%@，%@", titles[index], translations[index]]
+                                        : titles[index];
+        button.toolTip = translations[index].length > 0
+                             ? [NSString stringWithFormat:@"%@  %@", _data[index].string, translations[index]]
+                             : _data[index].string;
         [_chrome addSubview:button];
         if (!vertical)
             x += itemWidth;
