@@ -85,7 +85,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     loadVoiceLanguage: () => invoke<string>("voice_input_language"),
-    ...createVoiceRecognitionClient(invoke, listener => listen<{ request_id: string; text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing" }>("voice-update", event => listener(event.payload))),
+    ...createVoiceRecognitionClient(invoke, listener => listen<{ request_id: string; text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }>("voice-update", event => listener(event.payload))),
     sendText: text => invoke("send_text", { text }),
     sendVoiceText: text => invoke("send_voice_text", { text }),
     copyText: text => invoke("copy_text", { text }),

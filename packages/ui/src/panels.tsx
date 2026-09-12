@@ -31,7 +31,7 @@ export interface VoicePanelClient extends PanelClient {
   maxSubmitBytes?: number;
   loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
-  onVoiceUpdate?(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing" }) => void): Promise<() => void>;
+  onVoiceUpdate?(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }) => void): Promise<() => void>;
   cancelVoice?(): Promise<void>;
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
@@ -484,6 +484,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
 }
 
 export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
+  const [inputLevel, setInputLevel] = useState<number | undefined>();
   const [language, setLanguage] = useState("zh-cn");
   const [text, setText] = useState("");
   const exceedsSubmitLimit = client.maxSubmitBytes !== undefined
@@ -537,6 +538,12 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     let unlisten: (() => void) | undefined;
     void client.onVoiceUpdate(update => {
       if (!active || !busyRef.current) return;
+      if (update.level !== undefined) {
+        if (!stoppingRef.current && Number.isFinite(update.level) && update.level >= 0 && update.level <= 1) {
+          setInputLevel(update.level);
+        }
+        return;
+      }
       if (update.phase) {
         const labels = { recording: "正在录音…", recognizing: "正在识别…", polishing: "正在润色…" };
         setNotice(labels[update.phase]);
@@ -571,6 +578,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     const revision = ++recognitionRevision.current;
     busyRef.current = true;
     setBusy(true);
+    setInputLevel(undefined);
     updateText("");
     setNotice("正在录音并识别…");
     try {
@@ -686,6 +694,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>
+      {busy && !stopping && inputLevel !== undefined && <label>麦克风音量 <meter aria-label="麦克风音量" min={0} max={1} value={inputLevel} /></label>}
       <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
       <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>

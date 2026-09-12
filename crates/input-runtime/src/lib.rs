@@ -877,7 +877,23 @@ impl UnixSocketProvider {
         options: &Value,
         cancelled: Option<&AtomicBool>,
         update: &mut dyn FnMut(&str, bool),
+        status: Option<&mut dyn FnMut(&str)>,
+    ) -> Option<String> {
+        self.voice_stream_with_options_feedback(language, generation, options, cancelled, update, status, None)
+    }
+
+    /// Negotiate optional normalized microphone levels separately from transcript text.
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn voice_stream_with_options_feedback(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
         mut status: Option<&mut dyn FnMut(&str)>,
+        mut level: Option<&mut dyn FnMut(f32)>,
     ) -> Option<String> {
         if language.len() > 64 || cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
             return None;
@@ -896,9 +912,10 @@ impl UnixSocketProvider {
                 query.insert("options".to_owned(), options.clone());
             }
         }
-        if status.is_some() {
-            request["query"]["events"] = json!(["status"]);
-        }
+        let mut events = Vec::new();
+        if status.is_some() { events.push("status"); }
+        if level.is_some() { events.push("level"); }
+        if !events.is_empty() { request["query"]["events"] = json!(events); }
         let request = request.to_string();
         if request.len() > 16_384
             || stream.write_all(request.as_bytes()).is_err()
@@ -930,6 +947,12 @@ impl UnixSocketProvider {
                 .or_else(|| value.get("event"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            if kind == "level" {
+                let value = value.get("level").and_then(Value::as_f64)?;
+                if !value.is_finite() || !(0.0..=1.0).contains(&value) { return None; }
+                if let Some(callback) = level.as_mut() { callback(value as f32); }
+                continue;
+            }
             if kind == "status" {
                 let phase = value.get("phase").and_then(Value::as_str)?;
                 if !matches!(phase, "recording" | "recognizing" | "polishing") {

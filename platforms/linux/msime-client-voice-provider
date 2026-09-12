@@ -363,16 +363,19 @@ class Session:
         self.stopped.set()
 
 
-def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None):
+def capture(session, connection, args, seconds, options, on_audio=None, on_tick=None, on_level=None):
     pcm = bytearray()
     recorded = 0
     pending_sample = b""
     limit = min(seconds * RATE * 2, MAX_AUDIO - 44)
     process = None
     muted = []
+    level_energy = 0
+    level_samples = 0
+    last_level = time.monotonic()
 
     def append(chunk):
-        nonlocal recorded, pending_sample
+        nonlocal recorded, pending_sample, level_energy, level_samples, last_level
         if session.cancelled.is_set():
             return
         # Pipe reads can split a 16-bit sample between chunks. Never forward
@@ -384,6 +387,16 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
         if not chunk:
             return
         recorded += len(chunk)
+        if on_level:
+            # Match Windows AudioCallback's RMS floor and visual compression.
+            level_energy += sum(sample * sample for (sample,) in struct.iter_unpack("<h", chunk))
+            level_samples += len(chunk) // 2
+            now = time.monotonic()
+            if now - last_level >= 0.1:
+                rms = math.sqrt(level_energy / level_samples) / 32768
+                on_level(min(1.0, max(0.0, rms - 0.004) * 14.0) ** 0.55)
+                level_energy = level_samples = 0
+                last_level = now
         if on_audio:
             on_audio(chunk)
         else:
@@ -481,6 +494,11 @@ class Handler(socketserver.StreamRequestHandler):
     def send(self, generation, text="", ok=True, kind="final"):
         self.wfile.write(json.dumps({"generation": generation, "text": text, "type": kind,
                                     "ok": ok}, ensure_ascii=False).encode() + b"\n")
+        self.wfile.flush()
+
+    def level(self, generation, value):
+        self.wfile.write(json.dumps({"generation": generation, "type": "level",
+                                    "level": round(value, 4), "ok": True}).encode() + b"\n")
         self.wfile.flush()
 
     def status(self, query, generation, phase):
@@ -592,8 +610,12 @@ class Handler(socketserver.StreamRequestHandler):
 
                 if not session.stopped.is_set():
                     self.status(query, generation, "recording")
+                events = query.get("events")
+                level_update = (lambda value: self.level(generation, value)) if (
+                    query.get("stream") and isinstance(events, list) and "level" in events) else None
                 pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
-                                        recognizer.feed if recognizer else None, tick if recognizer else None)
+                                        recognizer.feed if recognizer else None, tick if recognizer else None,
+                                        level_update)
             finally:
                 # Also covers recognizer initialization failures before capture().
                 self.server.microphone.release()

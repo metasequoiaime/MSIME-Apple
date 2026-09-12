@@ -1768,6 +1768,8 @@ struct VoiceRecognitionUpdate {
     final_result: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<f32>,
 }
 
 #[cfg(unix)]
@@ -1941,6 +1943,7 @@ async fn recognize_voice(
                         request_id: session.request_id.clone(),
                         final_result,
                         phase: None,
+                        level: None,
                     },
                 );
             };
@@ -1953,15 +1956,27 @@ async fn recognize_voice(
                     request_id: session.request_id.clone(),
                     final_result: false,
                     phase: Some(phase.to_owned()),
+                    level: None,
                 });
             };
-            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_events(
+            let mut level = |level: f32| {
+                if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) { return; }
+                let _ = worker_app.emit("voice-update", VoiceRecognitionUpdate {
+                    text: String::new(),
+                    request_id: session.request_id.clone(),
+                    final_result: false,
+                    phase: None,
+                    level: Some(level),
+                });
+            };
+            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_feedback(
                 &language,
                 generation,
                 &provider_options,
                 Some(&session.cancelled),
                 &mut update,
                 Some(&mut status),
+                Some(&mut level),
             )
         })
         .await;
