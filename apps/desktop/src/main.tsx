@@ -55,6 +55,7 @@ const client: SettingsClient = {
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
+    beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "keyboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     sendKey: request => invoke("send_key", { request }),
