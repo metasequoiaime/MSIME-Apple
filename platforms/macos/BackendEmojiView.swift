@@ -10,7 +10,7 @@ struct MacEmojiView: View {
     MacEmojiPalette(light: (appearance.colorScheme ?? systemColorScheme) == .light)
   }
   @State private var search = ""
-  @State private var category = ""
+  @State private var category = "home"
   private var usesWideCells: Bool { category == "kaomoji" || category == "recent" || category == "clipboard" }
   private var columns: Int { category == "clipboard" ? 1 : usesWideCells ? 3 : 8 }
   @State private var group = ""
@@ -93,8 +93,12 @@ struct MacEmojiView: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("表情与符号").font(.title2)
+      HStack {
+        if category != "home" { Button("返回首页") { category = "home" } }
+        Text("表情与符号").font(.title2)
+      }
       Picker("目录", selection: $category) {
+        Text("首页").tag("home")
         Text("最近").tag("recent")
         Text("表情").tag("")
         Text("颜文字").tag("kaomoji")
@@ -107,15 +111,17 @@ struct MacEmojiView: View {
           ForEach(MacEmojiSymbolGroup.parents(symbolGroups), id: \.self) { Text($0).tag($0) }
         }.disabled(groupsCategory != category || symbolGroups.isEmpty)
       }
+      if category != "home" {
       Picker("分类", selection: $group) {
         Text("全部分类").tag("")
         ForEach(groupsCategory == category ? displayedGroups : [], id: \.self) { name in
           Text(name).tag(name)
         }
       }.disabled(groupsCategory != category || displayedGroups.isEmpty)
+      }
       if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
-        placeholder: category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
+        placeholder: category == "home" ? "搜索表情、颜文字和符号" : category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
       if category == "clipboard" {
         if historyEnabled == false && loadedQuery == queryID {
@@ -137,6 +143,10 @@ struct MacEmojiView: View {
         Text(MacEmojiSelectionState.failureMessage).font(.caption)
           .foregroundStyle(MacEmojiPalette.color(palette.text))
       }
+      if category == "home" {
+        MacEmojiHomeView(resources: resources, search: search, recent: recent.matching(search),
+          palette: palette, copy: copyItem, more: { category = $0 })
+      } else {
       HStack {
         Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
         Spacer()
@@ -183,6 +193,7 @@ struct MacEmojiView: View {
         guard loadedQuery == queryID, items.indices.contains(selectedIndex) else { return }
         selection.submit(items[selectedIndex].text, send: onSelect)
       }.disabled(loadedQuery != queryID || !items.indices.contains(selectedIndex))
+      }
     }.padding(20).frame(minWidth: 380, minHeight: 500)
       .background(MacEmojiPalette.color(palette.background))
       .foregroundStyle(MacEmojiPalette.color(palette.text))
@@ -199,7 +210,7 @@ struct MacEmojiView: View {
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
-        if selectedCategory == "recent" || selectedCategory == "clipboard" { groupsCategory = selectedCategory; return }
+        if selectedCategory == "home" || selectedCategory == "recent" || selectedCategory == "clipboard" { groupsCategory = selectedCategory; return }
         do {
           if selectedCategory == "symbols" {
             let result = try await Task.detached { try MacEmojiCatalog.loadSymbolGroups(resources: directory) }.value
@@ -225,6 +236,7 @@ struct MacEmojiView: View {
         selectedIndex = 0
         loadedQuery = []
         status = "正在加载…"
+        if category == "home" { status = "首页预览 · 更多可进入完整目录"; return }
         if category == "recent" {
           items = Array(recent.matching(search).dropFirst(offset).prefix(255))
           loadedQuery = queryID
