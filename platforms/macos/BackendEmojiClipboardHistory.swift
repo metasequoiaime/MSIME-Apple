@@ -1,8 +1,32 @@
 import Foundation
 
-struct MacEmojiClipboardHistory: Sendable {
+struct MacEmojiClipboardHistory: Equatable, Sendable {
   let enabled: Bool
   let entries: [String]
+
+  // The caller owns this structured task: changing pages or closing the window
+  // cancels polling. Reads are serial, and cancelled reads never publish.
+  @MainActor static func observe(
+    interval: UInt64 = 400_000_000,
+    read: @escaping @Sendable () async throws -> Self,
+    publish: (Self?) -> Void
+  ) async {
+    var previous: Self?
+    var published = false
+    while !Task.isCancelled {
+      let snapshot: Self?
+      do { snapshot = try await read() }
+      catch { snapshot = nil }
+      guard !Task.isCancelled else { return }
+      if !published || snapshot != previous {
+        publish(snapshot)
+        previous = snapshot
+        published = true
+      }
+      do { try await Task.sleep(nanoseconds: interval) }
+      catch { return }
+    }
+  }
 
   static func decode(_ response: NSDictionary) throws -> Self {
     guard response["error"] == nil, let flag = response["enabled"] as? NSNumber,
