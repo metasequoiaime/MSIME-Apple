@@ -2020,16 +2020,18 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("选择候选排列方向"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto layout_menu = ibus_prop_list_new();
+  const bool policy_available = s.focused && !s.blocked && s.input_enabled &&
+      s.session && !menu_save_pending;
   auto vertical = ibus_property_new(
       "CandidateLayout/Vertical", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("竖排"), "",
-      ibus_text_new_from_static_string("竖直排列候选"), !menu_save_pending, TRUE,
+      ibus_text_new_from_static_string("竖直排列候选"), policy_available, TRUE,
       layout == "vertical" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto horizontal = ibus_property_new(
       "CandidateLayout/Horizontal", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("横排"), "",
-      ibus_text_new_from_static_string("水平排列候选"), !menu_save_pending, TRUE,
+      ibus_text_new_from_static_string("水平排列候选"), policy_available, TRUE,
       layout == "horizontal" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   ibus_prop_list_append(layout_menu, vertical);
@@ -2048,7 +2050,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidatePageSize/") + std::to_string(value)).c_str(),
         PROP_TYPE_RADIO, ibus_text_new_from_string(std::to_string(value).c_str()),
-        "", ibus_text_new_from_static_string("设置候选页大小"), !menu_save_pending, TRUE,
+        "", ibus_text_new_from_static_string("设置候选页大小"), policy_available, TRUE,
         page_size == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(page_size_menu, item);
   }
@@ -2071,7 +2073,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("FrequencyMode/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("设置词频调节模式"), !menu_save_pending, TRUE,
+        ibus_text_new_from_static_string("设置词频调节模式"), policy_available, TRUE,
         frequency == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(frequency_menu, item);
   }
