@@ -12,6 +12,8 @@ pub enum AiError {
     InvalidLimit,
     #[error("candidate text is empty or too large")]
     InvalidCandidate,
+    #[error("AI provider request configuration is invalid")]
+    InvalidConfiguration,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -33,6 +35,76 @@ pub struct AiSuggestionResponse {
 
 pub trait AiSuggestor {
     fn suggest(&self, request: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError>;
+}
+
+/// Pure Windows-compatible non-streaming request body. The host owns endpoint,
+/// credentials, timeout and cancellation. Never log prompts or request contents.
+pub fn chat_completion_body(
+    request: &AiSuggestionRequest,
+    provider: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<serde_json::Value, AiError> {
+    request.validate()?;
+    if !matches!(provider, "deepseek" | "openai" | "siliconflow" | "groq")
+        || model.is_empty()
+        || model.len() > 256
+        || model.chars().any(char::is_control)
+        || prompt.is_empty()
+        || prompt.len() > 16384
+    {
+        return Err(AiError::InvalidConfiguration);
+    }
+    let mut body = serde_json::json!({
+        "model":model, "stream":false, "temperature":0.2, "max_tokens":512,
+        "response_format":{"type":"json_object"},
+        "messages":[{"role":"system","content":prompt},
+            {"role":"user","content":serde_json::to_string(request).map_err(|_| AiError::InvalidConfiguration)?}]
+    });
+    if provider == "deepseek" {
+        body["thinking"] = serde_json::json!({"type":"disabled"});
+    }
+    Ok(body)
+}
+
+/// Parse a bounded successful HTTP body containing JSON-mode chat content.
+/// Preserve provider order, omit invalid/duplicate entries, and honor the caller's
+/// configured limit. None denotes an invalid envelope; an empty list is no result.
+pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSuggestionResponse> {
+    if body.len() > 1024 * 1024 || !(1..=10).contains(&limit) {
+        return None;
+    }
+    let outer: serde_json::Value = serde_json::from_slice(body).ok()?;
+    if outer.get("error").is_some_and(|error| !error.is_null()) {
+        return None;
+    }
+    let content = outer
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?
+        .as_str()?;
+    let inner: serde_json::Value = serde_json::from_str(content).ok()?;
+    let entries = inner.get("candidates")?.as_array()?;
+    let mut candidates: Vec<AiSuggestion> = Vec::new();
+    for entry in entries {
+        let Some(text) = entry.get("text").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if text.trim().is_empty()
+            || text.len() > 4096
+            || text.chars().any(char::is_control)
+            || candidates.iter().any(|candidate| candidate.text == text)
+        {
+            continue;
+        }
+        candidates.push(AiSuggestion { text: text.into() });
+        if candidates.len() == usize::from(limit) {
+            break;
+        }
+    }
+    Some(AiSuggestionResponse { candidates })
 }
 
 pub fn suggest<S: AiSuggestor>(
@@ -115,5 +187,106 @@ mod tests {
         request.candidate_limit = 1;
         request.segmented_pinyin[0] = String::new();
         assert_eq!(request.validate(), Err(AiError::InvalidSegments));
+    }
+
+    #[test]
+    fn request_body_matches_windows_shape_without_credentials() {
+        let request = AiSuggestionRequest {
+            segmented_pinyin: vec!["ni".into(), "hao".into()],
+            context: "合成上下文\n\"引用\"".into(),
+            candidate_limit: 3,
+        };
+        for provider in ["deepseek", "openai", "siliconflow", "groq"] {
+            let body =
+                chat_completion_body(&request, provider, "synthetic-model", "synthetic\nprompt")
+                    .unwrap();
+            assert_eq!(body["stream"], false);
+            assert_eq!(body["temperature"], 0.2);
+            assert_eq!(body["max_tokens"], 512);
+            assert_eq!(body["response_format"]["type"], "json_object");
+            assert_eq!(body["messages"][0]["content"], "synthetic\nprompt");
+            let decoded: AiSuggestionRequest =
+                serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+            assert_eq!(decoded, request);
+            assert_eq!(body.get("thinking").is_some(), provider == "deepseek");
+            assert!(body.get("token").is_none());
+        }
+        for (provider, model, prompt) in [
+            ("unknown", "model", "prompt"),
+            ("openai", "", "prompt"),
+            ("openai", "model", ""),
+        ] {
+            assert_eq!(
+                chat_completion_body(&request, provider, model, prompt),
+                Err(AiError::InvalidConfiguration)
+            );
+        }
+    }
+
+    fn envelope(inner: serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(
+            &serde_json::json!({"choices":[{"message":{"content":inner.to_string()}}]}),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn response_preserves_order_filters_and_limits() {
+        let body = envelope(serde_json::json!({"candidates":[null,{}, {"text":12},
+            {"text":""},{"text":"   "},{"text":"bad\ntext"},{"text":"甲"},{"text":"甲"},{"text":"乙"},{"text":"丙"}]}));
+        let response = parse_chat_completion_response(&body, 2).unwrap();
+        assert_eq!(
+            response
+                .candidates
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["甲", "乙"]
+        );
+        response.validate(2).unwrap();
+        assert!(
+            parse_chat_completion_response(&envelope(serde_json::json!({"candidates":[]})), 1)
+                .unwrap()
+                .candidates
+                .is_empty()
+        );
+    }
+    #[test]
+    fn response_rejects_malformed_envelopes_and_bounds() {
+        let mut maximum = envelope(serde_json::json!({"candidates":[{"text":"x".repeat(4096)}]}));
+        maximum.resize(1024 * 1024, b' ');
+        assert_eq!(
+            parse_chat_completion_response(&maximum, 1)
+                .unwrap()
+                .candidates[0]
+                .text
+                .len(),
+            4096
+        );
+        maximum.push(b' ');
+        assert!(parse_chat_completion_response(&maximum, 1).is_none());
+        for body in [
+            b"not json".to_vec(),
+            vec![0xff],
+            b"{}".to_vec(),
+            br#"{"choices":[]}"#.to_vec(),
+            br#"{"choices":[{"message":{"content":{}}}]}"#.to_vec(),
+            envelope(serde_json::json!({"candidates":{}})),
+            vec![b'x'; 1024 * 1024 + 1],
+        ] {
+            assert!(parse_chat_completion_response(&body, 3).is_none());
+        }
+        let body = envelope(
+            serde_json::json!({"candidates":[{"text":"字".repeat(1366)},{"text":"valid"}]}),
+        );
+        assert_eq!(
+            parse_chat_completion_response(&body, 1).unwrap().candidates[0].text,
+            "valid"
+        );
+        for limit in [0, 11, 255] {
+            assert!(parse_chat_completion_response(&body, limit).is_none());
+        }
+        let mut error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        error["error"] = serde_json::json!({"message":"synthetic"});
+        assert!(parse_chat_completion_response(&serde_json::to_vec(&error).unwrap(), 1).is_none());
     }
 }
