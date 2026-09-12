@@ -59,6 +59,12 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-card-preview .candidate { font-size: 16px; min-width: 0; max-width: 100%; }
 .appearance-candidate-preview .candidate { font-size: var(--appearance-font-size, 16px); }
 .appearance-candidate-preview .candidate .pinyin { font-size: var(--appearance-preedit-font-size, 16px); }
+/* Windows 04a8df56 appearance.css colour controls, GPL-3.0. */
+.candidate-color-control { display: flex; align-items: center; gap: 10px; }
+.candidate-color-control input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--control-border); border-radius: 6px; background: transparent; cursor: pointer; }
+.candidate-color-reset { border: 1px solid var(--control-border); background: var(--button-secondary-bg); color: var(--button-secondary-text); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.candidate-color-reset:hover { background: var(--button-secondary-hover); }
+.candidate-color-reset.is-active { border-color: var(--accent-soft-border); background: var(--accent-soft); color: var(--text-color); }
 .skin-card-preview .wnd-v .container { width: fit-content; max-width: 100%; }
 .skin-card-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }

@@ -491,6 +491,30 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("candidate text colour loads, previews, saves and resets to theme", async () => {
+  const saved = { ...initial, preferences: { ...initial.preferences, candidate_text_color: "#123456" } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => saved, save }} />);
+  const color = await screen.findByLabelText("候选文字颜色") as HTMLInputElement;
+  expect(color.value).toBe("#123456");
+  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe("false");
+  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  expect(preview.style.getPropertyValue("--cand-text")).toBe("#123456");
+  fireEvent.change(color, { target: { value: "#abcdef" } });
+  expect(preview.style.getPropertyValue("--cand-num")).toBe("#abcdef9d");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenLastCalledWith(7, { ...saved.preferences, candidate_text_color: "#abcdef" });
+  fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
+  expect(preview.style.getPropertyValue("--cand-text")).toBe("");
+  expect(preview.style.getPropertyValue("--cand-num")).toBe("");
+  expect(color.value).toBe("#e9e8e8");
+  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith(8, { ...saved.preferences, candidate_text_color: null }));
+});
+
 test("complete candidate and preedit font sizes load, preview independently and save", async () => {
   const saved = { ...initial, preferences: { ...initial.preferences, candidate_font_size: 19, candidate_preedit_font_size: 27 } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
