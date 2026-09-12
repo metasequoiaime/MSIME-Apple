@@ -61,4 +61,6 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
+- (BOOL)navigationEnabled:(NSString *)key;
+- (void)setNavigation:(NSString *)key enabled:(BOOL)enabled;
 @end

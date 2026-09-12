@@ -585,20 +585,23 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     uint32_t command = UINT32_MAX;
     [self ensureAppearance];
+    if (_panel.isVisible && event.keyCode == 48 && [_appearance navigationEnabled:@"tab"]) {
+        [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+        return YES;
+    }
     if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift)) {
         NSString *characters = event.charactersIgnoringModifiers;
         if (characters.length == 1) {
             const unichar character = [characters characterAtIndex:0];
-            const NSInteger shortcut = _appearance.pageShortcut;
-            const BOOL previous = (shortcut == 0 && character == '-') || (shortcut == 1 && character == '[');
-            const BOOL next = (shortcut == 0 && character == '=') || (shortcut == 1 && character == ']');
+            const BOOL previous = ([_appearance navigationEnabled:@"minus_equal"] && character == '-') || ([_appearance navigationEnabled:@"brackets"] && character == '[') || ([_appearance navigationEnabled:@"comma_period"] && character == ',');
+            const BOOL next = ([_appearance navigationEnabled:@"minus_equal"] && character == '=') || ([_appearance navigationEnabled:@"brackets"] && character == ']') || ([_appearance navigationEnabled:@"comma_period"] && character == '.');
             if (previous || next) {
                 [self apply:[_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
                 return YES;
             }
         }
     }
-    if (_panel.isVisible && event.keyCode >= 123 && event.keyCode <= 126) {
+    if (_panel.isVisible && [_appearance navigationEnabled:@"arrows"] && event.keyCode >= 123 && event.keyCode <= 126) {
         const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
         if (horizontal == _appearance.vertical) return YES;
         const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
@@ -606,6 +609,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         return YES;
     }
     switch (event.keyCode) {
+        case 48: return NO;
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
         case 53: command = MSIME_CANCEL; break;
@@ -615,10 +619,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE_ON_PAGE : MSIME_MOVE_HOME; break;
         case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE_ON_PAGE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
-        case 116: command = MSIME_PREVIOUS_PAGE; break;
-        case 121: command = MSIME_NEXT_PAGE; break;
-        case 126: command = MSIME_PREVIOUS_CANDIDATE; break;
-        case 125: command = MSIME_NEXT_CANDIDATE; break;
+        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_PREVIOUS_PAGE; break;
+        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_NEXT_PAGE; break;
+        case 126: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_PREVIOUS_CANDIDATE; break;
+        case 125: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
