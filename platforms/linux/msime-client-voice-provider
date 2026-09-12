@@ -380,15 +380,24 @@ def cue_audio(start):
 def cue(options, start):
     if not options.get("sound_enabled", True) or not options.get("start_sound" if start else "end_sound", True):
         return
-    args = (["paplay", "--raw", "--format=s16le", "--rate=16000", "--channels=1"] if shutil.which("paplay") else
-            ["pw-cat", "--playback", "--raw", "--format=s16", "--rate=16000", "--channels=1", "-"] if shutil.which("pw-cat") else
-            ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"] if shutil.which("aplay") else None)
-    if args:
-        audio = cue_audio(start)
+    players = (
+        ["paplay", "--raw", "--format=s16le", "--rate=16000", "--channels=1"],
+        ["pw-cat", "--playback", "--raw", "--format=s16", "--rate=16000", "--channels=1", "-"],
+        ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"],
+    )
+    audio = None
+    for args in players:
+        if not shutil.which(args[0]):
+            continue
+        if audio is None:
+            audio = cue_audio(start)
         try:
             command(args, audio, timeout=max(2, len(audio) / (RATE * 2) + 1))
+            return
         except Exception:
-            pass
+            # An installed client does not imply its audio service is usable.
+            # Try the next native backend; optional cues never abort recording.
+            continue
 
 
 def sink_inputs():
