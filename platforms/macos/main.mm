@@ -2,6 +2,7 @@
 #import <InputMethodKit/InputMethodKit.h>
 #import "InputSourceRegistration.h"
 #import "PreferencesWindowController.h"
+#import "RuntimeOptions.h"
 #include <cstring>
 #include <dlfcn.h>
 
@@ -35,7 +36,13 @@ int main(int argc, const char *argv[]) {
         }
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:@"MSIMEClientPreviewConnection" bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
+        Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+        id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+        if ([shared respondsToSelector:@selector(startClipboardCaptureWithOptions:)]) {
+            [shared performSelector:@selector(startClipboardCaptureWithOptions:) withObject:MSIMELoadRuntimeOptions() ?: @{}];
+        }
         [NSApp run];
+        if ([shared respondsToSelector:@selector(stopClipboardCapture)]) [shared performSelector:@selector(stopClipboardCapture)];
         (void)server;
     }
     return 0;

@@ -7,6 +7,10 @@ import SwiftUI
 @MainActor @objc(MSIMEBackendWindowBridge)
 final class BackendWindowBridge: NSObject {
   @objc static let shared = BackendWindowBridge()
+  @objc func startClipboardCapture(withOptions options: NSDictionary) {
+    MacClipboardService.shared.start(directory: options["preferences_directory"] as? String ?? "")
+  }
+  @objc func stopClipboardCapture() { MacClipboardService.shared.stop() }
   private let windows = BackendAccountWindowCache<NSWindowController>()
   private let emojiDeliveryNotice = MacEmojiDeliveryNotice()
 

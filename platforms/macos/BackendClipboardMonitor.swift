@@ -6,7 +6,7 @@ import AppKit
     var message: String {
       switch self {
       case .disabled: return "剪贴板采集已停用"
-      case .monitoring: return "窗口打开且历史开启时，保存新复制的文本"
+      case .monitoring: return "输入法运行且历史开启时，保存新复制的文本"
       case .unavailable: return "无法读取共享设置，剪贴板采集已暂停"
       case .saveFailed: return "剪贴板历史保存失败，将重试"
       }

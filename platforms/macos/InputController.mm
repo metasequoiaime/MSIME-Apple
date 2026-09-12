@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
+#import "RuntimeOptions.h"
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
@@ -395,17 +396,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_panel orderOut:nil];
 }
 
-- (NSDictionary *)runtimeOptions {
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
-    if (!path) {
-        NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
-        path = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
-    }
-    if (!path) return nil;
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return [options isKindOfClass:NSDictionary.class] ? options : nil;
-}
+- (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
 - (void)prepareSession {
     if (!_session) {
