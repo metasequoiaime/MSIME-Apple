@@ -28,6 +28,7 @@
 #import "ShuangpinKeymapPanel.h"
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
+#import "VoiceProviderSettings.h"
 #import "VoiceSettings.h"
 #import "CloudCandidateRequest.h"
 #import "CustomTranslationBatch.h"
@@ -827,7 +828,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender { (void)sender; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
-- (void)showVoiceSettings:(id)sender { (void)sender; [[MSIMEVoiceSettings sharedSettings] showAndActivate]; }
+- (void)showVoiceSettings:(id)sender { (void)sender; [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate]; }
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
     if (!_session) [self prepareSession];
