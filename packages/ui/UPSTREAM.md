@@ -453,3 +453,19 @@ through measured glyph widths in both preview paths, plus CSS-injection-shaped
 names and all existing appearance regressions. System font enumeration and its
 searchable dropdown are not yet connected: the UI explicitly requests complete
 font names. Native host font delivery and native typography parity remain open.
+
+The shared font controls now accept an optional SettingsClient.listFontFamilies
+reader and present searchable comboboxes when it is available. Loading is lazy
+and shared by primary/fallback controls; refresh, failure, empty and unsupported
+states remain distinct. Unicode search, pointer selection, arrow/Enter/Escape
+navigation and active-option scrolling retain manual entry. Other fallback
+selections are excluded from suggestions. Catalogs validate all names, deduplicate
+and cap at 16,384 entries; each popup shows at most 100 search results with a
+refinement notice. Reader changes discard old results without changing drafts.
+
+Tests cover injection, shared loading, stale readers, retry, duplicate exclusion,
+keyboard selection without form submission and search after display capping.
+The synthetic browser host supplies a fixture catalog and exercises visible
+search/selection along with all appearance regressions. This delivers the UI
+interface and search control only: production native font enumeration is not
+connected yet and must be implemented separately, with no native acceptance claim.

@@ -5,6 +5,7 @@ import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
 import { candidateTextColor } from "./candidate-text-color";
 import { CandidateFontControls } from "./candidate-font-controls";
 import { validCandidateFonts } from "./candidate-font-family";
+import type { FontCatalogReader } from "./font-catalog";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -239,6 +240,7 @@ const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_m
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16, 18, 20, 22, 24, 26, 28];
 export interface SettingsClient {
+  listFontFamilies?: FontCatalogReader;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
@@ -615,7 +617,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
-        <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} />
+        <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} />
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主题<small>Linux IBus panel 支持时使用；跟随时交给桌面主题</small></span><select aria-label="候选窗主题" value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>

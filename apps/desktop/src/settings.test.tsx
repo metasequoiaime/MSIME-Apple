@@ -407,8 +407,8 @@ test("helpcode schemes save independently and retain disabled selections", async
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
-    quanpin_helpcode: { enabled: false, schema: "xiaohe" },
-    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0" } });
+    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: true },
+    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true } });
 });
 
 test("shortcut page reflects enabled navigation shortcuts", async () => {
@@ -1038,6 +1038,6 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(screen.getByRole("combobox", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma" } });
+  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: true } });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
