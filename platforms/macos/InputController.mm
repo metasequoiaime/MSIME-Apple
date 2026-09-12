@@ -13,6 +13,7 @@
 #import "BackendAccountEntry.h"
 #import "BackendSelectionObservation.h"
 #include "ToolTextReturn.h"
+#include "ToolApplicationActivation.h"
 #include "PreferenceSaveState.h"
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
@@ -227,6 +228,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
         ![shared respondsToSelector:@selector(showEmojiWithResources:selection:)]) return;
+    if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
     const uint64_t token = _emojiReturn.capture(_activeClient);
     __weak MSIMEInputController *weakSelf = self;
     void (^selection)(NSString *) = ^(NSString *text) {
@@ -237,7 +239,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_emojiReturn.generation != token || !current->_emojiReturn.pending) return;
-            if (![application activateWithOptions:0]) {
+            if (NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == application.processIdentifier &&
+                current->_activeClient && current->_activeClient == current->_emojiReturn.target) {
+                [current commitPendingEmojiForClient:current->_activeClient];
+                return;
+            }
+            if (!MSIMEActivateToolApplication(NSApp, NSRunningApplication.currentApplication, application)) {
                 current->_emojiReturn.discard(token);
             }
         });
@@ -358,8 +365,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
     else [self startPreferencesMonitoring];
-    NSString *toolText = _emojiReturn.take(sender, NSProcessInfo.processInfo.systemUptime);
-    if (toolText) [sender insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
+    [self commitPendingEmojiForClient:sender];
+}
+
+- (void)commitPendingEmojiForClient:(id)client {
+    NSString *toolText = _emojiReturn.take(client, NSProcessInfo.processInfo.systemUptime);
+    if (toolText) [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
 }
 
 - (void)handwritingCandidateSelected:(NSNotification *)notification {
