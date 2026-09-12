@@ -24,6 +24,22 @@ use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
+use msime_host_api::system_fonts;
+
+#[tauri::command]
+fn supports_font_catalog() -> bool {
+    system_fonts::supported()
+}
+
+#[tauri::command]
+async fn list_font_families() -> Result<Vec<String>, CommandError> {
+    tauri::async_runtime::spawn_blocking(system_fonts::list)
+        .await
+        .map_err(|_| CommandError {
+            code: "font_catalog",
+        })?
+        .map_err(|code| CommandError { code })
+}
 
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 struct DictionaryHostOptions(Arc<String>);
@@ -2068,6 +2084,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            supports_font_catalog,
+            list_font_families,
             load_preferences,
             scan_skin_catalog,
             read_skin_image,
