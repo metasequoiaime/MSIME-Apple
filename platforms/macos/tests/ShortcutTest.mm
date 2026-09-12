@@ -1954,8 +1954,13 @@ static void TestCloudCandidatePreference() {
 @end
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
+@property(nonatomic) BOOL useRealDelay;
 @end
 @implementation CustomTranslationController
+- (NSTimer *)customTranslationTimerWithBlock:(void (^)(NSTimer *))block {
+    if (self.useRealDelay) return [super customTranslationTimerWithBlock:block];
+    block(nil); return nil;
+}
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     ControlledTranslationBatch *batch = [ControlledTranslationBatch new];
     batch.reply = completion;
@@ -2098,6 +2103,50 @@ static void TestCustomTranslationCacheDelivery() {
     session.targetLanguage = @"de"; session.generation++;
     [controller synchronizeCustomTranslations]; assert(controller.batches.count == 4);
     [controller cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
+static void TestCustomTranslationIdleDelay() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.useRealDelay = YES; controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://idle.invalid/api", @"api_key":@""};
+    session.page = @[@{@"text":@"hello", @"source":@4}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCustomTranslations];
+    NSTimer *first = [controller valueForKey:@"customTimer"];
+    assert(first.valid && first.fireDate.timeIntervalSinceNow > 0.4 && first.fireDate.timeIntervalSinceNow <= 0.5);
+    [controller synchronizeCustomTranslations];
+    assert(first == [controller valueForKey:@"customTimer"]);
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    assert(controller.batches.count == 0);
+    session.generation++; session.page = @[@{@"text":@"newest", @"source":@4}];
+    [controller synchronizeCustomTranslations];
+    NSTimer *second = [controller valueForKey:@"customTimer"];
+    assert(!first.valid && second.valid && second != first);
+    [first fire]; assert(controller.batches.count == 0);
+    [controller setValue:@YES forKey:@"focusPending"];
+    [second fire];
+    assert(controller.batches.count == 0 && ![controller valueForKey:@"customTimer"]);
+    [controller cancelCandidateTranslations];
+    [controller setValue:@NO forKey:@"focusPending"];
+    [controller synchronizeCustomTranslations];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (!controller.batches.count && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.batches.count == 1 && [controller.batches[0].items[0][@"text"] isEqual:@"newest"]);
+    controller.batches[0].reply(@[@{@"text":@"newest", @"translation":@"最新"}]);
+    session.generation++;
+    [controller synchronizeCustomTranslations];
+    assert(![controller valueForKey:@"customTimer"] && controller.batches.count == 1);
+    assert(session.delivered.count == 1); // Cache hits never incur the delay.
+    session.generation++; session.page = @[@{@"text":@"cancelled", @"source":@4}];
+    [controller synchronizeCustomTranslations];
+    NSTimer *cancelled = [controller valueForKey:@"customTimer"];
+    [controller cancelCandidateTranslations]; [cancelled fire];
+    assert(!cancelled.valid && controller.batches.count == 1);
     [[MSIMETranslationCache sharedCache] clear];
 }
 static void TestGlossScheduling() {
@@ -2249,6 +2298,7 @@ int main() {
         TestGlossScheduling();
         TestCustomTranslationController();
         TestCustomTranslationCacheDelivery();
+        TestCustomTranslationIdleDelay();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();
         TestSharedInputPreferences();

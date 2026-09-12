@@ -220,6 +220,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *_glossTargetLanguage;
     NSArray<NSDictionary *> *_glossResults;
     MSIMECustomTranslationBatch *_customBatch;
+    NSTimer *_customTimer;
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
     NSArray<NSDictionary *> *_customResults;
@@ -228,6 +229,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)cancelCustomTranslations {
     ++_customEpoch;
+    [_customTimer invalidate];
+    _customTimer = nil;
     [_customBatch cancel];
     _customBatch = nil;
     _customQuery = nil;
@@ -276,6 +279,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
 }
+- (NSTimer *)customTranslationTimerWithBlock:(void (^)(NSTimer *))block {
+    NSTimer *timer = [NSTimer timerWithTimeInterval:0.5 repeats:NO block:block];
+    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+    return timer;
+}
 - (void)synchronizeCustomTranslations {
     NSDictionary *query = [self currentCustomTranslationRequest];
     if (!query) { [self cancelCustomTranslations]; return; }
@@ -310,23 +318,30 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
-    _customBatch = [self customBatchForItems:items completion:^(NSArray<NSDictionary *> *results) {
-        MSIMEInputController *current = weakSelf;
-        if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
-            ![[current currentCustomTranslationRequest] isEqual:query]) return;
-        current->_customBatch = nil;
-        NSMutableArray *combined = [cached mutableCopy];
-        [combined addObjectsFromArray:results];
-        for (NSString *text in identities) {
-            NSString *translation = nil;
-            for (NSDictionary *result in results)
-                if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
-            [cache rememberTranslation:translation identity:identities[text]];
-        }
-        current->_customResults = [combined copy];
-        [current applyCandidateTranslationResults];
+    _customTimer = [self customTranslationTimerWithBlock:^(NSTimer *timer) {
+        MSIMEInputController *owner = weakSelf;
+        if (!owner || owner->_customEpoch != epoch || owner->_customTimer != timer) return;
+        [timer invalidate]; owner->_customTimer = nil;
+        if (owner->_session != session || owner->_activeClient != client ||
+            ![[owner currentCustomTranslationRequest] isEqual:query]) return;
+        owner->_customBatch = [owner customBatchForItems:items completion:^(NSArray<NSDictionary *> *results) {
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
+                ![[current currentCustomTranslationRequest] isEqual:query]) return;
+            current->_customBatch = nil;
+            NSMutableArray *combined = [cached mutableCopy];
+            [combined addObjectsFromArray:results];
+            for (NSString *text in identities) {
+                NSString *translation = nil;
+                for (NSDictionary *result in results)
+                    if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
+                [cache rememberTranslation:translation identity:identities[text]];
+            }
+            current->_customResults = [combined copy];
+            [current applyCandidateTranslationResults];
+        }];
+        [owner->_customBatch start];
     }];
-    [_customBatch start];
 }
 - (void)cancelCandidateGloss {
     ++_glossEpoch;
@@ -998,6 +1013,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)dealloc {
+    [_customTimer invalidate];
     [_customBatch cancel];
     [_glossQueue cancelAllOperations];
     [_cloudTimer invalidate];
