@@ -27,6 +27,7 @@ export interface VoicePanelClient extends PanelClient {
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
   cancelVoice?(): Promise<void>;
+  sendVoiceText?(text: string): Promise<void>;
 }
 
 export type CloudClipboardAction =
@@ -277,9 +278,10 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   }
 
   async function submit() {
-    if (!text || !client.sendText) return;
+    const send = client.sendVoiceText ?? client.sendText;
+    if (!text || !send) return;
     try {
-      await client.sendText(text);
+      await send(text);
       setNotice(`已提交：${text}`);
       setText("");
     } catch {
@@ -303,7 +305,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <label className="voice-panel-language">识别语言<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></select></label>
       <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
       <textarea aria-label="识别结果" value={text} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
-      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !client.sendText || busy}>提交到当前窗口</button>
+      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
       <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
   </main>;
