@@ -547,6 +547,24 @@ test("automatic color swatch follows candidate theme without persisting a color 
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
 });
 
+test("screen keyboard sends every digit as an unmodified IME selection key", async () => {
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+  for (const modifier of ["Ctrl", "Alt", "Win"]) {
+    fireEvent.click(screen.getAllByRole("button", { name: modifier })[0]);
+  }
+  for (const digit of "1234567890") {
+    fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: digit }));
+    expect(sendKey).toHaveBeenLastCalledWith({
+      virtual_key: digit.charCodeAt(0), shift: false,
+      modifiers: { ctrl: true, alt: true, win: true }, include_sticky_modifiers: false,
+    });
+    expect(screen.getAllByRole("button", { name: "Shift" })[0].getAttribute("aria-pressed")).toBe("false");
+  }
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+});
+
 test("screen keyboard theme loads, saves independently and reloads", async () => {
   let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
