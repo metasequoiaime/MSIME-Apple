@@ -562,7 +562,8 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
 ];
 
 function matchesEmojiItem(item: EmojiCatalogItem, query: string) {
-  return !query || `${item.text} ${item.keywords}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return !normalizedQuery || `${item.text} ${item.keywords}`.toLocaleLowerCase().includes(normalizedQuery);
 }
 
 function flattenGroups(groups: EmojiCatalogGroup[]) {
