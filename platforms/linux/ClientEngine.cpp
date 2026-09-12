@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1844,13 +1844,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "AutocorrectTransposition", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("拼音错位纠错"), "",
       ibus_text_new_from_static_string("纠正拼音字母顺序错位"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       autocorrect_transposition ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto autocorrect_neighbor_property = ibus_property_new(
       "AutocorrectNeighbor", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("拼音邻键纠错"), "",
       ibus_text_new_from_static_string("纠正相邻键误触"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       autocorrect_neighbor ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
       "Helpcode", PROP_TYPE_TOGGLE,
@@ -3612,8 +3612,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           .value(key, configured.at("preferences").value("autocorrect", true));
       auto &setting_override = transposition ? s.autocorrect_transposition_override
                                              : s.autocorrect_neighbor_override;
-      if (setting_override.value_or(current) == enabled)
+      if (menu_save_pending || setting_override.value_or(current) == enabled)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, transposition ? MenuPreference::AutocorrectTransposition
+                                                  : MenuPreference::AutocorrectNeighbor, enabled);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4808,6 +4814,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->paired_punctuation_override.reset();
           if (request.preference == MenuPreference::PunctuationLock)
             self->state->punctuation_lock_override.reset();
+          if (request.preference == MenuPreference::AutocorrectTransposition)
+            self->state->autocorrect_transposition_override.reset();
+          if (request.preference == MenuPreference::AutocorrectNeighbor)
+            self->state->autocorrect_neighbor_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4855,6 +4865,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::PunctuationLock:
             snapshot["preferences"]["punctuation_lock"] = request.value;
+            break;
+          case MenuPreference::AutocorrectTransposition:
+            snapshot["preferences"]["quanpin"]["autocorrect_transposition"] = request.value;
+            break;
+          case MenuPreference::AutocorrectNeighbor:
+            snapshot["preferences"]["quanpin"]["autocorrect_neighbor"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
