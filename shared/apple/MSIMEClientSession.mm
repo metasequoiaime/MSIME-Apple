@@ -65,6 +65,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *q=[NSJSONSerialization dataWithJSONObject:query options:0 error:error], *s=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!q||q.length>65536||!s||s.length>4096){setError(error,@"语音流请求过大");return NO;}
     VoiceStreamContext context={ [update copy], [phase copy] }; char *response=msime_client_voice_provider_stream_events((const uint8_t *)q.bytes,q.length,(const uint8_t *)s.bytes,s.length,VoiceUpdate,VoicePhase,&context); BOOL ok=decode(response,error)!=nil; return ok;
 }
+- (BOOL)voiceProviderCancelSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
+    NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音取消路径无效");return NO;}
+    return decode(msime_client_voice_provider_cancel((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
+}
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
