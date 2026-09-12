@@ -1649,6 +1649,9 @@ void focus_out(IBusEngine *engine) {
     s.surrounding_text.clear();
     s.surrounding_cursor = 0;
     s.surrounding_anchor = 0;
+    s.last_smart_punctuation = 0;
+    s.last_smart_punctuation_time = 0;
+    s.smart_punctuation_rejected = 0;
     if (s.session)
       apply(engine, msime_client_focus(s.session, false));
     clear(engine);
@@ -2160,6 +2163,9 @@ void reset(IBusEngine *engine) {
     if (state(engine).voice_active)
       voice_cancel(engine);
     state(engine).voice_hotkey_consumed_key = 0;
+    state(engine).last_smart_punctuation = 0;
+    state(engine).last_smart_punctuation_time = 0;
+    state(engine).smart_punctuation_rejected = 0;
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
@@ -2218,6 +2224,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, s.input_enabled));
+      s.last_smart_punctuation = 0;
+      s.last_smart_punctuation_time = 0;
+      s.smart_punctuation_rejected = 0;
       clear(engine);
       publish_mode(engine);
     });
