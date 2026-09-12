@@ -5,6 +5,11 @@
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic) BOOL candidateHighlighted;
 @property(nonatomic) BOOL candidateFixed;
+@property(nonatomic, copy) NSString *translation;
+@property(nonatomic, strong) NSFont *translationFont;
+@property(nonatomic, copy) NSColor *translationColor;
+@property(nonatomic) BOOL translationBelow;
+@property(nonatomic) CGFloat translationRowHeight;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
@@ -66,11 +71,22 @@
     NSString *word = [title substringFromIndex:NSMaxRange(split)];
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-    const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
+    NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:self.font.pointSize * 0.78];
+    NSDictionary *glossAttributes = @{NSFontAttributeName:glossFont,
+        NSForegroundColorAttributeName:self.translationColor ?: [(self.titleColor ?: NSColor.labelColor) colorWithAlphaComponent:0.65],
+        NSParagraphStyleAttributeName:paragraph};
+    NSSize glossSize = [self.translation ?: @"" sizeWithAttributes:glossAttributes];
+    CGFloat extraHeight = self.translationBelow ? self.translationRowHeight : 0;
+    const CGFloat y = extraHeight + (self.bounds.size.height - extraHeight - MAX(numberSize.height, wordSize.height)) / 2;
     [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
     const CGFloat wordX = textLeft + numberSize.width + 6.0;
     const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
     [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    if (self.translation.length) {
+        CGFloat glossX = self.translationBelow ? wordX : wordX + wordSize.width + self.font.pointSize * 0.65;
+        CGFloat glossY = self.translationBelow ? (extraHeight - glossSize.height) / 2 : (self.bounds.size.height - glossSize.height) / 2;
+        [self.translation drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), glossSize.height) withAttributes:glossAttributes];
+    }
 }
 @end
 

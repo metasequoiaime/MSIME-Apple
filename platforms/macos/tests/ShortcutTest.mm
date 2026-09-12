@@ -3,6 +3,7 @@
 #import "../SkinSettingsView.h"
 #include <cassert>
 #include <fstream>
+#include <sqlite3.h>
 #import <objc/runtime.h>
 
 static NSUInteger missingKeyFontCalls;
@@ -75,6 +76,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
@@ -1794,6 +1796,23 @@ static void TestCloudCandidateEngineDelivery() {
     assert([view[@"candidates"][0][@"source"] isEqual:@2]);
     assert([CandidateDisplay(view[@"candidates"][0], NO) isEqual:@"云端测试候选 ☁️"]);
     assert(client.committed == nil && [controller valueForKey:@"cloudTimer"] == nil);
+    // Add a synthetic packaged glossary, then exercise the actual background path.
+    sqlite3 *glossDatabase = nullptr;
+    assert(sqlite3_open([[options[@"resources"] stringByAppendingPathComponent:@"english.db"] fileSystemRepresentation], &glossDatabase) == SQLITE_OK);
+    assert(sqlite3_exec(glossDatabase, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
+        "CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);"
+        "CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);"
+        "INSERT INTO zh_en_glosses VALUES('云端测试候选','synthetic glossary');", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(glossDatabase) == SQLITE_OK);
+    [controller cancelCandidateGloss];
+    [controller synchronizeCandidateGloss];
+    NSDate *glossDeadline = [NSDate dateWithTimeIntervalSinceNow:3];
+    while (![[session viewWithError:nil][@"candidates"][0][@"translation"] isEqual:@"synthetic glossary"] && glossDeadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert([[session viewWithError:nil][@"candidates"][0][@"translation"] isEqual:@"synthetic glossary"]);
+    [controller applySharedToolbarPreferences:@{@"candidate_translations":@NO}];
+    assert(![controller currentGlossRequest]);
+    assert(![session viewWithError:nil][@"candidates"][0][@"translation"]);
     [controller apply:[session command:MSIME_COMMIT_CANDIDATE error:&error]];
     assert(!error && [client.committed isEqual:@"云端测试候选"] && client.marked.length == 0);
     assert([controller valueForKey:@"cloudTimer"] == nil);
@@ -1866,6 +1885,62 @@ static void TestCloudCandidatePreference() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+@interface GlossSession : ShortcutSession
+@property(nonatomic) NSUInteger applications;
+@property(nonatomic) BOOL enabled;
+@end
+@implementation GlossSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return self.enabled ? @{@"generation":@1} : nil; }
+- (NSDictionary *)viewWithError:(NSError **)error { (void)error; return @{@"generation":@1, @"candidates":@[@{@"text":@"hello", @"source":@4}]}; }
+- (NSDictionary *)hostOptions { return @{@"resources":@"/synthetic"}; }
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)error; assert(NSThread.isMainThread && generation == 1 && translations.count == 1);
+    ++self.applications;
+    return @{@"applied":@YES, @"view":[self viewWithError:nil]};
+}
+@end
+@interface GlossController : CloudShortcutController
+@property(nonatomic, strong) dispatch_semaphore_t started;
+@property(nonatomic, strong) dispatch_semaphore_t released;
+@property(nonatomic) NSUInteger lookups;
+@end
+@implementation GlossController
+- (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
+    assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
+    ++self.lookups;
+    dispatch_semaphore_signal(self.started);
+    assert(dispatch_semaphore_wait(self.released, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"hello", @"translation":@"测试释义"}]};
+}
+@end
+static void TestGlossScheduling() {
+    GlossController *controller = [GlossController alloc];
+    controller.started = dispatch_semaphore_create(0);
+    controller.released = dispatch_semaphore_create(0);
+    GlossSession *session = [GlossSession new]; session.enabled = YES;
+    ShortcutClient *a = [ShortcutClient new], *b = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:a forKey:@"activeClient"];
+    [controller synchronizeCandidateGloss];
+    assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    [controller synchronizeCandidateGloss]; // Identical view must not duplicate work.
+    [controller cancelCandidateGloss];
+    [controller setValue:b forKey:@"activeClient"];
+    [controller synchronizeCandidateGloss];
+    dispatch_semaphore_signal(controller.released);
+    assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    assert(session.applications == 0);
+    dispatch_semaphore_signal(controller.released);
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (session.applications == 0 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(session.applications == 1 && controller.lookups == 2);
+    [controller synchronizeCandidateGloss];
+    assert(controller.lookups == 2);
+    [controller cancelCandidateGloss];
+}
+
 int main() {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
@@ -1875,6 +1950,7 @@ int main() {
         TestCloudCandidateScheduling();
         TestCloudCandidateEngineDelivery();
         TestCloudCandidatePreference();
+        TestGlossScheduling();
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();
@@ -2581,6 +2657,22 @@ int main() {
         assert([scriptButton.toolTip isEqual:@"漢語(aB)"]);
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
+        for (NSNumber *vertical in @[@NO, @YES]) {
+            appearance.vertical = vertical.boolValue;
+            [controller renderCandidates];
+            NSSize originalSize = PageButton(layoutPanel.contentView, 0).frame.size;
+            word[@"translation"] = @"synthetic glossary";
+            [controller renderCandidates];
+            MSIMECandidateButton *translated = PageButton(layoutPanel.contentView, 0);
+            assert([translated.translation isEqual:@"synthetic glossary"] && translated.translationBelow == !vertical.boolValue);
+            assert(fabs(translated.translationFont.pointSize - translated.font.pointSize * 0.78) < 0.01);
+            assert([translated.toolTip containsString:@"\nsynthetic glossary"] && [translated.candidateID isEqual:word[@"id"]]);
+            assert(vertical.boolValue ? translated.frame.size.width > originalSize.width : translated.frame.size.height > originalSize.height);
+            NSBitmapImageRep *bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
+            assert(bitmap);
+            [translated cacheDisplayInRect:translated.bounds toBitmapImageRep:bitmap];
+            [word removeObjectForKey:@"translation"];
+        }
         word[@"corrected"] = @YES;
         NSUInteger fixedCase = 0;
         for (id fixed in @[@0, @1, @5, @(-1), @256, @YES, @1.0, @"1", NSNull.null]) {

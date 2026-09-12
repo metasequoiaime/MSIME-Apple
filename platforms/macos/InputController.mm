@@ -60,6 +60,11 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     return text;
 }
 
+static NSString *CandidateTranslation(NSDictionary *candidate) {
+    id text = candidate[@"translation"];
+    return [text isKindOfClass:NSString.class] ? text : @"";
+}
+
 static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
@@ -206,6 +211,55 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
     uint64_t _cloudEpoch;
+    NSOperationQueue *_glossQueue;
+    NSDictionary *_glossRequest;
+    uint64_t _glossEpoch;
+    NSNumber *_glossEnabled;
+}
+
+- (void)cancelCandidateGloss {
+    ++_glossEpoch;
+    [_glossQueue cancelAllOperations];
+    _glossRequest = nil;
+}
+- (NSDictionary *)currentGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    if (!query) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in view[@"candidates"])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+            [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
+    return candidates.count ? @{@"generation":query[@"generation"], @"candidates":[candidates copy]} : nil;
+}
+- (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
+    return [MSIMEClientSession candidateGlossRequest:request resources:resources error:nil];
+}
+- (void)synchronizeCandidateGloss {
+    NSDictionary *request = [self currentGlossRequest];
+    if (!request) { [self cancelCandidateGloss]; return; }
+    if ([_glossRequest isEqual:request]) return;
+    [self cancelCandidateGloss];
+    _glossRequest = request;
+    NSString *resources = [_session.hostOptions[@"resources"] copy];
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
+    if (!_glossQueue) { _glossQueue = [NSOperationQueue new]; _glossQueue.maxConcurrentOperationCount = 1; _glossQueue.qualityOfService = NSQualityOfServiceUtility; }
+    const uint64_t epoch = _glossEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    [_glossQueue addOperationWithBlock:^{
+        NSDictionary *result = [weakSelf readCandidateGloss:request resources:resources];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_glossEpoch != epoch || current->_session != session || current->_activeClient != client ||
+                ![[current currentGlossRequest] isEqual:request] || ![result[@"generation"] isEqual:request[@"generation"]]) return;
+            NSDictionary *applied = [session applyTranslations:result[@"translations"] generation:[request[@"generation"] unsignedLongLongValue] error:nil];
+            if ([applied[@"applied"] boolValue]) [current apply:applied];
+        });
+    }];
 }
 
 - (void)cancelCloudCandidates {
@@ -574,6 +628,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    [self cancelCandidateGloss];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     [super activateServer:sender];
@@ -618,6 +673,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    [self cancelCandidateGloss];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     _requestedPageSize = 0;
@@ -686,9 +742,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // Failed loads/updates retain the existing window appearance and runtime.
     if (result && !updateError) {
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
-        _view = result[@"view"];
+        _view = [session viewWithError:nil] ?: result[@"view"];
         [self renderCandidates];
         [self synchronizeCloudCandidates];
+        [self synchronizeCandidateGloss];
     }
 }
 
@@ -709,6 +766,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    id glossEnabled = preferences[@"candidate_translations"];
+    if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
+        _glossEnabled = glossEnabled;
+        if (!_glossEnabled.boolValue) {
+            [self cancelCandidateGloss];
+            NSDictionary *view = [_session viewWithError:nil];
+            if (view) [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+        }
+    }
     id pageSize = preferences[@"candidate_page_size"];
     if ([pageSize isKindOfClass:NSNumber.class] &&
         CFGetTypeID((__bridge CFTypeRef)pageSize) != CFBooleanGetTypeID() &&
@@ -738,6 +804,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    [self cancelCandidateGloss];
     [self cancelCloudCandidates];
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
@@ -783,6 +850,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)dealloc {
+    [_glossQueue cancelAllOperations];
     [_cloudTimer invalidate];
     [_cloudRequest cancel];
     [_preferencesTimer invalidate];
@@ -799,6 +867,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!sender) { _modifierTap.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        [self cancelCandidateGloss];
         [self cancelCloudCandidates];
         _modifierTap.reset();
         _preferenceLoadState.reset();
@@ -973,6 +1042,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _view = transition[@"view"];
     [self renderCandidates];
     [self synchronizeCloudCandidates];
+    [self synchronizeCandidateGloss];
 }
 
 - (void)updateKeymapPanel {
@@ -1005,6 +1075,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
         for (NSDictionary *candidate in candidates)
             rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplay(candidate, traditional), font) + 12);
+        if (!_appearance.vertical) {
+            CGFloat glossHeight = 0;
+            NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78];
+            for (NSDictionary *candidate in candidates) {
+                NSString *translation = CandidateTranslation(candidate);
+                if (translation.length) glossHeight = MAX(glossHeight, [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}].height + 4);
+            }
+            rowHeight += glossHeight;
+        }
         clearance = MAX(clearance, (_appearance.vertical ? candidates.count : 1) * rowHeight + 24);
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
@@ -1054,15 +1133,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     CGFloat totalWidth = 0;
     NSUInteger index = 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+    NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78];
+    CGFloat glossHeight = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, CandidateDisplay(candidate, traditional)];
         rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
-        const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
+        CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
+        NSString *translation = CandidateTranslation(candidate);
+        if (translation.length) {
+            NSSize glossSize = [translation sizeWithAttributes:@{NSFontAttributeName:glossFont}];
+            if (vertical) itemWidth += font.pointSize * 0.65 + ceil(glossSize.width);
+            else { itemWidth = MAX(itemWidth, ceil(glossSize.width) + 40 + (geometry.showSelectedBar ? 6 : 0)); glossHeight = MAX(glossHeight, glossSize.height + 4); }
+        }
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
         width = MAX(width, itemWidth + 2 * inset);
     }
     width = MIN(width, MAX(80, visible.size.width - 20));
+    rowHeight += glossHeight;
     if (paging) width = MAX(width, 76);
     if (!vertical) {
         const CGFloat available = MAX(80, visible.size.width - 32 - (paging ? 56 : 0));
@@ -1108,6 +1196,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         button.font = font;
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = display;
+        button.translation = CandidateTranslation(candidate);
+        button.translationFont = glossFont;
+        button.translationBelow = !vertical;
+        button.translationRowHeight = glossHeight;
+        if (button.translation.length) button.toolTip = [display stringByAppendingFormat:@"\n%@", button.translation];
         button.bordered = NO;
         button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
         id fixed = candidate[@"fixed_position"];
@@ -1174,6 +1267,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
         button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
+        button.translationColor = [button.titleColor colorWithAlphaComponent:0.65];
         // Windows fixed-position span overrides candidate text, not its number.
         if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
         button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
