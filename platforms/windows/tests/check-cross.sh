@@ -10,7 +10,7 @@ for arch in x86_64 i686; do
   mkdir -p "$output"
   compiler="$arch-w64-mingw32-g++"
   for source in InputQueue.cpp SessionPump.cpp SessionWorkers.cpp SessionController.cpp PreferenceMonitor.cpp WindowsServer.cpp tests/server_smoke.cpp tests/input_queue.cpp tests/session_pump.cpp tests/session_workers.cpp tests/preference_monitor.cpp; do
-    "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
+    "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include -Icrates/host-api/include \
       -Ivendor/MSIME-Engine/contracts -I"$json_include" -c "platforms/windows/$source" -o "$output/$(basename "$source").o"
   done
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
@@ -19,13 +19,13 @@ for arch in x86_64 i686; do
     platforms/windows/tests/focus_router.cpp -o "$output/focus-router.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
     platforms/windows/tests/main_frame.cpp -o "$output/main-frame.exe"
-  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
-    platforms/windows/KeyboardPanel.cpp -municode -mwindows -luser32 -lgdi32 \
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include \
+    platforms/windows/KeyboardPanel.cpp platforms/windows/msimeui/src/DeviceResources.cpp platforms/windows/msimeui/src/Fonts.cpp -municode -mwindows -luser32 -lgdi32 -lole32 -ld2d1 -ldwrite -ld3d11 -ldcomp -lwindowscodecs \
     -o "$output/keyboard-panel.exe"
-  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
-    platforms/windows/HandwritingPanel.cpp -municode -mwindows -luser32 -lgdi32 -lole32 \
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include \
+    platforms/windows/HandwritingPanel.cpp platforms/windows/msimeui/src/DeviceResources.cpp platforms/windows/msimeui/src/Fonts.cpp -municode -mwindows -luser32 -lgdi32 -lole32 -ld2d1 -ldwrite -ld3d11 -ldcomp -lwindowscodecs \
     -o "$output/handwriting-panel.exe"
-  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -I"$json_include" \
+  "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include -I"$json_include" \
     -c platforms/windows/EmojiPanel.cpp -o "$output/emoji-panel.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"

@@ -36,7 +36,9 @@ struct PreviewConfig {
     PreviewConfig result{
         std::filesystem::u8path(value.at("resources").get<std::string>()),
         std::filesystem::u8path(value.at("state_root").get<std::string>()),
-        value.at("pipe_namespace").get<std::string>(), TsfPreeditStyle::Local};
+        value.at("pipe_namespace").get<std::string>(), TsfPreeditStyle::Local,
+        NavigationBindings{}, false, true, WordCharacterBinding::Disabled,
+        std::filesystem::path{}, std::string{}, true, true};
     if (!result.resources.is_absolute() || !result.state_root.is_absolute() ||
         result.resources.u8string().find('\0') != std::string::npos ||
         result.state_root.u8string().find('\0') != std::string::npos)
