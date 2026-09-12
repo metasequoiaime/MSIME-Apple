@@ -3129,10 +3129,20 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
+      if (s.view.at("candidates").is_array() &&
+          !s.view.at("candidates").empty() &&
+          !apply(engine, msime_client_command(
+                      s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
       handled = apply(engine, msime_client_character(s.session, ';', false));
       return;
     }
     if (unicode_plus_key(s.view, key, modifiers)) {
+      if (s.view.at("candidates").is_array() &&
+          !s.view.at("candidates").empty() &&
+          !apply(engine, msime_client_command(
+                      s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
       handled = apply(engine, msime_client_character(s.session, '+', true));
       return;
     }
