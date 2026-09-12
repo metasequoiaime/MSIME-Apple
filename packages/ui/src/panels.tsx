@@ -225,11 +225,16 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
 
   useEffect(() => {
     if (!client.rememberInputTarget) return;
     void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+  }, [client]);
+
+  useEffect(() => () => {
+    if (busyRef.current && client.cancelVoice) void client.cancelVoice().catch(() => undefined);
   }, [client]);
 
   useEffect(() => {
@@ -255,6 +260,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       setNotice("当前宿主未提供语音识别能力");
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setText("");
     setNotice("正在录音并识别…");
@@ -265,6 +271,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     } catch {
       setNotice("语音识别失败，请确认录音服务已启动");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
