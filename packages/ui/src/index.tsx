@@ -14,6 +14,16 @@ export type { EmojiCatalogGroup } from "./emoji-catalog";
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema };
 const defaultHelpcode: HelpcodePreferences = { enabled: true, schema: "ziranma" };
+export type KeybindingPreferences = {
+  switch_language_shift: boolean;
+  switch_language_ctrl: boolean;
+  switch_language_ctrl_alt_space: boolean;
+};
+const defaultKeybindings: KeybindingPreferences = {
+  switch_language_shift: true,
+  switch_language_ctrl: false,
+  switch_language_ctrl_alt_space: true,
+};
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
@@ -67,6 +77,7 @@ export type Preferences = {
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
+  keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_key_spacing_tenths?: number;
@@ -459,6 +470,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     if (aiOrigin) updateAi({ token: "", tokens: { ...(ai.tokens ?? {}), [aiOrigin]: value } });
   };
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
+  const keybindings = draft?.keybindings ?? defaultKeybindings;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
@@ -723,6 +735,20 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
         <div className="section shortcut-intro">输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。</div>
+        {linuxPlatform && <div className="section" role="group" aria-label="Linux 输入模式切换快捷键">
+          <div className="section-title">Linux 输入模式切换</div>
+          <small>在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。</small>
+          {([[
+            "switch_language_shift", "Shift 切换中英文",
+          ], [
+            "switch_language_ctrl", "单击 Ctrl 切换中英文",
+          ], [
+            "switch_language_ctrl_alt_space", "Ctrl+Alt+Space 切换中英文",
+          ]] as const).map(([key, label]) => <label className="section-header" key={key}>
+            <span className="section-title">{label}</span>
+            <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
+          </label>)}
+        </div>}
         <div className="section shortcut-section">
           <div className="section-title">候选操作</div>
           <small>输入和选取候选词时使用</small>

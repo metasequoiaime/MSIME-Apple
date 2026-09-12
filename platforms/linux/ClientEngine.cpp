@@ -76,6 +76,11 @@ struct State {
   bool smart_punctuation_repeat = true;
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
+  bool pure_ctrl_candidate = false;
+  bool mode_shift_enabled = true;
+  bool mode_ctrl_enabled = false;
+  bool mode_ctrl_alt_space_enabled = true;
+  bool mode_chord_held = false;
   bool number_row_selection = true;
   std::optional<bool> number_row_override;
   char last_smart_punctuation = 0;
@@ -129,6 +134,9 @@ struct State {
     voice_generation = 0;
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
+    pure_shift_candidate = false;
+    pure_ctrl_candidate = false;
+    mode_chord_held = false;
     voice_worker.cancel_async();
     invalidate_providers();
     ++clipboard_generation;
@@ -197,6 +205,11 @@ struct State {
     voice_hotkey_hold_space_lock =
         voice_preferences.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
+    const auto keybindings = preferences.value("keybindings", Json::object());
+    mode_shift_enabled = keybindings.value("switch_language_shift", true);
+    mode_ctrl_enabled = keybindings.value("switch_language_ctrl", false);
+    mode_ctrl_alt_space_enabled =
+        keybindings.value("switch_language_ctrl_alt_space", true);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
     cloud_candidates = cloud_candidates_override.value_or(
@@ -302,6 +315,11 @@ struct State {
     voice_hotkey_rctrl_ralt = voice.value("hotkey_rctrl_ralt", false);
     voice_hotkey_hold_space_lock = voice.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice.value("hotkey_ctrl_f9", true);
+    const auto keybindings = preferences.value("keybindings", Json::object());
+    mode_shift_enabled = keybindings.value("switch_language_shift", true);
+    mode_ctrl_enabled = keybindings.value("switch_language_ctrl", false);
+    mode_ctrl_alt_space_enabled =
+        keybindings.value("switch_language_ctrl_alt_space", true);
   }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
@@ -2234,9 +2252,25 @@ bool modifier(guint key) {
          key == IBUS_Scroll_Lock || key == IBUS_Mode_switch ||
          key == IBUS_ISO_Level3_Shift || key == IBUS_ISO_Level5_Shift;
 }
+void toggle_input_mode(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.voice_active)
+    voice_cancel(engine);
+  s.invalidate_providers();
+  if (!s.input_enabled && s.session)
+    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+  s.input_enabled = !s.input_enabled;
+  s.open();
+  if (s.session)
+    apply(engine, msime_client_focus(s.session, s.input_enabled));
+  clear(engine);
+  publish_mode(engine);
+}
 gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   auto &s = state(engine);
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
+  const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
+  const bool release = (flags & IBUS_RELEASE_MASK) != 0;
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
        IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
@@ -2251,19 +2285,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
       return FALSE;
     guarded(engine, "process_key", [&] {
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
-      s.input_enabled = !s.input_enabled;
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, s.input_enabled));
-      s.last_smart_punctuation = 0;
-      s.last_smart_punctuation_time = 0;
-      s.smart_punctuation_rejected = 0;
-      clear(engine);
-      publish_mode(engine);
+      toggle_input_mode(engine);
     });
     return TRUE;
   }
@@ -2271,8 +2293,39 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     // A modifier already held when Shift arrives makes this a chord.
     // Ignore Caps/Num Lock; IBus includes Shift in the modifier mask for
     // the Shift key event itself.
-    s.pure_shift_candidate = s.focused && !s.blocked && chord_modifiers == 0;
+    s.pure_shift_candidate =
+        s.mode_shift_enabled && s.focused && !s.blocked && chord_modifiers == 0;
     return FALSE;
+  }
+  if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
+    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK)) {
+      s.pure_ctrl_candidate = false;
+      return FALSE;
+    }
+    s.pure_ctrl_candidate = false;
+    if (!s.focused || s.blocked)
+      return FALSE;
+    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
+      return FALSE;
+    guarded(engine, "process_key", [&] { toggle_input_mode(engine); });
+    return TRUE;
+  }
+  if (ctrl_key && !(flags & IBUS_RELEASE_MASK)) {
+    s.pure_shift_candidate = false;
+    s.pure_ctrl_candidate =
+        s.mode_ctrl_enabled && s.focused && !s.blocked &&
+        (chord_modifiers & ~IBUS_CONTROL_MASK) == 0;
+    return FALSE;
+  }
+  if (key == IBUS_space && release && s.mode_chord_held) {
+    const bool ctrl_alt_space =
+        (chord_modifiers & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) ==
+            (IBUS_CONTROL_MASK | IBUS_MOD1_MASK) &&
+        (chord_modifiers & ~(IBUS_CONTROL_MASK | IBUS_MOD1_MASK)) == 0;
+    s.mode_chord_held = false;
+    if (ctrl_alt_space) {
+      return TRUE;
+    }
   }
   if (flags & IBUS_RELEASE_MASK) {
     if (key == IBUS_space && s.voice_space_consumed) {
@@ -2286,17 +2339,23 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     return FALSE;
   }
   s.pure_shift_candidate = false;
+  s.pure_ctrl_candidate = false;
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   const bool english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  const bool ctrl_alt_space =
+      key == IBUS_space &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_MOD1_MASK);
+  if (ctrl_alt_space && !s.mode_ctrl_alt_space_enabled)
+    return FALSE;
   const bool mode_toggle =
       english_toggle ||
       (key == IBUS_space &&
        (modifiers == IBUS_CONTROL_MASK ||
-        modifiers == (IBUS_CONTROL_MASK | IBUS_MOD1_MASK)));
+        ctrl_alt_space));
   const bool fullwidth_toggle = key == IBUS_space &&
                                 modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
   const bool character_set_toggle =
@@ -2358,18 +2417,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   guarded(engine, "process_key", [&] {
     s.open();
     if (mode_toggle) {
-      if (s.voice_active)
-        voice_cancel(engine);
-      s.invalidate_providers();
-      s.input_enabled = !s.input_enabled;
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, s.input_enabled));
-      s.last_smart_punctuation = 0;
-      s.last_smart_punctuation_time = 0;
-      s.smart_punctuation_rejected = 0;
-      clear(engine);
-      publish_mode(engine);
+      if (ctrl_alt_space && s.mode_chord_held) {
+        handled = true;
+        return;
+      }
+      if (ctrl_alt_space)
+        s.mode_chord_held = true;
+      toggle_input_mode(engine);
       handled = true;
       return;
     }

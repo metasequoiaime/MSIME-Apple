@@ -143,6 +143,8 @@ pub struct Preferences {
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
+    pub keybindings: KeybindingPreferences,
+    #[serde(default)]
     pub word_character: WordCharacterPreferences,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
@@ -541,6 +543,27 @@ impl Default for NavigationPreferences {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeybindingPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub switch_language_shift: bool,
+    #[serde(default)]
+    pub switch_language_ctrl: bool,
+    #[serde(default = "enabled_by_default")]
+    pub switch_language_ctrl_alt_space: bool,
+}
+
+impl Default for KeybindingPreferences {
+    fn default() -> Self {
+        Self {
+            switch_language_shift: true,
+            switch_language_ctrl: false,
+            switch_language_ctrl_alt_space: true,
+        }
+    }
+}
+
 fn enabled_by_default() -> bool {
     true
 }
@@ -603,6 +626,7 @@ impl Default for Preferences {
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
+            keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
