@@ -845,6 +845,42 @@ test("screen keyboard theme and Apple skin load, save independently and reload",
   expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
 });
 
+test("Android custom skin editor applies Apple templates, undo, materials and shared selection", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, customTouchKeyboardSkins: true }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
+  expect(screen.getAllByRole("switch", { name: /屏幕键盘皮肤/ })).toHaveLength(9);
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  fireEvent.click(within(editor).getByRole("tab", { name: "设计" }));
+  expect(within(editor).getAllByRole("button", { name: /皮肤模板/ })).toHaveLength(14);
+  fireEvent.click(within(editor).getByRole("button", { name: "皮肤模板 奶油桃桃" }));
+  const preview = within(editor).getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-key-shape")).toBe("pebble");
+  expect(preview.getAttribute("data-key-material")).toBe("raised");
+  fireEvent.click(within(editor).getByRole("button", { name: "撤销设计" }));
+  expect(preview.getAttribute("data-key-shape")).toBe("rounded");
+  fireEvent.click(within(editor).getByRole("button", { name: "重做" }));
+  expect(preview.getAttribute("data-key-shape")).toBe("pebble");
+  fireEvent.click(within(editor).getByRole("button", { name: "皮肤模板 工程蓝图" }));
+  expect(preview.getAttribute("data-key-material")).toBe("glass");
+  fireEvent.click(within(editor).getByRole("button", { name: "撤销设计" }));
+  expect(preview.getAttribute("data-key-shape")).toBe("pebble");
+  fireEvent.click(within(editor).getByRole("tab", { name: "按键" }));
+  fireEvent.change(within(editor).getByLabelText("键帽不透明度"), { target: { value: ".45" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "使用皮肤" }));
+  expect(screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    touch_keyboard_skin: "custom",
+    custom_touch_keyboard_skin: expect.objectContaining({
+      background: 0xFFE0D0, keyShape: "pebble", keyMaterial: "raised",
+      keyOpacity: .45, cornerRadius: 18, pattern: 3,
+    }),
+  })));
+});
+
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
   let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "dark", settings_theme: "dark", candidate_theme: "dark", toolbar_theme: "light" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {

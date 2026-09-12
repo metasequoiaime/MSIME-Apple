@@ -1205,12 +1205,19 @@ public final class MSIMEInputService extends InputMethodService {
         boolean selected = button.isSelected();
         String background = selected ? skin.accent() : action ? skin.actionBackground() : skin.keyBackground();
         String foreground = selected ? skin.actionForeground() : action ? skin.actionForeground() : skin.keyForeground();
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.parseColor(background));
-        drawable.setCornerRadius(pixels(skin.cornerRadius()));
-        int borderWidth = pixels(skin.borderWidth());
-        if (borderWidth > 0) drawable.setStroke(borderWidth, Color.parseColor(skin.borderColor()));
-        button.setBackground(drawable);
+        if ("custom".equals(skin.id())) {
+            button.setBackground(new KeyboardSkinKeyDrawable(skin,
+                Color.parseColor(background), selected || action,
+                getResources().getDisplayMetrics().density));
+        } else {
+            GradientDrawable drawable = new GradientDrawable();
+            drawable.setColor(Color.parseColor(background));
+            drawable.setCornerRadius(pixels(skin.cornerRadius()));
+            int borderWidth = pixels(skin.borderWidth());
+            if (borderWidth > 0)
+                drawable.setStroke(borderWidth, Color.parseColor(skin.borderColor()));
+            button.setBackground(drawable);
+        }
         button.setTextColor(Color.parseColor(foreground));
         button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         int shadowAlpha = (int) Math.round(255 * skin.shadowOpacity());
@@ -1285,7 +1292,9 @@ public final class MSIMEInputService extends InputMethodService {
         boolean dark = KeyboardSkin.resolveDark(keyboardTheme, globalTheme, systemDark());
         String identifier = preferences == null ? "forest"
             : preferences.optString("touch_keyboard_skin", "forest");
-        return KeyboardSkin.from(identifier, dark);
+        JSONObject customDesign = preferences == null ? null
+            : preferences.optJSONObject("custom_touch_keyboard_skin");
+        return KeyboardSkin.from(identifier, dark, customDesign);
     }
 
     private void loadFeedbackPreferences() {
@@ -1785,7 +1794,11 @@ public final class MSIMEInputService extends InputMethodService {
     private void showSkinMenu(Button anchor) {
         if (anchor == null || !canSaveKeyboardSkin()) return;
         PopupMenu popup = new PopupMenu(this, anchor);
-        for (KeyboardSkin choice : KeyboardSkin.builtIns(skin.dark())) {
+        JSONObject preferences = preferencesSnapshot == null ? null
+            : preferencesSnapshot.optJSONObject("preferences");
+        JSONObject customDesign = preferences == null ? null
+            : preferences.optJSONObject("custom_touch_keyboard_skin");
+        for (KeyboardSkin choice : KeyboardSkin.choices(skin.dark(), customDesign)) {
             MenuItem item = popup.getMenu().add(choice.title());
             item.setCheckable(true).setChecked(skin.id().equals(choice.id()));
             item.setOnMenuItemClickListener(ignored -> {
@@ -1806,7 +1819,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveKeyboardSkin(String identifier) {
-        KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark());
+        JSONObject currentPreferences = preferencesSnapshot == null ? null
+            : preferencesSnapshot.optJSONObject("preferences");
+        JSONObject customDesign = currentPreferences == null ? null
+            : currentPreferences.optJSONObject("custom_touch_keyboard_skin");
+        KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark(), customDesign);
         if (skin.id().equals(next.id()) || skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;

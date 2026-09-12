@@ -2,6 +2,7 @@ package app.msime.client;
 
 import java.util.List;
 import java.util.Locale;
+import org.json.JSONObject;
 
 /** Android rendering values for Apple's independent touch-keyboard skin preference. */
 public final class KeyboardSkin {
@@ -23,6 +24,16 @@ public final class KeyboardSkin {
     private final double shadowOffset;
     private final boolean monospaced;
     private final int pattern;
+    private final String keyShape;
+    private final String keyMaterial;
+    private final double keyOpacity;
+    private final String gradientEnd;
+    private final boolean gradientHorizontal;
+    private final double patternOpacity;
+    private final byte[] photo;
+    private final double photoShade;
+    private final double photoPosition;
+    private final String designKey;
 
     private KeyboardSkin(String id, String title, String description, boolean dark,
             String background, String keyBackground, String keyForeground, String accent,
@@ -47,6 +58,47 @@ public final class KeyboardSkin {
         this.shadowOffset = shadowOffset;
         this.monospaced = monospaced;
         this.pattern = pattern;
+        keyShape = "rounded";
+        keyMaterial = "flat";
+        keyOpacity = 1;
+        gradientEnd = null;
+        gradientHorizontal = false;
+        patternOpacity = .15;
+        photo = null;
+        photoShade = .25;
+        photoPosition = .5;
+        designKey = "";
+    }
+
+    private KeyboardSkin(CustomKeyboardSkin design, boolean dark) {
+        id = "custom";
+        title = "我的皮肤";
+        description = "自由配色 · 自定义键帽";
+        this.dark = dark;
+        background = design.background();
+        keyBackground = design.keyBackground();
+        keyForeground = design.keyForeground();
+        accent = design.accent();
+        actionBackground = design.actionBackground();
+        actionForeground = design.actionForeground();
+        cornerRadius = design.cornerRadius();
+        borderWidth = design.borderWidth();
+        borderColor = design.borderColor();
+        shadowOpacity = design.shadow();
+        shadowRadius = 2;
+        shadowOffset = 1;
+        monospaced = design.monospaced();
+        pattern = design.pattern();
+        keyShape = design.keyShape();
+        keyMaterial = design.keyMaterial();
+        keyOpacity = design.keyOpacity();
+        gradientEnd = design.gradientEnd();
+        gradientHorizontal = design.gradientHorizontal();
+        patternOpacity = design.patternOpacity();
+        photo = design.photo();
+        photoShade = design.photoShade();
+        photoPosition = design.photoPosition();
+        designKey = design.key();
     }
 
     public static KeyboardSkin from(String value) { return from(value, false); }
@@ -59,9 +111,12 @@ public final class KeyboardSkin {
         return systemDark;
     }
 
-    public static KeyboardSkin from(String value, boolean dark) {
+    public static KeyboardSkin from(String value, boolean dark) { return from(value, dark, null); }
+
+    public static KeyboardSkin from(String value, boolean dark, JSONObject customDesign) {
         String id = value == null ? "" : value;
         return switch (id) {
+            case "custom" -> new KeyboardSkin(CustomKeyboardSkin.from(customDesign), dark);
             case "ocean" -> skin(id, "海盐蓝", "海盐浅蓝 · 轻盈平面", dark,
                 adaptive(dark, rgb(.90, .94, .98), rgb(.09, .12, .17)),
                 adaptive(dark, "#FFFFFF", rgb(.18, .22, .29)),
@@ -141,11 +196,21 @@ public final class KeyboardSkin {
             from("midnight", dark), from("blueprint", dark));
     }
 
+    public static List<KeyboardSkin> choices(boolean dark, JSONObject customDesign) {
+        return List.of(from("forest", dark), from("ocean", dark), from("rose", dark),
+            from("porcelain", dark), from("typewriter", dark), from("candy", dark),
+            from("midnight", dark), from("blueprint", dark), from("custom", dark, customDesign));
+    }
+
+    static KeyboardSkin customFixture(CustomKeyboardSkin design, boolean dark) {
+        return new KeyboardSkin(design, dark);
+    }
+
     public String id() { return id; }
     public String title() { return title; }
     public String description() { return description; }
     public boolean dark() { return dark; }
-    public String key() { return id + ":" + dark; }
+    public String key() { return id + ":" + dark + (designKey.isEmpty() ? "" : ":" + designKey); }
     public String background() { return background; }
     public String keyBackground() { return keyBackground; }
     public String keyForeground() { return keyForeground; }
@@ -160,4 +225,13 @@ public final class KeyboardSkin {
     public double shadowOffset() { return shadowOffset; }
     public boolean monospaced() { return monospaced; }
     public int pattern() { return pattern; }
+    public String keyShape() { return keyShape; }
+    public String keyMaterial() { return keyMaterial; }
+    public double keyOpacity() { return keyOpacity; }
+    public String gradientEnd() { return gradientEnd; }
+    public boolean gradientHorizontal() { return gradientHorizontal; }
+    public double patternOpacity() { return patternOpacity; }
+    public byte[] photo() { return photo == null ? null : photo.clone(); }
+    public double photoShade() { return photoShade; }
+    public double photoPosition() { return photoPosition; }
 }

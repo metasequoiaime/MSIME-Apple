@@ -13,6 +13,8 @@ import type { FontCatalogReader } from "./font-catalog";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview, touchKeyboardSkinOptions } from "./screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./screen-keyboard-preview";
+import { TouchKeyboardSkinEditor } from "./touch-keyboard-skin-editor";
+import { defaultTouchKeyboardSkinDesign, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
@@ -180,6 +182,7 @@ export type Preferences = {
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_keyboard_skin?: TouchKeyboardSkin;
+  custom_touch_keyboard_skin?: TouchKeyboardSkinDesign;
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
@@ -388,6 +391,8 @@ export interface SettingsClient {
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
   touchKeyboardSchemes?: boolean;
+  /** Android exposes Apple's current custom touch-keyboard design editor and renderer. */
+  customTouchKeyboardSkins?: boolean;
   /** Android can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
 }
@@ -439,6 +444,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
+  const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
   const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   useEffect(() => {
     const clear = () => { pendingTitlebarDrag.current = null; };
@@ -712,6 +718,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
   const touchKeyboardSkin = draft?.touch_keyboard_skin ?? "forest";
+  const customTouchKeyboardSkin = draft?.custom_touch_keyboard_skin ?? defaultTouchKeyboardSkinDesign;
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
@@ -1181,8 +1188,17 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
                 <span className="touch-keyboard-skin-check" aria-hidden="true">{touchKeyboardSkin === option.id ? "✓" : ""}</span>
               </button>
             </article>)}
+            {client.customTouchKeyboardSkins && <article className={`touch-keyboard-skin-card${touchKeyboardSkin === "custom" ? " selected" : ""}`}>
+              <button type="button" role="switch" aria-label="屏幕键盘皮肤 我的皮肤" aria-checked={touchKeyboardSkin === "custom"} onClick={() => setDraft({ ...draft, touch_keyboard_skin: "custom" })}>
+                <ScreenKeyboardPreview theme={keyboardPreviewTheme} skin="custom" customDesign={customTouchKeyboardSkin} compact />
+                <span className="touch-keyboard-skin-copy"><strong>我的皮肤</strong><small>自由配色 · 自定义键帽</small></span>
+                <span className="touch-keyboard-skin-check" aria-hidden="true">{touchKeyboardSkin === "custom" ? "✓" : ""}</span>
+              </button>
+            </article>}
           </div>
+          {client.customTouchKeyboardSkins && <button type="button" className="secondary touch-skin-editor-open" aria-expanded={showTouchSkinEditor} onClick={() => setShowTouchSkinEditor(value => !value)}>{showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}</button>}
         </div>
+        {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} onChange={design => setDraft({ ...draft, custom_touch_keyboard_skin: design })} onUse={() => setDraft({ ...draft, touch_keyboard_skin: "custom" })} onClose={() => setShowTouchSkinEditor(false)} /></div>}
         <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
           <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
           <label className="section-header"><span className="section-title">键盘高度 <small>{touchKeyboardHeightAdjustment > 0 ? "+" : ""}{touchKeyboardHeightAdjustment} dp</small></span><input aria-label="键盘高度" type="range" min="-12" max="48" step="1" value={touchKeyboardHeightAdjustment} onChange={event => setDraft({ ...draft, touch_keyboard_height_adjustment: Number(event.target.value) })} /></label>
@@ -1195,7 +1211,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
-          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} /></div>
+          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} /></div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">

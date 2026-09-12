@@ -1,34 +1,85 @@
 package app.msime.client;
 
 import android.graphics.Canvas;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 
 /** Draws Apple's built-in touch-keyboard backdrop patterns without external assets. */
 public final class KeyboardSkinBackgroundDrawable extends Drawable {
     private final Paint background = new Paint();
     private final Paint pattern = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint shade = new Paint();
     private final float density;
     private final int patternId;
+    private final int backgroundStart;
+    private final Integer backgroundEnd;
+    private final boolean gradientHorizontal;
+    private final int patternAlpha;
+    private final Bitmap photo;
+    private final double photoShade;
+    private final double photoPosition;
     private int alpha = 255;
 
     public KeyboardSkinBackgroundDrawable(KeyboardSkin skin, float density) {
         this.density = density;
         patternId = skin.pattern();
-        background.setColor(Color.parseColor(skin.background()));
+        backgroundStart = Color.parseColor(skin.background());
+        backgroundEnd = skin.gradientEnd() == null ? null : Color.parseColor(skin.gradientEnd());
+        gradientHorizontal = skin.gradientHorizontal();
+        background.setColor(backgroundStart);
         int accent = Color.parseColor(skin.accent());
-        pattern.setColor(Color.argb(38, Color.red(accent), Color.green(accent), Color.blue(accent)));
+        patternAlpha = (int) Math.round(255 * skin.patternOpacity());
+        pattern.setColor(Color.argb(patternAlpha, Color.red(accent), Color.green(accent), Color.blue(accent)));
         pattern.setStyle(Paint.Style.FILL);
+        byte[] photoBytes = skin.photo();
+        photo = photoBytes == null ? null
+            : BitmapFactory.decodeByteArray(photoBytes, 0, photoBytes.length);
+        photoShade = skin.photoShade();
+        photoPosition = skin.photoPosition();
+        shade.setColor(Color.BLACK);
     }
 
     private float dp(double value) { return (float) value * density; }
 
+    @Override protected void onBoundsChange(Rect bounds) {
+        super.onBoundsChange(bounds);
+        if (backgroundEnd == null) {
+            background.setShader(null);
+            background.setColor(backgroundStart);
+            return;
+        }
+        float endX = gradientHorizontal ? bounds.right : bounds.left;
+        float endY = gradientHorizontal ? bounds.top : bounds.bottom;
+        background.setShader(new LinearGradient(bounds.left, bounds.top, endX, endY,
+            backgroundStart, backgroundEnd, Shader.TileMode.CLAMP));
+    }
+
     @Override public void draw(Canvas canvas) {
         canvas.drawRect(getBounds(), background);
+        if (photo != null && photo.getWidth() > 0 && photo.getHeight() > 0) {
+            float width = getBounds().width();
+            float height = getBounds().height();
+            float scale = Math.max(width / photo.getWidth(), height / photo.getHeight());
+            float drawWidth = photo.getWidth() * scale;
+            float drawHeight = photo.getHeight() * scale;
+            float left = getBounds().left + (width - drawWidth) * (float) photoPosition;
+            float top = getBounds().top + (height - drawHeight) * (float) photoPosition;
+            canvas.drawBitmap(photo, null,
+                new RectF(left, top, left + drawWidth, top + drawHeight), photoPaint);
+            shade.setAlpha((int) Math.round(255 * photoShade * alpha / 255));
+            canvas.drawRect(getBounds(), shade);
+        }
         if (patternId == 0) return;
         float left = getBounds().left;
         float top = getBounds().top;
@@ -65,7 +116,8 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     @Override public void setAlpha(int value) {
         alpha = Math.max(0, Math.min(255, value));
         background.setAlpha(alpha);
-        pattern.setAlpha(Math.round(38 * alpha / 255f));
+        pattern.setAlpha(Math.round(patternAlpha * alpha / 255f));
+        photoPaint.setAlpha(alpha);
         invalidateSelf();
     }
 

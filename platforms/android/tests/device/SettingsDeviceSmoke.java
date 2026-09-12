@@ -38,9 +38,14 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "document.querySelector('[aria-label=\"键盘高度\"]')";
     private static final String MIDNIGHT_SKIN =
         "document.querySelector('[aria-label=\"屏幕键盘皮肤 霓虹夜航\"]')";
+    private static final String CUSTOM_SKIN_DESIGN_TAB =
+        "Array.from(document.querySelectorAll('[role=tab]')).find(tab => "
+        + "tab.textContent?.trim() === '设计')";
+    private static final String CUSTOM_SKIN_TEMPLATE =
+        "document.querySelector('[aria-label=\"皮肤模板 奶油桃桃\"]')";
     private WebView web;
     @Override protected String successDescription() {
-        return "React save, Apple keyboard skin, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+        return "React save, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
@@ -79,12 +84,22 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             js("(" + NINE_KEY_TOGGLE + ").click(); true");
             awaitJs("!(" + NINE_KEY_TOGGLE + ").checked && (" + NINE_KEY_SELECT
                 + ").disabled && (" + QUANPIN_SELECT + ").getAttribute('aria-pressed') === 'true'");
-            stage = "React keyboard height setting";
+            stage = "React keyboard skin settings";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '屏幕键盘').click(); true");
             awaitJs("!!(" + KEYBOARD_HEIGHT + ")");
             awaitJs("!!(" + MIDNIGHT_SKIN + ")");
             js("(" + MIDNIGHT_SKIN + ").click(); true");
             awaitJs("(" + MIDNIGHT_SKIN + ").getAttribute('aria-checked') === 'true'");
+            stage = "React custom keyboard skin editor";
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '设计我的皮肤').click(); true");
+            awaitJs("!!(" + CUSTOM_SKIN_DESIGN_TAB + ")");
+            js("(" + CUSTOM_SKIN_DESIGN_TAB + ").click(); true");
+            awaitJs("!!(" + CUSTOM_SKIN_TEMPLATE + ")");
+            js("(" + CUSTOM_SKIN_TEMPLATE + ").click(); true");
+            awaitJs("document.querySelector('[data-preview-skin=\"custom\"]')?.getAttribute('data-key-shape') === 'pebble'");
+            awaitJs("document.querySelector('[data-preview-skin=\"custom\"]')?.getAttribute('data-key-material') === 'raised'");
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '使用皮肤').click(); true");
+            stage = "React keyboard height setting";
             js("const slider=" + KEYBOARD_HEIGHT + ";"
                 + "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'24');"
                 + "slider.dispatchEvent(new Event('input',{bubbles:true}));true");
@@ -99,8 +114,14 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             JSONObject savedPreferences = saved.getJSONObject("preferences");
             if (savedPreferences.getInt("touch_keyboard_height_adjustment") != 24)
                 throw new AssertionError("Keyboard height did not reach shared storage");
-            if (!"midnight".equals(savedPreferences.getString("touch_keyboard_skin")))
+            if (!"custom".equals(savedPreferences.getString("touch_keyboard_skin")))
                 throw new AssertionError("Keyboard skin did not reach shared storage");
+            JSONObject customSkin = savedPreferences.getJSONObject("custom_touch_keyboard_skin");
+            if (!"pebble".equals(customSkin.getString("keyShape"))
+                    || !"raised".equals(customSkin.getString("keyMaterial"))
+                    || customSkin.getInt("cornerRadius") != 18
+                    || customSkin.getInt("pattern") != 3)
+                throw new AssertionError("Custom keyboard design did not reach shared storage");
             JSONObject touchSchemes = savedPreferences.getJSONObject("touch_keyboard_schemes");
             if (!"quanpin".equals(touchSchemes.getString("selected")))
                 throw new AssertionError("Shared selected scheme did not use the fallback");
@@ -125,7 +146,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             tap(field("msime-test-plain"));
             stage = "cross-process keyboard uses saved skin";
             awaitAnyNode(node -> equalsText("app.msime.client.preview", node.getPackageName())
-                && equalsText("切换键盘皮肤；当前霓虹夜航", node.getContentDescription()));
+                && equalsText("切换键盘皮肤；当前我的皮肤", node.getContentDescription()));
             stage = "cross-process punctuation uses saved preferences";
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
             tapSymbol(",");

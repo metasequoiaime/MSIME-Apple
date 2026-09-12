@@ -34,7 +34,9 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 候选英文释义按固定 Apple 来源 `MSIME-Apple@d117009573a1a619cfb1702645f38c3b4c378a78` 渐进迁移，并通过共享 `candidate_english_gloss` 偏好选择性开启，默认关闭。开启后，Android 只在 IME 主线程复制当前 generation 的完整候选；无 session 的有界 worker 请求由 C++ Engine bridge 只读访问随包 `english.db`，Java 不实现输入算法也不读取 SQLite。完成结果返回主线程后必须同时匹配 session、generation 和生命周期 epoch，才会调用共享 `apply_translations`；停止输入、替换会话、偏好变化与服务销毁都会使旧结果失效。Engine 的五笔等候选提示优先占用次要文本位置，离线释义仅在没有 Engine 提示时显示；候选条与展开面板以较小的皮肤兼容文字和不同无障碍说明展示，候选身份、点击选择和上屏原文不变。查询失败静默保留普通候选，不记录候选文字；关闭偏好会立即隐藏已返回释义，缺失资源不会创建数据库或用户数据。
 
-触屏键盘皮肤以固定 Apple 来源 `MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453` 为基线，按相同顺序提供水杉绿、海盐蓝、浅蔷薇、素白瓷、纸上时光、奶油桃桃、霓虹夜航和工程蓝图。共享 `touch_keyboard_skin` 与桌面候选窗的 `candidate_skin` 完全独立；React 屏幕键盘页、普通输入方案和高情商回复键盘消费同一个选择。Android 适配保留 Apple 的明暗调色、圆角、边框、阴影、等宽字体以及网点、网格和波纹背景，`screen_keyboard_theme` 优先于全局 `theme`，两者都跟随系统时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤；设置热更新只重新应用视觉样式，不重建 Engine 会话。未知 ID 安全回退到水杉绿，不把用户设置值当作颜色或资源名直接使用。自定义编辑器、社区皮肤和 AI 生成皮肤尚未迁移，仍是后续独立切片；不得把八种内置皮肤视为完整皮肤功能迁移。
+触屏键盘皮肤以固定 Apple 来源 `MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453` 为基线，按相同顺序提供水杉绿、海盐蓝、浅蔷薇、素白瓷、纸上时光、奶油桃桃、霓虹夜航和工程蓝图。共享 `touch_keyboard_skin` 与桌面候选窗的 `candidate_skin` 完全独立；React 屏幕键盘页、普通输入方案和高情商回复键盘消费同一个选择。Android 适配保留 Apple 的明暗调色、圆角、边框、阴影、等宽字体以及网点、网格和波纹背景，`screen_keyboard_theme` 优先于全局 `theme`，两者都跟随系统时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤；设置热更新只重新应用视觉样式，不重建 Engine 会话。未知 ID 安全回退到水杉绿，不把用户设置值当作颜色或资源名直接使用。
+
+“我的皮肤”继续使用同一固定 Apple 来源的 `CustomKeyboardSkin`、`SkinKeySurfaceView`、背景绘制和 `CustomSkinEditorView`。共享 `custom_touch_keyboard_skin` 保留 Apple 的 camelCase 字段和默认值，颜色限制为 24 位 RGB，圆角、边框、阴影、键帽透明度、纹理强度、照片压暗与位置均按 Apple 范围验证；照片只接受有界 base64 图像，解码后最多 512,000 字节。React 编辑器提供九种背景预设、14 套固定设计模板、渐变方向、照片缩放缩略图、三种纹理、文字对比度提示与优化、四种键帽造型、四种材质、撤销/重做和“使用皮肤”；当前设计随普通设置保存。Android 原生键盘不是只显示预览，而是实际绘制照片铺满与压暗、渐变、纹理、卵石/票券/胶囊/圆角轮廓和哑光/立体/玻璃/纸张键帽，并在同一 `custom` ID 的设计变化后原地重绘。Apple 的最多 12 套命名图库仍应使用独立有界文件，避免把多张照片带入每次键盘读取的偏好；命名保存/重命名/更新/删除、社区发布下载和 AI 皮肤抽卡尚未迁移，是后续独立切片，不得把当前设计编辑器视为完整皮肤生态迁移。
 
 “更多”入口现在使用与 Apple 同层级的全键盘工具页：顶部返回，剪贴板历史、AI 润色和语音结果为单列 48 dp 卡片，按键反馈为两列，轻/中/强振动为三列，本地输入为两列并可纵向滚动。选中、启用、禁用和不可用状态通过按钮状态与无障碍描述同步暴露，不再依赖锚定底栏的系统弹出菜单。按键、候选、翻页和面板操作共用反馈路径；设置保存在输入法私有的 `keyboard-feedback` 偏好中，默认按键音开启、振动关闭；振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
 
@@ -72,7 +74,7 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。原 build-apk.sh 保留为不含管理 UI 的原生宿主测试包入口。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
-在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件选择霓虹夜航后检查独立 `touch_keyboard_skin` 落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
+在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置与自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先选择内置霓虹夜航，再打开真实编辑器应用“奶油桃桃”模板，检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
 移动入口布局依据 [Tauri 移动应用入口约定](https://v2.tauri.app/start/migrate/from-tauri-1/#preparing-for-mobile)。本地观察到最后一个 Tauri 窗口关闭时主进程正常退出，故使用 :ime 隔离；不依赖在同进程中禁止退出后的未验证窗口重建行为。
 

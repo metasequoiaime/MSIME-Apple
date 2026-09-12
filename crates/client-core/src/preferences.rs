@@ -1,6 +1,7 @@
 //! Versioned local preferences. Hosts supply a private application data directory.
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -40,6 +41,130 @@ pub enum TouchKeyboardSkin {
     Candy,
     Midnight,
     Blueprint,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchSkinKeyShape {
+    Rounded,
+    Capsule,
+    Ticket,
+    Pebble,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchSkinKeyMaterial {
+    Flat,
+    Raised,
+    Glass,
+    Paper,
+}
+
+/// Apple-compatible current custom design. Named designs live in a separate bounded library.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct TouchKeyboardSkinDesign {
+    pub background: u32,
+    pub key_background: u32,
+    pub key_foreground: u32,
+    pub accent: u32,
+    pub action_background: u32,
+    pub corner_radius: f64,
+    pub border_width: f64,
+    pub shadow: f64,
+    pub pattern: u8,
+    pub monospaced: bool,
+    pub key_shape: Option<TouchSkinKeyShape>,
+    pub key_material: Option<TouchSkinKeyMaterial>,
+    pub key_opacity: Option<f64>,
+    pub gradient_end: Option<u32>,
+    pub gradient_horizontal: Option<bool>,
+    pub pattern_opacity: Option<f64>,
+    pub custom_border_color: Option<u32>,
+    /// Base64 image bytes, matching Swift JSONEncoder's Data representation.
+    pub photo: Option<String>,
+    pub photo_shade: Option<f64>,
+    pub photo_position: Option<f64>,
+}
+
+impl Default for TouchKeyboardSkinDesign {
+    fn default() -> Self {
+        Self {
+            background: 0xE8F0EB,
+            key_background: 0xFFFFFF,
+            key_foreground: 0x17251D,
+            accent: 0x185C47,
+            action_background: 0x185C47,
+            corner_radius: 8.0,
+            border_width: 0.0,
+            shadow: 0.0,
+            pattern: 0,
+            monospaced: false,
+            key_shape: None,
+            key_material: None,
+            key_opacity: None,
+            gradient_end: None,
+            gradient_horizontal: None,
+            pattern_opacity: None,
+            custom_border_color: None,
+            photo: None,
+            photo_shade: None,
+            photo_position: None,
+        }
+    }
+}
+
+impl TouchKeyboardSkinDesign {
+    fn validate(&self) -> bool {
+        let colors = [
+            Some(self.background),
+            Some(self.key_background),
+            Some(self.key_foreground),
+            Some(self.accent),
+            Some(self.action_background),
+            self.gradient_end,
+            self.custom_border_color,
+        ];
+        if colors.into_iter().flatten().any(|color| color > 0xFFFFFF)
+            || !self.corner_radius.is_finite()
+            || !(0.0..=20.0).contains(&self.corner_radius)
+            || !self.border_width.is_finite()
+            || !(0.0..=2.0).contains(&self.border_width)
+            || !self.shadow.is_finite()
+            || !(0.0..=0.4).contains(&self.shadow)
+            || self.pattern > 3
+            || !valid_optional_number(self.key_opacity, 0.25, 1.0)
+            || !valid_optional_number(self.pattern_opacity, 0.0, 0.5)
+            || !valid_optional_number(self.photo_shade, 0.0, 0.8)
+            || !valid_optional_number(self.photo_position, 0.0, 1.0)
+        {
+            return false;
+        }
+        let Some(photo) = self.photo.as_ref() else {
+            return true;
+        };
+        if photo.len() > 682_668 {
+            return false;
+        }
+        let Ok(bytes) = BASE64.decode(photo) else {
+            return false;
+        };
+        bytes.len() <= 512_000 && supported_skin_photo(&bytes)
+    }
+}
+
+fn valid_optional_number(value: Option<f64>, minimum: f64, maximum: f64) -> bool {
+    value.is_none_or(|value| value.is_finite() && (minimum..=maximum).contains(&value))
+}
+
+fn supported_skin_photo(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"\x89PNG\r\n\x1A\n")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || (bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP")
 }
 
 /// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
@@ -149,7 +274,7 @@ pub enum TranslationTargetLanguage {
     Ko,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     #[serde(default)]
@@ -200,6 +325,8 @@ pub struct Preferences {
     /// Touch-only keyboard appearance. Candidate-window skins remain independent.
     #[serde(default)]
     pub touch_keyboard_skin: TouchKeyboardSkin,
+    #[serde(default)]
+    pub custom_touch_keyboard_skin: TouchKeyboardSkinDesign,
     /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
     #[serde(
         default,
@@ -782,6 +909,7 @@ impl Default for Preferences {
             scheme: InputScheme::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_skin: TouchKeyboardSkin::default(),
+            custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
@@ -1021,6 +1149,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
+        if !self.custom_touch_keyboard_skin.validate() {
+            return Err(PreferencesError::InvalidTouchKeyboardSkinDesign);
+        }
         if self.touch_keyboard_schemes.enabled.is_empty()
             || self
                 .touch_keyboard_schemes
@@ -1082,7 +1213,7 @@ impl Preferences {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreferencesSnapshot {
     pub format_version: u32,
@@ -1116,6 +1247,8 @@ pub enum PreferencesError {
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
     InvalidTouchKeyboardSchemes,
+    #[error("custom touch keyboard skin design is invalid")]
+    InvalidTouchKeyboardSkinDesign,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
@@ -1574,6 +1707,7 @@ mod tests {
             TouchKeyboardSkin::Candy,
             TouchKeyboardSkin::Midnight,
             TouchKeyboardSkin::Blueprint,
+            TouchKeyboardSkin::Custom,
         ]
         .into_iter()
         .enumerate()
@@ -1591,6 +1725,85 @@ mod tests {
         let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
         invalid["touch_keyboard_skin"] = "fluent".into();
         assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn custom_touch_keyboard_skin_matches_apple_fields_and_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("custom_touch_keyboard_skin");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.custom_touch_keyboard_skin,
+            TouchKeyboardSkinDesign::default()
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+        let design = TouchKeyboardSkinDesign {
+            background: 0x151022,
+            key_background: 0x291E40,
+            key_foreground: 0xFFFFFF,
+            accent: 0xD4BBFF,
+            action_background: 0x69469B,
+            corner_radius: 12.0,
+            border_width: 1.5,
+            shadow: 0.25,
+            pattern: 3,
+            monospaced: true,
+            key_shape: Some(TouchSkinKeyShape::Pebble),
+            key_material: Some(TouchSkinKeyMaterial::Glass),
+            key_opacity: Some(0.45),
+            gradient_end: Some(0x30224A),
+            gradient_horizontal: Some(true),
+            pattern_opacity: Some(0.2),
+            custom_border_color: Some(0xA987E8),
+            photo: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".into()),
+            photo_shade: Some(0.8),
+            photo_position: Some(1.0),
+        };
+        let preferences = Preferences {
+            touch_keyboard_skin: TouchKeyboardSkin::Custom,
+            custom_touch_keyboard_skin: design.clone(),
+            ..Preferences::default()
+        };
+        let saved = store.save(0, preferences).unwrap();
+        assert_eq!(saved.preferences.custom_touch_keyboard_skin, design);
+        let value = serde_json::to_value(&saved.preferences.custom_touch_keyboard_skin).unwrap();
+        assert_eq!(value["keyBackground"], 0x291E40);
+        assert_eq!(value["keyShape"], "pebble");
+        assert!(value.get("key_background").is_none());
+
+        for invalid in [
+            TouchKeyboardSkinDesign {
+                background: 0x1000000,
+                ..TouchKeyboardSkinDesign::default()
+            },
+            TouchKeyboardSkinDesign {
+                corner_radius: 21.0,
+                ..TouchKeyboardSkinDesign::default()
+            },
+            TouchKeyboardSkinDesign {
+                key_opacity: Some(0.24),
+                ..TouchKeyboardSkinDesign::default()
+            },
+            TouchKeyboardSkinDesign {
+                photo: Some("not-base64".into()),
+                ..TouchKeyboardSkinDesign::default()
+            },
+        ] {
+            let mut preferences = saved.preferences.clone();
+            preferences.custom_touch_keyboard_skin = invalid;
+            assert!(matches!(
+                store.save(saved.revision, preferences),
+                Err(PreferencesError::InvalidTouchKeyboardSkinDesign)
+            ));
+            assert_eq!(store.load().unwrap(), saved);
+        }
     }
 
     #[test]

@@ -1,4 +1,5 @@
-import app.msime.client.KeyboardSkin;
+package app.msime.client;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -61,7 +62,22 @@ public final class KeyboardSkinSmoke {
         check(!KeyboardSkin.resolveDark("follow", "light", true));
         check(KeyboardSkin.resolveDark("follow", "system", true));
         check(!KeyboardSkin.resolveDark("follow", "system", false));
+        CustomKeyboardSkin design = CustomKeyboardSkin.fixture(0x151022, 0x291E40, 0xFFFFFF,
+            0xD4BBFF, 0xFFFFFF, 17, 1.5, .25, 3, true, "pebble", "glass", .45,
+            0x30224A, true, .2, 0xA987E8,
+            new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}, .8, 1);
+        KeyboardSkin custom = KeyboardSkin.customFixture(design, false);
+        check("custom".equals(custom.id()) && "我的皮肤".equals(custom.title()));
+        check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));
+        check(custom.gradientHorizontal() && custom.patternOpacity() == .2);
+        check("pebble".equals(custom.keyShape()) && "glass".equals(custom.keyMaterial()));
+        check(custom.keyOpacity() == .45 && custom.cornerRadius() == 17);
+        check("#A987E8".equals(custom.borderColor()) && "#000000".equals(custom.actionForeground()));
+        check(custom.photo().length == 4 && custom.photoShade() == .8 && custom.photoPosition() == 1);
+        check(KeyboardSkin.choices(false, null).stream().map(KeyboardSkin::id).toList().equals(
+            Arrays.asList("forest", "ocean", "rose", "porcelain", "typewriter", "candy",
+                "midnight", "blueprint", "custom")));
         System.out.println("Android keyboard skins: Apple order, adaptive palettes, geometry, "
-            + "patterns, typography, theme resolution and fallback passed");
+            + "patterns, custom materials, photos, theme resolution and fallback passed");
     }
 }

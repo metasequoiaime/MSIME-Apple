@@ -58,7 +58,7 @@ java -cp "$output_dir" KeyboardGeometrySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
-java -cp "$output_dir" KeyboardSkinSmoke
+java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir" TypingSourceSmoke
 java -cp "$output_dir" EmojiCatalogModelSmoke

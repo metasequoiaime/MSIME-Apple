@@ -2082,6 +2082,7 @@ dependencies = [
 name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "hex",
  "hmac",
  "reqwest 0.12.28",

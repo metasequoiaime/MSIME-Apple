@@ -242,6 +242,36 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .touch-keyboard-skin-copy strong { font-size: 14px; font-weight: 600; }
 .touch-keyboard-skin-copy small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .touch-keyboard-skin-check { color: var(--accent-color); font-size: 17px; font-weight: 700; text-align: center; }
+.touch-skin-editor-open { margin-top: 14px; }
+.touch-skin-editor { display: flex; flex-direction: column; gap: 14px; }
+.touch-skin-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.touch-skin-editor-heading .secondary { flex: 0 0 auto; margin: 0; }
+.touch-skin-editor-tabs { display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; border: 1px solid var(--border-color); border-radius: 9px; background: var(--surface-subtle); }
+.touch-skin-editor-tabs button { min-height: 44px; border: 0; border-right: 1px solid var(--border-color); background: transparent; color: var(--text-muted); }
+.touch-skin-editor-tabs button:last-child { border-right: 0; }
+.touch-skin-editor-tabs button.selected { background: var(--accent-soft); color: var(--accent-color); font-weight: 650; }
+.touch-skin-editor-controls { display: flex; flex-direction: column; gap: 12px; }
+.touch-skin-control-block { padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-subtle); }
+.touch-skin-control-title { margin-bottom: 10px; font-weight: 600; }
+.touch-skin-background-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.touch-skin-background-grid button { display: flex; min-height: 64px; align-items: flex-end; padding: 7px; border: 1px solid rgba(0, 0, 0, .12); border-radius: 9px; }
+.touch-skin-background-grid button span { padding: 2px 6px; border-radius: 5px; background: rgba(0, 0, 0, .58); color: #fff; font-size: 11px; }
+.touch-skin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.touch-skin-form-grid label { display: flex; min-width: 0; flex-direction: column; gap: 7px; color: var(--text-secondary); font-size: 13px; }
+.touch-skin-form-grid input[type="range"], .touch-skin-form-grid select { width: 100%; }
+.touch-skin-form-grid input[type="color"] { width: 52px; height: 32px; padding: 2px; border: 1px solid var(--control-border); border-radius: 7px; background: transparent; }
+.touch-skin-form-grid .touch-skin-check-label { flex-direction: row; align-items: center; }
+.touch-skin-photo-button { display: inline-flex; width: fit-content; margin-top: 0; cursor: pointer; }
+.touch-skin-photo-button input { display: none; }
+.touch-skin-warning { grid-column: 1 / -1; margin: 2px 0; color: var(--danger-text); font-size: 12px; }
+.touch-skin-template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.touch-skin-template-grid button { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; padding: 10px; border: 1px solid rgba(0, 0, 0, .12); border-radius: 10px; font-weight: 650; text-align: left; }
+.touch-skin-template-grid button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.touch-skin-editor-preview { padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-subtle); }
+.touch-skin-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+.touch-skin-editor-actions button { margin: 0; }
+.touch-skin-editor-actions .primary { padding: 6px 14px; border: 1px solid var(--accent-color); border-radius: 6px; background: var(--accent-color); color: #fff; }
+.danger-text { width: fit-content; padding: 7px 0; border: 0; background: transparent; color: var(--danger-text); }
 .screen-keyboard-artwork { display: block; width: min(100%, 760px); height: auto; margin: 0 auto; font-family: "Segoe UI", system-ui, sans-serif; }
 .screen-keyboard-artwork.compact { width: 96px; margin: 0; border-radius: 5px; }
 .handwriting-mock { width: min(560px, 100%); margin: 0 auto; }
@@ -442,6 +472,7 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
   .section-title { overflow-wrap: anywhere; }
   .skin-grid { grid-template-columns: 1fr; }
   .touch-keyboard-skin-grid { grid-template-columns: 1fr; }
+  .touch-skin-form-grid, .touch-skin-template-grid { grid-template-columns: 1fr; }
   .feedback-card { grid-template-columns: 36px minmax(0, 1fr); }
   .feedback-card .secondary { grid-column: 2; justify-self: start; }
   .panel-preview { padding-left: 16px; padding-right: 16px; }

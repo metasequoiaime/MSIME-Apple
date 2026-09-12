@@ -1,9 +1,10 @@
 import { useId } from "react";
+import { readableSkinText, skinColor, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 
 // Built-in visual source: MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453,
 // platforms/ios/SharedUI/KeyboardSkinPreference.swift and KeyboardSkinBackgroundView.swift.
 export type TouchKeyboardSkin = "forest" | "ocean" | "rose" | "porcelain" |
-  "typewriter" | "candy" | "midnight" | "blueprint";
+  "typewriter" | "candy" | "midnight" | "blueprint" | "custom";
 
 type Palette = { background: string; key: string; foreground: string; accent: string; action: string };
 export type TouchKeyboardSkinOption = {
@@ -45,31 +46,66 @@ const rows = [
 ];
 const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del"]);
 
-function optionFor(id: TouchKeyboardSkin): TouchKeyboardSkinOption {
+function optionFor(id: Exclude<TouchKeyboardSkin, "custom">): TouchKeyboardSkinOption {
   return touchKeyboardSkinOptions.find(option => option.id === id) ?? touchKeyboardSkinOptions[0];
 }
 
-function Pattern({ id, pattern, accent }: { id: string; pattern: number; accent: string }) {
+function Pattern({ id, pattern, accent, opacity = .15 }: { id: string; pattern: number; accent: string; opacity?: number }) {
   if (pattern === 0) return null;
-  if (pattern === 1) return <pattern id={id} width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8.75" cy="8.75" r=".75" fill={accent} fillOpacity=".15" /></pattern>;
-  if (pattern === 2) return <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse"><path d="M0 0H20M0 0V20" fill="none" stroke={accent} strokeOpacity=".15" strokeWidth=".5" /></pattern>;
-  return <pattern id={id} width="48" height="48" patternUnits="userSpaceOnUse"><path d="M-12 42C4 0 27 65 60 1M-12 66C4 24 27 89 60 25" fill="none" stroke={accent} strokeOpacity=".15" strokeWidth="2" /></pattern>;
+  if (pattern === 1) return <pattern id={id} width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8.75" cy="8.75" r=".75" fill={accent} fillOpacity={opacity} /></pattern>;
+  if (pattern === 2) return <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse"><path d="M0 0H20M0 0V20" fill="none" stroke={accent} strokeOpacity={opacity} strokeWidth=".5" /></pattern>;
+  return <pattern id={id} width="48" height="48" patternUnits="userSpaceOnUse"><path d="M-12 42C4 0 27 65 60 1M-12 66C4 24 27 89 60 25" fill="none" stroke={accent} strokeOpacity={opacity} strokeWidth="2" /></pattern>;
 }
 
-export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false }: { theme: "dark" | "light"; skin?: TouchKeyboardSkin; compact?: boolean }) {
-  const option = optionFor(skin);
-  const palette = option[theme];
+function keyPath(x: number, y: number, width: number, height: number, shape: string, radius: number): string {
+  if (shape === "pebble") return `M${x + width * .35} ${y}C${x + width * .83} ${y} ${x + width} ${y + height * .04} ${x + width} ${y + height * .3}C${x + width} ${y + height * .85} ${x + width * .9} ${y + height} ${x + width * .68} ${y + height}C${x + width * .18} ${y + height} ${x} ${y + height * .97} ${x} ${y + height * .7}C${x} ${y + height * .2} ${x + width * .06} ${y} ${x + width * .35} ${y}Z`;
+  if (shape === "ticket") {
+    const r = Math.min(width, height) * .12;
+    return `M${x} ${y}H${x + width}V${y + height / 2 - r}A${r} ${r} 0 0 0 ${x + width} ${y + height / 2 + r}V${y + height}H${x}V${y + height / 2 + r}A${r} ${r} 0 0 0 ${x} ${y + height / 2 - r}Z`;
+  }
+  const r = shape === "capsule" ? height / 2 : Math.min(radius, height / 2, width / 2);
+  return `M${x + r} ${y}H${x + width - r}Q${x + width} ${y} ${x + width} ${y + r}V${y + height - r}Q${x + width} ${y + height} ${x + width - r} ${y + height}H${x + r}Q${x} ${y + height} ${x} ${y + height - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
+}
+
+export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false, customDesign }: { theme: "dark" | "light"; skin?: TouchKeyboardSkin; compact?: boolean; customDesign?: TouchKeyboardSkinDesign }) {
+  const custom = skin === "custom" && customDesign ? customDesign : undefined;
+  const option = optionFor(skin === "custom" ? "forest" : skin);
+  const palette = custom ? {
+    background: skinColor(custom.background), key: skinColor(custom.keyBackground),
+    foreground: skinColor(custom.keyForeground), accent: skinColor(custom.accent),
+    action: skinColor(custom.actionBackground),
+  } : option[theme];
+  const cornerRadius = custom?.cornerRadius ?? option.cornerRadius;
+  const borderWidth = custom?.borderWidth ?? option.borderWidth;
+  const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
+  const shadowRadius = custom ? 2 : option.shadowRadius;
+  const shadowOffset = custom ? 1 : option.shadowOffset;
+  const monospaced = custom?.monospaced ?? option.monospaced;
+  const pattern = custom?.pattern ?? option.pattern;
+  const keyShape = custom?.keyShape ?? "rounded";
+  const keyMaterial = custom?.keyMaterial ?? "flat";
+  const keyOpacity = custom?.keyOpacity ?? 1;
+  const actionForeground = custom ? skinColor(readableSkinText(custom.actionBackground)) : "#fff";
   const unique = useId().replaceAll(":", "");
   const patternId = `touch-skin-pattern-${unique}`;
   const shadowId = `touch-skin-shadow-${unique}`;
+  const backgroundId = `touch-skin-background-${unique}`;
+  const keyMaterialId = `touch-skin-key-material-${unique}`;
+  const actionMaterialId = `touch-skin-action-material-${unique}`;
   const height = (400 - 28 - 7 - 4 * 4) / 5;
-  return <svg className={`screen-keyboard-artwork${compact ? " compact" : ""}`} data-preview-theme={theme} data-preview-skin={skin} viewBox="0 0 1100 400" role={compact ? undefined : "img"} aria-hidden={compact || undefined} aria-label={compact ? undefined : "屏幕键盘完整布局预览"} style={{ fontFamily: option.monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }}>
+  return <svg className={`screen-keyboard-artwork${compact ? " compact" : ""}`} data-preview-theme={theme} data-preview-skin={skin} data-key-shape={keyShape} data-key-material={keyMaterial} viewBox="0 0 1100 400" role={compact ? undefined : "img"} aria-hidden={compact || undefined} aria-label={compact ? undefined : "屏幕键盘完整布局预览"} style={{ fontFamily: monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }}>
     <defs>
-      <Pattern id={patternId} pattern={option.pattern} accent={palette.accent} />
-      {option.shadowOpacity > 0 && <filter id={shadowId} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy={option.shadowOffset} stdDeviation={option.shadowRadius} floodOpacity={option.shadowOpacity} /></filter>}
+      <Pattern id={patternId} pattern={pattern} accent={palette.accent} opacity={custom?.patternOpacity ?? .15} />
+      {shadowOpacity > 0 && <filter id={shadowId} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy={shadowOffset} stdDeviation={shadowRadius} floodOpacity={shadowOpacity} /></filter>}
+      {custom?.gradientEnd !== undefined && <linearGradient id={backgroundId} x2={custom.gradientHorizontal ? "1" : "0"} y2={custom.gradientHorizontal ? "0" : "1"}><stop stopColor={palette.background} /><stop offset="1" stopColor={skinColor(custom.gradientEnd)} /></linearGradient>}
+      {(keyMaterial === "glass" || keyMaterial === "raised") && <>
+        <linearGradient id={keyMaterialId} x2="0" y2="1"><stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? .24 : .13} /><stop offset=".48" stopColor={palette.key} stopOpacity={keyOpacity} /><stop offset="1" stopColor="#000" stopOpacity={keyMaterial === "glass" ? .03 : .1} /></linearGradient>
+        <linearGradient id={actionMaterialId} x2="0" y2="1"><stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? .24 : .13} /><stop offset=".48" stopColor={palette.action} /><stop offset="1" stopColor="#000" stopOpacity={keyMaterial === "glass" ? .03 : .1} /></linearGradient>
+      </>}
     </defs>
-    <rect width="1100" height="400" rx="8" fill={palette.background} />
-    {option.pattern !== 0 && <rect width="1100" height="400" rx="8" fill={`url(#${patternId})`} />}
+    <rect width="1100" height="400" rx="8" fill={custom?.gradientEnd === undefined ? palette.background : `url(#${backgroundId})`} />
+    {custom?.photo && <><image href={`data:image/jpeg;base64,${custom.photo}`} width="1100" height="400" preserveAspectRatio={`${(custom.photoPosition ?? .5) < .34 ? "xMinYMin" : (custom.photoPosition ?? .5) > .66 ? "xMaxYMax" : "xMidYMid"} slice`} /><rect width="1100" height="400" fill="#000" fillOpacity={custom.photoShade ?? .25} /></>}
+    {pattern !== 0 && <rect width="1100" height="400" rx="8" fill={`url(#${patternId})`} />}
     <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>Touch keyboard</text>
     <path d="M1075 9l10 10m0-10l-10 10" fill="none" stroke={palette.foreground} strokeWidth="2" />
     {rows.map((row, rowIndex) => {
@@ -82,9 +118,14 @@ export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false 
         const left = x;
         x += width + 4;
         const action = actionLabels.has(item.label);
-        return <g data-keyboard-key={item.label} key={index} filter={option.shadowOpacity > 0 ? `url(#${shadowId})` : undefined}>
-          <rect x={left} y={y} width={width} height={height} rx={option.cornerRadius} fill={action ? palette.action : palette.key} stroke={option.borderWidth ? palette.accent : "none"} strokeOpacity={skin === "midnight" ? .65 : .28} strokeWidth={option.borderWidth} />
-          <text x={left + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={item.label.length === 1 ? 15 : 12} fill={action ? "#fff" : palette.foreground}>{item.label}</text>
+        const path = keyPath(left, y, width, height - (keyMaterial === "raised" ? 3 : 0), keyShape, cornerRadius);
+        const depthPath = keyPath(left, y + 3, width, height - 3, keyShape, cornerRadius);
+        const fill = keyMaterial === "glass" || keyMaterial === "raised" ? `url(#${action ? actionMaterialId : keyMaterialId})` : action ? palette.action : palette.key;
+        return <g data-keyboard-key={item.label} key={index} filter={shadowOpacity > 0 ? `url(#${shadowId})` : undefined}>
+          {keyMaterial === "raised" && <path d={depthPath} fill={action ? palette.action : palette.key} opacity=".72" />}
+          <path d={path} fill={fill} fillOpacity={action ? 1 : keyOpacity} stroke={borderWidth ? (custom?.customBorderColor === undefined ? palette.accent : skinColor(custom.customBorderColor)) : "none"} strokeOpacity={custom ? 1 : skin === "midnight" ? .65 : .28} strokeWidth={borderWidth} />
+          {keyMaterial === "paper" && <path d={`${path}M${left + 3} ${y + 10}H${left + width - 3}M${left + 3} ${y + 18}H${left + width - 3}M${left + 3} ${y + 26}H${left + width - 3}`} fill="none" stroke="#000" strokeOpacity=".08" strokeWidth=".5" />}
+          <text x={left + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={item.label.length === 1 ? 15 : 12} fill={action ? actionForeground : palette.foreground}>{item.label}</text>
         </g>;
       })}</g>;
     })}
