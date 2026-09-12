@@ -7,4 +7,5 @@ namespace msime::tsf {
 // The shared host validates the schema; never synthesize fallback data.
 std::string read_prepared_host_options(const std::filesystem::path &file);
 std::string default_host_options_json();
+std::string default_state_directory();
 }

@@ -262,6 +262,9 @@ BOOL CCompositionProcessorEngine::SetupLanguageProfile(LANGID langid, REFGUID gu
         std::string error;
         if (!options.empty())
             (void)InitializeHostSession(options, &error);
+    } else if (_hostEngineAdapter && _hostEngineAdapter->valid()) {
+        std::string error, ignored;
+        (void)_hostEngineAdapter->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);
     }
 
 Exit:
