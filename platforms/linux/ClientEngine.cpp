@@ -371,6 +371,34 @@ struct State {
     character_set_shortcut_enabled =
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
   }
+  bool refresh_provider_sockets() {
+    auto configured_socket = [](const Json &options, const char *key,
+                                const char *environment) {
+      auto socket = options.value(key, std::string{});
+      if (socket.empty()) {
+        if (const auto *fallback = g_getenv(environment))
+          socket = fallback;
+      }
+      return socket;
+    };
+    const auto online = configured_socket(
+        configured, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET");
+    const auto translation = [&] {
+      auto socket = configured_socket(configured, "translation_provider_socket",
+                                      "MSIME_TRANSLATION_PROVIDER_SOCKET");
+      return socket.empty() ? online : socket;
+    }();
+    const auto voice = configured_socket(
+        configured, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET");
+    const bool voice_changed = voice != voice_provider_socket;
+    if (online != online_provider_socket ||
+        translation != translation_provider_socket)
+      invalidate_providers();
+    online_provider_socket = online;
+    translation_provider_socket = translation;
+    voice_provider_socket = voice;
+    return voice_changed;
+  }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
     if (paired_punctuation_override)
@@ -2909,6 +2937,8 @@ gboolean reload_preferences(gpointer data) {
                              if (snapshot.is_null())
                                return;
                              configured["preferences"] = snapshot.at("preferences");
+                             const bool voice_socket_changed =
+                                 s.refresh_provider_sockets();
                              if (request->session == 0 ||
                                  s.session != request->session || !s.focused ||
                                  s.blocked)
@@ -2916,6 +2946,8 @@ gboolean reload_preferences(gpointer data) {
                              s.apply_session_overrides(snapshot);
                              s.refresh_host_preferences(snapshot.at("preferences"));
                              sync_global_input_mode(IBUS_ENGINE(source));
+                             if (voice_socket_changed && s.voice_active)
+                               voice_cancel(IBUS_ENGINE(source));
                              if (s.voice_active && !s.voice_enabled)
                                voice_cancel(IBUS_ENGINE(source));
                              const auto encoded = snapshot.dump();
