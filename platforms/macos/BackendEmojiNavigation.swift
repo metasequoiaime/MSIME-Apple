@@ -21,7 +21,7 @@ enum MacEmojiMainPage: String, CaseIterable {
   }
 }
 
-enum MacEmojiSectionChoice: Hashable {
+enum MacEmojiSectionChoice: Hashable, Sendable {
   case recent
   case group(String)
 

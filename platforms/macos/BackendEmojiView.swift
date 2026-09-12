@@ -33,6 +33,7 @@ struct MacEmojiView: View {
   @State private var group = ""
   @State private var parent = ""
   @State private var symbolGroups: [MacEmojiSymbolGroup] = []
+  @State private var symbolTabs: [MacEmojiCategoryTab<String>] = []
   private var displayedGroups: [String] {
     category == "symbols" ? MacEmojiSymbolGroup.titles(symbolGroups, parent: parent) : groups
   }
@@ -111,23 +112,12 @@ struct MacEmojiView: View {
         HStack {
           Button("返回首页") { navigate("home") }
           if emojiPage {
-            Picker("表情分类", selection: emojiSection) {
-              Text("最近使用").tag(MacEmojiSectionChoice.recent)
-              if groupsCategory == category && !groups.isEmpty {
-                ForEach(groups, id: \.self) { Text($0).tag(MacEmojiSectionChoice.group($0)) }
-              } else {
-                Text(groupsFailed ? "分类不可用" : groupsCategory == category ? "分类为空" : "正在加载分类…")
-                  .tag(MacEmojiSectionChoice.group(""))
-              }
-            }
+            MacEmojiCategoryTabs(tabs: MacEmojiCategoryIcons.emojiTabs(groupsCategory == category ? groups : []),
+              selected: emojiSection.wrappedValue, palette: palette, select: { emojiSection.wrappedValue = $0 })
+          } else if category == "symbols" && !symbolTabs.isEmpty {
+            MacEmojiCategoryTabs(tabs: symbolTabs, selected: parent, palette: palette, select: { parent = $0 })
           } else { Text(MacEmojiMainPage.title(category: category)).font(.system(size: 16, weight: .semibold)) }
         }
-      }
-      if category == "symbols" {
-        Picker("符号大类", selection: $parent) {
-          Text("全部大类").tag("")
-          ForEach(MacEmojiSymbolGroup.parents(symbolGroups), id: \.self) { Text($0).tag($0) }
-        }.disabled(groupsCategory != category || symbolGroups.isEmpty)
       }
       if category != "home" && category != "clipboard" && !emojiPage && mediaPage == nil {
       Picker("分类", selection: $group) {
@@ -239,15 +229,26 @@ struct MacEmojiView: View {
         groupsCategory = nil
         groups = []
         symbolGroups = []
+        symbolTabs = []
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
         if selectedCategory == "home" || selectedCategory == "clipboard" || MacEmojiMediaPage(rawValue: selectedCategory) != nil { groupsCategory = selectedCategory; return }
         do {
           if selectedCategory == "symbols" {
-            let result = try await Task.detached { try MacEmojiCatalog.loadSymbolGroups(resources: directory) }.value
+            let worker = Task.detached {
+              let groups = try MacEmojiCatalog.loadSymbolGroups(resources: directory)
+              let tabs = try MacEmojiCategoryIcons.symbolTabs(groups) { parent in
+                try Task.checkCancellation()
+                return try MacEmojiCatalog.load(resources: directory, search: "", category: "symbols", parent: parent, limit: 1).first?.text
+              }
+              return (groups, tabs)
+            }
+            let result = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
             try Task.checkCancellation()
-            symbolGroups = result
+            symbolGroups = result.0
+            symbolTabs = result.1
+            parent = symbolTabs.first?.id ?? ""
             groupsCategory = selectedCategory
             return
           }
@@ -310,8 +311,10 @@ struct MacEmojiView: View {
           let directory = resources
           let selectedCategory = category
           let selectedOffset = offset
-          let selectedGroup = group
-          let selectedParent = parent
+          let filters = selectedCategory == "symbols"
+            ? MacEmojiSymbolGroup.queryFilters(search: query, parent: parent, group: group) : (parent: parent, group: group)
+          let selectedGroup = filters.group
+          let selectedParent = filters.parent
           let requestedID = queryID
           let result = try await Task.detached {
             try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset, group: selectedGroup, parent: selectedParent)
