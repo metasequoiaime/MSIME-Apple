@@ -271,6 +271,30 @@ int main(int argc, char **argv) {
     require(!seen.preedit_visible && !key('n'),
             "Focus loss without a known context identity did not stop input");
     invoke("FocusIn");
+    // Client identity can arrive after surrounding text during negotiation.
+    // Qt reports UTF-16 positions; other IBus clients report code points.
+    for (const bool qt : {true, false}) {
+      for (const int selection : {0, 1, -1}) {
+        invoke("FocusOut");
+        invoke("FocusIn");
+        auto text = ibus_text_new_from_string("😀7水");
+        g_object_ref_sink(text);
+        const guint start = qt ? 3 : 2;
+        const guint end = selection ? start + 1 : start;
+        invoke("SetSurroundingText", g_variant_new("(vuu)",
+            ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+            selection < 0 ? start : end, selection < 0 ? end : start));
+        g_object_unref(text);
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/surrounding",
+            qt ? "QIBusInputContext" : "msime-test"));
+        const auto before = seen.committed;
+        require(key(IBUS_period) && seen.committed == before + ".",
+                "Delayed client identity lost the surrounding selection start");
+      }
+    }
+    invoke("FocusOut");
+    invoke("FocusIn");
+    seen.committed.clear();
 #endif
     invoke("Reset");
     invoke("PropertyActivate",

@@ -275,6 +275,7 @@ struct State {
   }
   std::string surrounding_text;
   bool surrounding_utf16 = false;
+  // Preserve client units until use: focus identity may arrive after text.
   guint surrounding_cursor = 0;
   guint surrounding_anchor = 0;
   ~State() {
@@ -1056,6 +1057,20 @@ bool is_ascii_alphanumeric(unsigned char value) {
          (value >= 'A' && value <= 'Z') ||
          (value >= 'a' && value <= 'z');
 }
+std::size_t surrounding_byte_offset(const State &s, guint offset) {
+  const auto *utf8 = s.surrounding_text.c_str();
+  const auto *position = utf8;
+  // IBus uses code points; QIBusInputContext forwards QString UTF-16 units.
+  while (*position) {
+    const guint units = s.surrounding_utf16 &&
+                        g_utf8_get_char(position) > 0xffff ? 2 : 1;
+    if (offset < units)
+      break;
+    offset -= units;
+    position = g_utf8_next_char(position);
+  }
+  return static_cast<std::size_t>(position - utf8);
+}
 bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   // A highlighted candidate is the preceding text for punctuation finishing
   // an active composition. This mirrors the Windows TSF path, while IBus
@@ -1077,8 +1092,8 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   }
   const auto &surrounding = s.surrounding_text;
   // A commit replaces the selection, so inspect the character before its start.
-  const auto cursor = std::min<std::size_t>(
-      std::min(s.surrounding_cursor, s.surrounding_anchor), surrounding.size());
+  const auto cursor = surrounding_byte_offset(
+      s, std::min(s.surrounding_cursor, s.surrounding_anchor));
   if (cursor == 0)
     return false;
   const auto value = static_cast<unsigned char>(surrounding[cursor - 1]);
@@ -1091,8 +1106,7 @@ bool smart_punctuation_repeat_matches_document(const State &s) {
   auto previous = std::string(1, s.last_smart_punctuation);
   if (s.fullwidth)
     previous = fullwidth_text(std::move(previous));
-  const auto cursor = std::min<std::size_t>(s.surrounding_cursor,
-                                          s.surrounding_text.size());
+  const auto cursor = surrounding_byte_offset(s, s.surrounding_cursor);
   return cursor >= previous.size() &&
          s.surrounding_text.compare(cursor - previous.size(), previous.size(),
                                     previous) == 0;
@@ -2659,23 +2673,8 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
-  const auto *utf8 = s.surrounding_text.c_str();
-  // IBus uses Unicode character offsets. Qt's QIBusInputContext instead
-  // forwards QString UTF-16 positions; normalize only that identified client.
-  auto byte_offset = [&](guint offset) {
-    const auto *position = utf8;
-    while (*position) {
-      const guint units = s.surrounding_utf16 &&
-                          g_utf8_get_char(position) > 0xffff ? 2 : 1;
-      if (offset < units)
-        break;
-      offset -= units;
-      position = g_utf8_next_char(position);
-    }
-    return static_cast<guint>(position - utf8);
-  };
-  s.surrounding_cursor = byte_offset(cursor);
-  s.surrounding_anchor = byte_offset(anchor);
+  s.surrounding_cursor = cursor;
+  s.surrounding_anchor = anchor;
 }
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
