@@ -2104,6 +2104,7 @@ dependencies = [
  "msime-host-api",
  "msime-host-windows",
  "msime-input-runtime",
+ "rustix",
  "serde",
  "serde_json",
  "tauri",

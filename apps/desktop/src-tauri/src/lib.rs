@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+mod linux_clipboard;
+
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
@@ -2393,33 +2396,21 @@ fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, H
 
 #[cfg(target_os = "linux")]
 fn linux_clipboard_text() -> Result<String, HostActionError> {
-    let output = std::process::Command::new("wl-paste")
-        .args(["--no-newline", "--type", "text"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .or_else(|| {
-            std::process::Command::new("xclip")
-                .args(["-selection", "clipboard", "-o"])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-        })
-        .or_else(|| {
-            std::process::Command::new("xsel")
-                .args(["--clipboard", "--output"])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-        })
+    let mut commands: Vec<(&str, &[&str])> = Vec::new();
+    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()) {
+        commands.push(("wl-paste", &["--no-newline", "--type", "text"]));
+    }
+    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
+        commands.push(("xclip", &["-selection", "clipboard", "-o"]));
+        commands.push(("xsel", &["--clipboard", "--output"]));
+    }
+    // Preserve source line endings; wl-paste suppresses its own separator.
+    commands
+        .into_iter()
+        .find_map(|(program, arguments)| linux_clipboard::read_text(program, arguments))
         .ok_or(HostActionError {
             code: "unavailable",
-        })?;
-    // wl-paste's --no-newline suppresses only its added separator. Existing
-    // line endings belong to the copied text, as they do on X11.
-    String::from_utf8(output.stdout).map_err(|_| HostActionError {
-        code: "unavailable",
-    })
+        })
 }
 
 #[cfg(target_os = "linux")]

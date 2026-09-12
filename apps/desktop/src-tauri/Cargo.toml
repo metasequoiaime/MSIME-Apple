@@ -20,6 +20,9 @@ msime-input-runtime = { path = "../../../crates/input-runtime" }
 serde_json.workspace = true
 tempfile.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+
 [target.'cfg(windows)'.dependencies]
 # Foreground capture, synthetic input and shell access for the shared panels.
 msime-host-windows = { path = "../../../crates/host-windows" }
