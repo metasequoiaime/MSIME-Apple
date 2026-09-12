@@ -72,6 +72,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return @{@"focused":@NO, @"editing_text":@"", @"candidates":@[], @"dedicated_english":@(self.dedicatedEnglish)};
+}
 - (NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error; ++self.englishCandidateCalls; self.dedicatedEnglish = enabled;
     return @{@"focused":@YES, @"editing_text":@"", @"preedit":@"", @"candidates":@[], @"dedicated_english":@(enabled)};
@@ -240,7 +244,9 @@ static void TestPageSizeCache() {
     [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:[NSObject new]]];
     [controller syncPageSize];
     assert(session.pageSizeCalls == 2 && [client.marked isEqual:@"synthetic"] && keymap.requestedVisible && panel.requestedVisible);
+    session.dedicatedEnglish = YES;
     [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:session]];
+    assert([[[controller valueForKey:@"view"] objectForKey:@"dedicated_english"] isEqual:@YES]);
     assert(client.marked.length == 0 && client.committed == nil && !keymap.requestedVisible && !panel.requestedVisible);
     assert([[controller valueForKey:@"focusPending"] boolValue]);
     [controller syncPageSize];

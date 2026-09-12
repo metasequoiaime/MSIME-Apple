@@ -48,6 +48,30 @@ static void TestEngineMaintenance() {
     assert(!error && [englishTyped[@"view"][@"dedicated_english"] isEqual:@YES]);
     assert([englishTyped[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
     assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"hello"]);
+    for (NSNumber *enabled in @[@YES, @NO, @YES]) {
+        assert([session setDedicatedEnglishEnabled:enabled.boolValue error:&error] && !error);
+        __block NSUInteger replacements = 0;
+        id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEClientSessionDidReplaceSnapshotNotification object:session queue:nil usingBlock:^(NSNotification *notification) {
+            assert(notification.object == session);
+            // Mode restoration must precede the notification consumed by the IMK host.
+            assert([[session viewWithError:nil][@"dedicated_english"] isEqual:enabled]);
+            ++replacements;
+        }];
+        NSError *activationError = nil;
+        NSString *version = [@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0];
+        assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:version error:&activationError]);
+        assert(activationError && replacements == 1);
+        [NSNotificationCenter.defaultCenter removeObserver:observer];
+        NSDictionary *restored = [session viewWithError:&error];
+        assert(restored && !error && [restored[@"dedicated_english"] isEqual:enabled]);
+        assert([session setFocused:YES error:&error]);
+        if (enabled.boolValue) {
+            assert([session typeASCII:'h' shift:NO error:&error]);
+            NSDictionary *typed = [session typeASCII:'e' shift:NO error:&error];
+            assert([typed[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
+            assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"hello"]);
+        }
+    }
     englishView = [session setDedicatedEnglishEnabled:NO error:&error];
     assert(!error && [englishView[@"dedicated_english"] isEqual:@NO]);
     for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);

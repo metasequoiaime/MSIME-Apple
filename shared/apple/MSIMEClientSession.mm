@@ -43,6 +43,15 @@ static NSDictionary *decode(char *response, NSError **error) {
 @implementation MSIMEClientSession {
     uint64_t _handle;
     NSDictionary *_hostOptions;
+    BOOL _dedicatedEnglishEnabled;
+}
+- (BOOL)restoreDedicatedEnglishMode:(NSError **)error {
+    if (!_dedicatedEnglishEnabled) return YES;
+    if (decode(msime_client_set_english_mode(_handle, true), error)) return YES;
+    // Do not expose a replacement session silently running in the wrong mode.
+    msime_client_string_free(msime_client_destroy(_handle));
+    _handle = 0;
+    return NO;
 }
 - (NSDictionary *)hostOptions { return _hostOptions; }
 + (NSDictionary *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
@@ -164,6 +173,7 @@ static NSDictionary *decode(char *response, NSError **error) {
         NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
         session->_handle = [view[@"session"] unsignedLongLongValue];
         if (session->_handle != 0) {
+            [session restoreDedicatedEnglishMode:nil];
             // Recovery creates a fresh session too; the host must clear the
             // destroyed composition and restore focus even though activation failed.
             [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
@@ -176,6 +186,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!view) return NO;
     session->_handle = [view[@"session"] unsignedLongLongValue];
     if (session->_handle != 0) {
+        [session restoreDedicatedEnglishMode:error];
         [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
     }
     return session->_handle != 0;
@@ -296,7 +307,9 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 - (nullable NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_set_english_mode(_handle, enabled), error);
+    NSDictionary *view = decode(msime_client_set_english_mode(_handle, enabled), error);
+    if (view) _dedicatedEnglishEnabled = enabled;
+    return view;
 }
 - (nullable NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;

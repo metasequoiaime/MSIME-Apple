@@ -541,7 +541,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_activeClient) {
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
     }
-    _view = @{};
+    _view = [_session viewWithError:nil] ?: @{};
     [_panel orderOut:nil];
     [_keymapPanel orderOut:nil];
 }
