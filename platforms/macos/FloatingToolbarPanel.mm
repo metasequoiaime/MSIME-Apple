@@ -162,6 +162,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
     NSButton *_emojiButton;
+    NSButton *_keyboardButton;
     NSButton *_settingsButton;
     NSStackView *_actions;
     NSLayoutConstraint *_leadingInset;
@@ -226,13 +227,17 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _emojiButton.image = [NSImage imageWithSystemSymbolName:@"face.smiling" accessibilityDescription:@"表情"];
     _emojiButton.accessibilityLabel = @"打开水杉表情面板";
     _emojiButton.toolTip = _emojiButton.accessibilityLabel;
+    _keyboardButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarScreenKeyboard", self, @selector(openScreenKeyboard:));
+    _keyboardButton.image = [NSImage imageWithSystemSymbolName:@"keyboard" accessibilityDescription:@"屏幕键盘"];
+    _keyboardButton.accessibilityLabel = @"打开水杉屏幕键盘";
+    _keyboardButton.toolTip = _keyboardButton.accessibilityLabel;
     _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
     _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
 
     NSStackView *actions = [NSStackView stackViewWithViews:@[
-        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _settingsButton
+        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton
     ]];
     actions.translatesAutoresizingMaskIntoConstraints = NO;
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -274,13 +279,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     id fontValue = toolbar[@"font_size"] ?: @24;
     const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
     const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
-    NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"settings"];
-    NSArray<NSButton *> *optionalButtons = @[_punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _settingsButton];
+    NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+    NSArray<NSButton *> *optionalButtons = @[_punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
     NSUInteger mask = 0;
     NSUInteger count = 1; // Language switching is always present.
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
-        const BOOL enabled = ![value isKindOfClass:NSNumber.class] || [value boolValue];
+        const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
+        const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
         if (enabled) { mask |= 1u << index; ++count; }
     }
     if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask) return;
@@ -289,7 +295,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _appliedComponentMask = mask;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
-    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _settingsButton]) {
+    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton]) {
         for (NSLayoutConstraint *constraint in button.constraints) {
             if (constraint.firstItem != button || constraint.secondItem != nil) continue;
             if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"]) constraint.constant = (fontSize + 18.0) * scale;
@@ -299,6 +305,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     }
     _settingsButton.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale weight:NSFontWeightRegular];
     _emojiButton.symbolConfiguration = _settingsButton.symbolConfiguration;
+    _keyboardButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _actions.spacing = 8.0 * scale;
     _leadingInset.constant = 10.0 * scale;
     _trailingInset.constant = -10.0 * scale;
@@ -340,7 +347,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _chrome.strokeColor = MetasequoiaColorFromRgba(skin.tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(skin.tokens.text);
     for (NSButton *button in
-         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _settingsButton ])
+         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton ])
     {
         button.contentTintColor = text;
         if (button.title.length > 0)
@@ -468,6 +475,12 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
     (void)sender;
     [self.toolbarDelegate floatingToolbarDidRequestOpenEmoji:self];
+}
+
+- (void)openScreenKeyboard:(id)sender
+{
+    (void)sender;
+    [self.toolbarDelegate floatingToolbarDidRequestOpenScreenKeyboard:self];
 }
 
 - (void)openCharacterPalette:(id)sender
