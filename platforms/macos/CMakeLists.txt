@@ -18,7 +18,7 @@ target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates/host-api/include)
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm CloudClipboardWindowController.mm CloudClipboardClient.mm AccountSessionManager.mm AccountAuthClient.mm AccountWindowController.mm AccountKeychain.mm CloudDictionaryClient.mm PreferencesWindowController.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm InputController.mm CandidatePanel.mm CandidateSkinAppearance.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm StringConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm DictionaryInstaller.mm)
-target_sources(MSIMEClientInputMethod PRIVATE ScreenKeyboardPanel.mm CloudCandidateRequest.mm CustomTranslationBatch.mm)
+target_sources(MSIMEClientInputMethod PRIVATE AISettingsWindow.mm ScreenKeyboardPanel.mm CloudCandidateRequest.mm CustomTranslationBatch.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"

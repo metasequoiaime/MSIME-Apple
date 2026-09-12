@@ -3,6 +3,7 @@
 #import "SkinSettingsView.h"
 #import "CloudAppearanceSettings.h"
 #import "TranslationSettingsWindow.h"
+#import "AISettingsWindow.h"
 #include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
@@ -159,6 +160,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSWindowController *_skinWindow;
     NSString *_translationPreferencesDirectory;
     MSIMETranslationSettingsWindow *_translationWindow;
+    MSIMEAISettingsWindow *_aiWindow;
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthButton;
     NSButton *_keymapButton;
@@ -206,6 +208,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         }];
     }
     [_translationWindow showWindow:sender];
+}
+- (void)showAISettings:(id)sender {
+    if (!_aiWindow) _aiWindow = [[MSIMEAISettingsWindow alloc] initWithDirectory:_translationPreferencesDirectory saved:^(NSDictionary *preferences) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self userInfo:preferences];
+    }];
+    [_aiWindow showWindow:sender];
 }
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
@@ -1048,6 +1056,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
         @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"候选释义"], _candidateTranslationsButton],
+        @[[NSTextField labelWithString:@"AI 联想"], [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)]],
         @[[NSTextField labelWithString:@"翻译服务与目标语言"], [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)]],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
         @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
