@@ -1136,6 +1136,10 @@ struct TranslationTask {
   uint64_t epoch;
   std::string query;
   std::string socket;
+  std::string resources;
+  std::string gloss_query;
+  bool offline = false;
+  Json local_translations = Json::array();
 };
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::None);
@@ -1175,9 +1179,28 @@ bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded
     return false;
   }
 }
+void start_translation_task(IBusEngine *engine, TranslationTask request) {
+  auto *task_data = new TranslationTask(std::move(request));
+  state(engine).translation_loading = true;
+  auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
+  g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
+  g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+    auto &request = *static_cast<TranslationTask *>(data);
+    auto *raw = request.offline
+        ? msime_client_candidate_gloss_request(
+              reinterpret_cast<const uint8_t *>(request.gloss_query.data()), request.gloss_query.size(),
+              reinterpret_cast<const uint8_t *>(request.resources.data()), request.resources.size())
+        : msime_client_translation_provider_request(
+              reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
+              reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
+    g_task_return_pointer(task, raw, [](gpointer value) { msime_client_string_free(static_cast<char *>(value)); });
+  });
+  g_object_unref(task);
+}
 void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.candidate_translations || s.translation_provider_socket.empty() ||
+  if (!s.candidate_translations ||
+      (s.translation_provider_socket.empty() && s.translation_target_language != "en") ||
       s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled ||
       !s.view.value("candidates", Json::array()).size())
@@ -1197,18 +1220,15 @@ void translation_dispatch(IBusEngine *engine) {
     // provider request until the query or provider configuration changes.
     if (encoded == s.translation_dispatched_query) return;
     s.translation_dispatched_query = encoded;
-    auto *task_data = new TranslationTask{s.session, s.provider_epoch, encoded, s.translation_provider_socket};
-    s.translation_loading = true;
-    auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
-    g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
-    g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
-      auto &request = *static_cast<TranslationTask *>(data);
-      auto *raw = msime_client_translation_provider_request(
-          reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
-          reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
-      g_task_return_pointer(task, raw, [](gpointer value) { msime_client_string_free(static_cast<char *>(value)); });
-    });
-    g_object_unref(task);
+    auto candidates = Json::array();
+    for (const auto &candidate : s.view.at("candidates"))
+      candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
+    const auto gloss_query = Json{{"generation", query.at("generation")},
+                                  {"candidates", candidates}}.dump();
+    start_translation_task(engine, TranslationTask{
+        s.session, s.provider_epoch, encoded, s.translation_provider_socket,
+        configured.value("resources", std::string{}), gloss_query,
+        s.translation_target_language == "en", Json::array()});
   } catch (...) { s.translation_loading = false; }
 }
 // Match the Windows translation worker's 500ms idle window. Only copy
@@ -1220,7 +1240,8 @@ void translation_schedule(IBusEngine *engine) {
     s.translation_delay_source = 0;
     g_source_remove(source);
   }
-  if (!s.candidate_translations || s.translation_provider_socket.empty() ||
+  if (!s.candidate_translations ||
+      (s.translation_provider_socket.empty() && s.translation_target_language != "en") ||
       !s.session || !s.focused || s.blocked || !s.input_enabled ||
       s.view.value("candidates", Json::array()).empty())
     return;
@@ -1345,19 +1366,43 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
     translation_schedule(engine);
     return;
   }
-  if (!raw)
-    return;
+  auto translations = request->local_translations;
+  if (raw) {
+    try {
+      const auto document = Json::parse(raw.get());
+      if (document.value("ok", false)) {
+        const auto &value = document.at("value");
+        if (value.is_object())
+          for (const auto &item : value.at("translations"))
+            translations.push_back(item);
+      }
+    } catch (...) {}
+  }
   try {
-    const auto document = Json::parse(raw.get());
-    if (!document.value("ok", false)) return;
-    const auto value = document.at("value");
-    if (!value.is_object()) return;
-    const auto generation = Json::parse(request->query).at("generation").get<uint64_t>();
-    const auto encoded = value.at("translations").dump();
+    auto query = Json::parse(request->query);
+    const auto generation = query.at("generation").get<uint64_t>();
+    const auto encoded = translations.dump();
     auto applied = response(msime_client_apply_translations(
         s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     s.view = applied.at("view");
     render(engine, s.view);
+    // Publish local hits before starting network work, and only send misses.
+    if (request->offline && !request->socket.empty()) {
+      auto missing = Json::array();
+      for (const auto &text : query.at("candidates")) {
+        const bool found = std::any_of(translations.begin(), translations.end(),
+            [&](const Json &item) { return item.at("text") == text; });
+        if (!found) missing.push_back(text);
+      }
+      if (!missing.empty()) {
+        query["candidates"] = std::move(missing);
+        auto next = *request;
+        next.query = query.dump();
+        next.offline = false;
+        next.local_translations = std::move(translations);
+        start_translation_task(engine, std::move(next));
+      }
+    }
   } catch (...) {}
 }
 void online_complete(GObject *source, GAsyncResult *result, gpointer) {

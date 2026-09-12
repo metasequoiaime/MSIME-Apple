@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <nlohmann/json.hpp>
 #include <poll.h>
@@ -13,7 +14,8 @@
 // Local synthetic translations; never contacts a network provider.
 class TranslationProviderFixture {
 public:
-  std::atomic<unsigned> requests{0};
+  std::atomic<unsigned> requests{0}, english_greeting_requests{0};
+  std::atomic<bool> hold_responses{false};
   explicit TranslationProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -58,7 +60,12 @@ private:
         for (const auto &text : value["query"]["candidates"])
           translations.push_back({{"text", text}, {"translation", "synthetic gloss"}});
         const auto response = nlohmann::json{{"translations", translations}}.dump() + "\n";
+        if (value["query"].value("target_language", "") == "en")
+          for (const auto &text : value["query"]["candidates"])
+            if (text == "你好") ++english_greeting_requests;
         ++requests;
+        while (hold_responses && !stopped_)
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
         send(client, response.data(), response.size(), MSG_NOSIGNAL);
       }
       close(client);

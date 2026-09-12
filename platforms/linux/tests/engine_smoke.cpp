@@ -1,5 +1,6 @@
 #include "ClientEngine.h"
 #include "msime_client.h"
+#include <algorithm>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -193,6 +194,7 @@ int main(int argc, char **argv) {
     VoiceProviderFixture voice_provider(voice_socket);
     options["voice_provider_socket"] = voice_socket;
     options["preferences"]["learning"] = false;
+    options["preferences"]["candidate_translations"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
     options["preferences"]["voice_input"]["stream_inline_preedit"] = true;
@@ -363,11 +365,37 @@ int main(int argc, char **argv) {
     ibus_object_destroy(IBUS_OBJECT(engine));
     g_object_unref(engine);
     {
+      auto offline = options;
+      offline.erase("preferences_directory");
+      offline["preferences"]["candidate_translations"] = true;
+      msime_preview_configure(offline.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto deadline = g_get_monotonic_time() + 2000000;
+      while ((seen.candidates.empty() || seen.candidates.front().find(" · ") == std::string::npos) &&
+             g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(!seen.candidates.empty() && seen.candidates.front().find("你好 · ") == 0,
+              "Packaged offline gloss did not render without a provider");
+      require(seen.preedit == "nihao" && seen.committed.empty(),
+              "Offline gloss changed the active composition");
+      require(key(IBUS_space) && seen.committed == "你好",
+              "Offline gloss leaked into committed candidate text");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
       const auto socket = (root / "translation.sock").string();
       TranslationProviderFixture provider(socket);
       auto translated = options;
       translated.erase("preferences_directory");
       translated["translation_provider_socket"] = socket;
+      translated["preferences"]["translation_target_language"] = "fr";
+      translated["preferences"]["candidate_page_size"] = 9;
       translated["preferences"]["candidate_translations"] = false;
       msime_preview_configure(translated.dump());
       engine = create_engine();
@@ -397,7 +425,7 @@ int main(int argc, char **argv) {
         g_usleep(1000);
       }
       require(provider.requests == 1, "Unchanged translation page repeated provider requests");
-      invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/fr", PROP_STATE_CHECKED));
+      invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/de", PROP_STATE_CHECKED));
       wait_translation();
       require(provider.requests == 2, "Translation target change did not request a new page");
       invoke("Reset");
@@ -409,6 +437,33 @@ int main(int argc, char **argv) {
       invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_CHECKED));
       wait_translation();
       require(provider.requests == 4, "Re-enabling translation did not refresh the current page");
+      provider.hold_responses = true;
+      invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/en", PROP_STATE_CHECKED));
+      const auto local_deadline = g_get_monotonic_time() + 2000000;
+      while ((provider.requests < 5 || seen.candidates.empty() ||
+              seen.candidates.front().find("你好 · ") != 0 || translated_page()) &&
+             g_get_monotonic_time() < local_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 5 && !seen.candidates.empty() &&
+                  seen.candidates.front().find("你好 · ") == 0 && !translated_page(),
+              "Offline hits waited for the online fallback response");
+      const auto local_hit = seen.candidates.front();
+      require(provider.english_greeting_requests == 0,
+              "Offline dictionary hit was also sent to the online provider");
+      provider.hold_responses = false;
+      const auto remote_deadline = g_get_monotonic_time() + 2000000;
+      auto has_remote_gloss = [&] {
+        return std::any_of(seen.candidates.begin(), seen.candidates.end(),
+            [](const std::string &text) { return text.find("synthetic gloss") != std::string::npos; });
+      };
+      while (!has_remote_gloss() && g_get_monotonic_time() < remote_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(has_remote_gloss() && seen.candidates.front() == local_hit,
+              "Online misses did not merge with the displayed offline hits");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
