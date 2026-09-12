@@ -176,6 +176,7 @@ struct State {
   std::vector<std::string> clipboard_items_cache;
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
+  bool clipboard_enabled = true;
   uint64_t applied_preferences_revision = 0;
   Json applied_preferences_snapshot;
   GFileMonitor *clipboard_monitor = nullptr;
@@ -186,6 +187,18 @@ struct State {
       g_clear_object(&clipboard_monitor);
     }
     g_clear_object(&clipboard_watch_file);
+  }
+  void configure_clipboard(std::string path, bool enabled) {
+    if (!path.empty() && path.front() != '/')
+      path.clear();
+    if (path == clipboard_history_path && enabled == clipboard_enabled)
+      return;
+    stop_clipboard_monitor();
+    ++clipboard_generation;
+    clipboard_loaded = false;
+    clipboard_items_cache.clear();
+    clipboard_history_path = std::move(path);
+    clipboard_enabled = enabled;
   }
   bool online_loading = false, translation_loading = false;
   guint online_delay_source = 0;
@@ -314,7 +327,8 @@ struct State {
     } else {
       show_helpcode_in_candidate_window = true;
     }
-    clipboard_history_path = options.value("clipboard_history_path", std::string{});
+    configure_clipboard(options.value("clipboard_history_path", std::string{}),
+                        preferences.value("clipboard_history", true));
     online_provider_socket = provider_socket_fallback(
         options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     translation_provider_socket =
@@ -405,6 +419,8 @@ struct State {
       word_character.enabled = *word_character_override;
   }
   void refresh_host_preferences(const Json &preferences) {
+    configure_clipboard(configured.value("clipboard_history_path", std::string{}),
+                        preferences.value("clipboard_history", true));
     mode_scope_global = preferences.value("ime_mode_scope", "app") == "global";
     if (mode_scope_global) {
       if (!global_input_enabled)
@@ -778,7 +794,12 @@ struct ClipboardTask {
 void clipboard_schedule(IBusEngine *engine);
 void watch_clipboard_history(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.focused || s.blocked || !s.input_enabled ||
+  const auto previous_path = s.clipboard_history_path;
+  s.configure_clipboard(configured.value("clipboard_history_path", std::string{}),
+                        s.clipboard_enabled);
+  if (previous_path != s.clipboard_history_path && s.focused && !s.blocked)
+    publish_mode(engine);
+  if (!s.clipboard_enabled || !s.focused || s.blocked || !s.input_enabled ||
       s.clipboard_history_path.empty()) {
     s.stop_clipboard_monitor();
     return;
@@ -810,7 +831,7 @@ void watch_clipboard_history(IBusEngine *engine) {
                      GFileMonitorEvent, gpointer data) {
         auto engine = IBUS_ENGINE(data);
         auto &s = state(engine);
-        if (!s.clipboard_watch_file || !s.focused || s.blocked || !s.input_enabled)
+        if (!s.clipboard_enabled || !s.clipboard_watch_file || !s.focused || s.blocked || !s.input_enabled)
           return;
         if ((!file || !g_file_equal(file, s.clipboard_watch_file)) &&
             (!other || !g_file_equal(other, s.clipboard_watch_file)))
@@ -829,7 +850,7 @@ void watch_clipboard_history(IBusEngine *engine) {
 void clipboard_complete(GObject *source, GAsyncResult *result, gpointer);
 void clipboard_schedule(IBusEngine *engine) {
   auto &s = state(engine);
-  if (s.clipboard_history_path.empty() || s.clipboard_loading || !s.focused ||
+  if (!s.clipboard_enabled || s.clipboard_history_path.empty() || s.clipboard_loading || !s.focused ||
       s.blocked || !s.input_enabled || s.clipboard_loaded)
     return;
   s.clipboard_loading = true;
@@ -1248,7 +1269,7 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   // destroy notifier releases the worker allocation.
   auto *items = static_cast<std::vector<std::string> *>(
       g_task_propagate_pointer(G_TASK(result), nullptr));
-  if (request->generation != s.clipboard_generation || !s.focused || s.blocked ||
+  if (!s.clipboard_enabled || request->generation != s.clipboard_generation || !s.focused || s.blocked ||
       request->path != s.clipboard_history_path) {
     delete items;
     clipboard_schedule(IBUS_ENGINE(source));
@@ -1586,7 +1607,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("剪贴板历史"), "",
       ibus_text_new_from_static_string("浏览、提交和管理最近 50 条历史文本"),
-      s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
+      s.clipboard_enabled && s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
   const auto &items = s.clipboard_items_cache;
@@ -2649,6 +2670,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
   guarded(engine, "property_activate", [&] {
+    if (property_name.rfind("ClipboardHistory/", 0) == 0 &&
+        (!s.clipboard_enabled || !s.input_enabled))
+      return;
     if (property_name == "VoiceInput") {
       if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
           !s.input_enabled)
