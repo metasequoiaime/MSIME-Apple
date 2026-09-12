@@ -483,6 +483,15 @@ class Handler(socketserver.StreamRequestHandler):
                                     "ok": ok}, ensure_ascii=False).encode() + b"\n")
         self.wfile.flush()
 
+    def status(self, query, generation, phase):
+        # Older hosts interpret unknown event types as terminal results.
+        # Emit status only after explicit capability negotiation.
+        events = query.get("events")
+        if query.get("stream") and isinstance(events, list) and "status" in events:
+            self.wfile.write(json.dumps({"generation": generation, "type": "status",
+                                        "phase": phase, "ok": True}).encode() + b"\n")
+            self.wfile.flush()
+
     def handle(self):
         self.request.settimeout(2)
         pid, uid, _ = struct.unpack("3i", self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
@@ -581,6 +590,8 @@ class Handler(socketserver.StreamRequestHandler):
                     if recognizer.done.is_set():
                         session.stopped.set()
 
+                if not session.stopped.is_set():
+                    self.status(query, generation, "recording")
                 pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
                                         recognizer.feed if recognizer else None, tick if recognizer else None)
             finally:
@@ -590,6 +601,7 @@ class Handler(socketserver.StreamRequestHandler):
             if session.cancelled.is_set() or recorded < RATE // 4 * 2:
                 self.send(generation)
                 return
+            self.status(query, generation, "recognizing")
             text = (bounded_text(recognizer.finish(tick)) if recognizer else
                     transcribe(pcm, asr, language, session))
             del pcm
@@ -599,6 +611,8 @@ class Handler(socketserver.StreamRequestHandler):
             if text and query.get("stream") and (options.get("polish_enabled") or options.get("polish_text")):
                 self.send(generation, text, kind="partial")
             if text:
+                if polish_config and (options.get("polish_enabled") or options.get("polish_text")):
+                    self.status(query, generation, "polishing")
                 text = polish(text, polish_config, options)
             self.send(generation, "" if session.cancelled.is_set() else text)
         except Exception:

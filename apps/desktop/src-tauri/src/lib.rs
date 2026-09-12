@@ -1766,6 +1766,8 @@ struct VoiceRecognitionUpdate {
     request_id: String,
     #[serde(rename = "final")]
     final_result: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phase: Option<String>,
 }
 
 #[cfg(unix)]
@@ -1923,15 +1925,28 @@ async fn recognize_voice(
                         text: text.to_owned(),
                         request_id: session.request_id.clone(),
                         final_result,
+                        phase: None,
                     },
                 );
             };
-            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_cancelled(
+            let mut status = |phase: &str| {
+                if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                let _ = worker_app.emit("voice-update", VoiceRecognitionUpdate {
+                    text: String::new(),
+                    request_id: session.request_id.clone(),
+                    final_result: false,
+                    phase: Some(phase.to_owned()),
+                });
+            };
+            UnixSocketProvider::new(session.path.clone()).voice_stream_with_options_events(
                 &language,
                 generation,
                 &provider_options,
                 Some(&session.cancelled),
                 &mut update,
+                Some(&mut status),
             )
         })
         .await;

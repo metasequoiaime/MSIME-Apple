@@ -31,7 +31,7 @@ export interface VoicePanelClient extends PanelClient {
   maxSubmitBytes?: number;
   loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
-  onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
+  onVoiceUpdate?(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing" }) => void): Promise<() => void>;
   cancelVoice?(): Promise<void>;
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
@@ -537,8 +537,17 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     let unlisten: (() => void) | undefined;
     void client.onVoiceUpdate(update => {
       if (!active || !busyRef.current) return;
+      if (update.phase) {
+        const labels = { recording: "正在录音…", recognizing: "正在识别…", polishing: "正在润色…" };
+        setNotice(labels[update.phase]);
+        if (update.phase !== "recording") {
+          stoppingRef.current = true;
+          setStopping(true);
+        }
+        return;
+      }
       updateText(update.text);
-      setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : "正在录音并识别…");
+      setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : stoppingRef.current ? "正在识别…" : "正在录音并识别…");
     }).then(stop => {
       if (active) unlisten = stop;
       else stop();

@@ -864,6 +864,21 @@ impl UnixSocketProvider {
         cancelled: Option<&AtomicBool>,
         update: &mut dyn FnMut(&str, bool),
     ) -> Option<String> {
+        self.voice_stream_with_options_events(language, generation, options, cancelled, update, None)
+    }
+
+    /// Optionally negotiate recording/recognizing/polishing status events.
+    /// Status callbacks never carry transcript text and are never final results.
+    #[cfg(unix)]
+    pub fn voice_stream_with_options_events(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
+        mut status: Option<&mut dyn FnMut(&str)>,
+    ) -> Option<String> {
         if language.len() > 64 || cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
             return None;
         }
@@ -880,6 +895,9 @@ impl UnixSocketProvider {
             if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
                 query.insert("options".to_owned(), options.clone());
             }
+        }
+        if status.is_some() {
+            request["query"]["events"] = json!(["status"]);
         }
         let request = request.to_string();
         if request.len() > 16_384
@@ -912,6 +930,16 @@ impl UnixSocketProvider {
                 .or_else(|| value.get("event"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            if kind == "status" {
+                let phase = value.get("phase").and_then(Value::as_str)?;
+                if !matches!(phase, "recording" | "recognizing" | "polishing") {
+                    return None;
+                }
+                if let Some(callback) = status.as_mut() {
+                    callback(phase);
+                }
+                continue;
+            }
             let is_final = match kind {
                 "partial" | "interim" | "update" => false,
                 "final" | "done" | "commit" => true,
