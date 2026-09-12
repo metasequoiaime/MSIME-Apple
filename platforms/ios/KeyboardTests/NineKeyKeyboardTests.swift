@@ -124,7 +124,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     InputSchemePreference.enabledSchemes = [.quanpin]
     controller.viewWillAppear(false)
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
-    XCTAssertEqual(try button("scriptShortcut", in: controller).accessibilityIdentifier, "scriptShortcut")
+    XCTAssertTrue(try button("replyShortcut", in: controller).isHidden)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
 
     // Inserting a reply takes the panel away so the text it just wrote, and the backspace that
@@ -857,23 +857,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(reopened.numberOfItems(inSection: 0), 1)
   }
 
-  func testShortcutBarKeepsEveryToolTappableOnANarrowKeyboard() throws {
-    // The emoji tool made this bar six wide. The buttons divide the width equally, so a seventh
-    // would be the one that stops clearing the 44pt target rather than anything visibly breaking.
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 320, height: 292)
-    controller.view.layoutIfNeeded()
-    let bar = try XCTUnwrap(descendants(controller.view).first {
-      $0.accessibilityIdentifier == "keyboardShortcutBar"
-    } as? UIStackView)
-    let tools = bar.arrangedSubviews.filter { !$0.isHidden }
-    XCTAssertTrue(tools.contains { $0.accessibilityIdentifier == "emojiShortcut" })
-    for tool in tools {
-      XCTAssertGreaterThanOrEqual(tool.bounds.width, 40, "\(tool.accessibilityIdentifier ?? "?") 太窄")
-    }
-  }
-
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
@@ -909,18 +892,20 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+      for id in ["layoutShortcut", "schemeButton", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
       }
       XCTAssertNil(try button("skinShortcut", in: controller).menu)
-      let script = try button("scriptShortcut", in: controller)
-      script.sendActions(for: .primaryActionTriggered)
+      // 简繁不再占常驻工具位,改从「更多」里切。
+      XCTAssertTrue(try button("replyShortcut", in: controller).isHidden)
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("moreCard-繁体", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)
-      XCTAssertEqual(script.accessibilityValue, "繁体")
-      script.sendActions(for: .primaryActionTriggered)
+      try button("moreCard-简体", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(ChineseOutputPreference.usesTraditional)
+      try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
       let key = try button("nineKey6", in: controller)
       let frame = key.convert(key.bounds, to: controller.view)
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
@@ -1027,7 +1012,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertNil(selector.configuration?.title)
             XCTAssertNotNil(selector.configuration?.image)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["layoutShortcut", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["layoutShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }
             if width == 320 {

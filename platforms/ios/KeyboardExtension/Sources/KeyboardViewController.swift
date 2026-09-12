@@ -753,14 +753,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         equalTo: container.topAnchor, constant: Self.compositionRowHeight),
       shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
-    scriptShortcut.addAction(UIAction { [weak self] _ in
-      guard let self else { return }
-      if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
-      usesTraditionalOutput.toggle()
-      ChineseOutputPreference.usesTraditional = usesTraditionalOutput
-      renderCandidateStrip()
-      updateShortcutButtons()
-    }, for: .primaryActionTriggered)
+    scriptShortcut.addAction(UIAction { [weak self] _ in self?.showKeyboardAI() },
+      for: .primaryActionTriggered)
     emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() }, for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
@@ -785,16 +779,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityLabel = label
       button.accessibilityIdentifier = id
     }
-    configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
-      label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
-    scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
-    if inputScheme == .thoughtfulReply {
-      configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
-        label: "生成高情商回复", id: "replyShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
+    // 简繁是一次性设置,不占常驻工具位;这个位置只在高情商回复方案下作为生成按钮出现。
+    //
+    // Script choice is made once and then left alone -- the app's 输入设置 already carries it, and
+    // the toolbar is the row you see whenever nothing is being composed. It moved into 更多, which
+    // is where the other settings that are set once already live.
+    configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
+      label: "生成高情商回复", id: "replyShortcut")
+    scriptShortcut.isEnabled = true
+    scriptShortcut.accessibilityValue = nil
+    scriptShortcut.isHidden = inputScheme != .thoughtfulReply
     configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
@@ -813,6 +807,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.closeKeyboardPicker()
         self?.showKeyboardAI()
       },
+      UIMenu(title: "输出字形", options: .displayInline, children: [
+        UIAction(title: "简体", image: UIImage(systemName: "character.textbox"),
+          attributes: isChineseMode && inputScheme.isJapanese ? .disabled : [],
+          state: usesTraditionalOutput ? .off : .on) { [weak self] _ in
+          self?.selectTraditionalOutput(false)
+        },
+        UIAction(title: "繁体", image: UIImage(systemName: "character.textbox"),
+          attributes: isChineseMode && inputScheme.isJapanese ? .disabled : [],
+          state: usesTraditionalOutput ? .on : .off) { [weak self] _ in
+          self?.selectTraditionalOutput(true)
+        },
+      ]),
       UIMenu(title: "按键反馈", options: .displayInline, children: [
         UIAction(title: "按键音", image: UIImage(systemName: "speaker.wave.2"),
           state: KeyboardFeedbackPreference.soundEnabled ? .on : .off) { [weak self] _ in
@@ -2362,6 +2368,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     clipboardPanel = panel
     UIAccessibility.post(notification: .screenChanged, argument: panel)
+  }
+
+  private func selectTraditionalOutput(_ traditional: Bool) {
+    usesTraditionalOutput = traditional
+    ChineseOutputPreference.usesTraditional = traditional
+    renderCandidateStrip()
+    updateShortcutButtons()
   }
 
   private func showEmojiPicker() {
