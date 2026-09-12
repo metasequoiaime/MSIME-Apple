@@ -22,8 +22,19 @@ static void TestEnginePreedit(FakeTextClient *client) {
         options[name] = path;
     }
     NSError *error = nil;
+    NSMutableDictionary *startupPreferences = [options[@"preferences"] mutableCopy];
+    options[@"preferences"] = startupPreferences;
     MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
     assert(session && !error && [session setFocused:YES error:&error]);
+    startupPreferences[@"scheme"] = @"quanpin";
+    startupPreferences[@"shuangpin_profile"] = @"xiaohe";
+    NSError *startupRecoveryError = nil;
+    NSString *syntheticVersion = [@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0];
+    assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:syntheticVersion error:&startupRecoveryError]);
+    assert(startupRecoveryError);
+    NSDictionary *startupRecovered = [session viewWithError:&error];
+    assert(startupRecovered && !error && [startupRecovered[@"scheme"] isEqual:@1] && [startupRecovered[@"shuangpin_profile"] isEqual:@"microsoft"]);
+    assert([session setFocused:YES error:&error]);
     NSDictionary *shared = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(shared && !error);
     NSUInteger revision = 0;

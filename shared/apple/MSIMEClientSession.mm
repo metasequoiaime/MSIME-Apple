@@ -234,9 +234,12 @@ static NSDictionary *decode(char *response, NSError **error) {
     self = [super init];
     if (!self) return nil;
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"输入会话配置必须是 JSON 对象"); return nil; }
-    _hostOptions = [options copy];
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
     if (!data) return nil;
+    // Retain the exact immutable configuration sent to the host, not mutable
+    // nested dictionaries owned by the caller and reused during recovery.
+    _hostOptions = [NSJSONSerialization JSONObjectWithData:data options:0 error:error];
+    if (!_hostOptions) return nil;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(data.bytes), data.length), error);
     if (!view) return nil;
     _handle = [view[@"session"] unsignedLongLongValue];
