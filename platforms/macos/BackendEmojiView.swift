@@ -3,6 +3,11 @@ import SwiftUI
 
 struct MacEmojiView: View {
   let resources: String
+  @ObservedObject var appearance = MacEmojiAppearance.shared
+  @Environment(\.colorScheme) private var systemColorScheme
+  private var palette: MacEmojiPalette {
+    MacEmojiPalette(light: (appearance.colorScheme ?? systemColorScheme) == .light)
+  }
   @State private var search = ""
   @State private var category = ""
   @State private var group = ""
@@ -31,9 +36,9 @@ struct MacEmojiView: View {
           Text(name).tag(name)
         }
       }.disabled(groupsCategory != category || groups.isEmpty)
-      if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(.secondary) }
+      if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       TextField("搜索表情或关键词", text: $search)
-      Text(status).font(.caption).foregroundStyle(.secondary)
+      Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
       HStack {
         Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
         Spacer()
@@ -46,13 +51,18 @@ struct MacEmojiView: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
           ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { _, item in
             Button(item.text) { onSelect(item.text) }
-              .font(category == "kaomoji" ? .body : .title2).buttonStyle(.plain)
+              .font(category == "kaomoji" ? .body : .title2)
+              .buttonStyle(MacEmojiCellStyle(palette: palette))
               .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
               .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
           }
         }
       }
     }.padding(20).frame(minWidth: 380, minHeight: 320)
+      .background(MacEmojiPalette.color(palette.background))
+      .foregroundStyle(MacEmojiPalette.color(palette.text))
+      .tint(MacEmojiPalette.color(palette.accent))
+      .preferredColorScheme(appearance.colorScheme)
       .onChange(of: search) { _ in offset = 0 }
       .onChange(of: category) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
