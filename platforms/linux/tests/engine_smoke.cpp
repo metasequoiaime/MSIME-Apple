@@ -505,6 +505,26 @@ int main(int argc, char **argv) {
       require(key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
               "Bare modifier no longer restored input");
     }
+    // Preferences can change while a modifier is held; release uses the
+    // current binding without committing or clearing the active composition.
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Control_R,
+                               IBUS_Shift_L, IBUS_Shift_R}) {
+      phrase();
+      require(!key(modifier_key), "Reconfigured modifier press was intercepted");
+      auto disabled = options;
+      const bool ctrl = modifier_key == IBUS_Control_L || modifier_key == IBUS_Control_R;
+      disabled["preferences"]["keybindings"][ctrl ? "switch_language_ctrl"
+                                                   : "switch_language_shift"] = false;
+      msime_preview_configure(disabled.dump());
+      invoke("FocusIn");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Disabled modifier binding toggled input on release");
+      require(seen.preedit_visible && seen.preedit == "nihao" && seen.committed.empty(),
+              "Disabled modifier binding changed the active composition");
+      msime_preview_configure(options.dump());
+      invoke("FocusIn");
+      invoke("Reset");
+    }
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
       require(!key(modifier_key), "Held modifier press was intercepted");
       g_usleep(350000);

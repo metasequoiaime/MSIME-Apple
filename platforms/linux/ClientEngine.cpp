@@ -3607,7 +3607,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
        IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   if (shift_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_shift_candidate || chord_modifiers ||
+    if (!s.mode_shift_enabled || !s.pure_shift_candidate || chord_modifiers ||
         g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_shift_candidate = false;
       return FALSE;
@@ -3639,7 +3639,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       guarded(engine, "voice_control_release", [&] { voice_stop(engine); });
       return FALSE;
     }
-    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK) ||
+    if (!s.mode_ctrl_enabled || !s.pure_ctrl_candidate ||
+        (chord_modifiers & ~IBUS_CONTROL_MASK) ||
         (flags & IBUS_SHIFT_MASK) ||
         g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_ctrl_candidate = false;
