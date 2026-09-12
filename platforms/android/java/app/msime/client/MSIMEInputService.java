@@ -54,6 +54,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
+    private static final String SPACE_CURSOR_DESCRIPTION =
+        "空格；轻点输入空格或选词，左右滑动移动光标";
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -121,9 +123,11 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean handwritingDownloading;
     private java.util.List<String> handwritingResults = java.util.List.of();
     private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
+    private final SpaceCursorMovement cursorMovement = new SpaceCursorMovement();
     private Button layerButton;
     private Button shiftButton;
     private Button enterButton;
+    private Button spaceButton;
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
@@ -214,6 +218,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        resetSpaceCursor();
         stop(false);
         connection = getCurrentInputConnection();
         editorContextRevision++;
@@ -266,7 +271,12 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
     }
 
-    @Override public void onFinishInput() { stop(true); connection = null; super.onFinishInput(); }
+    @Override public void onFinishInput() {
+        resetSpaceCursor();
+        stop(true);
+        connection = null;
+        super.onFinishInput();
+    }
     @Override public void onDestroy() {
         stop(false);
         preferencesWorker.shutdown();
@@ -539,6 +549,89 @@ public final class MSIMEInputService extends InputMethodService {
         String title = ReturnKeyAction.title(action, disabled);
         enterButton.setText(title);
         enterButton.setContentDescription(title);
+    }
+
+    private void resetSpaceCursor() {
+        cursorMovement.cancel();
+        if (spaceButton == null) return;
+        spaceButton.setPressed(false);
+        spaceButton.setText("空格");
+        spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
+    }
+
+    private void moveEditorCursor(int offset) {
+        int keyCode = offset < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+        for (int index = 0; index < Math.abs(offset); index++) sendDownUpKeyEvents(keyCode);
+    }
+
+    private void bindSpaceCursor(Button button) {
+        final float[] origin = new float[2];
+        final boolean[] dragging = new boolean[1];
+        final boolean[] cancelled = new boolean[1];
+        final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+        button.setOnTouchListener((ignored, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    origin[0] = event.getX();
+                    origin[1] = event.getY();
+                    dragging[0] = false;
+                    cancelled[0] = false;
+                    button.setPressed(true);
+                    button.getParent().requestDisallowInterceptTouchEvent(true);
+                    return true;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (!dragging[0] && !cancelled[0]) {
+                        float horizontal = event.getX() - origin[0];
+                        float vertical = event.getY() - origin[1];
+                        if (Math.abs(horizontal) <= touchSlop && Math.abs(vertical) <= touchSlop)
+                            return true;
+                        if (Math.abs(horizontal) <= Math.abs(vertical) || connection == null) {
+                            cancelled[0] = true;
+                            button.setPressed(false);
+                            return true;
+                        }
+                        command(9);
+                        cursorMovement.begin(origin[0], connection);
+                        dragging[0] = cursorMovement.isActive();
+                        cancelled[0] = !dragging[0];
+                        button.setPressed(false);
+                        if (dragging[0]) {
+                            button.setText("移动光标");
+                            button.setContentDescription("正在移动光标");
+                            moveEditorCursor(cursorMovement.advance(
+                                event.getX(), connection, pixels(12)));
+                        }
+                        return true;
+                    }
+                    if (dragging[0]) {
+                        moveEditorCursor(cursorMovement.advance(
+                            event.getX(), connection, pixels(12)));
+                        if (!cursorMovement.isActive()) {
+                            dragging[0] = false;
+                            cancelled[0] = true;
+                            resetSpaceCursor();
+                        }
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    button.getParent().requestDisallowInterceptTouchEvent(false);
+                    button.setPressed(false);
+                    if (dragging[0] || cancelled[0]) resetSpaceCursor();
+                    else button.performClick();
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    button.getParent().requestDisallowInterceptTouchEvent(false);
+                    dragging[0] = false;
+                    cancelled[0] = true;
+                    resetSpaceCursor();
+                    return true;
+                }
+                default -> { return true; }
+            }
+        });
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -2784,7 +2877,11 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "⌫", () -> { if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0); });
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
-        button(controls, "空格", () -> { if (connection != null && !command(1)) connection.commitText(" ", 1); });
+        spaceButton = button(controls, "空格", () -> {
+            if (connection != null && !command(1)) connection.commitText(" ", 1);
+        });
+        spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
+        bindSpaceCursor(spaceButton);
         enterButton = button(controls, "换行", this::enter);
         enterButton.setContentDescription("换行");
         button(controls, "切换", () -> switchToNextInputMethod(false));
