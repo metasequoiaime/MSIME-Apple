@@ -1,6 +1,7 @@
 import { hasUnresolvedCssResource } from "./css-image-value.js";
 import { isolateToolbarAnimations } from "./skin-animations.js";
 import { preserveAnimationShorthands } from "./animation-shorthand-source.js";
+import { scopeRootSelector } from "./skin-root-selector.js";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
 export function installToolbarCss(scope: string, css: string): { remove: () => void; partial: boolean } {
@@ -8,7 +9,7 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
   const preserved = preserveAnimationShorthands(css);
   css = preserved.css;
   const parsed = new CSSStyleSheet();
-  parsed.replaceSync(css.replace(/:root\b/g, ":scope"));
+  parsed.replaceSync(css);
   const sheet = new CSSStyleSheet();
   sheet.insertRule(`@scope (.${scope}) {}`, 0);
   const target = sheet.cssRules[0] as CSSGroupingRule;
@@ -22,6 +23,7 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
       const nestedDeclarations = rule.constructor.name === "CSSNestedDeclarations";
       if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.KEYFRAME_RULE || nestedDeclarations) {
         const styleRule = rule as CSSStyleRule;
+        if (rule.type === CSSRule.STYLE_RULE) styleRule.selectorText = scopeRootSelector(styleRule.selectorText);
         // Only prepared image resources may reach the adopted sheet.
         for (const name of Array.from(styleRule.style)) {
           if (hasUnresolvedCssResource(styleRule.style.getPropertyValue(name))) {
