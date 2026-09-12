@@ -1573,10 +1573,14 @@ struct EmojiCatalogQuery {
     list_symbol_groups: bool,
     #[serde(default)]
     parent: String,
+    #[serde(default)]
+    cursor: bool,
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
 /// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
+/// With `cursor:true`, also returns `next_offset` and `complete`, preserves
+/// duplicate entries, and advances past invalid rows without treating them as EOF.
 /// Unavailable or unreadable catalogs return an error, not an empty item list.
 ///
 /// # Safety
@@ -1626,6 +1630,25 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
         }
         if !query.parent.is_empty() && query.panel.category != "symbols" {
             return Err("parent filter requires symbols catalog".into());
+        }
+        if query.cursor {
+            let slice = msime_engine_bridge::emoji_catalog_slice(
+                resources,
+                &query.panel.search,
+                &query.panel.category,
+                &query.group,
+                query.offset,
+                u16::from(query.panel.limit),
+                &query.parent,
+            )
+            .map_err(|_| "local emoji catalog unavailable")?;
+            return Ok(json!({
+                "items": slice.items.into_iter().map(|item| json!({
+                    "text": item.text, "annotation": item.annotation, "group": item.group,
+                })).collect::<Vec<_>>(),
+                "next_offset": slice.next_offset,
+                "complete": slice.complete,
+            }));
         }
         let items = msime_engine_bridge::emoji_catalog_parent_page(
             resources,
@@ -2959,6 +2982,7 @@ mod tests {
     #[cfg(unix)]
     fn emoji_catalog_pagination_preserves_legacy_defaults() {
         let legacy: EmojiCatalogQuery = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.cursor);
         assert_eq!(legacy.offset, 0);
         assert_eq!(legacy.panel.limit, 48);
         let page: EmojiCatalogQuery = serde_json::from_str(
@@ -2970,6 +2994,118 @@ mod tests {
         assert_eq!(page.panel.category, "symbols");
         assert_eq!(page.panel.limit, 255);
         assert!(serde_json::from_str::<EmojiCatalogQuery>(r#"{"offset":-1}"#).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn emoji_catalog_cursor_advances_over_invalid_rows_and_preserves_duplicates() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
+             CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);
+             CREATE TABLE symbol_catalog(symbol TEXT,category TEXT,parent_category TEXT,keywords TEXT,sort_order INTEGER);",
+        ).unwrap();
+        for (index, text) in [
+            None,
+            Some(""),
+            Some("synthetic-same"),
+            Some("synthetic-same"),
+            Some("synthetic-tail"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            db.execute(
+                "INSERT INTO emoji VALUES (?1,'fixture','match','',?2)",
+                rusqlite::params![text, index],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO kaomoji_catalog VALUES (?1,'match',?2)",
+                rusqlite::params![text, index],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO symbol_catalog VALUES (?1,'fixture','fixture','match',?2)",
+                rusqlite::params![text, index],
+            )
+            .unwrap();
+        }
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let request = |category: &str, offset: usize, limit: u8, cursor: bool| {
+            let query = serde_json::to_vec(&json!({
+                "category": category, "offset": offset, "limit": limit, "cursor": cursor,
+            }))
+            .unwrap();
+            read(unsafe {
+                msime_client_emoji_catalog_request(
+                    query.as_ptr(),
+                    query.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+        for category in ["", "kaomoji", "symbols"] {
+            let empty = request(category, 0, 2, true);
+            assert_eq!(empty["ok"], true);
+            assert_eq!(
+                empty["value"],
+                json!({"items":[], "next_offset":2, "complete":false})
+            );
+            let duplicates = request(category, 2, 2, true);
+            assert_eq!(duplicates["value"]["items"].as_array().unwrap().len(), 2);
+            assert_eq!(duplicates["value"]["next_offset"], 4);
+            assert_eq!(duplicates["value"]["complete"], false);
+            let tail = request(category, 4, 2, true);
+            assert_eq!(tail["value"]["items"][0]["text"], "synthetic-tail");
+            assert_eq!(tail["value"]["next_offset"], 5);
+            assert_eq!(tail["value"]["complete"], true);
+            let exact = request(category, 4, 1, true);
+            assert_eq!(exact["value"]["complete"], false);
+            assert_eq!(
+                request(category, 5, 1, true)["value"],
+                json!({"items":[], "next_offset":5, "complete":true})
+            );
+            let legacy = request(category, 2, 2, false);
+            assert_eq!(legacy["value"]["items"].as_array().unwrap().len(), 1);
+            assert!(legacy["value"].get("complete").is_none());
+            assert_eq!(request(category, 0, 0, true)["ok"], false);
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn emoji_catalog_cursor_skips_invalid_groups_without_stalling() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
+             INSERT INTO emoji VALUES ('synthetic-invalid',NULL,'','',0);
+             INSERT INTO emoji VALUES ('synthetic-invalid','','','',1);
+             INSERT INTO emoji VALUES ('synthetic-valid','fixture','','',2);",
+        ).unwrap();
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let request = |offset: usize| {
+            let query =
+                serde_json::to_vec(&json!({"cursor":true,"offset":offset,"limit":2})).unwrap();
+            read(unsafe {
+                msime_client_emoji_catalog_request(
+                    query.as_ptr(),
+                    query.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+        assert_eq!(
+            request(0)["value"],
+            json!({"items":[],"next_offset":2,"complete":false})
+        );
+        let tail = request(2);
+        assert_eq!(tail["value"]["items"][0]["text"], "synthetic-valid");
+        assert_eq!(tail["value"]["complete"], true);
     }
 
     #[test]

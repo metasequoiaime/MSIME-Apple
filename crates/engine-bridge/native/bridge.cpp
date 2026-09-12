@@ -339,9 +339,11 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str se
                                                std::uint16_t limit) {
     return emoji_catalog_filtered_page(resources, search, category, "", offset, limit, "");
 }
-rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rust::Str search,
-    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent) {
-    rust::Vec<EmojiCatalogItem> result;
+static EmojiCatalogSlice read_emoji_catalog_slice(rust::Str resources, rust::Str search,
+    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent,
+    bool deduplicate) {
+    EmojiCatalogSlice result;
+    result.next_offset = offset;
     if (limit == 0 || limit > 4096 || offset > static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
         throw std::invalid_argument("Invalid emoji catalog page");
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
@@ -405,16 +407,30 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rus
     std::unordered_set<std::string> seen;
     int status = SQLITE_OK;
     while ((status = sqlite3_step(statement)) == SQLITE_ROW) {
+        if (result.next_offset == static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
+            throw std::invalid_argument("Invalid emoji catalog cursor");
+        ++result.next_offset;
         const auto *text = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
         const auto *group = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
         const auto *annotation = reinterpret_cast<const char *>(sqlite3_column_text(statement, 2));
-        if (text && seen.insert(text).second)
-            result.push_back({rust::String(text), rust::String(annotation ? annotation : ""),
+        if (!deduplicate && (!text || !text[0] || (!kaomoji && (!group || !group[0]))))
+            continue;
+        if (text && (!deduplicate || seen.insert(text).second))
+            result.items.push_back({rust::String(text), rust::String(annotation ? annotation : ""),
                               rust::String(group ? group : "")});
     }
     if (status != SQLITE_DONE)
         throw std::runtime_error("Emoji catalog read failed");
+    result.complete = result.next_offset - offset < limit;
     return result;
+}
+rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rust::Str search,
+    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent) {
+    return read_emoji_catalog_slice(resources, search, category, group, offset, limit, parent, true).items;
+}
+EmojiCatalogSlice emoji_catalog_slice(rust::Str resources, rust::Str search,
+    rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent) {
+    return read_emoji_catalog_slice(resources, search, category, group, offset, limit, parent, false);
 }
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
                                           rust::Str category, std::uint8_t limit) {
