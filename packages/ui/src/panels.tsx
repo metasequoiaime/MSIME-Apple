@@ -97,7 +97,7 @@ function isImeCommitKey(virtualKey: number) {
 
 export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
-  const [notice, setNotice] = useState("使用鼠标或触控方式输入文字与快捷按键");
+  const [notice, setNotice] = useState("Touch keyboard");
   useEffect(() => {
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
@@ -126,9 +126,8 @@ export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient;
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} aria-label="屏幕键盘">
-    <header className="native-panel-header"><span>水杉屏幕键盘</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <header className="native-panel-header"><span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
-      <div className="keyboard-panel-notice" role="status">{notice}</div>
       <div className="keyboard-layout">
         {keyboardRows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
