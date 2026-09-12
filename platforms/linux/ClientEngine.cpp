@@ -204,6 +204,7 @@ struct State {
   guint online_delay_source = 0;
   bool cloud_candidates = true;
   bool candidate_translations = true;
+  bool translation_reset_pending = false;
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   void invalidate_providers() {
@@ -224,6 +225,7 @@ struct State {
     close();
   }
   void close() {
+    translation_reset_pending = false;
     applied_preferences_revision = 0;
     applied_preferences_snapshot = nullptr;
     stop_clipboard_monitor();
@@ -463,13 +465,17 @@ struct State {
     cloud_candidates = next_cloud_candidates;
     const bool next_candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
-    if (next_candidate_translations != candidate_translations)
+    if (next_candidate_translations != candidate_translations) {
+      translation_reset_pending = true;
       invalidate_providers();
+    }
     candidate_translations = next_candidate_translations;
     const auto next_translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
-    if (next_translation_target_language != translation_target_language)
+    if (next_translation_target_language != translation_target_language) {
+      translation_reset_pending = true;
       invalidate_providers();
+    }
     translation_target_language = next_translation_target_language;
     auto display_preferences = preferences;
     if (layout_override)
@@ -525,6 +531,8 @@ struct State {
     const bool voice_changed = voice != voice_provider_socket;
     const bool online_changed = online != online_provider_socket ||
                                 translation != translation_provider_socket;
+    if (translation != translation_provider_socket)
+      translation_reset_pending = true;
     // Cancel against the old endpoint before replacing it, so the previous
     // provider does not keep recording after an environment/config change.
     if (voice_changed && voice_active)
@@ -538,6 +546,10 @@ struct State {
   }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
+    if (candidate_translations_override)
+      preferences["candidate_translations"] = *candidate_translations_override;
+    if (translation_target_language_override)
+      preferences["translation_target_language"] = *translation_target_language_override;
     if (paired_punctuation_override)
       preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override)
@@ -1054,6 +1066,17 @@ struct TranslationTask {
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::None);
 void render(IBusEngine *engine, const Json &view);
+void clear_candidate_translations(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.session || !s.view.is_object())
+    return;
+  constexpr uint8_t empty[] = {'[', ']'};
+  auto result = response(msime_client_apply_translations(
+      s.session, s.view.value("generation", uint64_t{0}), empty, sizeof(empty)));
+  s.view = result.at("view");
+  s.translation_reset_pending = false;
+  render(engine, s.view);
+}
 void translation_complete(GObject *source, GAsyncResult *result, gpointer);
 bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded) {
   try {
@@ -2113,7 +2136,8 @@ void render(IBusEngine *engine, const Json &view) {
     auto value = candidate.at("text").get<std::string>();
     if (candidate.value("corrected", false))
       value += "*";
-    if (candidate.contains("translation") && !candidate.at("translation").is_null()) {
+    if (state(engine).candidate_translations && !state(engine).translation_reset_pending &&
+        candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose
       // the optional gloss without allowing an oversized provider result to
@@ -2700,6 +2724,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.candidate_translations_override = enabled;
       s.candidate_translations = enabled;
       s.invalidate_providers();
+      clear_candidate_translations(engine);
       publish_mode(engine);
       if (enabled)
         translation_schedule(engine);
@@ -2717,6 +2742,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.translation_target_language_override = selected;
       s.translation_target_language = selected;
       s.invalidate_providers();
+      clear_candidate_translations(engine);
       publish_mode(engine);
       if (s.candidate_translations)
         translation_schedule(engine);
@@ -4097,14 +4123,23 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   auto updated = response(msime_client_update_preferences(
       s.session, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
   ++s.applied_preferences_revision;
+  if (s.applied_preferences_snapshot.is_object() &&
+      s.applied_preferences_snapshot.value("custom_translation", Json(nullptr)) !=
+          preferences.value("custom_translation", Json(nullptr))) {
+    s.invalidate_providers();
+    s.translation_reset_pending = true;
+  }
   s.applied_preferences_snapshot = preferences;
   s.refresh_host_preferences(preferences);
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
     voice_cancel(engine);
   s.view = updated.at("view");
+  if (s.translation_reset_pending)
+    clear_candidate_translations(engine);
   render(engine, s.view);
   publish_mode(engine);
+  translation_schedule(engine);
 }
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
@@ -4112,8 +4147,11 @@ gboolean reload_preferences(gpointer data) {
   watch_clipboard_history(engine);
   guarded(engine, "provider_discovery", [&] {
     if (s.refresh_provider_sockets(engine) && s.focused && !s.blocked) {
+      if (s.translation_reset_pending)
+        clear_candidate_translations(engine);
       publish_mode(engine);
       online_schedule(engine);
+      translation_schedule(engine);
     }
   });
   if (s.preferences_loading)
