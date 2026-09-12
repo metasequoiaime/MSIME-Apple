@@ -86,7 +86,9 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 连续目录读取的宿主接口提供可选 `cursor:true`：`msime_client_emoji_catalog_request` 返回 `items`、`next_offset` 和 `complete`。详情 UI 已移除手动分页，按 `next_offset` 连续读取，仅在 `complete:true` 后一次性显示完整结果，不用返回条数或空数组判断结束。游标按实际扫描的匹配行前进，跳过空文本／无效分类行但不提前终止，保留有效重复条目；恰好满批时再读一批确认结束。切换查询取消后续批次，失败不展示部分结果。读取前后检查数据库及 WAL 的设备、inode、大小和修改时间，普通替换或写入会使本次读取失败；此防护不是跨请求 SQLite 快照，无法保证检测元数据不变的原地修改。未提供该选项的旧分页接口继续逐页去重，响应格式不变。首页预览仍保留各分类数量限制。合成游标测试覆盖空批次继续、重复项、协议错误、取消、失败和文件变化；安装后的完整宿主链路及大目录渲染性能尚未验证。
 
-表情首页、普通网格与颜文字流式布局同样提供独立的本地测试：
+搜索框占位文字对齐固定 Windows 提交的 `UpdateSearchPlaceholder`：首页为 `Search emoji, kaomoji, and symbols`，表情／最近为 `Search emojis`，颜文字为 `Search kaomoji`，符号为 `Search symbols`，贴纸／GIF 为 `Search`，剪贴板为“搜索剪贴板”。普通页输入／占位字号为 14／12 点，剪贴板均为 16 点；搜索修改立即清除复制提示。搜索测试覆盖页面映射、字号配置以及两种主题、两种焦点状态的边框像素；不代表实际输入源焦点或跨平台字体逐像素验证。
+
+表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，同属 `emoji-local`）：
 
 ```sh
 cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build emoji-symbol-sections-test-build emoji-catalog-cursor-test-build --parallel

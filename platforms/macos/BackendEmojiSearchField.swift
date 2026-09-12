@@ -1,5 +1,24 @@
 import SwiftUI
 
+struct MacEmojiSearchPresentation {
+  let placeholder: String
+  let textSize: CGFloat
+  let placeholderSize: CGFloat
+
+  init(category: String) {
+    textSize = category == "clipboard" ? 16 : 14
+    placeholderSize = category == "clipboard" ? 16 : 12
+    switch category {
+    case "home": placeholder = "Search emoji, kaomoji, and symbols"
+    case "", "recent": placeholder = "Search emojis"
+    case "kaomoji": placeholder = "Search kaomoji"
+    case "symbols": placeholder = "Search symbols"
+    case "clipboard": placeholder = "搜索剪贴板"
+    default: placeholder = "Search"
+    }
+  }
+}
+
 struct MacEmojiSearchChrome: View {
   static let scale: CGFloat = 2 / 3
   static let height: CGFloat = 52 * scale
@@ -21,7 +40,7 @@ struct MacEmojiSearchChrome: View {
 
 struct MacEmojiSearchField: View {
   @Binding var text: String
-  let placeholder: String
+  let presentation: MacEmojiSearchPresentation
   let palette: MacEmojiPalette
   @FocusState private var focused: Bool
 
@@ -32,13 +51,13 @@ struct MacEmojiSearchField: View {
         .foregroundStyle(MacEmojiPalette.color(palette.muted))
         .frame(width: 40 * MacEmojiSearchChrome.scale)
         .accessibilityHidden(true)
-      TextField("搜索", text: $text, prompt: Text(placeholder)
-        .font(.system(size: 12)).foregroundColor(MacEmojiPalette.color(palette.muted)))
+      TextField("搜索", text: $text, prompt: Text(presentation.placeholder)
+        .font(.system(size: presentation.placeholderSize)).foregroundColor(MacEmojiPalette.color(palette.muted)))
         .textFieldStyle(.plain)
-        .font(.system(size: 14))
+        .font(.system(size: presentation.textSize))
         .foregroundStyle(MacEmojiPalette.color(palette.text))
         .focused($focused)
-        .accessibilityLabel(placeholder)
+        .accessibilityLabel(presentation.placeholder)
     }
     .padding(.leading, 6 * MacEmojiSearchChrome.scale)
     .padding(.trailing, 12 * MacEmojiSearchChrome.scale)
