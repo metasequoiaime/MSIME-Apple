@@ -19,6 +19,7 @@
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
 #import "CandidateChrome.h"
+#import "CandidateTextMetrics.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
 #include "FullWidthInput.h"
@@ -691,10 +692,19 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     CGFloat clearance = _appearance.fontSize + 42.0;
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
+    NSArray *candidates = _view[@"candidates"];
+    if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
+        NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize];
+        CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
+        BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+        for (NSDictionary *candidate in candidates)
+            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplay(candidate, traditional), font) + 12);
+        clearance = MAX(clearance, (_appearance.vertical ? candidates.count : 1) * rowHeight + 24);
+    }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
         NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
-        clearance += MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
+        clearance += MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0);
     }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
@@ -727,8 +737,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
     NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
-    CGFloat preeditHeight = preedit.length ? MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0) : 0;
-    const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
+    CGFloat preeditHeight = preedit.length ? MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0) : 0;
+    CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
     const BOOL paging = pageCount > 1;
@@ -739,6 +749,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     for (NSDictionary *candidate in candidates) {
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)++index, CandidateDisplay(candidate, traditional)];
+        rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
         const CGFloat itemWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width) + 16 + (geometry.showSelectedBar ? 6 : 0);
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
