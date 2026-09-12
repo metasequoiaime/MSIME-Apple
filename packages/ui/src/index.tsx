@@ -542,6 +542,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const themeMode = draft?.theme ?? "dark";
   const settingsTheme = draft?.settings_theme ?? "follow";
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
+  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
@@ -692,9 +693,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <label className="section-header floating-toolbar-setting-row"><span className="section-title">在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small></span><input aria-label="在桌面显示悬浮工具栏" className="toggle" type="checkbox" checked={floatingToolbar.enabled} onChange={event => setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, enabled: event.target.checked } })} /></label>
           <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
             <div className="floating-toolbar-preview-label">预览</div>
-              <div className={`toolbar-preview${floatingToolbar.enabled ? "" : " disabled"}`} style={{ transform: `scale(${floatingToolbar.scale_percent / 100})`, fontSize: `${floatingToolbar.font_size}px` }}>
-              <span className="toolbar-preview-handle">⋮</span><span className="toolbar-preview-required">中 / 英</span>
-              {floatingToolbarOptions.map(([key, label]) => floatingToolbar[key] && <span className="toolbar-preview-item" key={key}>{label.split(" ")[0]}</span>)}
+            <div className="skin-card-preview toolbar-settings-preview" data-preview-theme={toolbarPreviewTheme}>
+              <SkinToolbarPreview preferences={floatingToolbar} />
             </div>
           </div>
         </div>
