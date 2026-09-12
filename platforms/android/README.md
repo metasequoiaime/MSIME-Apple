@@ -16,7 +16,7 @@
 
 工具栏“空格”支持轻点选词或插入空格，也可左右滑动向编辑器发送有界方向键事件以移动光标。滑动开始时先完成 Engine 组合，距离累积器绑定当前 `InputConnection` 身份；输入目标变化、手势取消、非有限坐标或异常跳变都会终止移动，不读取或持久化编辑器文本。
 
-键盘工具栏的“设置”面板以固定来源 `MSIME-Apple@2b0250f` 复刻 Apple 的按键间距、行间距和顶部语音入口控制：间距分别支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 偏好。拖动时只更新 Android 键位 margin，不重建 Engine 或丢失当前组词；松手及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。26 键、全拼九键、日语九键和手写工具键消费同一几何设置。
+键盘工具栏的“设置”面板在保留已迁移的间距和 Android 语音入口基础上，以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 增加键盘高度调节。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；26 键三行均分增量，九键整体增减，手写把增量用于书写与工具区。间距仍分别支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍调节及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。
 
 语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。系统识别器可用性、Activity 返回后的键盘恢复和真实编辑器插入仍需设备产品验收。
 
@@ -115,6 +115,8 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 独立 instrumentation 读取编辑器与输入法的交互窗口，等待窗口稳定后重新定位并注入触摸，断言“你好”提交、退格、“直接输入”状态和密码框字符长度；不记录编辑器原文。普通 uiautomator dump 只用于准备 Activity，不能用它缺少输入法节点推断键盘未显示。APK fixture 不随产品打包。
 
 同一 smoke 脚本还执行同开发签名的 PreferencesDeviceSmoke，instrumentation 以预览应用为目标，直接在其私有测试目录原子发布合成设置，无需给产品增加导出的测试写接口。目标进程重启后重新绑定专用 AVD 的 IME；测试组词延迟、提交保留、页大小与标点生效、损坏文件保护以及恢复重试。结束时恢复原偏好文件（原本不存在则删除测试文件），不清空资源和用户数据。该测试必须经专用 AVD 检查的 smoke 脚本执行，不安装在个人设备。
+
+KeyboardHeightDeviceSmoke 通过键盘内真实无障碍调节动作验证 -12、0 和 +48 dp 档位：正负调整必须改变实际字母键边界，调节和保存期间已有 Engine 组合不得丢失，保存值在 IME 进程重启后必须继续生效。`--settings` 还让 SettingsDeviceSmoke 在真实 React WebView 中修改并保存同一高度字段，再由独立输入法进程消费；两项测试结束时都恢复原偏好文件。
 
 共享核心单元测试也可在该 AVD 实际执行（从仓库根运行，以下工具链为 macOS 主机）：
 

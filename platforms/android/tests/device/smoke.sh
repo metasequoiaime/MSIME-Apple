@@ -60,6 +60,9 @@ printf '%s\n' "$result"
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.PreferencesDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Preferences acceptance failed" >&2; exit 1; }
+result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.KeyboardHeightDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Keyboard height acceptance failed" >&2; exit 1; }
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.FuzzyPinyinDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Fuzzy pinyin acceptance failed" >&2; exit 1; }
