@@ -18,11 +18,6 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _service = [[MSIMEVoiceInputService alloc] init];
         _language = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_language addItemsWithTitles:@[@"中文（简体）", @"English"]];
         [_language selectItemAtIndex:[[[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] isEqualToString:@"en-US"] ? 1 : 0];
-        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-        [_provider selectItemAtIndex:[@[@"doubao", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao"]];
-        _polish.state = [defaults boolForKey:@"MSIMEClientVoicePolish"] ? NSControlStateValueOn : NSControlStateValueOff;
-        [_polishProvider selectItemAtIndex:[@[@"deepseek", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek"]];
-        _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"";
         _language.target = self; _language.action = @selector(languageChanged:);
         _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         [_provider addItemsWithTitles:@[@"豆包", @"OpenAI", @"SiliconFlow", @"Groq"]];
@@ -30,6 +25,11 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
         _polishProvider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         [_polishProvider addItemsWithTitles:@[@"DeepSeek", @"OpenAI", @"SiliconFlow", @"Groq"]];
         _model = [NSTextField textFieldWithString:@""]; _model.placeholderString = @"留空使用提供商默认模型";
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        [_provider selectItemAtIndex:[@[@"doubao", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao"]];
+        _polish.state = [defaults boolForKey:@"MSIMEClientVoicePolish"] ? NSControlStateValueOn : NSControlStateValueOff;
+        [_polishProvider selectItemAtIndex:[@[@"deepseek", @"openai", @"siliconflow", @"groq"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek"]];
+        _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"";
         _hotkey = [NSButton checkboxWithTitle:@"启用 Ctrl+F9 语音快捷键" target:self action:@selector(voiceOptionsChanged:)];
         _hotkey.state = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] ? NSControlStateValueOn : NSControlStateValueOff;
         _provider.target = self; _provider.action = @selector(voiceOptionsChanged:);
