@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "ClipboardText.h"
 #include "ChineseTextConversion.h"
 #include "NavigationBindings.h"
 #include "WordCharacterBinding.h"
@@ -565,7 +566,7 @@ std::vector<std::string> clipboard_items(const std::string &path) {
     for (const auto &entry : value) {
       if (items.size() == 8 || !entry.is_string()) break;
       auto text = entry.get<std::string>();
-      if (text.size() > 4000) text.resize(4000);
+      msime_clipboard_truncate(text, 4000);
       if (!text.empty()) items.push_back(std::move(text));
     }
   } catch (...) {}

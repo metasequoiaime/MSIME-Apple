@@ -1,5 +1,7 @@
 #include <nlohmann/json.hpp>
+#include "ClipboardText.h"
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <fcntl.h>
@@ -30,12 +32,13 @@ std::string normalize(std::string text) {
   text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
   std::string out;
   out.reserve(std::min(text.size(), kMaxChars));
-  for (size_t i = 0; i < text.size() && out.size() < kMaxChars; ++i) {
+  for (size_t i = 0; i < text.size(); ++i) {
     if (text[i] == '\r') {
       if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
       out.push_back('\n');
     } else out.push_back(text[i]);
   }
+  msime_clipboard_truncate(out, kMaxChars);
   while (!out.empty() && (out.back() == '\n' || out.back() == ' ' || out.back() == '\t')) out.pop_back();
   return out;
 }
@@ -72,12 +75,35 @@ bool save(const std::filesystem::path &path, const std::vector<std::string> &ite
 }
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-clipboard <history.json> <list|get|add|remove|remove-index|clear> [value]\n";
+    std::cout << "Usage: msime-client-clipboard <history.json> <list|get|add|add-stdin|remove|remove-index|clear> [value]\n";
     return 0;
   }
   if (argc < 3) return 2;
   const std::filesystem::path path = argv[1];
   const std::string op = argv[2];
+  std::string added_text;
+  if (op == "add-stdin") {
+    if (argc != 3) return 2;
+    // Read before taking the history lock so a slow pipe cannot block readers.
+    std::array<char, 1024 * 1024 + 1> input;
+    std::cin.read(input.data(), input.size());
+    const auto size = static_cast<size_t>(std::cin.gcount());
+    if (std::cin.bad() || size == input.size()) return 2;
+    added_text.assign(input.data(), size);
+  } else if (op == "add" && argc == 4) {
+    added_text = argv[3];
+  }
+  if (op == "add-stdin" || (op == "add" && argc == 4)) {
+    added_text = normalize(std::move(added_text));
+    // Reject malformed text without allowing JSON serialization to terminate
+    // the process or echo clipboard content in an exception diagnostic.
+    try { (void)Json(added_text).dump(); } catch (...) { return 2; }
+    if (added_text.empty()) return 0;
+    std::error_code error;
+    if (!path.parent_path().empty())
+      std::filesystem::create_directories(path.parent_path(), error);
+    if (error) return 1;
+  }
   HistoryLock lock(path);
   if (!lock.acquired()) return 1;
   auto items = load(path);
@@ -92,8 +118,8 @@ int main(int argc, char **argv) {
       return static_cast<bool>(std::cout) ? 0 : 1;
     } catch (...) { return 2; }
   }
-  if (op == "add" && argc == 4) {
-    auto text = normalize(argv[3]); if (text.empty() || (!items.empty() && items.front() == text)) return 0;
+  if ((op == "add" && argc == 4) || op == "add-stdin") {
+    auto text = std::move(added_text); if (!items.empty() && items.front() == text) return 0;
     items.erase(std::remove(items.begin(), items.end(), text), items.end()); items.insert(items.begin(), std::move(text));
     if (items.size() > kMaxItems) items.resize(kMaxItems);
     return save(path, items) ? 0 : 1;
