@@ -6,8 +6,14 @@
 #include <iterator>
 
 namespace {
-void reload_options(const char *path) {
-  std::ifstream file(path);
+struct OptionsWatch {
+  const char *path;
+  GFile *file;
+  guint debounce = 0;
+  std::string last_document;
+};
+void reload_options(OptionsWatch &watch) {
+  std::ifstream file(watch.path);
   if (!file)
     return;
   std::array<char, 16385> buffer;
@@ -15,9 +21,14 @@ void reload_options(const char *path) {
   if (file.bad() || file.gcount() == 0 ||
       static_cast<std::size_t>(file.gcount()) >= buffer.size())
     return;
+  const std::string document(buffer.data(), static_cast<size_t>(file.gcount()));
+  if (document == watch.last_document)
+    return;
+  // Avoid reparsing identical content, including an invalid intermediate save.
+  // A later different document is always eligible for another attempt.
+  watch.last_document = document;
   try {
-    msime_preview_configure(
-        std::string(buffer.data(), static_cast<size_t>(file.gcount())));
+    msime_preview_configure(document);
   } catch (...) {
     g_warning("MSIME preview settings reload failed");
   }
@@ -78,28 +89,46 @@ int main(int argc, char **argv) {
                    G_CALLBACK(+[](IBusBus *, gpointer) { ibus_quit(); }),
                    nullptr);
   auto config_file = g_file_new_for_path(argv[1]);
-  auto monitor = g_file_monitor_file(config_file, G_FILE_MONITOR_NONE, nullptr,
-                                     nullptr);
+  OptionsWatch options_watch{argv[1], config_file, 0, {}};
+  auto config_directory = g_file_get_parent(config_file);
+  auto monitor = config_directory
+      ? g_file_monitor_directory(config_directory, G_FILE_MONITOR_WATCH_MOVES, nullptr, nullptr)
+      : nullptr;
+  if (config_directory) g_object_unref(config_directory);
   if (monitor) {
     g_signal_connect(
         monitor, "changed",
-        G_CALLBACK(+[](GFileMonitor *, GFile *, GFile *, GFileMonitorEvent event,
+        G_CALLBACK(+[](GFileMonitor *, GFile *file, GFile *other, GFileMonitorEvent,
                        gpointer data) {
-          if (event == G_FILE_MONITOR_EVENT_CHANGED ||
-              event == G_FILE_MONITOR_EVENT_CREATED ||
-              event == G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT ||
-              event == G_FILE_MONITOR_EVENT_MOVED_IN ||
-              event == G_FILE_MONITOR_EVENT_MOVED ||
-              event == G_FILE_MONITOR_EVENT_RENAMED)
-            reload_options(static_cast<const char *>(data));
+          auto &watch = *static_cast<OptionsWatch *>(data);
+          if ((!file || !g_file_equal(file, watch.file)) &&
+              (!other || !g_file_equal(other, watch.file)))
+            return;
+          if (watch.debounce) g_source_remove(watch.debounce);
+          watch.debounce = g_timeout_add(100, +[](gpointer data) -> gboolean {
+            auto &watch = *static_cast<OptionsWatch *>(data);
+            watch.debounce = 0;
+            reload_options(watch);
+            return G_SOURCE_REMOVE;
+          }, data);
         }),
-        argv[1]);
+        &options_watch);
   }
+  // Also covers unavailable monitors, replaced parent directories and symlink
+  // targets changed outside the watched directory.
+  const auto options_poll = g_timeout_add_seconds(5, +[](gpointer data) -> gboolean {
+    reload_options(*static_cast<OptionsWatch *>(data));
+    return G_SOURCE_CONTINUE;
+  }, &options_watch);
   const auto theme_watch = msime_watch_system_theme();
   ibus_main();
   msime_unwatch_system_theme(theme_watch);
-  if (monitor)
+  g_source_remove(options_poll);
+  if (options_watch.debounce) g_source_remove(options_watch.debounce);
+  if (monitor) {
+    g_file_monitor_cancel(monitor);
     g_object_unref(monitor);
+  }
   g_object_unref(config_file);
   g_object_unref(component);
   g_object_unref(factory);
