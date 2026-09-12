@@ -470,16 +470,19 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const [form, setForm] = useState<{ entry: CloudDictionaryEntry | null; code: string; word: string; weight: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
+  const refreshRevision = useRef(0);
 
   async function refresh(nextOffset = 0, nextSearch = search, nextKind = kind) {
+    const revision = ++refreshRevision.current;
     setBusy(true);
     try {
       const result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch });
+      if (revision !== refreshRevision.current) return;
       setEntries(cloudDictionaryEntries(result));
       setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
       setHasMore(result.has_more === true);
       setNotice("云词典已刷新");
-    } catch { setNotice("无法访问云词典服务，请确认 provider 已连接"); }
+    } catch { if (revision === refreshRevision.current) setNotice("无法访问云词典服务，请确认 provider 已连接"); }
     finally { setBusy(false); }
   }
 
