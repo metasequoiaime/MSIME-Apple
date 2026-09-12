@@ -31,6 +31,13 @@ export interface VoicePanelClient extends PanelClient {
   sendVoiceText?(text: string): Promise<void>;
 }
 
+function validVoiceLanguage(value: string) {
+  return value.length > 0 && value.length <= 64 && !Array.from(value).some(character => {
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
 export type CloudClipboardAction =
   | { operation: "list"; search: string }
   | { operation: "add"; text: string }
@@ -233,7 +240,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   useEffect(() => {
     if (!client.loadVoiceLanguage) return;
     void client.loadVoiceLanguage().then(next => {
-      if (["zh-CN", "en-US", "ja-JP"].includes(next)) setLanguage(next);
+      if (validVoiceLanguage(next)) setLanguage(next);
     }).catch(() => undefined);
   }, [client]);
 
@@ -267,6 +274,10 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   async function recognize() {
     if (!client.recognizeVoice) {
       setNotice("当前宿主未提供语音识别能力");
+      return;
+    }
+    if (!validVoiceLanguage(language)) {
+      setNotice("请输入有效的识别语言码");
       return;
     }
     busyRef.current = true;
@@ -310,7 +321,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>
       <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
-      <label className="voice-panel-language">识别语言<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></select></label>
+      <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
       <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
       <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
