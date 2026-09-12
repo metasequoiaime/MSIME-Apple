@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
+import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
@@ -93,7 +94,8 @@ export type Preferences = {
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
   candidate_page_size: number;
-  candidate_font_size?: 16 | 18 | 20;
+  candidate_font_size?: number;
+  candidate_preedit_font_size?: number;
   candidate_layout?: "horizontal" | "vertical";
   candidate_preedit_style?: "pinyin" | "empty";
   candidate_skin?: string;
@@ -575,8 +577,11 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={draft.candidate_font_size ?? 18} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) as Preferences["candidate_font_size"] })}>
-          <option value="16">小</option><option value="18">标准</option><option value="20">大</option>
+        <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
+          {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
+        </select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑字号</span><select aria-label="候选窗预编辑字号" value={candidateFontSize(draft.candidate_preedit_font_size)} onChange={event => setDraft({ ...draft, candidate_preedit_font_size: Number(event.target.value) })}>
+          {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>

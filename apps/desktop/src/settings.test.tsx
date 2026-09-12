@@ -480,7 +480,7 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
-  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("16");
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
@@ -491,13 +491,35 @@ test("candidate appearance settings persist and use legacy defaults", async () =
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("complete candidate and preedit font sizes load, preview independently and save", async () => {
+  const saved = { ...initial, preferences: { ...initial.preferences, candidate_font_size: 19, candidate_preedit_font_size: 27 } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => saved, save }} />);
+  const size = await screen.findByLabelText("候选字号") as HTMLSelectElement;
+  const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
+  expect(size.value).toBe("19"); expect(preedit.value).toBe("27");
+  expect([...size.options].map(option => option.value)).toEqual(Array.from({ length: 21 }, (_, index) => String(index + 12)));
+  expect([...preedit.options].map(option => option.value)).toEqual([...size.options].map(option => option.value));
+  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  for (let value = 12; value <= 32; value++) {
+    fireEvent.change(size, { target: { value: String(value) } });
+    fireEvent.change(preedit, { target: { value: String(44 - value) } });
+    expect(preview.style.getPropertyValue("--appearance-font-size")).toBe(`${value}px`);
+    expect(preview.style.getPropertyValue("--appearance-preedit-font-size")).toBe(`${44 - value}px`);
+  }
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...saved.preferences, candidate_font_size: 32, candidate_preedit_font_size: 12 });
+});
+
 test("appearance preview follows drafts, skin selection and reload without saving", async () => {
   const save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save }} />);
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
   expect(preview.querySelectorAll(".cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
-  expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
+  expect(preview.querySelector('[data-font-size="16"]')).not.toBeNull();
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
   fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选数量"), { target: { value: "9" } });

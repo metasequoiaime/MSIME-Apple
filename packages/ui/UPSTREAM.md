@@ -397,3 +397,20 @@ reproduces the old missing structure, then checks vertical top padding/highlight
 horizontal leading highlight, the single-candidate solid highlight and restoring
 visible preedit. Existing external-skin and CSP checks still pass. This is a
 shared preview fidelity fix, not native-platform visual acceptance.
+
+Candidate and preedit font-size controls now expose every integer from 12 to 32,
+matching pinned appearance.html and the existing client-core preference bounds.
+The shared UI declares and saves candidate_preedit_font_size independently, and
+uses the core's 16px default for both missing values (previous UI default was
+18px). Existing intermediate sizes such as 19 and 27 remain selected correctly.
+Bounded numeric CSS properties drive both built-in and external previews without
+changing their shared static skin-card samples or weakening CSP.
+
+Unit tests cover all choices, independent draft values/save payloads and invalid
+CSS inputs. Chromium checks actual candidate/preedit text sizes for every 12–32
+value in both orientations on built-in and external skins; previous appearance
+regressions still pass. The existing core candidate-font boundary test also
+passes. No native host settings, typography implementation or platform acceptance
+was changed; platform-specific ranges (including macOS native settings) still
+need their own migration. Font-family/fallback controls and global theme remain
+unfinished.
