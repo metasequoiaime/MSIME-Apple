@@ -3222,6 +3222,45 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         !s.view.at("editing_text").get<std::string>().empty();
     const bool candidate_active =
         s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
+    const auto local_mode = s.view.value("local_mode", std::string("none"));
+    const bool ascii_letter =
+        (key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z');
+    const bool nine_key_digit =
+        local_mode != "unicode" && s.view.value("nine_key", false) &&
+        ((key >= IBUS_KP_2 && key <= IBUS_KP_9) ||
+         (key >= '2' && key <= '9'));
+    const bool unicode_digit =
+        local_mode == "unicode" && key >= '0' && key <= '9' &&
+        (modifiers & IBUS_SHIFT_MASK) == 0;
+    const bool microsoft_ing =
+        microsoft_shuangpin_ing_key(s.view, key, modifiers);
+    const bool unicode_plus = unicode_plus_key(s.view, key, modifiers);
+    const bool candidate_input =
+        candidate_active &&
+        (ascii_letter || nine_key_digit || unicode_digit || microsoft_ing ||
+         unicode_plus || (key == IBUS_apostrophe && has_composition));
+    if (candidate_input) {
+      if (!apply(engine, msime_client_command(
+                     s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
+      if (microsoft_ing) {
+        handled = apply(engine, msime_client_character(
+                                   s.session, ';', false));
+      } else if (unicode_plus) {
+        handled = apply(engine, msime_client_character(
+                                   s.session, '+', true));
+      } else if (key >= IBUS_KP_0 && key <= IBUS_KP_9) {
+        handled = apply(engine, msime_client_character(
+                                   s.session,
+                                   static_cast<uint8_t>('0' + key - IBUS_KP_0),
+                                   false));
+      } else {
+        handled = apply(engine, msime_client_character(
+            s.session, static_cast<uint8_t>(key),
+            (flags & IBUS_SHIFT_MASK) != 0));
+      }
+      return;
+    }
     const char ascii = static_cast<char>(key);
     if (key >= 0x21 && key <= 0x7e &&
         std::ispunct(static_cast<unsigned char>(ascii)) != 0 &&
