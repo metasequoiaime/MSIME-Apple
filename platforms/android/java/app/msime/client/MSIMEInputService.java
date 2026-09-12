@@ -12,6 +12,7 @@ import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
+import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
@@ -132,8 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button spaceButton;
     private TextView status;
     private String message = "MSIME Preview";
-    private boolean shift;
-    private boolean automaticShift;
+    private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
     private int editorInputType;
     private long currentDocumentIdentifier;
@@ -235,8 +235,7 @@ public final class MSIMEInputService extends InputMethodService {
         editorContextRevision++;
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
-        shift = false;
-        automaticShift = false;
+        letterCase.reset();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = info == null ? 0 : info.inputType;
         Boolean englishOverride = inputContext.englishOverride(
@@ -489,10 +488,7 @@ public final class MSIMEInputService extends InputMethodService {
             closeClipboardHistory();
         }
         view = nextView;
-        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) {
-            shift = false;
-            automaticShift = false;
-        }
+        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         else if (geometryChanged) applyKeyboardGeometry();
         renderLayoutSettingsState();
@@ -510,10 +506,7 @@ public final class MSIMEInputService extends InputMethodService {
             throw new JSONException("Editor rejected update");
         }
         view = next;
-        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) {
-            shift = false;
-            automaticShift = false;
-        }
+        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         render();
         return result.getBoolean("handled");
@@ -522,8 +515,12 @@ public final class MSIMEInputService extends InputMethodService {
     private void fail() { stop(false); message = "输入连接失败：仅直接输入"; render(); }
 
     private boolean character(int ascii) {
+        return character(ascii, letterCase.usesUppercase());
+    }
+
+    private boolean character(int ascii, boolean shifted) {
         if (session == 0) return false;
-        try { return apply(NativeClient.character(session, ascii, shift)); }
+        try { return apply(NativeClient.character(session, ascii, shifted)); }
         catch (JSONException | LinkageError error) { fail(); return true; }
     }
 
@@ -539,11 +536,9 @@ public final class MSIMEInputService extends InputMethodService {
             commitEnglishLiteral(key);
             return;
         }
-        char output = shift ? Character.toUpperCase(key) : key;
+        char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
         if (!character(output)) connection.commitText(String.valueOf(output), 1);
-        if (automaticShift) {
-            automaticShift = false;
-            shift = false;
+        if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();
         }
@@ -575,7 +570,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateAutomaticCapitalization() {
         if (!dedicatedEnglish) {
-            automaticShift = false;
+            letterCase.reset();
             return;
         }
         CharSequence context = null;
@@ -588,10 +583,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean next = EnglishCapitalizationPolicy.shouldShift(
             EditorPolicy.capitalizationMode(editorInputType), context);
-        boolean changed = shift != next;
-        shift = next;
-        automaticShift = next;
-        if (changed) rebuildKeyRows();
+        if (letterCase.applyAutomatic(next)) rebuildKeyRows();
         render();
     }
 
@@ -601,14 +593,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (dedicatedEnglish) command(3); else command(9);
         if (session == 0) return;
         int previousLayout = displayedTouchLayout(view);
+        boolean previousUppercase = letterCase.usesUppercase();
         try {
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
-            shift = false;
-            automaticShift = false;
-            if (previousLayout != displayedTouchLayout(view)) rebuildKeyRows();
+            letterCase.reset();
+            if (previousLayout != displayedTouchLayout(view) || previousUppercase) rebuildKeyRows();
             updateAutomaticCapitalization();
         } catch (JSONException | LinkageError error) {
             fail();
@@ -752,10 +744,8 @@ public final class MSIMEInputService extends InputMethodService {
             commitEnglishLiteral(unicode);
             return true;
         }
-        boolean previous = shift;
-        shift = event.isShiftPressed();
-        boolean handled = unicode >= 32 && unicode <= 126 && character(unicode);
-        shift = previous;
+        boolean handled = unicode >= 32 && unicode <= 126
+            && character(unicode, event.isShiftPressed());
         return handled || super.onKeyDown(keyCode, event);
     }
 
@@ -930,7 +920,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean supportsLocalTools() {
         if (view == null) return false;
         int scheme = view.optInt("scheme", 0);
-        return scheme != 2 && scheme != 3;
+        return !dedicatedEnglish && scheme != 2 && scheme != 3;
     }
 
     private boolean localModeEnabled(LocalInputMode mode) {
@@ -940,10 +930,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void openLocalInputMode(LocalInputMode mode) {
         if (session == 0 || !supportsLocalTools() || !localModeEnabled(mode)) return;
         playFeedback(moreButton);
-        boolean previousShift = shift;
-        shift = true;
-        character(mode.trigger().charAt(0));
-        shift = previousShift;
+        character(mode.trigger().charAt(0), true);
     }
 
     private void closeClipboardHistory() {
@@ -2629,7 +2616,8 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             }
         }
-        for (java.util.List<String> keys : KeyboardLayout.rows(keyboardLayer, shift)) {
+        for (java.util.List<String> keys : KeyboardLayout.rows(
+                keyboardLayer, letterCase.usesUppercase())) {
             LinearLayout row = new LinearLayout(this);
             keyRows.addView(row);
             for (String key : keys) {
@@ -2961,22 +2949,24 @@ public final class MSIMEInputService extends InputMethodService {
         controlScroll.addView(controls, new HorizontalScrollView.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         keyboard.addView(controlScroll);
-        shiftButton = button(controls, "Shift", () -> {
-            shift = !shift;
-            automaticShift = false;
-            shiftButton.setSelected(shift);
-            shiftButton.setContentDescription(shift ? "大写已开启" : "切换大写");
+        shiftButton = button(controls, "⇧", () -> {
+            if (!dedicatedEnglish && session != 0) {
+                toggleInputLanguage();
+                if (!dedicatedEnglish) return;
+                // Match Apple: the Shift that entered English starts from lowercase even if the
+                // editor would otherwise request automatic capitalization.
+                letterCase.reset();
+            }
+            letterCase.toggle(SystemClock.uptimeMillis());
             rebuildKeyRows();
             render();
         });
-        shiftButton.setContentDescription("切换大写");
+        shiftButton.setContentDescription("切换到英文大写");
         languageButton = button(controls, "中/英", this::toggleInputLanguage);
         languageButton.setContentDescription("切换中英文");
         layerButton = button(controls, "符号", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
-            shift = false;
-            automaticShift = false;
             rebuildKeyRows();
             render();
         });
@@ -3155,7 +3145,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (status != null) status.setText(message + preferencesNotice
             + (dedicatedEnglish ? " · 英文输入" : "") + localMode + page
-            + (shift ? " · Shift" : ""));
+            + switch (letterCase.mode()) {
+                case LOWERCASE -> "";
+                case SHIFTED -> " · Shift";
+                case CAPS_LOCK -> " · Caps Lock";
+            });
         if (preedit != null) {
             preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
             preedit.setText(view == null ? "" : view.optString("editing_text", ""));
@@ -3184,9 +3178,15 @@ public final class MSIMEInputService extends InputMethodService {
         if (shiftButton != null) {
             shiftButton.setVisibility(displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT
                 && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
-            shiftButton.setSelected(shift);
-            shiftButton.setContentDescription(shift
-                ? (automaticShift ? "自动大写已开启" : "大写已开启") : "切换大写");
+            shiftButton.setText(letterCase.keyText());
+            shiftButton.setSelected(letterCase.usesUppercase());
+            shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
+            styleButton(shiftButton, true);
+            String caseLabel = letterCase.accessibilityLabel(dedicatedEnglish || session == 0);
+            String caseValue = letterCase.accessibilityValue();
+            shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
+                ? caseLabel : caseLabel + "，" + caseValue);
+            if (Build.VERSION.SDK_INT >= 30) shiftButton.setStateDescription(caseValue);
         }
         if (languageButton != null) {
             languageButton.setText(dedicatedEnglish ? "英" : "中");
