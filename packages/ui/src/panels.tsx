@@ -572,10 +572,19 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
 export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
   const [page, setPage] = useState<EmojiPage>("home");
   const [query, setQuery] = useState("");
-  const [recent, setRecent] = useState<EmojiCatalogItem[]>([]);
+  const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
+    try {
+      const value: unknown = JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
+      return Array.isArray(value) ? value.filter(item => item && typeof item.text === "string" && Array.isArray(item.keywords)).slice(0, 28) as EmojiCatalogItem[] : [];
+    } catch { return []; }
+  });
   const [clipboard, setClipboard] = useState<string[]>([]);
   const [notice, setNotice] = useState("点击项目即可复制");
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+
+  useEffect(() => {
+    try { window.localStorage.setItem("msime.emoji.recent", JSON.stringify(recent.slice(0, 28))); } catch { /* preference is optional */ }
+  }, [recent]);
 
   useEffect(() => {
     if (!client.rememberInputTarget) return;
