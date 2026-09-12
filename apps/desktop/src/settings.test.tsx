@@ -929,27 +929,33 @@ test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)("appearance pre
   expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
 });
 
-test("touch keyboard spacing mirrors Apple defaults and persists tenths", async () => {
+test("touch keyboard geometry mirrors Apple defaults and persists height and spacing", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save }} />);
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  const height = screen.getByRole("slider", { name: "键盘高度" }) as HTMLInputElement;
   const keys = screen.getByRole("slider", { name: "按键间距" }) as HTMLInputElement;
   const rows = screen.getByRole("slider", { name: "行间距" }) as HTMLInputElement;
+  expect(height.value).toBe("0");
   expect(keys.value).toBe("60");
   expect(rows.value).toBe("70");
+  expect(screen.getByText("0 dp")).toBeDefined();
   expect(screen.getByText("6.0 dp")).toBeDefined();
   expect(screen.getByText("7.0 dp")).toBeDefined();
   const voice = screen.getByRole("checkbox", { name: "顶部语音入口" }) as HTMLInputElement;
   expect(voice.checked).toBe(false);
+  fireEvent.change(height, { target: { value: "24" } });
   fireEvent.change(keys, { target: { value: "35" } });
   fireEvent.change(rows, { target: { value: "95" } });
   fireEvent.click(voice);
+  expect(screen.getByText("+24 dp")).toBeDefined();
   expect(screen.getByText("3.5 dp")).toBeDefined();
   expect(screen.getByText("9.5 dp")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
+    touch_keyboard_height_adjustment: 24,
     touch_key_spacing_tenths: 35,
     touch_row_spacing_tenths: 95,
     touch_voice_shortcut: true,
