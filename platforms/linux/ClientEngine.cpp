@@ -1847,13 +1847,15 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto punctuation_lock_menu = ibus_prop_list_new();
+  const bool punctuation_available = s.focused && !s.blocked && s.input_enabled &&
+      s.session && !menu_save_pending;
   for (const auto &[value, label] : {std::pair{"follow", "跟随"},
                                      std::pair{"chinese", "固定中文"},
                                      std::pair{"english", "固定英文"}}) {
     auto item = ibus_property_new(
         (std::string("PunctuationLock/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择标点锁定策略"), !menu_save_pending, TRUE,
+        ibus_text_new_from_static_string("选择标点锁定策略"), punctuation_available, TRUE,
         s.punctuation_lock == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_prop_list_append(punctuation_lock_menu, item);
