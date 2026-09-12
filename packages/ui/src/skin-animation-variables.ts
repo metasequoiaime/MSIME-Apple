@@ -31,15 +31,15 @@ export function parseAnimationVariable(value: string): { name: string; fallback?
 // Duplicate only animation-referenced custom properties under private names.
 // Original values stay intact for content, layout and other non-animation uses.
 // Browser cascade/inheritance/cycle detection still resolves the alias graph.
-export function animationVariables(
+export function animationVariables<Mode extends string = AnimationMode>(
   styles: CSSStyleDeclaration[], prefix: string,
-  literal: (value: string, mode: AnimationMode) => { value: string; partial: boolean },
+  literal: (value: string, mode: Mode) => { value: string; partial: boolean },
 ) {
-  const aliases = new Map<string, { source: string; mode: AnimationMode; target: string }>();
+  const aliases = new Map<string, { source: string; mode: Mode; target: string }>();
   const reserved = new Set(styles.flatMap(style => style.cssText.match(/--[a-zA-Z0-9_-]+/g) ?? []));
   let nextAlias = 0;
   let partial = false, expanded = 0;
-  function rewrite(value: string, mode: AnimationMode, depth = 0): string {
+  function rewrite(value: string, mode: Mode, depth = 0): string {
     if (depth > 32) { partial = true; return "none"; }
     const variable = parseAnimationVariable(value);
     if (!variable) {
