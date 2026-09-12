@@ -266,7 +266,7 @@ def stream_identity(stream):
     return (stream["index"], props.get("application.process.id"), props.get("application.name"))
 
 
-def pipewire_sink_inputs(wanted=None, session=None):
+def pipewire_sink_inputs(wanted=None, session=None, excluded=None):
     nodes = json.loads(command(["pw-dump"], timeout=0.5))
     streams = []
     for node in nodes:
@@ -282,6 +282,8 @@ def pipewire_sink_inputs(wanted=None, session=None):
             continue
         if wanted is not None and (index, props["object.serial"]) not in wanted:
             continue
+        if excluded is not None and (index, props["object.serial"]) in excluded:
+            continue
         # Use the session manager's current state, rather than assuming that
         # missing Props in a graph snapshot means an unmuted stream.
         try:
@@ -292,7 +294,7 @@ def pipewire_sink_inputs(wanted=None, session=None):
                             "mute": b"[MUTED]" in volume})
         except Exception:
             continue
-        if len(streams) == 32:
+        if len(streams) >= (len(wanted) if wanted is not None else 32):
             break
     return streams
 
@@ -303,8 +305,9 @@ def set_stream_mute(backend, index, muted):
     command(args, timeout=0.5)
 
 
-def mute_audio(enabled, session):
-    muted = []
+def mute_audio(enabled, session, muted=None, seen=None):
+    muted = [] if muted is None else muted
+    seen = set() if seen is None else seen
     if not enabled:
         return muted
     streams = None
@@ -317,24 +320,64 @@ def mute_audio(enabled, session):
     if streams is None and shutil.which("pw-dump") and shutil.which("wpctl"):
         backend = "pipewire"
         try:
-            streams = pipewire_sink_inputs(session=session)
+            streams = pipewire_sink_inputs(session=session, excluded={identity for backend, identity in seen
+                                                                     if backend == "pipewire"})
         except Exception:
             pass
     if streams is not None:
         try:
-            for stream in streams[:32]:
+            unseen = [stream for stream in streams if (backend, stream_identity(stream)) not in seen]
+            for stream in unseen[:32]:
                 if session.stopped.is_set():
+                    break
+                identity = (backend, stream_identity(stream))
+                if identity in seen:
+                    continue
+                if len(seen) >= 1024 or len(muted) >= 256:
                     break
                 if not stream.get("mute"):
                     set_stream_mute(backend, stream["index"], True)
-                    muted.append((backend, stream_identity(stream)))
+                    muted.append(identity)
+                seen.add(identity)
         except Exception:
             pass
     return muted
 
 
+class AudioMuteWatch:
+    """Track newly created playback streams without blocking PCM collection."""
+    def __init__(self, session, muted, seen):
+        self.halted = threading.Event()
+        self.session = session
+        self.muted = muted
+        self.seen = seen
+        # Existing helpers only require a stopped event with is_set().
+        self.stopped = self
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
+    def is_set(self):
+        return self.halted.is_set() or self.session.stopped.is_set()
+
+    def run(self):
+        while not self.halted.wait(0.5):
+            if self.is_set():
+                break
+            mute_audio(True, self, self.muted, self.seen)
+
+    def stop(self):
+        self.halted.set()
+        # Join before restoration so no late mute can race the restore pass.
+        self.thread.join()
+
+
 def restore_audio(muted):
     if not muted:
+        return
+    backends = {backend for backend, _ in muted}
+    if len(backends) > 1:
+        for backend in backends:
+            restore_audio([entry for entry in muted if entry[0] == backend])
         return
     try:
         backend = muted[0][0]
@@ -370,6 +413,7 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
     limit = min(seconds * RATE * 2, MAX_AUDIO - 44)
     process = None
     muted = []
+    mute_watch = None
     level_energy = 0
     level_samples = 0
     last_level = time.monotonic()
@@ -408,7 +452,10 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
         cue(options, True)
         if session.stopped.is_set():
             return b"", 0
-        muted = mute_audio(options.get("mute_system_audio", False), session)
+        seen_streams = set()
+        muted = mute_audio(options.get("mute_system_audio", False), session, seen=seen_streams)
+        if options.get("mute_system_audio", False) and not session.stopped.is_set():
+            mute_watch = AudioMuteWatch(session, muted, seen_streams)
         if session.stopped.is_set():
             return b"", 0
         process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -482,7 +529,11 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
         finally:
             # Process cleanup must not prevent restoring streams we muted.
             try:
-                restore_audio(muted)
+                try:
+                    if mute_watch:
+                        mute_watch.stop()
+                finally:
+                    restore_audio(muted)
             finally:
                 try:
                     cue(options, False)
