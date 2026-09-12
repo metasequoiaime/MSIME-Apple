@@ -4,6 +4,7 @@
 #include "DictionaryRuntime.h"
 #include "../../../shared/apple-bridge/DictionarySessionLease.h"
 #import "FloatingToolbarPanel.h"
+#import "ScreenKeyboardPanel.h"
 #import "ChineseTextConversion.h"
 #include "CandidateFontSize.h"
 #import "CandidatePanel.h"
@@ -1195,6 +1196,12 @@ static NSHashTable *LiveDictionaryControllers()
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
 #pragma clang diagnostic pop
+}
+
+- (void)floatingToolbarDidRequestOpenScreenKeyboard:(MetasequoiaFloatingToolbarPanel *)toolbar
+{
+    (void)toolbar;
+    [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
 }
 
 - (void)floatingToolbarDidRequestOpenSettings:(MetasequoiaFloatingToolbarPanel *)toolbar

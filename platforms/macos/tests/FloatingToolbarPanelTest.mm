@@ -10,6 +10,7 @@
 @property(nonatomic) NSUInteger traditionalToggles;
 @property(nonatomic) NSUInteger characterPaletteRequests;
 @property(nonatomic) NSUInteger emojiRequests;
+@property(nonatomic) NSUInteger keyboardRequests;
 @property(nonatomic) NSUInteger settingsRequests;
 @property(nonatomic) NSUInteger updateRequests;
 @property(nonatomic) NSUInteger websiteRequests;
@@ -23,6 +24,7 @@
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_traditionalToggles; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_characterPaletteRequests; }
 - (void)floatingToolbarDidRequestOpenEmoji:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_emojiRequests; }
+- (void)floatingToolbarDidRequestOpenScreenKeyboard:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_keyboardRequests; }
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_settingsRequests; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
@@ -79,6 +81,10 @@ int main() {
         NSButton *traditional = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
         NSButton *settings = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarSettings");
         NSButton *emoji = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarEmoji");
+        NSButton *keyboard = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarScreenKeyboard");
+        assert(keyboard && keyboard.image && keyboard.hidden);
+        assert([keyboard.accessibilityLabel isEqualToString:@"打开水杉屏幕键盘"]);
+        assert([keyboard.toolTip isEqualToString:keyboard.accessibilityLabel]);
         assert(emoji && emoji.image && !emoji.hidden);
         assert([emoji.accessibilityLabel isEqualToString:@"打开水杉表情面板"]);
         assert([emoji.toolTip isEqualToString:emoji.accessibilityLabel]);
@@ -108,6 +114,14 @@ int main() {
                 NSRect stable = panel.frame;
                 [panel applySizingPreferences:preferences];
                 assert(NSEqualRects(stable, panel.frame));
+                [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size, @"screen_keyboard": @YES}}];
+                assert(!keyboard.hidden && keyboard.superview != nil);
+                assert(panel.frame.size.width == std::ceil((372.0 + 7.0 * (size.doubleValue - 24.0)) * factor));
+                assert([keyboard.contentTintColor isEqual:settings.contentTintColor]);
+                NSImage *expectedKeyboard = [keyboard.image imageWithSymbolConfiguration:
+                    [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
+                NSImage *configuredKeyboard = [keyboard.image imageWithSymbolConfiguration:keyboard.symbolConfiguration];
+                assert(NSEqualSizes(expectedKeyboard.size, configuredKeyboard.size));
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
@@ -122,9 +136,9 @@ int main() {
         assert(NSEqualSizes(panel.frame.size, configuredSize));
         [panel deactivateForDelegate:sizingDelegate];
         [panel applySizingPreferences:@{}];
-        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, emoji, settings];
-        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"settings"];
-        for (NSUInteger mask = 0; mask < 32; ++mask) {
+        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, emoji, keyboard, settings];
+        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+        for (NSUInteger mask = 0; mask < 64; ++mask) {
             NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
             NSUInteger count = 1;
             for (NSUInteger index = 0; index < keys.count; ++index) {
@@ -139,7 +153,7 @@ int main() {
             assert(panel.frame.size.width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
             assert(inputMode.superview != nil);
             CGFloat previousRight = 0;
-            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, settings]) {
+            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, keyboard, settings]) {
                 if (button.hidden) continue;
                 const NSRect rect = [button convertRect:button.bounds toView:panel.contentView];
                 assert(NSMinX(rect) >= previousRight);
@@ -148,8 +162,15 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{}];
-        for (NSButton *button in optionalButtons) assert(!button.hidden && button.superview != nil);
+        for (NSButton *button in optionalButtons) {
+            assert(button.hidden == (button == keyboard));
+            if (!button.hidden) assert(button.superview != nil);
+        }
         assert(panel.frame.size.width == 322.0);
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
+        assert(keyboard.hidden && panel.frame.size.width == 322.0);
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
+        assert(!keyboard.hidden && panel.frame.size.width == 372.0);
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
@@ -167,6 +188,8 @@ int main() {
         SendButton(traditional);
         SendButton(emoji);
         assert(delegate.emojiRequests == 1 && delegate.characterPaletteRequests == 0);
+        SendButton(keyboard);
+        assert(delegate.keyboardRequests == 1 && delegate.emojiRequests == 1);
         for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:",
                                          @"openWebsite:", @"dismissFloatingToolbar:"]) {
             [NSApp sendAction:NSSelectorFromString(selectorName) to:panel from:nil];
@@ -196,10 +219,14 @@ int main() {
         assert(panel.toolbarDelegate == delegate);
         [panel deactivateForDelegate:delegate];
         assert(!panel.visible && panel.toolbarDelegate == nil);
+        SendButton(keyboard);
+        assert(delegate.keyboardRequests == 1);
         SendButton(emoji);
         assert(delegate.emojiRequests == 1);
         FloatingToolbarTestDelegate *newDelegate = [FloatingToolbarTestDelegate new];
         [panel activateForDelegate:newDelegate visible:NO];
+        SendButton(keyboard);
+        assert(newDelegate.keyboardRequests == 1 && delegate.keyboardRequests == 1);
         SendButton(emoji);
         assert(newDelegate.emojiRequests == 1 && delegate.emojiRequests == 1);
         [panel deactivateForDelegate:newDelegate];
