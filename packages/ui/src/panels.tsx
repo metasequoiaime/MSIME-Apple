@@ -386,16 +386,19 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   const [draft, setDraft] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
+  const refreshRevision = useRef(0);
   const [notice, setNotice] = useState("只上传你明确选择的内容");
 
   async function refresh(nextSearch = search) {
+    const revision = ++refreshRevision.current;
     setBusy(true);
     try {
       const result = await client.request({ operation: "list", search: nextSearch });
+      if (revision !== refreshRevision.current) return;
       setItems(cloudClipboardItems(result));
       if (typeof result.enabled === "boolean") setEnabled(result.enabled);
       setNotice("云剪贴板已刷新");
-    } catch { setNotice("无法访问云剪贴板服务"); }
+    } catch { if (revision === refreshRevision.current) setNotice("无法访问云剪贴板服务"); }
     finally { setBusy(false); }
   }
 
