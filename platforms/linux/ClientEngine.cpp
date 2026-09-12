@@ -80,6 +80,7 @@ struct State {
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
   bool mode_ctrl_alt_space_enabled = true;
+  bool character_set_shortcut_enabled = true;
   bool mode_chord_held = false;
   bool number_row_selection = true;
   std::optional<bool> number_row_override;
@@ -210,6 +211,8 @@ struct State {
     mode_ctrl_enabled = keybindings.value("switch_language_ctrl", false);
     mode_ctrl_alt_space_enabled =
         keybindings.value("switch_language_ctrl_alt_space", true);
+    character_set_shortcut_enabled =
+        keybindings.value("toggle_character_set_ctrl_shift_f", true);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
     cloud_candidates = cloud_candidates_override.value_or(
@@ -320,6 +323,8 @@ struct State {
     mode_ctrl_enabled = keybindings.value("switch_language_ctrl", false);
     mode_ctrl_alt_space_enabled =
         keybindings.value("switch_language_ctrl_alt_space", true);
+    character_set_shortcut_enabled =
+        keybindings.value("toggle_character_set_ctrl_shift_f", true);
   }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
@@ -2358,9 +2363,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         ctrl_alt_space));
   const bool fullwidth_toggle = key == IBUS_space &&
                                 modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
-  const bool character_set_toggle =
+  const bool character_set_chord =
       (key == IBUS_f || key == IBUS_F) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  if (character_set_chord && !s.character_set_shortcut_enabled)
+    return FALSE;
+  const bool character_set_toggle = character_set_chord;
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;

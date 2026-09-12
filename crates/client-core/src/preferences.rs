@@ -552,6 +552,8 @@ pub struct KeybindingPreferences {
     pub switch_language_ctrl: bool,
     #[serde(default = "enabled_by_default")]
     pub switch_language_ctrl_alt_space: bool,
+    #[serde(default = "enabled_by_default")]
+    pub toggle_character_set_ctrl_shift_f: bool,
 }
 
 impl Default for KeybindingPreferences {
@@ -560,6 +562,7 @@ impl Default for KeybindingPreferences {
             switch_language_shift: true,
             switch_language_ctrl: false,
             switch_language_ctrl_alt_space: true,
+            toggle_character_set_ctrl_shift_f: true,
         }
     }
 }

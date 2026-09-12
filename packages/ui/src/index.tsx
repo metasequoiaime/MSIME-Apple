@@ -18,11 +18,13 @@ export type KeybindingPreferences = {
   switch_language_shift: boolean;
   switch_language_ctrl: boolean;
   switch_language_ctrl_alt_space: boolean;
+  toggle_character_set_ctrl_shift_f: boolean;
 };
 const defaultKeybindings: KeybindingPreferences = {
   switch_language_shift: true,
   switch_language_ctrl: false,
   switch_language_ctrl_alt_space: true,
+  toggle_character_set_ctrl_shift_f: true,
 };
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
@@ -744,6 +746,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             "switch_language_ctrl", "单击 Ctrl 切换中英文",
           ], [
             "switch_language_ctrl_alt_space", "Ctrl+Alt+Space 切换中英文",
+          ], [
+            "toggle_character_set_ctrl_shift_f", "Ctrl+Shift+F 切换简繁",
           ]] as const).map(([key, label]) => <label className="section-header" key={key}>
             <span className="section-title">{label}</span>
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
