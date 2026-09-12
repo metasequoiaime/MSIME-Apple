@@ -14,6 +14,11 @@ public final class NativeSmoke {
                 .contains("\"ok\":false")) {
             throw new AssertionError("emoji catalog accepted a relative resource path");
         }
+        if (!NativeClient.candidateGlosses(
+                "{\"generation\":1,\"candidates\":[{\"text\":\"fixture\",\"source\":0}]}",
+                "relative").contains("\"ok\":false")) {
+            throw new AssertionError("candidate gloss accepted a relative resource path");
+        }
         Path root = Files.createTempDirectory("msime-jni-");
         try {
             Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));
@@ -45,6 +50,10 @@ public final class NativeSmoke {
             var matcher = Pattern.compile("\"session\":(\\d+)").matcher(created);
             if (!matcher.find()) throw new AssertionError(created);
             long handle = Long.parseLong(matcher.group(1));
+            var generationMatcher = Pattern.compile("\"generation\":(\\d+)").matcher(created);
+            if (!generationMatcher.find()) throw new AssertionError(created);
+            success(NativeClient.applyTranslations(handle,
+                Long.parseLong(generationMatcher.group(1)), "[]"));
             success(NativeClient.focus(handle, true));
             success(NativeClient.setEnglishMode(handle, true));
             String english = NativeClient.character(handle, 'H', true);

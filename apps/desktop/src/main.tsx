@@ -60,7 +60,7 @@ const client: SettingsClient = {
     load: () => invoke("load_typing_statistics"),
     setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
     reset: () => invoke("reset_typing_statistics"),
-  }, fuzzyPinyin: true, touchKeyboardSchemes: true } : {}),
+  }, fuzzyPinyin: true, touchKeyboardSchemes: true, candidateEnglishGloss: true } : {}),
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
   keyboard: {
