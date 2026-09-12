@@ -113,6 +113,12 @@ try:
     first.set_text("")
     keys("ISO_Level3_Shift+agrave")
     wait(lambda: first.get_text() == "@", "Idle French AltGr text was intercepted")
+    first.set_text("")
+    keys("n", "i", "h", "a", "o", "dead_circumflex", "e")
+    wait(lambda: first.get_text() == "nihaoê", "French dead key discarded pending spelling")
+    first.set_text("")
+    keys("n", "i", "h", "a", "o", "Multi_key", "apostrophe", "e")
+    wait(lambda: first.get_text() == "nihaoé", "Compose sequence discarded pending spelling")
     # Compose a Unicode value on US, then select it with AZERTY Shift+row 1.
     # Its keysym is '1', unlike the US '!', so this must use the physical code.
     subprocess.run(["setxkbmap", "us"], check=True)

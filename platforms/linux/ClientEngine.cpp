@@ -2,6 +2,7 @@
 #include "ClipboardText.h"
 #include "ChineseTextConversion.h"
 #include "NavigationBindings.h"
+#include "NativeCompose.h"
 #include "WordCharacterBinding.h"
 #include "VoiceAction.h"
 #include "VoiceWorker.h"
@@ -61,6 +62,7 @@ bool script_conversion_applies(const Json &context);
 std::string traditional_display(const State &s, const Json &context,
                                 std::string text);
 struct State {
+  msime::linux_host::NativeCompose native_compose;
   MsimeVoiceWorker voice_worker;
   uint64_t session = 0;
   Json view;
@@ -2453,6 +2455,7 @@ void focus_out(IBusEngine *engine) {
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
     s.stop_clipboard_monitor();
+    s.native_compose.reset();
     s.reset_mode_modifiers();
     s.ai_context.clear();
     s.invalidate_providers();
@@ -3146,6 +3149,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).ai_context.clear();
+    state(engine).native_compose.reset();
     if (state(engine).voice_active)
       voice_cancel(engine);
     state(engine).voice_hotkey_consumed_key = 0;
@@ -3287,6 +3291,7 @@ bool unicode_plus_key(const Json &view, guint key, guint modifiers) {
 }
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
+  s.native_compose.reset();
   if (s.voice_active)
     voice_cancel(engine);
   s.invalidate_providers();
@@ -3564,6 +3569,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       toggle_input_mode(engine);
       handled = true;
       return;
+    }
+    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+      if (const auto text = s.native_compose.feed(key)) {
+        if (!s.view.value("editing_text", std::string{}).empty() ||
+            !s.view.value("candidates", Json::array()).empty())
+          apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
+        if (!text->empty()) commit_text(engine, *text);
+        handled = true;
+        return;
+      }
+    } else {
+      s.native_compose.reset();
     }
     if (!s.input_enabled)
       return;
