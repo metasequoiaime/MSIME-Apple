@@ -25,6 +25,8 @@ struct Observation {
   std::string auxiliary;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
+  std::string forbidden_gloss;
+  bool forbidden_gloss_seen = false;
   guint first_candidate_color = 0;
   bool lookup_visible = false;
   bool preedit_visible = false;
@@ -109,6 +111,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
          ++i) {
       seen.candidates.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_candidate(table, i)));
+      if (!seen.forbidden_gloss.empty() &&
+          seen.candidates.back().find(seen.forbidden_gloss) != std::string::npos)
+        seen.forbidden_gloss_seen = true;
       seen.labels.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_label(table, i)));
     }
@@ -522,6 +527,52 @@ int main(int argc, char **argv) {
       }
       require(has_remote_gloss() && seen.candidates.front() == local_hit,
               "Online misses did not merge with the displayed offline hits");
+      provider.tag_responses = true;
+      // Observe every publication, not only the final page: a stale gloss
+      // must never flash after changing target, composition or focus.
+      for (unsigned boundary : {0u, 1u, 2u}) {
+        provider.hold_responses = true;
+        const auto previous = provider.requests.load();
+        invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/fr", PROP_STATE_CHECKED));
+        invoke("Reset");
+        phrase();
+        const auto pending_deadline = g_get_monotonic_time() + 2000000;
+        while (provider.requests == previous && g_get_monotonic_time() < pending_deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        require(provider.requests == previous + 1, "Delayed translation request did not start");
+        seen.forbidden_gloss = "synthetic gloss [" + std::to_string(previous + 1) + "]";
+        seen.forbidden_gloss_seen = false;
+        if (boundary == 0) {
+          invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/de", PROP_STATE_CHECKED));
+        } else {
+          if (boundary == 2) {
+            invoke("FocusOut");
+            invoke("FocusIn");
+          } else {
+            invoke("Reset");
+          }
+          phrase();
+        }
+        provider.hold_responses = false;
+        const auto expected = "synthetic gloss [" + std::to_string(previous + 2) + "]";
+        const auto replacement_deadline = g_get_monotonic_time() + 2500000;
+        auto replacement_visible = [&] {
+          return !seen.candidates.empty() && seen.candidates.front().find(expected) != std::string::npos;
+        };
+        while (!replacement_visible() && g_get_monotonic_time() < replacement_deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        require(replacement_visible() && provider.requests == previous + 2,
+                "New translation state did not replace the delayed request");
+        require(!seen.forbidden_gloss_seen,
+                "Delayed translation was published across a state boundary");
+        require(seen.preedit == "nihao" && seen.committed.empty(),
+                "Delayed translation changed composition or committed text");
+        seen.forbidden_gloss.clear();
+      }
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
