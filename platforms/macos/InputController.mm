@@ -62,6 +62,10 @@ static NSUInteger MSIMECandidateDeletionSlot(NSEvent *event) {
     for (NSUInteger slot = 0; slot < 8; ++slot) if (event.keyCode == codes[slot]) return slot;
     return NSNotFound;
 }
+static BOOL MSIMEPunctuationToggle(NSEvent *event) {
+    const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
+    return event.keyCode == 47 && (event.modifierFlags & modifiers) == NSEventModifierFlagControl;
+}
 static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
     for (NSString *key in @[@"session", @"generation", @"index"])
@@ -673,6 +677,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
         if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        return YES;
+    }
+    if (MSIMEPunctuationToggle(event)) {
+        if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
         return YES;
     }
     if (_appearance.englishMode) return NO;

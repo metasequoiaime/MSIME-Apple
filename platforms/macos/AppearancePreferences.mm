@@ -806,6 +806,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _keymapButton = [NSButton checkboxWithTitle:@"输入时显示双拼键位提示" target:self action:@selector(keymapChanged:)];
     _wubiButton = [NSButton checkboxWithTitle:@"五笔四码唯一候选自动上屏" target:self action:@selector(wubiChanged:)];
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
+    _punctuationButton.toolTip = @"Control+. 切换中英文标点";
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
