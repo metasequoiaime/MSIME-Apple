@@ -737,9 +737,12 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     return () => media.removeListener(listener);
   }, [settingsTheme, themeMode]);
   useEffect(() => {
+    let active = true;
+    if (!snapshot?.preferences.clipboard_history) { setClipboardEntries([]); return; }
     if (!client.clipboard?.list) return;
-    void client.clipboard.list().then(setClipboardEntries).catch(() => undefined);
-  }, [client, page]);
+    void client.clipboard.list().then(entries => { if (active) setClipboardEntries(entries); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [client, page, snapshot?.revision]);
   return <div className="settings-shell" onPointerDownCapture={event => {
     pendingTitlebarDrag.current = null;
     if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -1128,9 +1131,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>
-          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries)}>从系统剪贴板同步</button>}
-          {client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
+        <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => setDraft({ ...draft, clipboard_history: event.target.checked })} /></label>
+          {client.clipboard?.sync && <button type="button" className="secondary" disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history} onClick={() => void client.clipboard!.sync!().then(setClipboardEntries).catch(() => setError("无法同步剪贴板历史"))}>从系统剪贴板同步</button>}
+          {clipboardHistory && client.clipboard?.list && <div className="clipboard-list" aria-label="剪贴板历史">{clipboardEntries.length === 0 ? <small>暂无历史记录</small> : clipboardEntries.map(entry => <div className="clipboard-row" key={entry}><span>{entry}</span>{client.clipboard?.copy && <button type="button" className="secondary" onClick={() => void client.clipboard!.copy!(entry)}>重新复制</button>}</div>)}</div>}
           {client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}
           {client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}
         </div>

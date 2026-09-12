@@ -425,6 +425,9 @@ async fn save_preferences(
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
+        if !snapshot.preferences.clipboard_history {
+            store.clear_disabled_clipboard_history().map_err(CommandError::from)?;
+        }
         sync_linux_runtime_options(&runtime, &snapshot.preferences)
             .map_err(|_| CommandError { code: "storage" })?;
         Ok(snapshot)

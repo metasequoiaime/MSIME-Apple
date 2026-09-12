@@ -355,7 +355,7 @@ struct State {
       show_helpcode_in_candidate_window = true;
     }
     configure_clipboard(configured_clipboard_path(options),
-                        preferences.value("clipboard_history", true));
+                        preferences.value("clipboard_history", false));
     online_provider_socket = provider_socket_fallback(
         options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     translation_provider_socket =
@@ -447,7 +447,7 @@ struct State {
   }
   void refresh_host_preferences(const Json &preferences) {
     configure_clipboard(configured_clipboard_path(configured),
-                        preferences.value("clipboard_history", true));
+                        preferences.value("clipboard_history", false));
     mode_scope_global = preferences.value("ime_mode_scope", "app") == "global";
     if (mode_scope_global) {
       if (!global_input_enabled)

@@ -255,7 +255,7 @@ pub struct Preferences {
     pub mixed_input: MixedInputPreferences,
     #[serde(default)]
     pub local_modes: LocalModePreferences,
-    #[serde(default = "enabled_by_default")]
+    #[serde(default)]
     pub clipboard_history: bool,
     /// Fetch one additional candidate from the configured cloud provider.
     #[serde(default = "enabled_by_default")]
@@ -795,7 +795,7 @@ impl Default for Preferences {
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
-            clipboard_history: true,
+            clipboard_history: false,
             cloud_candidates: true,
             candidate_translations: true,
             candidate_english_gloss: false,
@@ -1197,6 +1197,19 @@ impl PreferencesStore {
             self.directory.join("clipboard_history.json"),
         );
         Ok(history.push(text)?)
+    }
+
+    /// Clear only while history is still disabled, using the same lock order
+    /// as capture so another settings writer cannot re-enable between checks.
+    pub fn clear_disabled_clipboard_history(&self) -> Result<(), PreferencesError> {
+        let _lock = self.lock()?;
+        if !self.read_locked()?.preferences.clipboard_history {
+            let mut history = crate::clipboard::ClipboardHistoryStore::open(
+                self.directory.join("clipboard_history.json"),
+            );
+            history.clear()?;
+        }
+        Ok(())
     }
 
     /// Compare-and-swap prevents stale settings windows or IME hosts losing updates.
