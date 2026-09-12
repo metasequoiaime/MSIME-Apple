@@ -188,6 +188,8 @@ int main(int argc, char **argv) {
     options["voice_provider_socket"] = voice_socket;
     options["preferences"]["learning"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
+    options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
+    options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
@@ -345,6 +347,57 @@ int main(int argc, char **argv) {
     require(fresh_committed,
             "Fresh voice result did not commit after mode cancellation");
     seen.committed.clear();
+    for (guint released_modifiers : {guint(0), guint(IBUS_MOD1_MASK)}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Right Alt did not start hold recording");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Hold recording did not reach the provider");
+      require(key(IBUS_Alt_R, IBUS_RELEASE_MASK | released_modifiers),
+              "Hold recording release was not consumed");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Hold recording release did not stop capture");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Stopping hold recording discarded final recognition");
+      seen.committed.clear();
+    }
+    for (auto chord : {std::pair<guint, guint>{IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK},
+                       {IBUS_Super_L, IBUS_CONTROL_MASK | IBUS_MOD4_MASK},
+                       {IBUS_Super_R, IBUS_CONTROL_MASK | IBUS_MOD4_MASK}}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      require(key(chord.first, chord.second), "Modifier voice chord was filtered out");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Modifier voice chord did not reach provider");
+      require(key(chord.first, IBUS_RELEASE_MASK), "Modifier voice chord release was not consumed");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Modifier voice chord release did not stop capture");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Modifier voice chord lost final recognition");
+      seen.committed.clear();
+    }
+    const auto locked_starts = voice_provider.started.load();
+    const auto locked_stops = voice_provider.stop_requests.load();
+    require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Locked recording did not start");
+    require(wait_voice([&] { return voice_provider.started.load() == locked_starts + 1; }),
+            "Locked recording did not reach provider");
+    require(key(IBUS_space, IBUS_MOD1_MASK) &&
+                key(IBUS_space, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+            "Space did not lock recording while Alt was held");
+    require(key(IBUS_Alt_R, IBUS_RELEASE_MASK), "Locked Alt release was not consumed");
+    require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop locked recording");
+    require(wait_voice([&] { return voice_provider.stop_requests.load() == locked_stops + 1; }),
+            "Locked recording stopped on release or did not stop on Ctrl+F9");
+    key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+            "Locked recording lost final recognition");
+    require(voice_provider.stop_requests.load() == locked_stops + 1,
+            "Locked recording sent duplicate stop requests");
+    seen.committed.clear();
+
 
 
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {

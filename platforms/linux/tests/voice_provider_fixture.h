@@ -14,7 +14,7 @@
 // Synthetic local provider: deliberately returns a final result after cancel.
 class VoiceProviderFixture {
 public:
-  std::atomic<unsigned> started{0}, cancelled{0}, finished{0};
+  std::atomic<unsigned> started{0}, cancelled{0}, finished{0}, stop_requests{0};
   std::atomic<bool> release_final{false};
   explicit VoiceProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
@@ -72,6 +72,9 @@ private:
         if (value.is_object() && value.value("kind", "") == "voice_cancel" &&
             value.at("query").value("generation", uint64_t{0}) == generation)
           ++cancelled;
+        if (value.is_object() && value.value("kind", "") == "voice_stop" &&
+            value.at("query").value("generation", uint64_t{0}) == generation)
+          ++stop_requests;
         close(client);
       }
     }

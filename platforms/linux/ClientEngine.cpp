@@ -3216,7 +3216,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (s.voice_hotkey_consumed_key == key) {
       s.voice_hotkey_consumed_key = 0;
       if (s.voice_active && !s.voice_space_locked &&
-          voice_hold_hotkey(s, key, chord_modifiers))
+          key != IBUS_F9)
         guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
       return TRUE;
     }
@@ -3286,7 +3286,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // recognition is active. With the option disabled, Space follows the
   // regular editor/Engine path.
   if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
-      modifiers == 0) {
+      (modifiers == 0 || voice_hold_hotkey(s, s.voice_hotkey_consumed_key, modifiers))) {
     s.voice_space_consumed = true;
     s.voice_space_locked = true;
     return TRUE;
@@ -3341,7 +3341,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
-  if (modifier(key))
+  if (modifier(key) &&
+      !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
     return FALSE;
   if (key == IBUS_BackSpace) {
     if (s.last_smart_punctuation != 0) {
