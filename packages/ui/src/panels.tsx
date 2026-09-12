@@ -1168,6 +1168,8 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
 
 export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { client: EmojiPanelClient; theme?: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [page, setPage] = useState<EmojiPage>(initialPage);
+  const [itemPage, setItemPage] = useState(0);
+  const itemsPerPage = 48;
   const [query, setQuery] = useState("");
   const [categories, setCategories] = useState({ emoji: "all", symbols: "all" });
   const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
@@ -1372,6 +1374,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   function selectCategory(next: string) {
     if (!categoryPage) return;
     setCategories(current => ({ ...current, [categoryPage]: next }));
+    setItemPage(0);
   }
 
   const visibleClipboard = clipboard.filter(item => item.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
@@ -1459,11 +1462,13 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
 
   function selectPage(next: EmojiPage) {
     setPage(next);
+    setItemPage(0);
     setNotice(next === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用");
   }
 
   const isDetail = page !== "home";
-  const displayGroups = page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups;
+  const displayGroups = (page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups).map(group => ({ ...group, items: group.items.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage) })).filter(group => group.items.length);
+  const itemPageCount = Math.max(1, Math.ceil((page === "home" ? homeGroups : filteredGroups).reduce((count, group) => count + group.items.length, 0) / itemsPerPage));
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
@@ -1525,6 +1530,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       {(page === "home" || (page === "emoji" && activeCategory === "recent")) && recent.length > 0 && <div className="emoji-panel-toolbar"><span>最近使用</span><button type="button" onClick={clearRecent} disabled={clipboardBusy}>清除最近使用</button></div>}
       {displayGroups.map(group => <div className="emoji-panel-group" key={JSON.stringify([group.parent, group.title])}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{group.moreTarget && <button type="button" onClick={() => { setCategories(current => ({ ...current, emoji: "all", symbols: "all" })); selectPage(group.moreTarget!); }}>更多</button>}</div><div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>{group.items.map((item, index) => <button type="button" className="emoji-panel-item" data-emoji-navigation-item disabled={clipboardBusy} key={`${index}-${item.text}`} title={item.keywords} onClick={() => void copy(item.text, false, item.keywords)}>{item.text}</button>)}</div></div>)}
       {!displayGroups.length && <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>}
+      {itemPageCount > 1 && <div className="emoji-panel-toolbar" role="navigation" aria-label="Emoji 分页"><button type="button" disabled={itemPage === 0} onClick={() => setItemPage(value => Math.max(0, value - 1))}>上一页</button><span>第 {itemPage + 1} / {itemPageCount} 页</span><button type="button" disabled={itemPage + 1 >= itemPageCount} onClick={() => setItemPage(value => Math.min(itemPageCount - 1, value + 1))}>下一页</button></div>}
     </section>}
     <p className="emoji-panel-notice" role="status">{notice || (page === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用")}</p>
   </main>;
