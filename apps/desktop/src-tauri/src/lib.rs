@@ -1211,6 +1211,21 @@ fn release_panel_focus(
 }
 
 #[cfg(target_os = "linux")]
+fn send_x11_panel_key(window: &str, key: &str) -> Result<(), HostActionError> {
+    // Explicit --window key delivery uses XSendEvent, which many applications
+    // reject. Activate first, then use XTEST through the empty window stack.
+    // Bound activation as a window manager may decline to focus the target.
+    linux_process::read_text(
+        "xdotool",
+        &["windowactivate", "--sync", window, "key", key],
+        64,
+        std::time::Duration::from_secs(3),
+    )
+    .map(|_| ())
+    .ok_or(HostActionError { code: "unavailable" })
+}
+
+#[cfg(target_os = "linux")]
 fn send_panel_key(
     app: &tauri::AppHandle,
     target: PanelInputTarget,
@@ -1223,15 +1238,7 @@ fn send_panel_key(
         let key = xdotool_key_args(&request).ok_or(HostActionError {
             code: "invalid_key",
         })?;
-        let status = std::process::Command::new("xdotool")
-            .args(["key", "--window", window.as_str(), key.as_str()])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        return send_x11_panel_key(window, &key);
     }
     if let PanelInputTarget::Ydotool = target {
         let code = ydotool_key_code(request.virtual_key).ok_or(HostActionError {
@@ -1374,15 +1381,7 @@ fn send_panel_ctrl_v(
 ) -> Result<(), HostActionError> {
     release_panel_focus(app, target)?;
     if let PanelInputTarget::X11(window) = target {
-        let status = std::process::Command::new("xdotool")
-            .args(["key", "--window", window.as_str(), "ctrl+v"])
-            .status()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return status.success().then_some(()).ok_or(HostActionError {
-            code: "unavailable",
-        });
+        return send_x11_panel_key(window, "ctrl+v");
     }
     if let PanelInputTarget::Ydotool = target {
         return run_ydotool(&[
