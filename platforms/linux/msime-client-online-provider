@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""User-session online candidate transport. Never logs requests or HTTP errors."""
+import argparse
+import concurrent.futures
+import json
+import os
+from pathlib import Path
+import signal
+import socket
+import socketserver
+import stat
+import struct
+import threading
+import urllib.parse
+import urllib.request
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch(url, timeout, body=None, token=None):
+    headers = {"Content-Type": "application/json", "User-Agent": "MSIME-Client"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, data=None if body is None else
+                                     json.dumps(body).encode(), headers=headers)
+    with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
+        payload = response.read(65537)
+    if len(payload) > 65536:
+        raise ValueError("response too large")
+    return json.loads(payload)
+
+
+def candidate(text, source):
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if not text or len(text.encode()) > 4096 or any(ord(c) < 32 for c in text):
+        return None
+    return {"text": text, "source": source}
+
+
+def cloud(query):
+    if not query.get("cloud_candidates", True) or not query.get("cloud_eligible"):
+        return None
+    text = query.get("query_text")
+    if not isinstance(text, str) or not text or len(text.encode()) > 4096:
+        return None
+    params = urllib.parse.urlencode({"text": text, "itc": "ja-t-i0-und" if
+        query.get("scheme") == 3 else "zh-t-i0-pinyin", "num": 1, "ie": "utf-8", "oe": "utf-8"})
+    result = fetch("https://inputtools.google.com/request?" + params, 0.35)
+    if result[0] == "SUCCESS":
+        return candidate(result[1][0][1][0], 0)
+    return None
+
+
+def ai(query, config):
+    options = query.get("ai_assistant")
+    if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
+        return None
+    # Bind each credential to its configured endpoint; never send it to a URL
+    # supplied by a socket request or an HTTP redirect.
+    if not config or any(options.get(key) != config.get(key) for key in ("provider", "endpoint", "model")):
+        return None
+    segments = query.get("pinyin_segments")
+    context = query.get("ai_context", "")
+    limit = options.get("candidate_limit", 3)
+    if (not isinstance(segments, list) or not 1 <= len(segments) <= 128 or
+        any(not isinstance(s, str) or not s or len(s.encode()) > 32 for s in segments) or
+        not isinstance(context, str) or len(context.encode()) > 1024 or
+        type(limit) is not int or not 1 <= limit <= 10):
+        return None
+    prompt = options.get("prompt", "")
+    if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
+        return None
+    body = {"model": config["model"], "stream": False, "temperature": 0.2,
+            "max_tokens": 512, "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": prompt},
+                         {"role": "user", "content": json.dumps({
+                             "segmented_pinyin": segments, "context": context,
+                             "candidate_limit": limit}, ensure_ascii=False)}]}
+    if config["provider"] == "deepseek":
+        body["thinking"] = {"type": "disabled"}
+    result = fetch(config["endpoint"], 7.0, body, config["token"])
+    parsed = json.loads(result["choices"][0]["message"]["content"])
+    return candidate(parsed["candidates"][0]["text"], 1)
+
+
+def safely(call, *args):
+    try:
+        return call(*args)
+    except Exception:
+        return None
+
+
+class Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.request.settimeout(8)
+        _, uid, _ = struct.unpack("3i", self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if uid != os.getuid():
+            return
+        line = self.rfile.readline(16385)
+        if len(line) > 16384 or not line.endswith(b"\n"):
+            return
+        try:
+            request = json.loads(line)
+            query = request["query"]
+            if request.get("version") != 1 or request.get("kind") != "online" or not isinstance(query, dict):
+                return
+            # Fetch independently so a failed AI response still preserves cloud.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                jobs = [pool.submit(safely, cloud, query),
+                        pool.submit(safely, ai, query, self.server.ai_config)]
+                rows = [result for job in jobs if (result := job.result()) is not None]
+            self.wfile.write(json.dumps({"candidates": rows}, ensure_ascii=False).encode() + b"\n")
+        except Exception:
+            pass
+
+
+class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+    slots = threading.BoundedSemaphore(4)
+
+    def process_request(self, request, address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            super().process_request_thread(request, address)
+        finally:
+            self.slots.release()
+
+    def handle_error(self, request, address):
+        pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("socket", type=Path, help="absolute socket path in a private runtime directory")
+    parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider, endpoint, model, token")
+    args = parser.parse_args()
+    config = {}
+    if args.ai_config:
+        info = args.ai_config.stat()
+        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+            parser.error("AI configuration must be an owner-only regular file")
+        if info.st_size > 16384:
+            parser.error("AI configuration is too large")
+        try:
+            config = json.loads(args.ai_config.read_text())
+            if any(not isinstance(config.get(k), str) or not config[k] for k in ("provider", "endpoint", "model", "token")):
+                raise ValueError()
+            url = urllib.parse.urlsplit(config["endpoint"])
+            if url.scheme != "https" or not url.hostname or url.username or url.password:
+                raise ValueError()
+        except Exception:
+            parser.error("invalid AI configuration")
+    parent = args.socket.parent.stat()
+    if not args.socket.is_absolute() or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
+        parser.error("socket requires an absolute path in an owner-only directory")
+    os.umask(0o077)
+    # Bind fails on an existing socket: never unlink another running service.
+    server = Server(str(args.socket), Handler)
+    server.ai_config = config
+    identity = args.socket.stat()
+    def stop(signum, frame):
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        try:
+            current = args.socket.stat()
+            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                args.socket.unlink()
+        except FileNotFoundError:
+            pass
+
+
+if __name__ == "__main__":
+    main()

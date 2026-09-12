@@ -179,3 +179,17 @@ IBus 的语音识别、剪贴板历史选取、空闲全角输入和直接标点
 在线 provider 支持批量响应 `{"candidates":[{"text":"云候选","source":0},{"text":"AI候选","source":1}]}`，也兼容原来的单项 `{"text":"候选","source":0}`。每次最多两个候选，每个来源各一个，对应 Engine 当前的云/AI 槽位；Linux 依次用原查询身份回填后统一刷新显示。传输层限制整行 16 KiB、单项 4096 字节，并过滤已禁用或不符合查询条件的来源。Windows `ai_assistant.cpp` 同样只回填模型结果中的第一条，`candidate_limit` 用于模型请求。
 
 启用且符合查询条件的 AI 请求允许 provider 在 8 秒内返回完整结果，与 Windows AI 网络请求的等待时间一致；仅云候选请求保留 500ms 等待。计时覆盖整行响应，分段发送不会续期，16 KiB 上限继续生效；请求写入也设置 500ms 超时，所有等待仍在后台线程。
+
+## 随包在线候选服务
+
+安装包含 Python 3.9+ 标准库实现的 `msime-client-online-provider`，为 IBus 提供 Google 云候选和 OpenAI 兼容 AI 联想。使用当前用户的私有运行目录启动：
+
+```sh
+mkdir -p "$XDG_RUNTIME_DIR/msime-client"
+chmod 700 "$XDG_RUNTIME_DIR/msime-client"
+msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
+```
+
+将该 socket 的绝对路径填入 runtime-options 的 `online_provider_socket`。仅提供云候选时无需凭据；AI 服务可增加 `--ai-config /absolute/private-ai.json`，文件仅允许所有者读写，包含 `provider`、`endpoint`、`model`、`token` 四个字符串字段。前三项须与共享 AI 设置一致，endpoint 使用 HTTPS，token 只留在服务配置中，不进入 IBus 查询。修改服务凭据后重新启动服务；不会自动启用系统服务或 CI。
+
+服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，并只取首条模型候选。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口实现在线候选；独立翻译、语音及账户同步服务仍按各自契约接入。
