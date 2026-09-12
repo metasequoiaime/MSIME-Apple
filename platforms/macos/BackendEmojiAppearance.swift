@@ -8,6 +8,9 @@ struct MacEmojiPalette {
   let selected: UInt32
   let pressed: UInt32
   let accent: UInt32
+  let searchBackground: UInt32
+  let searchBorder: UInt32
+  let searchFocusOpacity: Double
 
   init(light: Bool) {
     background = light ? 0xF7F7FA : 0x202027
@@ -16,6 +19,9 @@ struct MacEmojiPalette {
     selected = light ? 0xE0D7E5 : 0x3B3B44
     pressed = light ? 0xD3C7D9 : 0x555560
     accent = light ? 0x9A62AD : 0xD88BDE
+    searchBackground = light ? 0xFFFFFF : 0x2B2B33
+    searchBorder = light ? 0xD0D0D8 : 0x3A3A44
+    searchFocusOpacity = light ? 0.75 : 0.70
   }
 
   func cellFill(hovered: Bool, isPressed: Bool) -> UInt32? {

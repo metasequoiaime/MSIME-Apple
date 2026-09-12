@@ -37,7 +37,9 @@ struct MacEmojiView: View {
         }
       }.disabled(groupsCategory != category || groups.isEmpty)
       if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
-      TextField("搜索表情或关键词", text: $search)
+      MacEmojiSearchField(text: $search,
+        placeholder: category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
+        palette: palette)
       Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
       HStack {
         Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
