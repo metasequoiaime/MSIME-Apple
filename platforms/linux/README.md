@@ -60,6 +60,8 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCandidates` 三个混输开关。切换属性会结束当前组合并重建本会话的 Engine，避免把新旧混输候选规则混在同一代视图中；覆盖只作用于当前 IBus 会话，不改写共享偏好文件。Windows 的设置窗口仍负责持久化配置，Linux 桌面 panel 只负责会话级快速切换。
 
+IBus 属性面板的“本地模式”菜单提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文和临时日文八个会话级开关。切换时先完成当前组合，再按覆盖后的 `preferences.local_modes` 重建 Engine；覆盖只作用于当前 IBus 会话，焦点切换和进程重启仍回到共享偏好值。
+
 IBus 属性面板另提供 `EnglishMode` 独立英文输入模式。Ctrl+Shift+E 或属性开关调用 Engine 的 dedicated English 模式，保留中文输入法会话和 IBus 输入源边界；它与 `EnglishCandidates` 混输候选开关相互独立。状态按当前 IBus 会话保留，切换时由 Engine 清理正在进行的组合。
 
 Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主只在当前输入上下文获得焦点且不是密码等受限字段时消费该组合，并通过现有桌面面板启动器打开键盘；Super 组合是否能到达 IBus 仍由桌面环境的全局快捷键策略决定。
