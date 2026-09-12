@@ -764,6 +764,7 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Handwriting", "handwriting", "手写识别板"},
     {"DesktopTools/Keyboard", "keyboard", "屏幕键盘"},
     {"DesktopTools/Emoji", "emoji", "表情与符号"},
+    {"DesktopTools/Clipboard", "clipboard", "本地剪贴板"},
     {"DesktopTools/Voice", "voice", "语音面板"},
     {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典"},
     {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板"},

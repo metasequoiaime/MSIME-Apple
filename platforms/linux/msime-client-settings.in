@@ -2,12 +2,12 @@
 set -eu
 
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: msime-client-settings [--panel settings|about|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
+  echo "Usage: msime-client-settings [--panel settings|about|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
   exit 0
 fi
 if [ "${1:-}" = "--panel" ]; then
   case "${2:-}" in
-    settings|about|handwriting|keyboard|emoji|voice|cloud-dictionary|cloud-clipboard)
+    settings|about|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard)
       MSIME_CLIENT_PANEL=$2
       export MSIME_CLIENT_PANEL
       shift 2

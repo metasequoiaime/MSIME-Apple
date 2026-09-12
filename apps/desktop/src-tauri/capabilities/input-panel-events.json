@@ -1,6 +1,6 @@
 {
   "identifier": "input-panel-events",
   "description": "Receive preference changes and voice recognition updates in input panels",
-  "windows": ["handwriting-panel", "voice-panel", "emoji-panel"],
+  "windows": ["handwriting-panel", "voice-panel", "emoji-panel", "clipboard-panel"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

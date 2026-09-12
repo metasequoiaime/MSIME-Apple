@@ -175,7 +175,7 @@ function DesktopSettings() {
   return settingsClient ? <SettingsPage client={settingsClient} initialPage={initialPage} />
     : <p role="status">正在连接设置…</p>;
 }
-function DesktopEmojiPanel({ theme }: { theme: "dark" | "light" }) {
+function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
   useEffect(() => {
     let active = true;
@@ -194,7 +194,7 @@ function DesktopEmojiPanel({ theme }: { theme: "dark" | "light" }) {
     });
     return () => { active = false; };
   }, []);
-  return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} />
+  return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
     : <p role="status">正在连接面板…</p>;
 }
 
@@ -203,6 +203,7 @@ const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.key
   : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
   : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
+  : panel === "clipboard" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} initialPage="clipboard" />}</DesktopPanelTheme>
   : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} />}</DesktopPanelTheme>
   : <DesktopSettings />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);

@@ -1177,6 +1177,7 @@ fn release_panel_focus(
     let windows: Vec<_> = [
         "handwriting-panel",
         "emoji-panel",
+        "clipboard-panel",
         "voice-panel",
         "cloud-clipboard-panel",
         "cloud-dictionary-panel",
@@ -3010,6 +3011,13 @@ pub fn run() {
                         "水杉屏幕键盘",
                         1100.0,
                         400.0,
+                    )),
+                    "clipboard" => Some((
+                        "clipboard-panel",
+                        "clipboard",
+                        "水杉本地剪贴板",
+                        560.0,
+                        620.0,
                     )),
                     "handwriting" => Some((
                         "handwriting-panel",

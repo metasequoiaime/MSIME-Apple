@@ -458,3 +458,5 @@ Sway 面板输入在发送前解析窗口切换命令的成功回复，并读取
 前台目标获取对每个外部命令设置 1 秒期限，并限制窗口树和工具输出大小。wtype 通过空标准输入探测虚拟键盘连接，不发送文字或按键，不使用上游不支持的 `--version`；文本发送省略延时参数，使用默认零延时，避免显式 `-d 0` 被拒绝。依据 [wtype 官方参数解析](https://raw.githubusercontent.com/atx/wtype/master/main.c)。
 
 IBus「桌面工具」提供「关于」入口，与 Windows 托盘菜单对应，直接打开共享设置的关于页。桌面启动器也提供「关于水杉输入法」快捷操作；命令行可用 `msime-client-settings --panel about`，或设置 `MSIME_CLIENT_PANEL=about`。自定义 `MSIME_CLIENT_SETTINGS_COMMAND` 同样收到标准 settings 面板和 about 页环境变量。
+
+IBus 桌面工具和桌面启动器提供「本地剪贴板」入口，`msime-client-settings --panel clipboard` 可直接进入现有剪贴板历史页，使用同一份历史及搜索、复制、粘贴、删除功能。未开启历史时保留主动开启界面，不自动开启采集。该面板与其他可编辑面板一样，在通用 Wayland 粘贴前释放焦点。

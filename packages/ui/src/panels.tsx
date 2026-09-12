@@ -1079,8 +1079,8 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
   return groups.flatMap(group => group.items);
 }
 
-export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClient; theme?: "dark" | "light" }) {
-  const [page, setPage] = useState<EmojiPage>("home");
+export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { client: EmojiPanelClient; theme?: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
+  const [page, setPage] = useState<EmojiPage>(initialPage);
   const [query, setQuery] = useState("");
   const [categories, setCategories] = useState({ emoji: "all", symbols: "all" });
   const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
