@@ -117,7 +117,8 @@ function isImeCommitKey(virtualKey: number) {
 }
 
 export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
-  const rows = layout === "nine_key" ? nineKeyRows : keyboardRows;
+  const [activeLayout, setActiveLayout] = useState(layout);
+  const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
     const reset = () => { pendingDrag.current = null; };
@@ -174,7 +175,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
       onPointerUp={() => { pendingDrag.current = null; }}
       onPointerCancel={() => { pendingDrag.current = null; }}
       onPointerLeave={() => { pendingDrag.current = null; }}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={() => setActiveLayout(value => value === "nine_key" ? "twenty_six_key" : "nine_key")}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
         {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
