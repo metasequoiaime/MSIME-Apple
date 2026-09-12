@@ -1190,6 +1190,35 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
     })
 }
 
+/// Build a pure AI HTTP descriptor containing credentials. Never log it.
+/// # Safety
+/// `request` references `length` readable JSON bytes. No buffers are retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ai_http_request(request: *const u8, length: usize) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 { return Err("invalid AI request buffer".into()); }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request { config: msime_client_core::preferences::AiAssistantPreferences, input: msime_client_core::ai::AiSuggestionRequest }
+        let request: Request = serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(|_| "invalid AI request document")?;
+        msime_client_core::ai::chat_completion_http_request(&request.config, &request.input)
+            .map(|value| value.unwrap_or(Value::Null)).map_err(|e| e.to_string())
+    })
+}
+/// Parse a successful AI HTTP response into a bounded string array, or null.
+/// # Safety
+/// `body` references `length` readable bytes. No buffers are retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_parse_ai_response(body: *const u8, length: usize, limit: u8) -> *mut c_char {
+    response(|| {
+        if body.is_null() || length > 1048576 || !(1..=10).contains(&limit) { return Err("invalid AI response buffer".into()); }
+        Ok(msime_client_core::ai::parse_chat_completion_response(unsafe { std::slice::from_raw_parts(body, length) }, limit)
+            .map(|response| json!(response.candidates.into_iter().map(|candidate| candidate.text).collect::<Vec<_>>()))
+            .unwrap_or(Value::Null))
+    })
+}
+
 /// Read/write private learned glosses on a host-owned IO worker. Never log inputs.
 /// # Safety
 /// `request` must reference `length` readable bytes for this call.
@@ -4305,6 +4334,10 @@ mod tests {
     }
     #[test]
     fn learned_translation_buffers_are_bounded() {
+        assert_eq!(read(unsafe { msime_client_ai_http_request(std::ptr::null(), 0) })["ok"], false);
+        assert_eq!(read(unsafe { msime_client_ai_http_request(b"x".as_ptr(), 65537) })["ok"], false);
+        assert_eq!(read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1048577, 1) })["ok"], false);
+        assert_eq!(read(unsafe { msime_client_parse_ai_response(b"x".as_ptr(), 1, 11) })["ok"], false);
         for (pointer, length) in [(std::ptr::null(), 0), (b"x".as_ptr(), 65537)] {
             assert_eq!(
                 read(unsafe { msime_client_learned_translation_request(pointer, length) })["ok"],

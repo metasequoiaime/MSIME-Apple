@@ -142,6 +142,11 @@ char *msime_client_custom_translation_plan(const uint8_t *request, size_t length
  * secret_key,region},texts:[string],source_language,target_language,timestamp}.
  * Send body_utf8 bytes unchanged. Never log this credential-bearing descriptor. */
 char *msime_client_tencent_translation_http_request(const uint8_t *request, size_t length);
+// Pure AI descriptor from {config:AI preferences,input:{segmented_pinyin,context,candidate_limit}}.
+// Input <=64KiB. Result contains credentials; never log it. Host must forbid redirects.
+char *msime_client_ai_http_request(const uint8_t *request, size_t length);
+// Successful HTTP body <=1MiB, limit 1..10. Returns a string array or null.
+char *msime_client_parse_ai_response(const uint8_t *body, size_t length, uint8_t limit);
 // Worker-thread disk I/O. JSON <=64KiB: {directory:absolute private user path,
 // action:lookup|remember,target_language,generation,items:[{text,direction,translation?}]}.
 // At most 9 items, directions english_to_chinese/chinese_to_english. Remember

@@ -1767,6 +1767,18 @@ static void TestCloudCandidateScheduling() {
 }
 
 static void TestAiCandidateEngineDelivery() {
+    NSError *bridgeError = nil;
+    NSDictionary *descriptor = [MSIMEClientSession aiHTTPRequest:@{
+        @"config":@{@"enabled":@YES, @"provider":@"deepseek", @"endpoint":@"https://synthetic.invalid/chat", @"model":@"synthetic",
+            @"token":@"synthetic-secret", @"candidate_limit":@3, @"prompt_id":@"custom_2", @"prompt_custom_2":@"synthetic prompt"},
+        @"input":@{@"segmented_pinyin":@[@"ni", @"hao"], @"context":@"", @"candidate_limit":@3}} error:&bridgeError];
+    assert(descriptor && !bridgeError && [descriptor[@"timeout_ms"] isEqual:@8000]);
+    assert([descriptor[@"headers"][@"Authorization"] isEqual:@"Bearer synthetic-secret"]);
+    assert([descriptor[@"body"][@"thinking"][@"type"] isEqual:@"disabled"]);
+    NSData *response = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":
+        @"{\"candidates\":[{\"text\":\"合成候选甲\"},{\"text\":\"合成候选乙\"}]}"}}]} options:0 error:nil];
+    NSArray *parsed = [MSIMEClientSession parseAIResponse:response limit:3 error:&bridgeError];
+    assert(!bridgeError && parsed.count == 2);
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
         @"candidate_page_size":@5, @"chinese_punctuation":@YES,
@@ -1783,7 +1795,7 @@ static void TestAiCandidateEngineDelivery() {
     for (char byte : std::string("nihaoshijie")) [session typeASCII:byte shift:NO error:&error];
     NSDictionary *query = [session onlineQueryWithError:&error];
     assert(!error && [query[@"ai_eligible"] boolValue]);
-    NSDictionary *applied = [session applyOnlineCandidates:@[@"合成候选甲", @"合成候选乙"] source:1 query:query error:&error];
+    NSDictionary *applied = [session applyOnlineCandidates:parsed source:1 query:query error:&error];
     assert(!error && [applied[@"applied"] boolValue]);
     NSArray *candidates = applied[@"view"][@"candidates"];
     assert(candidates.count >= 2 && [candidates[0][@"text"] isEqual:@"合成候选甲"] && [candidates[1][@"text"] isEqual:@"合成候选乙"]);
