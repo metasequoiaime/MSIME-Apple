@@ -17,9 +17,24 @@ def main() -> None:
     english = output.with_name("english.db")
     english.unlink(missing_ok=True)
     with sqlite3.connect(english) as database:
-        database.execute("CREATE TABLE english_words(word TEXT, display TEXT, weight INTEGER)")
-        database.execute("INSERT INTO english_words VALUES(?, ?, ?)", ("hello", "hello", 100))
+        database.execute(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL, display TEXT NOT NULL, "
+            "weight INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(word, display)) WITHOUT ROWID"
+        )
+        database.execute(
+            "CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY, "
+            "chinese_gloss TEXT NOT NULL) WITHOUT ROWID"
+        )
+        database.execute(
+            "CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY, "
+            "english_gloss TEXT NOT NULL) WITHOUT ROWID"
+        )
+        database.execute("INSERT INTO english_words VALUES(?, ?, ?)", ("hello", "hello", 1))
+        database.execute("INSERT INTO en_zh_glosses VALUES(?, ?)", ("hello", "你好"))
+        database.execute("INSERT INTO zh_en_glosses VALUES(?, ?)", ("你好", "hello"))
+        database.execute("INSERT INTO zh_en_glosses VALUES(?, ?)", ("水杉", "metasequoia"))
     print(output)
+    print(english)
 
 
 if __name__ == "__main__":

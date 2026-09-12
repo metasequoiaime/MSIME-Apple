@@ -128,7 +128,8 @@ void DrawDecoration(NSRect rect, const metasequoia::mac::ResolvedSkin &skin)
 }
 
 void DrawPreviewCandidates(NSRect rect, const metasequoia::mac::ResolvedSkin &skin, BOOL vertical,
-                           NSArray<NSString *> *words, CGFloat fontSize, NSString *footer, BOOL elevated = NO)
+                           NSArray<NSString *> *words, NSArray<NSString *> *glosses, CGFloat fontSize, NSString *footer,
+                           BOOL elevated = NO)
 {
     const metasequoia::mac::SkinTokens &tokens = skin.tokens;
     const CGFloat decorationTop = MAX(0.0, skin.decorationTopDip);
@@ -222,6 +223,15 @@ void DrawPreviewCandidates(NSRect rect, const metasequoia::mac::ResolvedSkin &sk
         const CGFloat textX = NSMinX(row) + textInset;
         DrawAlignedString(number, row, textX, numberAttributes);
         DrawAlignedString(word, row, textX + numberWidth + 6.0, wordAttributes);
+        if (vertical && index < static_cast<NSInteger>(glosses.count) && [glosses[index] length] > 0)
+        {
+            NSDictionary *glossAttributes = @{
+                NSFontAttributeName : [NSFont systemFontOfSize:MAX(11.0, fontSize - 3.0)],
+                NSForegroundColorAttributeName : MetasequoiaColorFromRgba(tokens.text),
+            };
+            NSSize glossSize = [glosses[index] sizeWithAttributes:glossAttributes];
+            DrawAlignedString(glosses[index], row, NSMaxX(row) - glossSize.width - 8.0, glossAttributes);
+        }
         if (!vertical)
         {
             x += itemWidth;
@@ -276,6 +286,7 @@ NSArray<NSString *> *PreviewSamples()
     NSString *_previewSkinId;
     NSNumber *_forcedDark;
     BOOL _showsLayoutShowcase;
+    BOOL _translationsEnabled;
     NSLayoutConstraint *_heightConstraint;
 }
 
@@ -385,11 +396,28 @@ NSArray<NSString *> *PreviewSamples()
     _panelStyle = panelStyle;
     _pageSize = pageSize;
     _candidateFontSize = fontSize;
-    NSString *layout = panelStyle == 1 ? @"纵向列表" : @"横向排列";
-    self.accessibilityValue = [NSString
-        stringWithFormat:@"%@，%ld 个候选，%ld pt", layout, static_cast<long>(pageSize), static_cast<long>(fontSize)];
-    self.accessibilityHelp = @"预览会随候选排列、每页候选和候选字号实时变化";
+    [self refreshPreviewAccessibility];
     [self reloadPreview];
+}
+
+- (void)setTranslationsEnabled:(BOOL)enabled
+{
+    if (_translationsEnabled == enabled)
+        return;
+    _translationsEnabled = enabled;
+    [self refreshPreviewAccessibility];
+    [self reloadPreview];
+}
+
+- (void)refreshPreviewAccessibility
+{
+    NSString *layout = _panelStyle == 1 ? @"纵向列表" : @"横向排列";
+    NSString *summary = [NSString stringWithFormat:@"%@，%ld 个候选，%ld pt", layout, static_cast<long>(_pageSize),
+                                                   static_cast<long>(_candidateFontSize)];
+    if (_panelStyle == 1 && _translationsEnabled)
+        summary = [summary stringByAppendingString:@"，英文释义"];
+    self.accessibilityValue = summary;
+    self.accessibilityHelp = @"预览会随候选排列、每页候选、候选字号和英文释义实时变化";
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -420,12 +448,12 @@ NSArray<NSString *> *PreviewSamples()
         [@"横排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.horizontalHeight), skin, NO,
-                              horizontal, metrics.fontSize, nil);
+                              horizontal, nil, metrics.fontSize, nil);
         y += metrics.horizontalHeight + metrics.sectionGap;
         [@"竖排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.verticalHeight), skin, YES,
-                              vertical, metrics.fontSize, nil);
+                              vertical, nil, metrics.fontSize, nil);
         y += metrics.verticalHeight + metrics.sectionGap;
         [@"悬浮状态栏" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
@@ -456,8 +484,11 @@ NSArray<NSString *> *PreviewSamples()
               withAttributes:captionAttributes];
     y = MAX(y + metrics.captionHeight + metrics.captionGap, (NSHeight(self.bounds) - metrics.panelHeight) / 2.0 + 15.0);
     const CGFloat panelWidth = MIN(NSWidth(self.bounds) - 56.0, vertical ? 300.0 : 600.0);
+    NSArray<NSString *> *glosses = nil;
+    if (vertical && _translationsEnabled)
+        glosses = @[ @"metasequoia", @"input method", @"hello" ];
     DrawPreviewCandidates(NSMakeRect((NSWidth(self.bounds) - panelWidth) / 2.0, y, panelWidth, metrics.panelHeight),
-                          skin, vertical, words, metrics.fontSize, footer, YES);
+                          skin, vertical, words, glosses, metrics.fontSize, footer, YES);
     [NSGraphicsContext restoreGraphicsState];
 }
 

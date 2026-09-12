@@ -32,6 +32,7 @@ The iOS target builds and is exercised in CI on the simulator, but **it is not d
 - Chinese input: full pinyin, double pinyin (Xiaohe, Ziranma, Shoudao, Microsoft), Wubi 86
 - Japanese input: romaji, as a scheme and as a temporary mode
 - Helpcode (形码) filtering on pinyin schemes
+- Optional English glosses on the right of vertical candidates, from the bundled local table
 - Mixed Chinese-English input, emoji and kaomoji candidates
 - Candidate learning, with the same pin / halve / linear / promote frequency modes as Windows, which can be disabled and whose learned data can be erased from the settings panel
 - Voice input: cloud transcription through an endpoint you configure, or a local Whisper model that never leaves the machine

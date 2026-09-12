@@ -1,6 +1,7 @@
 #import "../src/CandidatePanel.h"
 #import "../src/CandidateSkinAppearance.h"
 #import "../src/CandidateAppearancePreferences.h"
+#include "../src/StringConversion.h"
 #include <stdexcept>
 
 static void Require(bool condition, const char *message)
@@ -97,6 +98,32 @@ int main()
         const CGFloat needed = 8.0 + 6.0 + [@"1" sizeWithAttributes:measure].width + 6.0 +
                                [@"水杉(Ss)" sizeWithAttributes:measure].width + 8.0;
         Require(annotatedButton.frame.size.width + 0.5 >= needed, "Fluent layout truncated helpcode annotations.");
+        panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
+        NSAttributedString *plain = MetasequoiaIndexedCandidateString(@"水杉", 0);
+        NSAttributedString *translated = MetasequoiaCandidateStringByAddingTranslation(
+            MetasequoiaIndexedCandidateString(@"水杉", 0), @"metasequoia");
+        [panel setCandidateData:@[ plain ]];
+        const CGFloat withoutGloss = panel.candidateFrame.size.width;
+        [panel setCandidateData:@[ translated ]];
+        Require(panel.candidateFrame.size.width > withoutGloss, "A vertical gloss did not widen the candidate window.");
+        Require([panel.selectedCandidateString.string isEqualToString:@"水杉"],
+                "A gloss replaced the visible candidate text used for selection.");
+        NSButton *translatedButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+                translatedButton = (NSButton *)view;
+        Require(translatedButton != nil && [translatedButton.accessibilityLabel containsString:@"metasequoia"],
+                "The vertical gloss was not exposed to accessibility.");
+        panel.panelType = kIMKSingleRowSteppingCandidatePanel;
+        [panel setCandidateData:@[ translated ]];
+        Require(![translatedButton.superview isEqual:panel.window.contentView],
+                "Relayout did not replace the previous candidate buttons.");
+        NSButton *horizontalButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+                horizontalButton = (NSButton *)view;
+        Require(horizontalButton != nil && ![horizontalButton.accessibilityLabel containsString:@"metasequoia"],
+                "A horizontal candidate window still presented the vertical-only gloss.");
         [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 5)]];
         for (NSScreen *screen in NSScreen.screens)
         {
