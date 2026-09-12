@@ -46,7 +46,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         !code.is_empty()
-            && code.len() <= 256
+            && code.len() <= match kind { "wubi" => 4, "quick" => 32, "english" => 64, _ => 256 }
             && !code.chars().any(char::is_control)
             && !word.is_empty()
             && word.len() <= 1024
