@@ -2063,6 +2063,43 @@ static void TestCustomTranslationController() {
     [prefs.window close];
     [defaults removePersistentDomainForName:suite];
 }
+static void TestCustomTranslationCacheDelivery() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://cache.invalid/api", @"api_key":@""};
+    session.page = @[@{@"text":@"Hello", @"source":@4}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller applySharedToolbarPreferences:@{@"custom_translation":session.custom}];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1);
+    controller.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"你好"}]);
+    [controller cancelCandidateTranslations]; session.generation++;
+    session.page = @[@{@"text":@"HELLO", @"source":@4}];
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1);
+    assert(([session.delivered isEqual:@[@{@"text":@"HELLO", @"translation":@"你好"}]]));
+    session.generation++; session.page = @[@{@"text":@"HELLO", @"source":@4}, @{@"text":@"missing", @"source":@4}];
+    [controller synchronizeCustomTranslations]; assert(controller.batches.count == 2);
+    assert(controller.batches[1].items.count == 1 && [controller.batches[1].items[0][@"text"] isEqual:@"missing"]);
+    controller.batches[1].reply(@[]);
+    assert(([session.delivered isEqual:@[@{@"text":@"HELLO", @"translation":@"你好"}]]));
+    session.generation++; [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 2);
+    // A credential edit invalidates failure suppression without putting a key
+    // in the cache identity; a subsequent generation may retry immediately.
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://cache.invalid/api", @"api_key":@"synthetic"};
+    [controller applySharedToolbarPreferences:@{@"custom_translation":session.custom}];
+    [controller synchronizeCustomTranslations]; assert(controller.batches.count == 3);
+    controller.batches[2].reply(@[@{@"text":@"missing", @"translation":@"找到"}]);
+    session.targetLanguage = @"de"; session.generation++;
+    [controller synchronizeCustomTranslations]; assert(controller.batches.count == 4);
+    [controller cancelCandidateTranslations];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestGlossScheduling() {
     GlossController *controller = [GlossController alloc];
     controller.started = dispatch_semaphore_create(0);
@@ -2211,6 +2248,7 @@ int main() {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestCustomTranslationController();
+        TestCustomTranslationCacheDelivery();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();
         TestSharedInputPreferences();

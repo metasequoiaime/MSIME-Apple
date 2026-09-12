@@ -31,6 +31,7 @@
 #import "VoiceSettings.h"
 #import "CloudCandidateRequest.h"
 #import "CustomTranslationBatch.h"
+#import "TranslationCache.h"
 #include "WubiCommitPolicy.h"
 
 static BOOL MSIMEScriptConversionApplies(id value) {
@@ -283,12 +284,28 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _customQuery = query;
     NSArray *plan = [MSIMEClientSession customTranslationPlan:@{@"target_language":query[@"target_language"], @"candidates":query[@"candidates"]} error:nil];
     NSMutableArray *items = [NSMutableArray array];
+    NSMutableArray *cached = [NSMutableArray array];
+    NSMutableDictionary *identities = [NSMutableDictionary dictionary];
+    MSIMETranslationCache *cache = [MSIMETranslationCache sharedCache];
     for (NSDictionary *item in plan) {
+        NSArray *identity = @[query[@"custom_translation"][@"endpoint"], query[@"target_language"],
+            item[@"source_language"], item[@"target_language"], item[@"key"]];
+        id value = [cache valueForIdentity:identity];
+        if (value) {
+            if ([value isKindOfClass:NSString.class]) [cached addObject:@{@"text":item[@"text"], @"translation":value}];
+            continue;
+        }
         NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:@{@"config":query[@"custom_translation"],
             @"text":item[@"key"], @"source_language":item[@"source_language"], @"target_language":item[@"target_language"]} error:nil];
-        if (descriptor) [items addObject:@{@"text":item[@"text"], @"request":descriptor}];
+        if (descriptor) {
+            [items addObject:@{@"text":item[@"text"], @"request":descriptor}];
+            identities[item[@"text"]] = identity;
+        }
     }
+    _customResults = [cached copy];
+    if (cached.count) [self applyCandidateTranslationResults];
     if (!items.count) return;
+    if (![[self currentCustomTranslationRequest] isEqual:query]) return;
     uint64_t epoch = _customEpoch;
     MSIMEClientSession *session = _session;
     id client = _activeClient;
@@ -298,7 +315,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!current || current->_customEpoch != epoch || current->_session != session || current->_activeClient != client ||
             ![[current currentCustomTranslationRequest] isEqual:query]) return;
         current->_customBatch = nil;
-        current->_customResults = [results copy];
+        NSMutableArray *combined = [cached mutableCopy];
+        [combined addObjectsFromArray:results];
+        for (NSString *text in identities) {
+            NSString *translation = nil;
+            for (NSDictionary *result in results)
+                if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
+            [cache rememberTranslation:translation identity:identities[text]];
+        }
+        current->_customResults = [combined copy];
         [current applyCandidateTranslationResults];
     }];
     [_customBatch start];
@@ -889,6 +914,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     NSDictionary *custom = preferences[@"custom_translation"];
     if ([custom isKindOfClass:NSDictionary.class]) {
+        if (_customTranslationConfig && ![_customTranslationConfig isEqual:custom]) [[MSIMETranslationCache sharedCache] clear];
         translationChanged |= ![_customTranslationConfig isEqual:custom];
         _customTranslationConfig = [custom copy];
     }
