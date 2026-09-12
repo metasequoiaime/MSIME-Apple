@@ -387,6 +387,7 @@ EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
     EngineSnapshot output;
     output.local_mode = local_mode_name(value.local_mode);
+    output.dedicated_english = value.dedicated_english;
     output.nine_key = nine_key_;
     for (const auto& spelling : value.nine_key_spellings)
         output.nine_key_spellings.push_back(rust::String(spelling));

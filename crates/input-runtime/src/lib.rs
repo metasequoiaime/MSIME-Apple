@@ -274,6 +274,8 @@ pub struct View {
     pub answered_by_pinyin_fallback: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
+    /// Authoritative Engine English mode, independent of temporary local modes.
+    pub dedicated_english: bool,
     pub session: u64,
     pub generation: u64,
     pub focused: bool,
@@ -1331,6 +1333,7 @@ impl<E: InputEngine> Runtime<E> {
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
             answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
             local_mode: self.cached.local_mode.clone(),
+            dedicated_english: self.cached.dedicated_english,
             session: self.session,
             generation: self.generation,
             focused: self.focused,
@@ -1510,6 +1513,7 @@ impl<E: InputEngine> Runtime<E> {
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
                 local_mode: "unknown".into(),
+                dedicated_english: false,
                 preedit: String::new(),
                 editing_text: String::new(),
                 caret_position: 0,
@@ -1523,6 +1527,7 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
+            && self.cached.dedicated_english == previous.dedicated_english
             && self.cached.candidates == previous.candidates
             && self.cached.candidate_annotations == previous.candidate_annotations
             && self.cached.candidate_sources == previous.candidate_sources
@@ -1755,6 +1760,7 @@ mod tests {
     use std::time::Duration;
     struct Fixture {
         scheme: u8,
+        dedicated_english: bool,
         nine_key: bool,
         nine_key_spellings: Vec<String>,
         local_mode: String,
@@ -1846,6 +1852,7 @@ mod tests {
                 shuangpin_profile: "xiaohe".into(),
                 answered_by_pinyin_fallback: false,
                 local_mode: self.local_mode.clone(),
+                dedicated_english: self.dedicated_english,
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
                 caret_position: self.text.len(),
@@ -1901,6 +1908,7 @@ mod tests {
         Runtime::new(
             Fixture {
                 scheme: 0,
+                dedicated_english: false,
                 nine_key: false,
                 nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
@@ -2463,6 +2471,26 @@ mod tests {
         assert_eq!(result.view.local_mode, "unicode");
         assert_eq!(result.view.page, 0);
         assert!(!result.view.editing_text.starts_with('U'));
+    }
+
+    #[test]
+    fn dedicated_english_state_resets_highlight_without_guessing_from_text() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        let text = runtime.view().editing_text;
+        assert!(!runtime.view().dedicated_english);
+        assert_eq!(runtime.view().page, 1);
+        runtime.engine.dedicated_english = true;
+        runtime.refresh().unwrap();
+        assert!(runtime.view().dedicated_english);
+        assert_eq!(runtime.view().page, 0);
+        assert_eq!(runtime.view().editing_text, text);
+        assert_eq!(runtime.view().local_mode, "none");
+        runtime.engine.dedicated_english = false;
+        runtime.refresh().unwrap();
+        assert!(!runtime.view().dedicated_english);
     }
 
     #[test]

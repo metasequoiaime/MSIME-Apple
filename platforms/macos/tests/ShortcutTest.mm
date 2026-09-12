@@ -210,7 +210,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"keymapPanel"];
     [controller setValue:[ShortcutSession new] forKey:@"session"];
-    NSDictionary *view = @{@"scheme": @1, @"local_mode": @"none", @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
+    NSDictionary *view = @{@"scheme": @1, @"local_mode": @"none", @"dedicated_english": @NO, @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
     [controller setValue:view forKey:@"view"];
     [controller updateKeymapPanel];
     assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
@@ -233,6 +233,14 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     }
     NSMutableDictionary *missingMode = [view mutableCopy];
+    missingMode[@"dedicated_english"] = @YES;
+    [controller setValue:missingMode forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
+    [controller setValue:view forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(panel.requestedVisible);
+    missingMode[@"dedicated_english"] = @NO;
     [missingMode removeObjectForKey:@"local_mode"];
     [controller setValue:missingMode forKey:@"view"];
     [controller updateKeymapPanel];

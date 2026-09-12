@@ -84,6 +84,7 @@ mod ffi {
     #[derive(Debug)]
     pub struct EngineSnapshot {
         pub local_mode: String,
+        pub dedicated_english: bool,
         pub nine_key: bool,
         pub nine_key_spellings: Vec<String>,
         pub microsoft_shuangpin: bool,

@@ -2939,10 +2939,13 @@ mod tests {
         let enabled = read(msime_client_set_english_mode(handle, true));
         assert_eq!(enabled["ok"], true);
         assert_eq!(enabled["value"]["focused"], true);
-        assert_eq!(
-            read(msime_client_set_english_mode(handle, false))["ok"],
-            true
-        );
+        assert_eq!(enabled["value"]["dedicated_english"], true);
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["dedicated_english"], true);
+        assert_eq!(typed["value"]["view"]["local_mode"], "none");
+        let disabled = read(msime_client_set_english_mode(handle, false));
+        assert_eq!(disabled["ok"], true);
+        assert_eq!(disabled["value"]["dedicated_english"], false);
         read(msime_client_destroy(handle));
     }
 
