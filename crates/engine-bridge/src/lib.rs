@@ -124,6 +124,12 @@ mod ffi {
         pub group: String,
     }
     #[derive(Debug)]
+    pub struct EmojiCatalogSlice {
+        pub items: Vec<EmojiCatalogItem>,
+        pub next_offset: usize,
+        pub complete: bool,
+    }
+    #[derive(Debug)]
     pub struct EmojiSymbolGroup {
         pub parent: String,
         pub title: String,
@@ -196,6 +202,15 @@ mod ffi {
             limit: u16,
             parent: &str,
         ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_slice(
+            resources: &str,
+            search: &str,
+            category: &str,
+            group: &str,
+            offset: usize,
+            limit: u16,
+            parent: &str,
+        ) -> Result<EmojiCatalogSlice>;
         fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
         fn handwriting_recognize(
@@ -325,6 +340,18 @@ pub fn emoji_catalog_parent_page(
     parent: &str,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, parent)
+}
+
+pub fn emoji_catalog_slice(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+    parent: &str,
+) -> Result<ffi::EmojiCatalogSlice, cxx::Exception> {
+    ffi::emoji_catalog_slice(resources, search, category, group, offset, limit, parent)
 }
 
 pub fn emoji_symbol_groups(resources: &str) -> Result<Vec<ffi::EmojiSymbolGroup>, cxx::Exception> {
