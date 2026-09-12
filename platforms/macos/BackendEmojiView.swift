@@ -27,6 +27,9 @@ struct MacEmojiView: View {
   @State private var recent = MacEmojiRecents()
   @State private var clipboardNotice = ""
   @State private var historyRevision = 0
+  @State private var historyEnabled: Bool?
+  @State private var enablingHistory = false
+  @State private var enableNotice = ""
   @State private var deletingHistory = false
   @State private var deletionNotice = ""
   @State private var loadedQuery: [String] = []
@@ -43,6 +46,26 @@ struct MacEmojiView: View {
       clipboardNotice = "已复制到剪贴板"
     } else {
       clipboardNotice = "无法访问剪贴板，请重试"
+    }
+  }
+
+  private func enableHistory() {
+    guard !enablingHistory else { return }
+    enablingHistory = true
+    enableNotice = ""
+    let directory = preferencesDirectory
+    let requestedID = queryID
+    Task {
+      defer { enablingHistory = false }
+      do {
+        try await Task.detached { try MacEmojiClipboardHistory.enable(directory: directory) }.value
+        guard requestedID == queryID else { return }
+        historyRevision += 1
+        enableNotice = "已开启共享历史设置；此面板目前只读取已有记录"
+      } catch {
+        guard requestedID == queryID else { return }
+        enableNotice = "无法开启剪贴板历史，设置可能已变更，请重试"
+      }
     }
   }
 
@@ -94,6 +117,12 @@ struct MacEmojiView: View {
         placeholder: category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
       if category == "clipboard" {
+        if historyEnabled == false && loadedQuery == queryID {
+          Button("开启剪贴板历史") { enableHistory() }
+            .buttonStyle(.borderedProminent).disabled(enablingHistory)
+          Text("开启共享设置；已运行的桌面客户端可能按此设置保存复制的文本。").font(.caption)
+        }
+        if !enableNotice.isEmpty { Text(enableNotice).font(.caption) }
         HStack {
           Text("仅显示已保存记录，不采集系统剪贴板").font(.caption)
           Spacer()
@@ -190,6 +219,7 @@ struct MacEmojiView: View {
         }
       }
       .task(id: queryID) {
+        historyEnabled = nil
         items = []
         selectedIndex = 0
         loadedQuery = []
@@ -209,6 +239,7 @@ struct MacEmojiView: View {
               try MacEmojiClipboardHistory.load(directory: directory)
             }.value
           }, publish: { history in
+            historyEnabled = history?.enabled
             // Preserve the selected record across insertions/reordering, never
             // silently move the explicit-insert action to a different record.
             let selectedText = items.indices.contains(selectedIndex) ? items[selectedIndex].text : nil

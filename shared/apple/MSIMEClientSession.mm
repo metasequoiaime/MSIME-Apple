@@ -1,4 +1,5 @@
 #import "MSIMEClientSession.h"
+#import "ClipboardPreferences.h"
 #include "msime_client.h"
 #include <cstring>
 
@@ -73,6 +74,14 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = decode(msime_client_remove_clipboard_history(
         static_cast<const uint8_t *>(data.bytes), data.length), &error);
     return result ?: @{ @"error": @YES };
+}
++ (NSDictionary *)enableClipboardHistoryRequest:(NSString *)directory {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return @{ @"error": @YES };
+    return MSIMEEnableClipboardHistory(^NSDictionary *{
+        return [self loadPreferencesInDirectory:directory error:nil];
+    }, ^NSDictionary *(uint64_t revision, NSDictionary *snapshot) {
+        return [self savePreferencesInDirectory:directory expectedRevision:revision snapshot:snapshot error:nil];
+    });
 }
 + (NSDictionary *)clipboardHistoryRequest:(NSString *)directory {
     NSError *error = nil;
