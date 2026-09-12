@@ -12,10 +12,12 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
+use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
+#[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    AiAssistantProviderConfig, Action, CandidateId, CharacterWidth, EmojiPanelQuery,
-    HandwritingQuery, NineKeySpellingId, OnlineQuery, Runtime, Transition, TranslationQuery,
+    AiAssistantProviderConfig, Action, CandidateId, CharacterWidth, NineKeySpellingId, OnlineQuery,
+    Runtime, Transition,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
