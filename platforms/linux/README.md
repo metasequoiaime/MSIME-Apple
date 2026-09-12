@@ -304,3 +304,5 @@ Wayland 使用 `wl-paste --type text`，X11 使用 `xclip` 或 `xsel`；每次�
 可按需执行 `systemctl --user enable --now msime-client-clipboard.service`，使用默认 XDG runtime-options 路径。桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`；未集成 systemd 图形会话的桌面可从会话自启动运行监视器。安装不会自动启用服务，语音和在线服务不依赖它。
 
 未显式指定 `clipboard_history_path` 时，IBus 使用 `preferences_directory/clipboard_history.json`，与共享设置存储及独立采集服务一致。显式历史路径仍优先；切换偏好目录时默认历史来源随之更新。监视器遇到非对象 JSON 或无效偏好结构时停止本轮采集并等待下次有效配置。
+
+“候选操作”按当前页候选分组，一级菜单显示候选序号与完整 UTF-8 字符预览，子菜单包含固定、删除、固定位置和取消固定。操作仍绑定会话与候选代次。九键拼音分支及外部皮肤选项在原生 IBus 菜单中可见并沿用既有选择回调。

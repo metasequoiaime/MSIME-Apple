@@ -1367,7 +1367,7 @@ IBusProperty *nine_key_spellings(IBusEngine *engine) {
       const auto label = std::to_string(index + 1) + ". " + spelling;
       ibus_prop_list_append(menu, ibus_property_new(
           name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()),
-          "", ibus_text_new_from_static_string("选择九键拼音"), TRUE, FALSE,
+          "", ibus_text_new_from_static_string("选择九键拼音"), TRUE, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
       has_items = true;
     }
@@ -1405,6 +1405,17 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       continue;
     editable_candidates = true;
     const auto slot = index + 1;
+    auto actions = ibus_prop_list_new();
+    auto preview = candidate.value("text", std::string{});
+    msime_clipboard_truncate(preview, 48);
+    const auto entry_label = std::to_string(slot) + ". " + preview;
+    const auto entry_name = candidate_action_name("CandidateEntry", id);
+    auto entry = ibus_property_new(
+        entry_name.c_str(), PROP_TYPE_MENU,
+        ibus_text_new_from_string(entry_label.c_str()), "",
+        ibus_text_new_from_static_string("选择此候选的操作"), TRUE, TRUE,
+        PROP_STATE_UNCHECKED, actions);
+    ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"},
@@ -1420,13 +1431,13 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                                      std::stoi(std::string(action).substr(12))
                              ? PROP_STATE_CHECKED
                              : PROP_STATE_UNCHECKED;
-      ibus_prop_list_append(items, ibus_property_new(
+      ibus_prop_list_append(actions, ibus_property_new(
           name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
           ibus_text_new_from_static_string("操作当前页候选"), TRUE, TRUE,
           state, nullptr));
     }
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
-    ibus_prop_list_append(items, ibus_property_new(
+    ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
         ibus_text_new_from_string((std::string("取消固定 ") + std::to_string(slot)).c_str()), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"), fixed_position > 0, TRUE,
@@ -1882,7 +1893,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
         const auto title = package.value("title", id);
         ibus_prop_list_append(skin_menu, ibus_property_new(
             id.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
-            ibus_text_new_from_static_string("外部候选皮肤"), TRUE, FALSE,
+            ibus_text_new_from_static_string("外部候选皮肤"), TRUE, TRUE,
             skin == id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
       }
     }
