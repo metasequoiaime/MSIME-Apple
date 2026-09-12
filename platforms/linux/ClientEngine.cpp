@@ -545,6 +545,17 @@ bool launch_desktop_panel(const char *panel) {
     g_error_free(error);
   return started != FALSE;
 }
+bool restart_ibus_service() {
+  gchar *argv[] = {const_cast<gchar *>("ibus"),
+                   const_cast<gchar *>("restart"), nullptr};
+  GError *error = nullptr;
+  const auto started = g_spawn_async(nullptr, argv, nullptr,
+                                     G_SPAWN_SEARCH_PATH, nullptr, nullptr,
+                                     nullptr, &error);
+  if (error)
+    g_error_free(error);
+  return started != FALSE;
+}
 
 IBusProperty *toolbar_property(IBusEngine *engine) {
   const auto &s = state(engine);
@@ -2962,6 +2973,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const bool maintenance_restart_key =
+      (key == IBUS_r || key == IBUS_R) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+  if (!release && maintenance_restart_key && s.focused && !s.blocked)
+    return restart_ibus_service() ? TRUE : FALSE;
   const bool dedicated_english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
