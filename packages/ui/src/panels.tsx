@@ -115,9 +115,10 @@ const nineKeyRows: KeyboardKey[][] = [
 function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"].filter(value => modifiers.has(value as Modifier)).join("+");
 }
-// Width ratios from Windows KeyboardPanel.cpp at 04a8df56f86312474a069f4335a1b58da7afaa9e.
-function keyboardKeyWeight(label: string, row: number, index: number) {
-  if (row === 4) return label === "Space" ? 6.7 : 1.25;
+// Width ratios from Windows KeyboardPanel.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
+// Identify the space row by its content: Linux adds function and numpad rows.
+function keyboardKeyWeight(label: string, index: number, spaceRow: boolean) {
+  if (spaceRow) return label === "Space" ? 6.7 : 1.25;
   if (label === "Backspace") return 1.9;
   if (label === "Tab") return 1.5;
   if (label === "\\") return 1.4;
@@ -242,7 +243,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: keyboardKeyWeight(keyToRender.label, rowIndex, keyIndex) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
+          return <button type="button" key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? activeModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && activeModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={() => pressKey(keyToRender)}>{label}</button>;
         })}</div>)}
       </div>
     </div>
