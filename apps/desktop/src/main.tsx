@@ -7,6 +7,7 @@ import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
+import { DesktopKeyboard } from "./desktop-keyboard";
 
 const dictionary: DictionaryClient = {
   list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
@@ -99,7 +100,7 @@ function DesktopSettings() {
   // Mount once after discovery: replacing the client later would reload draft preferences.
   return settingsClient ? <SettingsPage client={settingsClient} /> : <p role="status">正在连接设置…</p>;
 }
-const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
+const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
   : panel === "voice" ? <VoicePanel client={panelClients.voice} />
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
