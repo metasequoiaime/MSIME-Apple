@@ -1,6 +1,7 @@
 #pragma once
 #import <AppKit/AppKit.h>
 NS_ASSUME_NONNULL_BEGIN
+FOUNDATION_EXPORT NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification;
 @interface MetasequoiaVoiceProviderSettings : NSObject
 @property(nonatomic, copy) NSString *provider;
 @property(nonatomic, copy) NSString *endpoint;

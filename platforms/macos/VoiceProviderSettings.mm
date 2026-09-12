@@ -1,4 +1,5 @@
 #import "VoiceProviderSettings.h"
+NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 
 namespace
@@ -173,6 +174,7 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         @"polishModel" : self.polishModel
     }
                                               forKey:@"voiceInput"];
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceProviderSettingsDidChangeNotification object:self];
     return YES;
 }
 @end
