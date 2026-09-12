@@ -14,7 +14,7 @@ test("emoji panel restores persisted recent items", () => {
 test("emoji panel ignores malformed recent storage", () => {
   localStorage.setItem("msime.emoji.recent", "not json");
   render(<EmojiPanel client={{ close: async () => {} }} />);
-  expect(screen.queryByRole("button", { name: "最近使用" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "⚙" })).toBeNull();
 });
 
 test("emoji panel paginates catalog items and resets on search", async () => {
