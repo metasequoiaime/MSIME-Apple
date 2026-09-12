@@ -647,13 +647,13 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)updateKeymapPanel {
-    NSString *preedit = _view[@"preedit"];
+    NSString *editing = MSIMEShuangpinKeymapEditingText(_view);
     NSNumber *scheme = _view[@"scheme"];
     NSString *profile = _view[@"shuangpin_profile"];
     if (!_session || !_activeClient || _appearance.englishMode ||
         ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
-        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, [preedit isKindOfClass:NSString.class] && preedit.length > 0)) {
+        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, editing.length > 0)) {
         [_keymapPanel orderOut:nil];
         return;
     }
@@ -662,9 +662,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (!MSIMEValidCaret(cursor)) { [_keymapPanel orderOut:nil]; return; }
     if (!_keymapPanel) _keymapPanel = [[MSIMEShuangpinKeymapPanel alloc] init];
     [_keymapPanel setProfileName:profile];
-    const unichar last = [preedit characterAtIndex:preedit.length - 1];
-    NSString *key = ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') ? [NSString stringWithCharacters:&last length:1] : @"";
-    [_keymapPanel updateHighlightedKey:key];
+    [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     CGFloat clearance = _appearance.fontSize + 42.0;
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];

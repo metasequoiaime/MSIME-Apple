@@ -244,6 +244,23 @@ BOOL MSIMEShouldShowShuangpinKeymap(BOOL isShuangpin, BOOL enabled, BOOL hasComp
     return isShuangpin && enabled && hasComposition;
 }
 
+NSString *MSIMEShuangpinKeymapEditingText(NSDictionary *view)
+{
+    id editing = view[@"editing_text"];
+    return [editing isKindOfClass:NSString.class] ? editing : @"";
+}
+
+NSString *MSIMEShuangpinKeymapHighlightedKey(NSDictionary *view)
+{
+    NSString *editing = MSIMEShuangpinKeymapEditingText(view);
+    if (editing.length == 0) return @"";
+    const unichar last = [editing characterAtIndex:editing.length - 1];
+    if ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') {
+        return [NSString stringWithCharacters:&last length:1];
+    }
+    return @"";
+}
+
 NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloat candidateClearance,
                                             NSRect visibleFrame)
 {
