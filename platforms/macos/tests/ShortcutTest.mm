@@ -1796,6 +1796,37 @@ int main() {
         assert([previous.accessibilityLabel isEqual:@"上一页候选"]);
         assert([next.accessibilityLabel isEqual:@"下一页候选"]);
         assert(previous.frame.size.height == 26 && next.frame.size.width == 28);
+        // A layout-only render can keep all Engine IDs unchanged. The detached
+        // button must still be rejected, just like detached candidate buttons.
+        MSIMECandidateButton *oldPageButton = next;
+        [controller renderCandidates];
+        session.lastCommand = UINT32_MAX;
+        [controller changeCandidatePage:oldPageButton];
+        assert(session.lastCommand == UINT32_MAX && oldPageButton.superview != layoutPanel.contentView);
+        next = (id)PageButton(layoutPanel.contentView, -2);
+        NSDictionary *pageIdentity = next.candidateID;
+        for (NSString *field in @[@"session", @"generation", @"page", @"page_count", @"focused"]) {
+            for (id invalid in @[NSNull.null, @YES, @(-1), @1.5, @"1"]) {
+                NSMutableDictionary *bad = [pageView mutableCopy];
+                bad[field] = [field isEqual:@"focused"] && [invalid isEqual:@YES] ? @1 : invalid;
+                next.candidateID = bad;
+                [controller setValue:bad forKey:@"view"];
+                session.lastCommand = UINT32_MAX;
+                [controller changeCandidatePage:next];
+                assert(session.lastCommand == UINT32_MAX);
+            }
+        }
+        for (NSNumber *invalidCount in @[@0, @1]) {
+            NSMutableDictionary *bad = [pageView mutableCopy];
+            bad[@"page"] = @1; bad[@"page_count"] = invalidCount;
+            next.candidateID = bad;
+            [controller setValue:bad forKey:@"view"];
+            session.lastCommand = UINT32_MAX;
+            [controller changeCandidatePage:next];
+            assert(session.lastCommand == UINT32_MAX);
+        }
+        next.candidateID = pageIdentity;
+        [controller setValue:[pageView copy] forKey:@"view"];
         pageView[@"page"] = @1;
         session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": [pageView copy]};
         client.committed = nil;
