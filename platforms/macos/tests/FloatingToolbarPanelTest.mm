@@ -55,6 +55,18 @@ int main() {
 
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
+        [panel applyThemePreferences:@{}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"toolbar_theme": @"light", @"candidate_theme": @"dark", @"settings_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"light"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"follow"}];
+        assert(panel.appearance == nil);
         assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
 
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");

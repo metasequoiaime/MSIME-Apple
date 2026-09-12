@@ -365,19 +365,30 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)reloadPreferences {
-    if (_preferencesLoading || !_activeClient) return;
+    if (_preferencesLoading || !_activeClient || !_session || !_preferencesDirectory) return;
     _preferencesLoading = YES;
+    MSIMEClientSession *session = _session;
+    NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
-    [_session reloadPreferencesDirectory:_preferencesDirectory completion:^(NSDictionary *result, NSError *error) {
-        MSIMEInputController *controller = weakSelf;
-        if (!controller) return;
-        controller->_preferencesLoading = NO;
-        // Failed loads retain the old configuration; never synthesize defaults here.
-        if (result && !error && controller->_activeClient) {
-            controller->_view = result[@"view"];
-            [controller renderCandidates];
-        }
-    }];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *controller = weakSelf;
+            if (!controller) return;
+            controller->_preferencesLoading = NO;
+            // Never apply a delayed read to a replacement or inactive input session.
+            if (!snapshot || error || !controller->_activeClient || controller->_session != session) return;
+            NSError *updateError = nil;
+            NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
+            // Failed loads/updates retain the existing window appearance and runtime.
+            if (result && !updateError) {
+                [controller->_toolbar applyThemePreferences:snapshot[@"preferences"]];
+                controller->_view = result[@"view"];
+                [controller renderCandidates];
+            }
+        });
+    });
 }
 
 - (void)deactivateServer:(id)sender {

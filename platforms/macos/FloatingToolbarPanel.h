@@ -29,6 +29,8 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible;
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
+/// Apply validated shared preferences without persisting platform-local defaults.
+- (void)applyThemePreferences:(NSDictionary *)preferences;
 @end
 #define MSIMEFloatingToolbarDelegate MetasequoiaFloatingToolbarDelegate
 #define MSIMEFloatingToolbarPanel MetasequoiaFloatingToolbarPanel
