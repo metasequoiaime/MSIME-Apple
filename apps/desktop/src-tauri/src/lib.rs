@@ -286,6 +286,36 @@ struct RuntimeOptionsState {
     document: Arc<Mutex<Value>>,
 }
 
+#[cfg(unix)]
+impl RuntimeOptionsState {
+    fn snapshot(&self) -> Result<Value, std::io::Error> {
+        let document = self
+            .document
+            .lock()
+            .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
+        #[cfg(target_os = "linux")]
+        let mut document = document;
+        #[cfg(target_os = "linux")]
+        if let Some(path) = self.path.as_ref() {
+            *document = read_runtime_options(path)?;
+        }
+        Ok(document.clone())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
+    let document: Value = serde_json::from_slice(&fs::read(path)?)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    if !document.is_object() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "runtime options must be an object",
+        ));
+    }
+    Ok(document)
+}
+
 #[derive(Default)]
 struct PanelInputState(std::sync::Mutex<Option<PanelInputTarget>>);
 
@@ -374,11 +404,15 @@ fn sync_linux_runtime_options(
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        document["preferences"] = serde_json::to_value(preferences)
+        // Another settings process or the host may have updated endpoints and
+        // resource paths since this panel started. Preserve that document.
+        let mut current = read_runtime_options(path)?;
+        current["preferences"] = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        let bytes = serde_json::to_vec_pretty(&*document)
+        let bytes = serde_json::to_vec_pretty(&current)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         atomic_write(path, &bytes)?;
+        *document = current;
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1706,10 +1740,11 @@ async fn recognize_voice(
     app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
     runtime: tauri::State<'_, RuntimeOptionsState>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     // Streaming updates are emitted by the unix provider path only.
     #[cfg(not(unix))]
-    let _ = &app;
+    let _ = (&app, &runtime, &store);
     if request.request_id.is_empty()
         || request.request_id.len() > 64
         || !request
@@ -1726,11 +1761,34 @@ async fn recognize_voice(
     }
     #[cfg(unix)]
     {
-        let document = runtime
-            .document
-            .lock()
-            .map(|document| document.clone())
-            .unwrap_or(Value::Null);
+        let runtime = runtime.inner().clone();
+        let store = store.inner().clone();
+        let document = tauri::async_runtime::spawn_blocking(move || {
+            let document = runtime.snapshot().map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+            // The shared preference store is also written by IBus and other
+            // settings windows; new recordings must use those saved settings.
+            #[cfg(target_os = "linux")]
+            let document = {
+                let mut document = document;
+                let preferences = store.load().map_err(|_| HostActionError {
+                    code: "unavailable",
+                })?;
+                document["preferences"] = serde_json::to_value(preferences.preferences)
+                    .map_err(|_| HostActionError {
+                        code: "unavailable",
+                    })?;
+                document
+            };
+            #[cfg(not(target_os = "linux"))]
+            let _ = store;
+            Ok::<_, HostActionError>(document)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })??;
         let provider_options = voice_provider_options(&document);
         let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
             code: "unavailable",
