@@ -139,7 +139,6 @@ struct MacEmojiView: View {
         }
         if !deletionNotice.isEmpty { Text(deletionNotice).font(.caption) }
       }
-      if mediaPage == nil { Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       if selection.rejected {
         Text(MacEmojiSelectionState.failureMessage).font(.caption)
           .foregroundStyle(MacEmojiPalette.color(palette.text))
