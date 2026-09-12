@@ -302,6 +302,14 @@ char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *candidate,
                                            size_t candidate_length,
                                            uint8_t source);
+/* Apply a JSON array of UTF-8 strings for one source (cloud=0, AI=1).
+ * Buffers are borrowed for the call; at most 16384 bytes each. */
+char *msime_client_apply_online_candidates(uint64_t session,
+                                          const uint8_t *query,
+                                          size_t query_length,
+                                          const uint8_t *candidates,
+                                          size_t candidates_length,
+                                          uint8_t source);
 char *msime_client_destroy(uint64_t session);
 /* value must be NULL or a still-owned pointer returned by this library. */
 void msime_client_string_free(char *value);

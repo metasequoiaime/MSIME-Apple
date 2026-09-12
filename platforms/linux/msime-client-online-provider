@@ -131,7 +131,22 @@ def ai(query, config):
         body["thinking"] = {"type": "disabled"}
     result = fetch(config["endpoint"], 7.0, body, config["token"])
     parsed = json.loads(result["choices"][0]["message"]["content"])
-    return candidate(parsed["candidates"][0]["text"], 1)
+    values = parsed.get("candidates")
+    if not isinstance(values, list):
+        return None
+    rows = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        row = safely(candidate, value.get("text"), 1)
+        if row is None or row["text"] in seen:
+            continue
+        rows.append(row)
+        seen.add(row["text"])
+        if len(rows) == limit:
+            break
+    return rows
 
 
 def safely(call, *args):
@@ -293,7 +308,18 @@ class Handler(socketserver.StreamRequestHandler):
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 jobs = [pool.submit(safely, cloud, query),
                         pool.submit(safely, configured_ai, query, self.server.ai_config_path)]
-                rows = [result for job in jobs if (result := job.result()) is not None]
+                rows = []
+                seen = set()
+                for job in jobs:
+                    result = job.result()
+                    for row in result if isinstance(result, list) else [result]:
+                        if row is None or row["text"] in seen:
+                            continue
+                        proposed = rows + [row]
+                        if len(json.dumps({"candidates": proposed}, ensure_ascii=False).encode()) + 1 > 16384:
+                            continue
+                        rows.append(row)
+                        seen.add(row["text"])
             self.wfile.write(json.dumps({"candidates": rows}, ensure_ascii=False).encode() + b"\n")
         except Exception:
             pass

@@ -547,6 +547,26 @@ bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
                                   : CandidateSource::AiSuggestion;
     return session_.apply_online_candidate(request, std::string(candidate), kind);
 }
+bool EngineSession::apply_online_candidates(const OnlineQuerySnapshot& query,
+                                           rust::Slice<const rust::String> candidates, std::uint8_t source) {
+    if (!query.available || (source != 0 && source != 1)) return false;
+    metasequoia::OnlineQuery request;
+    request.scheme = static_cast<SchemeType>(query.scheme);
+    request.generation = query.generation;
+    request.identity = std::string(query.identity);
+    request.query_text = std::string(query.query_text);
+    request.cache_key = std::string(query.cache_key);
+    for (const auto& segment : query.pinyin_segments)
+        request.pinyin_segments.emplace_back(std::string(segment));
+    request.cloud_eligible = query.cloud_eligible;
+    request.ai_eligible = query.ai_eligible;
+    request.session_id = query.session_id;
+    const auto kind = source == 0 ? CandidateSource::CloudSuggestion
+                                  : CandidateSource::AiSuggestion;
+    std::vector<std::string> words;
+    for (const auto& candidate : candidates) words.emplace_back(std::string(candidate));
+    return session_.apply_online_candidates(request, words, kind);
+}
 rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
                                                rust::Str category, std::size_t offset,
                                                std::uint16_t limit) {

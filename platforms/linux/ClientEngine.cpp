@@ -1308,16 +1308,21 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     const auto value = document.at("value");
     if (!value.is_object()) return;
     const auto candidates = value.value("candidates", Json::array({value}));
-    if (!candidates.is_array() || candidates.size() > 2) return;
+    if (!candidates.is_array() || candidates.size() > 11) return;
+    Json groups[2] = {Json::array(), Json::array()};
     for (const auto &item : candidates) {
       const auto candidate = item.value("text", std::string{});
       const auto source = item.value("source", 255);
       if (candidate.empty() || source < 0 || source > 1 ||
           (!s.cloud_candidates && source == 0)) continue;
-      auto applied = response(msime_client_apply_online_candidate(
+      groups[source].push_back(candidate);
+    }
+    for (uint8_t source = 0; source < 2; ++source) {
+      if (groups[source].empty()) continue;
+      const auto encoded = groups[source].dump();
+      auto applied = response(msime_client_apply_online_candidates(
           s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
-          reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
-          static_cast<uint8_t>(source)));
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source));
       s.view = applied.at("view");
     }
     render(engine, s.view);

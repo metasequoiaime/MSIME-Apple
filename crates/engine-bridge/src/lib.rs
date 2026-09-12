@@ -191,6 +191,12 @@ mod ffi {
             candidate: &str,
             source: u8,
         ) -> Result<bool>;
+        fn apply_online_candidates(
+            self: Pin<&mut EngineSession>,
+            query: &OnlineQuerySnapshot,
+            candidates: &[String],
+            source: u8,
+        ) -> Result<bool>;
         fn emoji_catalog(
             resources: &str,
             search: &str,
@@ -477,6 +483,16 @@ impl Session {
         self.inner
             .pin_mut()
             .apply_online_candidate(query, candidate, source)
+    }
+    pub fn apply_online_candidates(
+        &mut self,
+        query: &OnlineQuerySnapshot,
+        candidates: &[String],
+        source: u8,
+    ) -> Result<bool, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .apply_online_candidates(query, candidates, source)
     }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)

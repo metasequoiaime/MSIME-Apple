@@ -576,7 +576,7 @@ impl UnixSocketProvider {
         self.query_candidates(query)?.into_iter().next()
     }
 
-    /// Accept one cloud and one AI suggestion from the same provider response.
+    /// Accept one cloud and up to the configured number of AI suggestions.
     pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
         if query.ai_context.len() > 1024 {
             return None;
@@ -645,13 +645,17 @@ impl UnixSocketProvider {
             Response::Batch { candidates } => candidates,
             Response::Single(reply) => vec![reply],
         };
-        if replies.len() > 2 {
+        if replies.len() > 11 {
             return None;
         }
-        let mut seen_sources = [false; 2];
+        let ai_limit = query.ai_assistant.as_ref().filter(|ai| ai.enabled)
+            .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)));
+        let limits = [1, ai_limit];
+        let mut source_counts = [0; 2];
         let mut candidates = Vec::new();
         for reply in replies {
-            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1
+                || reply.text.chars().any(char::is_control) {
                 return None;
             }
             if (reply.source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
@@ -660,11 +664,13 @@ impl UnixSocketProvider {
                 continue;
             }
             let source = usize::from(reply.source);
-            if seen_sources[source] {
+            source_counts[source] += 1;
+            if source_counts[source] > limits[source] {
                 return None;
             }
-            seen_sources[source] = true;
-            candidates.push((reply.text, reply.source));
+            if !candidates.iter().any(|(text, _)| text == &reply.text) {
+                candidates.push((reply.text, reply.source));
+            }
         }
         Some(candidates)
     }
@@ -1232,6 +1238,47 @@ impl Runtime<Session> {
         let applied = self
             .engine
             .apply_online_candidate(&query, candidate, source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        if applied {
+            self.refresh()
+                .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        }
+        Ok(applied)
+    }
+    pub fn apply_online_candidates(
+        &mut self,
+        query: &OnlineQuery,
+        candidates: &[String],
+        source: u8,
+    ) -> Result<bool, RuntimeError> {
+        let limit = if source == 0 { 1 } else {
+            query.ai_assistant.as_ref().filter(|ai| ai.enabled)
+                .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)))
+        };
+        if candidates.is_empty() || candidates.len() > limit
+            || candidates.iter().any(|text| text.is_empty() || text.len() > 4096
+                || text.chars().any(char::is_control))
+            || source > 1
+            || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+            || (source == 1 && !query.ai_eligible)
+        {
+            return Ok(false);
+        }
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity.clone(),
+            query_text: query.query_text.clone(),
+            cache_key: query.cache_key.clone(),
+            pinyin_segments: query.pinyin_segments.clone(),
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        };
+        let applied = self
+            .engine
+            .apply_online_candidates(&query, candidates, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))?;
         if applied {
             self.refresh()

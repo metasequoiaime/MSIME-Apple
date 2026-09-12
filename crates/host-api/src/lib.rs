@@ -2093,6 +2093,38 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
     })
 }
 
+/// Apply an ordered JSON array of candidate strings for one online source.
+///
+/// # Safety
+/// Both pointers must reference readable buffers of their stated lengths.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_online_candidates(
+    handle: u64,
+    query: *const u8,
+    query_length: usize,
+    candidates: *const u8,
+    candidates_length: usize,
+    source: u8,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || candidates.is_null() || query_length > 16384
+            || candidates_length > 16384 || source > 1 {
+            return Err("invalid online candidates buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        }).map_err(|_| "invalid online query document")?;
+        let candidates = serde_json::from_slice::<Vec<String>>(unsafe {
+            std::slice::from_raw_parts(candidates, candidates_length)
+        }).map_err(|_| "invalid online candidates document")?;
+        with_session(handle, |session| {
+            let applied = session.runtime.apply_online_candidates(&query, &candidates, source)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({ "applied": applied, "view": session.runtime.view() }))
+        })
+    })
+}
+
 /// Select one Han edge through Engine using the displayed candidate identity.
 #[no_mangle]
 pub extern "C" fn msime_client_select_edge(

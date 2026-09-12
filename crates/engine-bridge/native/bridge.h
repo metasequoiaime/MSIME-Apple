@@ -29,6 +29,8 @@ public:
     void reset_cache();
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
+    bool apply_online_candidates(const OnlineQuerySnapshot& query, rust::Slice<const rust::String> candidates,
+                                std::uint8_t source);
     EngineResult character(std::uint8_t value, bool shift);
     void set_nine_key_enabled(bool enabled);
     EngineResult choose_nine_key_spelling(std::size_t index);
