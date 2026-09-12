@@ -2604,6 +2604,27 @@ mod tests {
     }
 
     #[test]
+    fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
+        let mut preferences = Preferences::default();
+        macro_rules! check {
+            ($field:ident) => {{
+                preferences.$field = Some("#12aBcD".to_owned());
+                assert!(preferences.validate().is_ok());
+                preferences.$field = Some("#12345678".to_owned());
+                assert!(preferences.validate().is_err());
+                preferences.$field = None;
+            }};
+        }
+        check!(candidate_text_color);
+        check!(candidate_number_color);
+        check!(candidate_accent_color);
+        check!(candidate_selected_color);
+        check!(candidate_hover_color);
+        check!(candidate_surface_color);
+        check!(candidate_border_color);
+    }
+
+    #[test]
     fn candidate_skin_ids_are_safe_and_bounded() {
         let mut preferences = Preferences::default();
         for skin in ["fluent", "willow_green", "external.skin-1"] {
