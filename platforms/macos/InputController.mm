@@ -721,6 +721,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
         return YES;
     }
+    if (_appearance.characterSetShortcut && event.keyCode == 3 &&
+        (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
+        // Like the Windows host, reserve the chord but only toggle in Chinese mode.
+        if (!event.isARepeat && !_appearance.englishMode) [self floatingToolbarDidRequestToggleTraditionalOutput:nil];
+        return YES;
+    }
     if (event.keyCode == 14 && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
