@@ -28,7 +28,7 @@ class CustomTranslationConfig(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 calls.append((self.path, self.headers.get("Authorization"), body))
-                payload = json.dumps({"data": "synthetic " + body["source_lang"]}).encode()
+                payload = json.dumps({"data": "", "translation": "synthetic " + body["source_lang"]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
