@@ -8,13 +8,13 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 test("emoji panel restores persisted recent items", () => {
   localStorage.setItem("msime.emoji.recent", JSON.stringify([{ text: "⚙", keywords: "gear" }]));
   render(<EmojiPanel client={{ close: async () => {} }} />);
-  expect(screen.getByText("Recently used")).toBeDefined();
+  expect(screen.getByText("最近使用")).toBeDefined();
 });
 
 test("emoji panel ignores malformed recent storage", () => {
   localStorage.setItem("msime.emoji.recent", "not json");
   render(<EmojiPanel client={{ close: async () => {} }} />);
-  expect(screen.queryByText("Recently used")).toBeNull();
+  expect(screen.queryByText("最近使用")).toBeNull();
 });
 
 test("emoji panel paginates catalog items and resets on search", async () => {
