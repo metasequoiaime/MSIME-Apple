@@ -2295,10 +2295,16 @@ fn start_linux_clipboard_monitor(
                     last_text = None;
                 } else if let Ok(text) = linux_clipboard_text() {
                     if last_text.as_deref() != Some(text.as_str()) {
-                        if let Ok(mut store) = history.lock() {
-                            let _ = store.push(text.clone());
+                        match preferences.capture_clipboard_text(text.clone()) {
+                            Ok(true) => {
+                                if let Ok(mut store) = history.lock() {
+                                    let _ = store.load();
+                                }
+                                last_text = Some(text);
+                            }
+                            Ok(false) => last_text = None,
+                            Err(_) => {}
                         }
-                        last_text = Some(text);
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(750));
@@ -2314,13 +2320,16 @@ fn list_clipboard_history(
     if !clipboard_enabled(store.inner())? {
         return Ok(Vec::new());
     }
-    state
+    let mut history = state
         .0
         .lock()
-        .map(|history| history.entries().to_vec())
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })
+        })?;
+    history.load().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    Ok(history.entries().to_vec())
 }
 
 #[tauri::command]
@@ -2377,10 +2386,13 @@ fn sync_clipboard_history(
             .trim_end_matches(['\r', '\n'])
             .to_owned()
     };
+    store.capture_clipboard_text(text).map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
     let mut history = state.0.lock().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
-    history.push(text).map_err(|_| HostActionError {
+    history.load().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
     Ok(history.entries().to_vec())
@@ -2456,19 +2468,46 @@ fn copy_text(
         });
     }
     if enabled {
+        store.capture_clipboard_text(text).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
         state
             .0
             .lock()
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?
-            .push(text)
-            .map(|_| ())
+            .load()
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
+    let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
+        .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"))
+    else {
+        return Ok(None);
+    };
+    let options_path = PathBuf::from(options_path);
+    if !options_path.is_absolute() {
+        return Err("Runtime options path must be absolute".into());
+    }
+    let options = fs::read_to_string(options_path)
+        .map_err(|_| "Cannot read runtime options for shared state".to_owned())?;
+    let options: Value = serde_json::from_str(&options)
+        .map_err(|_| "Cannot parse runtime options for shared state".to_owned())?;
+    match options.get("preferences_directory") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if value.is_empty() => Ok(None),
+        Some(Value::String(value)) if PathBuf::from(value).is_absolute() => {
+            Ok(Some(PathBuf::from(value)))
+        }
+        _ => Err("Runtime preferences directory must be absolute".into()),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2486,7 +2525,16 @@ pub fn run() {
                     }
                     path
                 }
-                None => app.path().app_data_dir()?,
+                None => {
+                    #[cfg(target_os = "linux")]
+                    let runtime_directory = linux_runtime_state_directory()?;
+                    #[cfg(not(target_os = "linux"))]
+                    let runtime_directory: Option<PathBuf> = None;
+                    match runtime_directory {
+                        Some(path) => path,
+                        None => app.path().app_data_dir()?,
+                    }
+                }
             };
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
