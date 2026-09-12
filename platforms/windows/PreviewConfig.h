@@ -28,6 +28,7 @@ struct PreviewConfig {
   int candidate_preedit_font_size = 16;
   std::string candidate_text_color;
   std::string candidate_number_color;
+  std::string candidate_surface_color;
   std::optional<bool> candidate_selected_bar;
   std::array<bool, 6> floating_toolbar_items{true, true, true, true, false, true};
   static PreviewConfig parse(const std::string &document) {
@@ -69,7 +70,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 9 ||
+      if (!appearance.is_object() || appearance.size() > 10 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -119,6 +120,11 @@ struct PreviewConfig {
         result.candidate_number_color = appearance.at("candidate_number_color").get<std::string>();
         if (result.candidate_number_color.size() > 32)
           throw std::invalid_argument("Invalid candidate number color");
+      }
+      if (appearance.contains("candidate_surface_color")) {
+        result.candidate_surface_color = appearance.at("candidate_surface_color").get<std::string>();
+        if (result.candidate_surface_color.size() > 32)
+          throw std::invalid_argument("Invalid candidate surface color");
       }
       if (appearance.contains("candidate_selected_bar")) {
         if (!appearance.at("candidate_selected_bar").is_boolean())

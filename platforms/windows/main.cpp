@@ -196,6 +196,9 @@ int wmain(int argc, wchar_t **argv) {
     if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
         config.candidate_number_color != "none")
       resolved_palette.number = parse_css_color(config.candidate_number_color, resolved_palette.number);
+    if (!config.candidate_surface_color.empty() && config.candidate_surface_color != "auto" &&
+        config.candidate_surface_color != "none")
+      resolved_palette.surface = parse_css_color(config.candidate_surface_color, resolved_palette.surface);
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
