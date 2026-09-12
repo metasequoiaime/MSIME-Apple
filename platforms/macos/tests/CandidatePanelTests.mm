@@ -1,6 +1,7 @@
 #import "../src/CandidatePanel.h"
 #import "../src/CandidateSkinAppearance.h"
 #import "../src/CandidateAppearancePreferences.h"
+#include "../src/CandidateGlossLayout.h"
 #include "../src/StringConversion.h"
 #include <stdexcept>
 
@@ -8,6 +9,44 @@ static void Require(bool condition, const char *message)
 {
     if (!condition)
         throw std::runtime_error(message);
+}
+
+static NSButton *FirstCandidateButton(MetasequoiaCandidatePanel *panel)
+{
+    for (NSView *view in panel.window.contentView.subviews)
+        if ([view isKindOfClass:NSButton.class] && view.tag == 0)
+            return (NSButton *)view;
+    Require(false, "The candidate window did not render its first candidate.");
+    return nil;
+}
+
+static NSFont *CandidateButtonFont(MetasequoiaCandidatePanel *panel)
+{
+    return FirstCandidateButton(panel).font;
+}
+
+static NSBitmapImageRep *RenderCandidateButton(MetasequoiaCandidatePanel *panel)
+{
+    NSButton *button = FirstCandidateButton(panel);
+    NSBitmapImageRep *render = [button bitmapImageRepForCachingDisplayInRect:button.bounds];
+    [button cacheDisplayInRect:button.bounds toBitmapImageRep:render];
+    return render;
+}
+
+// Whether two candidate renders paint the leading `width` points, where the candidate text goes, identically.
+static bool CandidateRegionsMatch(NSBitmapImageRep *left, NSBitmapImageRep *right, CGFloat width)
+{
+    Require(left.size.width > 0.0 && right.size.width > 0.0, "A candidate render came back empty.");
+    const CGFloat scale = left.pixelsWide / left.size.width;
+    Require(fabs(right.pixelsWide / right.size.width - scale) < 0.01,
+            "The two candidate renders used different backing scales.");
+    const NSInteger columns = MIN(static_cast<NSInteger>(width * scale), MIN(left.pixelsWide, right.pixelsWide));
+    const NSInteger rows = MIN(left.pixelsHigh, right.pixelsHigh);
+    for (NSInteger y = 0; y < rows; ++y)
+        for (NSInteger x = 0; x < columns; ++x)
+            if (![[left colorAtX:x y:y] isEqual:[right colorAtX:x y:y]])
+                return false;
+    return true;
 }
 
 @interface CandidatePanelTestDelegate : NSObject <MetasequoiaCandidatePanelDelegate>
@@ -124,6 +163,30 @@ int main()
                 horizontalButton = (NSButton *)view;
         Require(horizontalButton != nil && ![horizontalButton.accessibilityLabel containsString:@"metasequoia"],
                 "A horizontal candidate window still presented the vertical-only gloss.");
+        for (const CGFloat measured : {0.0, 40.0, 208.0, 292.0, 1000.0})
+            Require(metasequoia::mac::CandidateGlossDrawnWidth(measured, 10000.0) +
+                            2.0 * metasequoia::mac::kCandidateGlossGap <=
+                        metasequoia::mac::CandidateGlossReservedWidth(measured) + 0.5,
+                    "A gloss drew wider than the room the candidate layout reserves for it.");
+        // english.db ships senses far wider than the room the layout sets aside for them, so what the button paints
+        // over the candidate itself has to stay the same whether or not a gloss follows it.
+        panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
+        NSString *longGloss = @"Huazhong University of Science and Technology";
+        NSAttributedString *longWord = MetasequoiaIndexedCandidateString(@"华中科技大学", 0);
+        [panel setCandidateData:@[ MetasequoiaCandidateStringByAddingTranslation(longWord, @"HUST") ]];
+        NSFont *candidateFont = CandidateButtonFont(panel);
+        NSBitmapImageRep *withShortGloss = RenderCandidateButton(panel);
+        NSDictionary *glossMeasure =
+            @{NSFontAttributeName : [NSFont systemFontOfSize:MAX(12.0, candidateFont.pointSize - 3.0)]};
+        Require([longGloss sizeWithAttributes:glossMeasure].width > metasequoia::mac::kCandidateGlossMaxWidth,
+                "The long-gloss fixture no longer exceeds the width a gloss may be drawn at.");
+        [panel setCandidateData:@[ MetasequoiaCandidateStringByAddingTranslation(longWord, longGloss) ]];
+        NSBitmapImageRep *withLongGloss = RenderCandidateButton(panel);
+        const CGFloat textWidth =
+            8.0 + 6.0 + [@"1  华中科技大学" sizeWithAttributes:@{NSFontAttributeName : candidateFont}].width;
+        Require(CandidateRegionsMatch(withShortGloss, withLongGloss, textWidth),
+                "A gloss longer than the reserved width overdrew the candidate itself.");
+        panel.panelType = kIMKSingleRowSteppingCandidatePanel;
         [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 5)]];
         for (NSScreen *screen in NSScreen.screens)
         {

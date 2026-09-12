@@ -1,6 +1,7 @@
 #import "CandidatePanel.h"
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
+#include "CandidateGlossLayout.h"
 #include "StringConversion.h"
 
 #include <cmath>
@@ -84,9 +85,10 @@
             NSParagraphStyleAttributeName : paragraph,
         };
         const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
-        translationWidth = MIN(translationSize.width, MAX(0.0, self.bounds.size.width - textLeft - 8.0));
+        translationWidth =
+            metasequoia::mac::CandidateGlossDrawnWidth(translationSize.width, self.bounds.size.width - textLeft - 8.0);
     }
-    const CGFloat gap = translationWidth > 0.0 ? 12.0 : 0.0;
+    const CGFloat gap = translationWidth > 0.0 ? metasequoia::mac::kCandidateGlossGap : 0.0;
     const CGFloat rightPad = 8.0 + translationWidth + gap;
     if (split.location == NSNotFound)
     {
@@ -314,11 +316,8 @@
         CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
                                  [word sizeWithAttributes:measure].width + 8.0);
         if (translation.length > 0)
-        {
-            const CGFloat translationWidth =
-                MIN(ceil([translation sizeWithAttributes:translationMeasure].width) + 12.0, 220.0);
-            itemWidth += 12.0 + translationWidth;
-        }
+            itemWidth = ceil(itemWidth + metasequoia::mac::CandidateGlossReservedWidth(
+                                             [translation sizeWithAttributes:translationMeasure].width));
         [titles addObject:title];
         [translations addObject:translation.length > 0 ? translation : @""];
         [widths addObject:@(itemWidth)];
