@@ -2623,6 +2623,11 @@ bool microsoft_shuangpin_ing_key(const Json &view, guint key, guint modifiers) {
   const auto chunk_start = separator == std::string::npos ? 0 : separator + 1;
   return (caret - chunk_start) % 2 == 1;
 }
+bool unicode_plus_key(const Json &view, guint key, guint modifiers) {
+  return key == '+' && modifiers == IBUS_SHIFT_MASK &&
+         view.value("local_mode", std::string("none")) == "unicode" &&
+         view.value("editing_text", std::string{}) == "U";
+}
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active)
@@ -2917,6 +2922,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
       handled = apply(engine, msime_client_character(s.session, ';', false));
+      return;
+    }
+    if (unicode_plus_key(s.view, key, modifiers)) {
+      handled = apply(engine, msime_client_character(s.session, '+', true));
       return;
     }
     if (s.chinese_punctuation && s.paired_punctuation &&

@@ -143,3 +143,5 @@ IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS
 小键盘标点：`KP_Decimal` 始终提交 ASCII `.`；`KP_Subtract`、`KP_Add`、`KP_Divide` 和 `KP_Multiply` 映射为 `-`、`+`、`/`、`*`。候选或组合活动时，宿主先通过 Host API 提交高亮候选，再追加对应 ASCII 标点；空闲时算术键仍遵循 Engine 的标点策略，且不会触发减号/等号候选翻页绑定。
 
 Microsoft 双拼：当当前方案使用 Microsoft 键位且光标所在分音节已有奇数个按键时，未修饰的分号按键作为 `ing` 输入键交给 Engine，不会被中文标点路径提前消费；其他分号仍遵循普通标点处理。
+
+Unicode 输入：进入 Unicode 本地模式后，`Shift++` 作为 Engine 的 `+` 输入继续组成 `U+` 前缀，不会被候选标点或减号/等号翻页路径拦截。
