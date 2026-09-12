@@ -2,8 +2,10 @@ import Foundation
 
 @objc(MSIMEClientSession) final class StubEmojiSession: NSObject {
   static var lastRequest: NSDictionary = [:]
+  static var groups: Any = ["Z", "A"]
   @objc class func emojiCatalogRequest(_ request: NSDictionary) -> NSDictionary {
     lastRequest = request
+    if request["list_groups"] as? Bool == true { return ["groups": groups] }
     return ["items": [["text": "😀", "annotation": "笑脸", "group": "Smileys"]]]
   }
 }
@@ -40,6 +42,16 @@ import Foundation
       assert(StubEmojiSession.lastRequest["offset"] as? Int == 0)
       _ = try MacEmojiCatalog.load(resources: directory.path, search: "synthetic-keyword", category: category, offset: 510)
       assert(StubEmojiSession.lastRequest["offset"] as? Int == 510)
+      _ = try MacEmojiCatalog.load(resources: directory.path, search: "match", category: category, group: "Z")
+      assert(StubEmojiSession.lastRequest["group"] as? String == "Z")
+      let groups = try MacEmojiCatalog.loadGroups(resources: directory.path, category: category)
+      assert(groups == ["Z", "A"])
+      assert(StubEmojiSession.lastRequest["category"] as? String == category)
+    }
+    for invalid: Any in [[""], ["duplicate", "duplicate"], 123] {
+      StubEmojiSession.groups = invalid
+      do { _ = try MacEmojiCatalog.loadGroups(resources: directory.path, category: ""); assertionFailure("accepted invalid groups") }
+      catch {}
     }
     do { _ = try MacEmojiCatalog.load(resources: directory.path, search: "", offset: -1); assertionFailure("accepted negative offset") }
     catch {}

@@ -216,6 +216,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
 /* Query the verified local others.db Emoji catalog. Resources is an absolute
  * generation directory containing others.db; no provider socket is needed.
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
+ * Optional group filters a catalog subdivision; list_groups:true returns
+ * {groups:[name,...]} in catalog order instead of an item page.
  * Advance offset by limit, not returned item count: each page deduplicates text. */
 char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,

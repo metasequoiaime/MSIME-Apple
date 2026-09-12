@@ -21,16 +21,32 @@ enum MacEmojiCatalog {
     }
   }
 
-  static func load(resources: String, search: String, category: String = "", offset: Int = 0) throws -> [MacEmojiCatalogItem] {
+  static func load(resources: String, search: String, category: String = "", offset: Int = 0, group: String = "") throws -> [MacEmojiCatalogItem] {
+    guard offset >= 0 else { throw NSError(domain: "MSIMEEmojiCatalog", code: 3) }
+    return try decode(request(resources: resources, parameters: ["search": search,
+      "category": category, "offset": offset, "group": group, "limit": 255]))
+  }
+
+  static func loadGroups(resources: String, category: String) throws -> [String] {
+    let response = try request(resources: resources, parameters: ["category": category, "list_groups": true])
+    guard response["error"] == nil, let groups = response["groups"] as? [String],
+          groups.allSatisfy({ !$0.isEmpty }), Set(groups).count == groups.count else {
+      throw NSError(domain: "MSIMEEmojiCatalog", code: 4)
+    }
+    return groups
+  }
+
+  private static func request(resources: String, parameters: [String: Any]) throws -> NSDictionary {
     let selector = NSSelectorFromString("emojiCatalogRequest:")
-    guard offset >= 0, NSString(string: resources).isAbsolutePath,
+    var payload = parameters
+    payload["resources"] = resources
+    guard NSString(string: resources).isAbsolutePath,
           FileManager.default.isReadableFile(atPath: URL(fileURLWithPath: resources).appendingPathComponent("others.db").path),
           let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           type.responds(to: selector),
-          let response = type.perform(selector, with: ["resources": resources, "search": search,
-              "category": category, "offset": offset, "limit": 255] as NSDictionary)?.takeUnretainedValue() as? NSDictionary else {
+          let response = type.perform(selector, with: payload as NSDictionary)?.takeUnretainedValue() as? NSDictionary else {
       throw NSError(domain: "MSIMEEmojiCatalog", code: 3)
     }
-    return try decode(response)
+    return response
   }
 }
