@@ -729,30 +729,75 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
   const refreshRevision = useRef(0);
+  const busyRef = useRef(false);
+  const searchRef = useRef("");
 
-  async function refresh(nextOffset = 0, nextSearch = search, nextKind = kind) {
+  async function run(action: (revision: number) => Promise<void>, failure: string) {
+    if (busyRef.current) return;
     const revision = ++refreshRevision.current;
+    busyRef.current = true;
     setBusy(true);
-    try {
-      const result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch });
-      if (revision !== refreshRevision.current) return;
-      setEntries(cloudDictionaryEntries(result));
-      setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
-      setHasMore(result.has_more === true);
-      setNotice("云词典已刷新");
-    } catch { if (revision === refreshRevision.current) setNotice("无法访问云词典服务，请确认 provider 已连接"); }
-    finally { if (revision === refreshRevision.current) setBusy(false); }
+    try { await action(revision); }
+    catch { if (revision === refreshRevision.current) setNotice(failure); }
+    finally {
+      if (revision === refreshRevision.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
   }
 
-  useEffect(() => { void refresh(0, ""); }, [client]);
+  async function load(revision: number, nextOffset: number, nextSearch: string, nextKind: CloudDictionaryKind) {
+    const result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch });
+    if (revision !== refreshRevision.current) return;
+    setEntries(cloudDictionaryEntries(result));
+    setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
+    setHasMore(result.has_more === true);
+  }
 
-  function beginAdd() { setForm({ entry: null, code: "", word: "", weight: 100000 }); }
-  function beginEdit(entry: CloudDictionaryEntry) { setForm({ entry, code: entry.code, word: entry.word, weight: entry.weight }); }
+  function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
+    return run(async revision => {
+      await load(revision, nextOffset, nextSearch, nextKind);
+      if (revision === refreshRevision.current) setNotice("云词典已刷新");
+    }, "无法访问云词典服务，请确认 provider 已连接");
+  }
 
-  async function save() {
-    if (!form || !form.code.trim() || !form.word.trim()) { setNotice("编码和词条不能为空"); return; }
-    setBusy(true);
+  useEffect(() => {
+    busyRef.current = false;
+    setEntries([]);
+    setOffset(0);
+    setHasMore(false);
+    setForm(null);
+    void refresh(0);
+    return () => { refreshRevision.current++; };
+  }, [client]);
+
+  function beginAdd() {
+    if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
+  }
+  function beginEdit(entry: CloudDictionaryEntry) {
+    if (!busyRef.current) setForm({ entry, code: entry.code, word: entry.word, weight: entry.weight });
+  }
+
+  async function reloadAfterMutation(revision: number, success: string) {
+    if (revision !== refreshRevision.current) return;
     try {
+      await load(revision, 0, searchRef.current, kind);
+      if (revision === refreshRevision.current) setNotice(success);
+    } catch {
+      if (revision === refreshRevision.current) {
+        setEntries([]);
+        setOffset(0);
+        setHasMore(false);
+        setNotice(`${success}，但列表刷新失败，请重新查询`);
+      }
+    }
+  }
+
+  function save() {
+    if (busyRef.current) return;
+    if (!form || !form.code.trim() || !form.word.trim()) { setNotice("编码和词条不能为空"); return; }
+    return run(async revision => {
       const code = form.code.trim();
       const word = form.word;
       if (form.entry) {
@@ -760,46 +805,69 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       } else {
         await client.request({ operation: "add", kind, code, word, weight: form.weight });
       }
-      setForm(null); setNotice("云词条已保存"); await refresh(offset, search);
-    } catch { setNotice("云词条保存失败，请刷新后重试"); setBusy(false); }
+      if (revision !== refreshRevision.current) return;
+      setForm(null);
+      await reloadAfterMutation(revision, "云词条已保存");
+    }, "云词条保存失败，请刷新后重试");
   }
 
-  async function remove(entry: CloudDictionaryEntry) {
-    setBusy(true);
-    try { await client.request({ operation: "delete", kind, id: entry.id, revision: entry.revision }); setNotice("云词条已删除"); await refresh(offset, search); }
-    catch { setNotice("云词条删除失败，请刷新后重试"); setBusy(false); }
+  function remove(entry: CloudDictionaryEntry) {
+    return run(async revision => {
+      await client.request({ operation: "delete", kind, id: entry.id, revision: entry.revision });
+      if (revision !== refreshRevision.current) return;
+      setForm(current => current?.entry?.id === entry.id ? null : current);
+      await reloadAfterMutation(revision, "云词条已删除");
+    }, "云词条删除失败，请刷新后重试");
   }
 
-  async function importFile(file: File) {
+  function importFile(file: File) {
+    if (busyRef.current) return;
     if (file.size > 65536) { setNotice("导入文件不能超过 64 KiB"); return; }
-    setBusy(true);
-    try { await client.request({ operation: "import", kind, format, text: await file.text() }); setNotice("云词库已导入"); await refresh(offset, search); }
-    catch { setNotice("导入失败，请检查 UTF-8 TSV 文件格式"); setBusy(false); }
+    return run(async revision => {
+      const text = await file.text();
+      if (revision !== refreshRevision.current) return;
+      await client.request({ operation: "import", kind, format, text });
+      await reloadAfterMutation(revision, "云词库已导入");
+    }, "导入失败，请检查 UTF-8 TSV 文件格式");
   }
 
-  async function exportDictionary() {
-    setBusy(true);
-    try {
+  function exportDictionary() {
+    return run(async revision => {
       if (format === "hans") throw new Error("format cannot be exported");
       const result = await client.request({ operation: "export", kind, format });
+      if (revision !== refreshRevision.current) return;
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
-      anchor.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      anchor.href = url;
       anchor.download = result.filename || `msime-${kind}-dictionary.tsv`;
-      anchor.click(); URL.revokeObjectURL(anchor.href); setNotice("云词库已导出");
-    } catch { setNotice("导出失败，请确认 provider 已连接"); }
-    finally { setBusy(false); }
+      document.body.appendChild(anchor);
+      try { anchor.click(); setNotice("云词库已导出"); }
+      finally {
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    }, "导出失败，请确认 provider 已连接");
   }
 
-  function changeKind(next: CloudDictionaryKind) { setKind(next); if (next !== "pinyin" && format === "hans") setFormat("standard"); setOffset(0); setEntries([]); void refresh(0, search, next); }
+  function changeKind(next: CloudDictionaryKind) {
+    if (busyRef.current || next === kind) return;
+    setKind(next);
+    setForm(null);
+    if (next !== "pinyin" && format === "hans") setFormat("standard");
+    setOffset(0);
+    setEntries([]);
+    setHasMore(false);
+    void refresh(0, searchRef.current, next);
+  }
   return <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
     <header className="native-panel-header"><span>水杉云词典</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="cloud-dictionary-body">
       <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button></div>
+      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button></div>
       <div className="cloud-dictionary-actions"><label>文件格式<select aria-label="文件格式" value={format} onChange={event => setFormat(event.target.value as CloudDictionaryFileFormat)} disabled={busy}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option>{kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><button type="button" onClick={() => void exportDictionary()} disabled={busy || format === "hans"}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file); event.currentTarget.value = ""; }} /></label></div>
-      {form && <div className="cloud-dictionary-form"><label>编码<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
+      {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
       <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
       <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
