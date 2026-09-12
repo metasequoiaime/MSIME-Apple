@@ -227,16 +227,68 @@ def stream_identity(stream):
     return (stream["index"], props.get("application.process.id"), props.get("application.name"))
 
 
+def pipewire_sink_inputs(wanted=None, session=None):
+    nodes = json.loads(command(["pw-dump"], timeout=0.5))
+    streams = []
+    for node in nodes:
+        if session is not None and session.stopped.is_set():
+            break
+        if node.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = node.get("info", {}).get("props", {})
+        if props.get("media.class") != "Stream/Output/Audio" or props.get("object.serial") is None:
+            continue
+        index = node.get("id")
+        if type(index) is not int or index < 0:
+            continue
+        if wanted is not None and (index, props["object.serial"]) not in wanted:
+            continue
+        # Use the session manager's current state, rather than assuming that
+        # missing Props in a graph snapshot means an unmuted stream.
+        try:
+            volume = command(["wpctl", "get-volume", str(index)], timeout=0.5)
+            if not volume.startswith(b"Volume:"):
+                continue
+            streams.append({"index": index, "properties": props,
+                            "mute": b"[MUTED]" in volume})
+        except Exception:
+            continue
+        if len(streams) == 32:
+            break
+    return streams
+
+
+def set_stream_mute(backend, index, muted):
+    args = (["wpctl", "set-mute", str(index), str(int(muted))] if backend == "pipewire" else
+            ["pactl", "set-sink-input-mute", str(index), str(int(muted))])
+    command(args, timeout=0.5)
+
+
 def mute_audio(enabled, session):
     muted = []
-    if enabled and shutil.which("pactl"):
+    if not enabled:
+        return muted
+    streams = None
+    backend = "pulse"
+    if shutil.which("pactl"):
         try:
-            for stream in sink_inputs()[:32]:
+            streams = sink_inputs()
+        except Exception:
+            pass
+    if streams is None and shutil.which("pw-dump") and shutil.which("wpctl"):
+        backend = "pipewire"
+        try:
+            streams = pipewire_sink_inputs(session=session)
+        except Exception:
+            pass
+    if streams is not None:
+        try:
+            for stream in streams[:32]:
                 if session.stopped.is_set():
                     break
                 if not stream.get("mute"):
-                    command(["pactl", "set-sink-input-mute", str(stream["index"]), "1"], timeout=0.5)
-                    muted.append(stream_identity(stream))
+                    set_stream_mute(backend, stream["index"], True)
+                    muted.append((backend, stream_identity(stream)))
         except Exception:
             pass
     return muted
@@ -246,10 +298,13 @@ def restore_audio(muted):
     if not muted:
         return
     try:
-        for stream in sink_inputs():
-            if stream.get("mute") and stream_identity(stream) in muted:
+        backend = muted[0][0]
+        streams = (pipewire_sink_inputs(wanted={identity for _, identity in muted})
+                   if backend == "pipewire" else sink_inputs())
+        for stream in streams:
+            if stream.get("mute") and (backend, stream_identity(stream)) in muted:
                 try:
-                    command(["pactl", "set-sink-input-mute", str(stream["index"]), "0"], timeout=0.5)
+                    set_stream_mute(backend, stream["index"], False)
                 except Exception:
                     continue
     except Exception:
