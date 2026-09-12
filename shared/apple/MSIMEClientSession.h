@@ -35,6 +35,12 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error;
 /// Shared bounded parser and stale-query guard; returns {applied,view}.
 - (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;
+/// Copied enabled translation query, or nil when no candidates are eligible.
+- (nullable NSDictionary *)translationQueryWithError:(NSError **)error;
+/// Offline dictionary lookup; may run on a worker with copied {generation,candidates:[{text,source}]}.
++ (nullable NSDictionary *)candidateGlossRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error;
+/// Apply on the originating session/thread only. A stale generation is ignored.
+- (nullable NSDictionary *)applyTranslations:(NSArray<NSDictionary *> *)translations generation:(uint64_t)generation error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)setCandidatePageSize:(uint8_t)size error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)startVoiceWithError:(NSError **)error;
