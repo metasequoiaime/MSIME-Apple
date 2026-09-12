@@ -517,6 +517,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       if (client.dictionary.import) {
         await client.dictionary.import(dictionaryKind, dictionaryFormat, text, requestId("ui-import"));
       } else {
+        if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
         const lines = text.split(/\r?\n/).filter(Boolean);
         for (const line of lines) {
           const [first, second, weight = "100000"] = line.split("\t");
@@ -531,6 +532,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   }
   async function exportPhrases() {
     if (!client.dictionary) return;
+    if (dictionaryFormat === "hans") { setPhraseError("汉字自动注音格式仅支持导入。"); return; }
     setPhraseBusy(true); setPhraseError("");
     try {
       let text = "";
@@ -538,7 +540,6 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         let offset = 0;
         let hasMore = true;
         while (hasMore && offset <= 1000000) {
-          if (dictionaryFormat === "hans") throw new Error("hans format cannot be exported");
           const page = await client.dictionary.export(dictionaryKind, dictionaryFormat === "rime" ? "standard" : dictionaryFormat, offset, 1000);
           text += page.text;
           const count = page.text ? page.text.trimEnd().split("\n").length : 0;
