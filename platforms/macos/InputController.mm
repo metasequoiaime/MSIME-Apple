@@ -29,6 +29,7 @@
 #import "FloatingToolbarPanel.h"
 #import "VoiceInputService.h"
 #import "VoiceSettings.h"
+#import "CloudCandidateRequest.h"
 #include "WubiCommitPolicy.h"
 
 static BOOL MSIMEScriptConversionApplies(id value) {
@@ -189,6 +190,58 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _focusPending;
     MSIMEModifierTap _modifierTap;
     MSIMEDictionaryWindowController *_dictionaryWindow;
+    NSTimer *_cloudTimer;
+    MSIMECloudCandidateRequest *_cloudRequest;
+    NSDictionary *_cloudQuery;
+    uint64_t _cloudEpoch;
+}
+
+- (void)cancelCloudCandidates {
+    ++_cloudEpoch;
+    [_cloudTimer invalidate];
+    _cloudTimer = nil;
+    [_cloudRequest cancel];
+    _cloudRequest = nil;
+    _cloudQuery = nil;
+}
+
+- (MSIMECloudCandidateRequest *)cloudRequestForURL:(NSURL *)url completion:(void (^)(NSData *))completion {
+    return [[MSIMECloudCandidateRequest alloc] initWithURL:url configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+
+- (void)synchronizeCloudCandidates {
+    NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode ? [_session onlineQueryWithError:nil] : nil;
+    NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
+    if (!url) { [self cancelCloudCandidates]; return; }
+    if ([_cloudQuery isEqual:query]) return;
+    [self cancelCloudCandidates];
+    _cloudQuery = [query copy];
+    const uint64_t epoch = _cloudEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    _cloudTimer = [NSTimer timerWithTimeInterval:0.5 repeats:NO block:^(NSTimer *timer) {
+        (void)timer;
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
+            controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
+            ![[session onlineQueryWithError:nil] isEqual:query]) return;
+        controller->_cloudTimer = nil;
+        controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_cloudEpoch != epoch || current->_session != session ||
+                current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
+                ![[session onlineQueryWithError:nil] isEqual:query]) return;
+            current->_cloudRequest = nil;
+            if (!body) return;
+            NSDictionary *result = [session applyCloudResponse:body query:query error:nil];
+            // Remember the post-apply identity so rendering does not re-request this result.
+            current->_cloudQuery = [[session onlineQueryWithError:nil] copy];
+            if ([result[@"applied"] boolValue]) [current apply:result];
+        }];
+        [controller->_cloudRequest start];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_cloudTimer forMode:NSRunLoopCommonModes];
 }
 
 - (void)ensureAppearance {
@@ -505,6 +558,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)activateServer:(id)sender {
+    [self cancelCloudCandidates];
     _modifierTap.reset();
     [super activateServer:sender];
     [self ensureAppearance];
@@ -548,6 +602,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    [self cancelCloudCandidates];
     _modifierTap.reset();
     _requestedPageSize = 0;
     _preferenceLoadState.reset();
@@ -617,6 +672,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
         _view = result[@"view"];
         [self renderCandidates];
+        [self synchronizeCloudCandidates];
     }
 }
 
@@ -666,6 +722,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    [self cancelCloudCandidates];
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
@@ -710,6 +767,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)dealloc {
+    [_cloudTimer invalidate];
+    [_cloudRequest cancel];
     [_preferencesTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
@@ -724,6 +783,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!sender) { _modifierTap.reset(); return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        [self cancelCloudCandidates];
         _modifierTap.reset();
         _preferenceLoadState.reset();
         // Clear the previous client's marked text before accepting the new focus.
@@ -896,6 +956,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEApplyTransition(displayTransition, (id<MSIMETextClient>)_activeClient);
     _view = transition[@"view"];
     [self renderCandidates];
+    [self synchronizeCloudCandidates];
 }
 
 - (void)updateKeymapPanel {
