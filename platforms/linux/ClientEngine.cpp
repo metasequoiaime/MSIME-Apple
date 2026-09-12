@@ -9,6 +9,7 @@
 #include "msime_client.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <fcntl.h>
@@ -918,44 +919,41 @@ std::string fullwidth_text(const std::string &text) {
   }
   return result;
 }
-std::optional<guint> candidate_text_color(const Json &preferences) {
-  const auto value = preferences.value("candidate_text_color", Json(nullptr));
-  if (!value.is_string())
-    return std::nullopt;
+std::optional<guint> palette_color(const Json &value) {
+  if (!value.is_string()) return std::nullopt;
   const auto hex = value.get<std::string>();
-  if (hex.size() != 7 || hex.front() != '#')
-    return std::nullopt;
+  if (hex.size() != 7 || hex.front() != '#') return std::nullopt;
   guint color = 0;
   for (size_t index = 1; index < hex.size(); ++index) {
     const auto c = static_cast<unsigned char>(hex[index]);
-    guint digit = 0;
-    if (c >= '0' && c <= '9')
-      digit = c - '0';
-    else if (c >= 'a' && c <= 'f')
-      digit = c - 'a' + 10;
-    else if (c >= 'A' && c <= 'F')
-      digit = c - 'A' + 10;
-    else
-      return std::nullopt;
+    guint digit;
+    if (c >= '0' && c <= '9') digit = c - '0';
+    else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+    else return std::nullopt;
     color = (color << 4) | digit;
   }
   return color;
 }
+std::optional<guint> candidate_text_color(const Json &preferences) {
+  if (const auto custom = palette_color(preferences.value("candidate_text_color", Json(nullptr))))
+    return custom;
+  const auto background = candidate_background_color(preferences);
+  if (!background) return std::nullopt;
+  const auto linear = [](guint channel) {
+    const double value = channel / 255.0;
+    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+  };
+  const auto luminance = 0.2126 * linear((*background >> 16) & 0xff) +
+                         0.7152 * linear((*background >> 8) & 0xff) +
+                         0.0722 * linear(*background & 0xff);
+  const auto black_contrast = (luminance + 0.05) / 0.05;
+  const auto white_contrast = 1.05 / (luminance + 0.05);
+  return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
+}
 std::optional<guint> candidate_background_color(const Json &preferences) {
-  const auto custom = preferences.value("candidate_background_color", Json(nullptr));
-  if (custom.is_string()) {
-    const auto value = custom.get<std::string>();
-    if (value.size() == 7 && value.front() == '#') {
-      guint color = 0;
-      for (size_t i = 1; i < value.size(); ++i) {
-        const auto c = static_cast<unsigned char>(value[i]);
-        const auto digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 99;
-        if (digit > 15) break;
-        color = (color << 4) | digit;
-        if (i == value.size() - 1) return color;
-      }
-    }
-  }
+  if (const auto custom = palette_color(preferences.value("candidate_background_color", Json(nullptr))))
+    return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";

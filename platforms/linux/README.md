@@ -310,3 +310,5 @@ Wayland 使用 `wl-paste --type text`，X11 使用 `xclip` 或 `xsel`；每次�
 外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。启动、菜单皮肤/主题选择及设置热更新均按最终选择计算外部配色；目录内容变化也会刷新当前展示。自定义候选文字颜色优先于皮肤文字色，外部背景色不写入共享 preferences。
 
 候选主题 `follow` 通过桌面门户的 `org.freedesktop.appearance/color-scheme` 获取系统明暗偏好，并监听后续变化；异步读取不阻塞 IBus，门户重启后重新接入。明确的 `light`/`dark` 设置优先，门户缺失或未表达偏好时使用浅色。内置及外部皮肤共用此解析，切换不会重建输入组合。接口依据 [XDG Desktop Portal Settings](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Settings.html)。
+
+候选配色没有明确文字色时，会根据实际背景的相对亮度选择对比度更高的黑色或白色，避免系统主题与 IBus 面板主题不一致时出现深底深字或浅底浅字。有效的用户文字色和外部皮肤文字色仍优先。
