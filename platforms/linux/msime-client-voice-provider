@@ -239,6 +239,26 @@ def command(args, data=None, timeout=2):
                           timeout=timeout, check=True).stdout
 
 
+def cue_audio(start):
+    # The installed path is relative to bin so custom prefixes stay relocatable.
+    try:
+        from msime_voice_paths import CUE_DIRECTORY
+        directory = Path(__file__).resolve().parent / CUE_DIRECTORY
+    except ImportError:
+        directory = Path(__file__).resolve().parent / "data" / "voice"
+    try:
+        with (directory / ("start.pcm" if start else "end.pcm")).open("rb") as source:
+            audio = source.read(RATE * 2 * 4 + 1)
+        if audio and len(audio) <= RATE * 2 * 4 and len(audio) % 2 == 0:
+            return audio
+    except OSError:
+        pass
+    # Keep copied standalone scripts usable if their optional assets are absent.
+    frames = RATE // 12
+    return b"".join(struct.pack("<h", int(2500 * math.sin(2 * math.pi * (880 if start else 660) * i / RATE) *
+                                        math.sin(math.pi * i / frames))) for i in range(frames))
+
+
 def cue(options, start):
     if not options.get("sound_enabled", True) or not options.get("start_sound" if start else "end_sound", True):
         return
@@ -246,11 +266,9 @@ def cue(options, start):
             ["pw-cat", "--playback", "--raw", "--format=s16", "--rate=16000", "--channels=1", "-"] if shutil.which("pw-cat") else
             ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"] if shutil.which("aplay") else None)
     if args:
-        frames = RATE // 12
-        audio = b"".join(struct.pack("<h", int(2500 * math.sin(2 * math.pi * (880 if start else 660) * i / RATE) *
-                                              math.sin(math.pi * i / frames))) for i in range(frames))
+        audio = cue_audio(start)
         try:
-            command(args, audio)
+            command(args, audio, timeout=max(2, len(audio) / (RATE * 2) + 1))
         except Exception:
             pass
 

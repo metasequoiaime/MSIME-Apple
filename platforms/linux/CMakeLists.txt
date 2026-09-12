@@ -85,6 +85,12 @@ foreach(MSIME_PROVIDER online voice clipboard)
 endforeach()
 install(FILES msime_voice_doubao.py msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+file(RELATIVE_PATH MSIME_VOICE_CUE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/voice")
+configure_file(msime_voice_paths.py.in msime_voice_paths.py @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/voice")
 if(MSIME_HANDWRITING_MODEL AND EXISTS "${MSIME_HANDWRITING_MODEL}")
   install(FILES "${MSIME_HANDWRITING_MODEL}" DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/handwriting")
   get_filename_component(MSIME_HANDWRITING_MODEL_DIR "${MSIME_HANDWRITING_MODEL}" DIRECTORY)

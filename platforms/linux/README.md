@@ -376,3 +376,8 @@ IBus 快捷键录音通过 `msime_client_voice_provider_stream_feedback` 接收�
 
 
 启用录音时静音其他应用后，语音服务每 500 毫秒在后台检查新出现的 PulseAudio/PipeWire 播放流，覆盖录音期间新启动的播放器。已见过的流不会反复静音，保留用户手动调整；原本静音的流不会在结束时被取消静音。服务最多记录 256 个实际静音流，按流身份恢复，避免把复用的节点 ID 当作原流。结束或取消录音时先停止监听，再恢复音频，防止恢复后又被后台线程静音。
+
+
+### 随包录音提示音
+
+Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音，离线转换为 16 kHz 单声道 PCM，通过已有 PulseAudio、PipeWire 或 ALSA 播放工具输出，不增加运行时 MP3 解码依赖。`sound_enabled`、`start_sound`、`end_sound` 开关继续分别控制播放。音频来源见 `data/voice/SOURCE.md`；安装路径随自定义前缀定位。单独复制服务脚本而未带音频资源时仍使用短音回退。
