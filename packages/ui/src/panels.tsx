@@ -562,6 +562,24 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
       undo();
     }
   }
+  function navigateCandidates(event: import("react").KeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 ||
+        event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+        closingRef.current || submittingRef.current) return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      ".handwriting-candidate-submit:not(:disabled)"));
+    const index = buttons.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+    // The candidate grid has four columns; keep a partial final row reachable.
+    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+      : index + (event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1
+        : event.key === "ArrowUp" ? -4 : 4);
+    event.preventDefault();
+    const target = buttons[Math.max(0, Math.min(buttons.length - 1, next))];
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
   async function chooseCandidate(candidate: string, copyOnly = false) {
     if (!recognitionQueue.current.active || closingRef.current || submittingRef.current || !candidates.includes(candidate)) return;
     const action = copyOnly ? client.copyHandwritingCandidate : client.submitHandwritingCandidate;
@@ -599,7 +617,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
           <button type="button" aria-pressed={effectiveMode === "copy"} disabled={closing || submitting || !client.copyHandwritingCandidate} onClick={() => selectActivation("copy")}>复制</button>
           <button type="button" aria-pressed={effectiveMode === "input"} disabled={closing || submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
         </div>
-        <div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
+        <div className="handwriting-candidate-grid" onKeyDown={navigateCandidates}>{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
           <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={closing || submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} />
           {effectiveMode === "copy" && client.submitHandwritingCandidate
             ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
