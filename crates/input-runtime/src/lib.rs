@@ -333,6 +333,9 @@ fn default_ai_candidate_limit() -> u8 {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
+    /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ai_context: String,
     pub scheme: u8,
     pub generation: u64,
     pub identity: String,
@@ -472,12 +475,31 @@ impl UnixSocketProvider {
     }
 
     pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+        self.query_candidates(query)?.into_iter().next()
+    }
+
+    /// Accept one cloud and one AI suggestion from the same provider response.
+    pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
+        if query.ai_context.len() > 1024 {
+            return None;
+        }
+        if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+            query.ai_context.clear();
+        }
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
+        let timeout = if query.ai_eligible
+            && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled)
+        {
+            // Windows ai_assistant.cpp permits eight seconds for model inference.
+            std::time::Duration::from_secs(8)
+        } else {
+            std::time::Duration::from_millis(500)
+        };
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
         if request.len() > 16384
@@ -486,22 +508,68 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        // One response deadline: partial writes by the provider must not
+        // restart the inference timeout or grow an unbounded line buffer.
+        let deadline = std::time::Instant::now() + timeout;
+        let mut bytes = Vec::new();
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_read_timeout(Some(remaining)).ok()?;
+            let mut chunk = [0_u8; 1024];
+            let count = stream.read(&mut chunk).ok()?;
+            if count == 0 {
+                return None;
+            }
+            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
+            if bytes.len() > 16384 {
+                return None;
+            }
+            if end.is_some() {
+                break;
+            }
+        }
+        let line = String::from_utf8(bytes).ok()?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
             source: u8,
         }
-        let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.text.is_empty()
-            || reply.text.len() > 4096
-            || reply.source > 1
-            || (!query.cloud_candidates && reply.source == 0)
-        {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Response {
+            Batch { candidates: Vec<Reply> },
+            Single(Reply),
+        }
+        let replies = match serde_json::from_str::<Response>(&line).ok()? {
+            Response::Batch { candidates } => candidates,
+            Response::Single(reply) => vec![reply],
+        };
+        if replies.len() > 2 {
             return None;
         }
-        Some((reply.text, reply.source))
+        let mut seen_sources = [false; 2];
+        let mut candidates = Vec::new();
+        for reply in replies {
+            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+                return None;
+            }
+            if (reply.source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+                || (reply.source == 1 && !query.ai_eligible)
+            {
+                continue;
+            }
+            let source = usize::from(reply.source);
+            if seen_sources[source] {
+                return None;
+            }
+            seen_sources[source] = true;
+            candidates.push((reply.text, reply.source));
+        }
+        Some(candidates)
     }
 
     pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
@@ -1107,6 +1175,7 @@ impl Runtime<Session> {
             ai_eligible: query.ai_eligible,
             cloud_candidates: true,
             session_id: query.session_id,
+            ai_context: String::new(),
             ai_assistant: None,
         }))
     }
@@ -1837,6 +1906,7 @@ mod tests {
             ai_eligible: true,
             cloud_candidates: true,
             session_id: 9,
+            ai_context: String::new(),
             ai_assistant: None,
         };
         let worker = OnlineProviderWorker::spawn(1, |query| {
@@ -1880,6 +1950,7 @@ mod tests {
             ai_eligible: false,
             cloud_candidates: true,
             session_id: 1,
+            ai_context: String::new(),
             ai_assistant: None,
         };
         assert!(cloud_request_url(&query).is_none());

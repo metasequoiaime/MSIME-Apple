@@ -380,10 +380,7 @@ fn parse_hans_import(
         if word.is_empty() || word.starts_with('#') {
             continue;
         }
-        if entries.len() >= 1000
-            || word.len() > 1024
-            || !word.chars().all(is_han_character)
-        {
+        if entries.len() >= 1000 || word.len() > 1024 || !word.chars().all(is_han_character) {
             return Err("invalid dictionary import".into());
         }
         let key = msime_engine_bridge::hanzi_to_pinyin(options, word);

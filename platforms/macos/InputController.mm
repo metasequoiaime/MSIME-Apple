@@ -91,6 +91,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     [self syncPageSize];
     [self syncPunctuation];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -356,6 +357,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [super activateServer:sender];
     [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     _preferenceLoadState.reset();

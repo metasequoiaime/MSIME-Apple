@@ -28,12 +28,17 @@ struct Observation {
   guint cursor = 0;
   bool mode_registered = false;
   bool input_enabled = false;
+  bool english_mode = false;
   bool mode_sensitive = false;
   bool punctuation_enabled = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
   auto &seen = *static_cast<Observation *>(data);
+  if (std::string(name) == "HidePreeditText") {
+    seen.preedit_visible = false;
+    return;
+  }
   if (std::string(name) == "HideLookupTable") {
     seen.lookup_visible = false;
     return;
@@ -63,6 +68,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
     }
+    if (std::string(ibus_property_get_key(property)) == "EnglishMode")
+      seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -148,7 +155,8 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   try {
-    g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
+    // This fixture asserts RegisterProperties and must exercise the real menu path.
+    g_unsetenv("MSIME_DISABLE_IBUS_PROPERTIES");
     // Synthetic fixture only; the production host does not invoke this
     // bootstrap.
     gchar *temporary = g_dir_make_tmp("msime-ibus-test-XXXXXX", nullptr);
@@ -240,22 +248,28 @@ int main(int argc, char **argv) {
     };
     require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+E was not consumed");
-    require(!seen.input_enabled, "Ctrl+Shift+E did not enter English mode");
+    require(seen.english_mode && seen.input_enabled, "Ctrl+Shift+E did not enter dedicated English mode");
     require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+E could not restore the input mode");
-    require(seen.input_enabled, "Ctrl+Shift+E did not restore input mode");
+    require(!seen.english_mode && seen.input_enabled, "Ctrl+Shift+E did not restore Chinese mode");
     require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
             "Ctrl+Alt+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Alt+Space did not enter English mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Alt+Space release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
             "Ctrl+Alt+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Alt+Space did not restore input mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Alt+Space restore release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK), "Ctrl+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Space did not enter English mode");
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    require(seen.committed.empty(), "Mode setup unexpectedly committed text");
     phrase();
+    require(seen.committed.empty(), "Phrase unexpectedly committed before selection");
     require(key(IBUS_period, IBUS_CONTROL_MASK),
             "Ctrl+. punctuation toggle was not consumed");
     require(!seen.punctuation_enabled,
@@ -264,12 +278,15 @@ int main(int argc, char **argv) {
             "Ctrl+. punctuation restore was not consumed");
     require(seen.punctuation_enabled,
             "Ctrl+. did not restore punctuation state");
+    require(seen.committed.empty(), "Punctuation toggle unexpectedly committed text");
     invoke("CursorDown");
+    require(seen.committed.empty(), "CursorDown unexpectedly committed text");
     auto mode_commit = seen.candidates.at(seen.cursor);
     mode(PROP_STATE_UNCHECKED);
-    require(!seen.input_enabled && seen.committed == mode_commit &&
-                !seen.preedit_visible && !seen.lookup_visible,
-            "Direct mode lost highlighted composition or left stale UI");
+    require(!seen.input_enabled, "Direct mode remained enabled");
+    require(seen.committed == mode_commit, "Direct mode lost highlighted composition");
+    require(!seen.preedit_visible, "Direct mode left preedit visible");
+    require(!seen.lookup_visible, "Direct mode left candidates visible");
     mode(PROP_STATE_UNCHECKED);
     require(seen.committed == mode_commit,
             "Repeated mode request committed twice");
@@ -447,11 +464,11 @@ int main(int argc, char **argv) {
     invoke("FocusOut");
     invoke("FocusIn");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
-    require(key('a'), "Fullwidth ASCII was not handled");
-    require(seen.committed == committed + "你好ａ", "Fullwidth ASCII commit mismatch");
+    require(key('1'), "Fullwidth idle digit was not handled");
+    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
-    require(key('b'), "Halfwidth ASCII was not handled");
-    require(seen.committed == committed + "你好ａb", "Halfwidth ASCII commit mismatch");
+    require(!key('2'), "Halfwidth idle digit was intercepted");
+    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {

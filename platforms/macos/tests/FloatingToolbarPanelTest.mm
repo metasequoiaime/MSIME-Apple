@@ -1,4 +1,5 @@
 #import "../FloatingToolbarPanel.h"
+#import "../CandidateSkinAppearance.h"
 
 #include <cassert>
 #include <cmath>
@@ -74,6 +75,29 @@ int main() {
         assert(panel.appearance == nil);
         assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
         [panel setFrameAutosaveName:@""]; // Geometry tests must not persist window placement.
+        msime::mac::SkinTokens light{}, dark{};
+        light.surface = {0.8, 0.7, 0.6, 1};
+        light.border = {0.4, 0.3, 0.2, 1};
+        light.text = {0.1, 0.2, 0.3, 1};
+        dark.surface = {0.1, 0.2, 0.3, 1};
+        dark.border = {0.3, 0.4, 0.5, 1};
+        dark.text = {0.9, 0.8, 0.7, 1};
+        [panel applyLightSkin:light darkSkin:dark];
+        for (NSString *mode in @[@"light", @"dark"]) {
+            const auto expected = [mode isEqual:@"dark"] ? dark : light;
+            [panel applyThemePreferences:@{@"toolbar_theme": mode}];
+            // Legacy notifications and size updates must not replace host-supplied colors.
+            [NSNotificationCenter.defaultCenter postNotificationName:MetasequoiaCandidateSkinDidChangeNotification object:nil];
+            [panel applySizingPreferences:@{}];
+            id chrome = [panel valueForKey:@"chrome"];
+            assert([[chrome valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(expected.surface)]);
+            assert([[chrome valueForKey:@"strokeColor"] isEqual:MetasequoiaColorFromRgba(expected.border)]);
+            NSButton *button = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
+            assert([button.contentTintColor isEqual:MetasequoiaColorFromRgba(expected.text)]);
+        }
+        dark.surface = {0.3, 0.1, 0.2, 1};
+        [panel applyLightSkin:light darkSkin:dark];
+        assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(dark.surface)]);
 
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
         NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");

@@ -16,8 +16,9 @@ for name in sorted(symbols):
 print("Host API header exports verified")
 PY
 cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
-cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
+cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so -DMSIME_LINUX_VOICE=ON
 cmake --build /build/ibus
+ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 test -x /build/stage/usr/local/bin/msime-client-ibus

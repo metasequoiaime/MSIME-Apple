@@ -60,6 +60,7 @@ if(MSIME_LINUX_VOICE)
  add_executable(msime-voice-worker-test tests/voice_worker.cpp)
  target_compile_options(msime-voice-worker-test PRIVATE -Wall -Wextra -Werror)
  target_include_directories(msime-voice-worker-test PRIVATE .)
+ add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
 configure_file(msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard

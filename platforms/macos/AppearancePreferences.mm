@@ -374,7 +374,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
         window.title = @"皮肤";
         window.releasedWhenClosed = NO;
-        MetasequoiaSkinSettingsView *cards = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect];
+        MetasequoiaSkinSettingsView *cards = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect preferences:self];
         [window.contentView addSubview:cards];
         [NSLayoutConstraint activateConstraints:@[
             [cards.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor],

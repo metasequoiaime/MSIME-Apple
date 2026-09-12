@@ -13,6 +13,7 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
+use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
@@ -20,7 +21,7 @@ use msime_input_runtime::{
     Runtime, Transition,
 };
 #[cfg(unix)]
-use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
+use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -37,11 +38,11 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
 };
 
-/// Run the optional offline Engine handwriting recognizer for a native panel.
+/// Run the optional offline Engine handwriting recognizer for a panel host.
 /// The caller must provide a trusted absolute model path; strokes are copied
-/// before crossing the C++ bridge. The shared Linux panel uses a 420 by 420
-/// canvas, which is also the coordinate space passed to the Engine.
-#[cfg(unix)]
+/// before crossing the C++ bridge. The shared panel uses a 420 by 420 canvas,
+/// which is also the coordinate space passed to the Engine. This path needs no
+/// provider socket, so every host can use it.
 pub fn handwriting_local_candidates(
     model_path: &str,
     query: &HandwritingQuery,
@@ -74,6 +75,8 @@ struct HostSession {
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     voice: VoiceSessionState,
+    // Declared after runtime so the Engine is dropped before releasing access.
+    _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
@@ -851,6 +854,12 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 msime_client_core::preferences::PunctuationLock::English => 2,
             },
         };
+        let dictionary_access = DictionaryAccess::try_session(
+            std::path::Path::new(&options.user_data),
+            std::path::Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable".to_owned())?
+        .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
         let default_english = matches!(
             applied.default_ime_mode,
             msime_client_core::preferences::DefaultImeMode::English
@@ -886,6 +895,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     page_size_override: None,
                     nine_key_override: None,
                     voice: VoiceSessionState::default(),
+                    _dictionary_access: dictionary_access,
                 },
             )
         });
@@ -1412,8 +1422,16 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
-            .query(query)
-            .map(|(text, source)| json!({"text": text, "source": source}))
+            .query_candidates(query)
+            .map(|candidates| {
+                let rows: Vec<_> = candidates.into_iter()
+                    .map(|(text, source)| json!({"text": text, "source": source}))
+                    .collect();
+                // Preserve the single-result fields for older CLI consumers.
+                let mut value = rows.first().cloned().unwrap_or(json!({}));
+                value["candidates"] = json!(rows);
+                value
+            })
             .unwrap_or(Value::Null))
     })
 }

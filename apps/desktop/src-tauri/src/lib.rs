@@ -6,8 +6,10 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+// The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
-use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
+use msime_input_runtime::UnixSocketProvider;
+use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
 #[cfg(unix)]
 use std::collections::HashMap;
@@ -643,18 +645,21 @@ struct HostActionError {
 fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(not(target_os = "linux"))]
     {
-        return Err(HostActionError { code: "unavailable" });
+        Err(HostActionError {
+            code: "unavailable",
+        })
     }
     #[cfg(target_os = "linux")]
     {
         let status = std::process::Command::new("ibus")
             .arg("restart")
             .status()
-            .map_err(|_| HostActionError { code: "unavailable" })?;
-        status
-            .success()
-            .then_some(())
-            .ok_or(HostActionError { code: "unavailable" })
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        status.success().then_some(()).ok_or(HostActionError {
+            code: "unavailable",
+        })
     }
 }
 
@@ -1333,93 +1338,101 @@ async fn recognize_handwriting(
     request.validate().map_err(|_| HostActionError {
         code: "invalid_stroke",
     })?;
-    // Recognition runs through the unix provider socket; other hosts answer
-    // unavailable rather than pretending to recognize.
-    #[cfg(not(unix))]
-    let _ = options;
-    #[cfg(unix)]
-    {
-        let query = HandwritingQuery {
-            language: request.language,
-            strokes: request
-                .strokes
-                .into_iter()
-                .map(|stroke| {
-                    stroke
-                        .points
-                        .into_iter()
-                        .map(|point| HandwritingPoint {
-                            x: point.x,
-                            y: point.y,
-                        })
-                        .collect()
-                })
-                .collect(),
-        };
-        let path = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map(|path| (path, true));
-        let configured = serde_json::from_str::<Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("handwriting_model")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute());
-        let model = configured
-            .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(std::path::PathBuf::from))
-            .or_else(|| {
-                std::env::current_exe().ok().and_then(|exe| {
-                    exe.parent()?.parent().map(|prefix| {
-                        prefix.join("share/msime-client/handwriting/handwriting-zh_CN.model")
+    let query = HandwritingQuery {
+        language: request.language,
+        strokes: request
+            .strokes
+            .into_iter()
+            .map(|stroke| {
+                stroke
+                    .points
+                    .into_iter()
+                    .map(|point| HandwritingPoint {
+                        x: point.x,
+                        y: point.y,
                     })
-                })
+                    .collect()
             })
-            .filter(|path| path.is_absolute() && path.is_file());
-        let candidates = if let Some((path, _)) = path {
-            tauri::async_runtime::spawn_blocking(move || {
-                UnixSocketProvider::new(path).handwriting(query)
-            })
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-        } else if let Some(model) = model {
-            tauri::async_runtime::spawn_blocking(move || {
-                msime_host_api::handwriting_local_candidates(
-                    model.to_str().unwrap_or_default(),
-                    &query,
-                )
-            })
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-        } else {
-            return Err(HostActionError {
-                code: "unavailable",
-            });
-        };
+            .collect(),
+    };
+    let model = packaged_handwriting_model(&options.0);
+    // A user-managed socket owns recognizer and model policy where one is
+    // configured; otherwise the Engine's packaged recognizer answers, which is
+    // the only path hosts without unix sockets have.
+    #[cfg(unix)]
+    let socket = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute());
+    #[cfg(unix)]
+    if let Some(path) = socket {
+        let candidates = tauri::async_runtime::spawn_blocking(move || {
+            UnixSocketProvider::new(path).handwriting(query)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
         let result = HandwritingRecognitionResult { candidates };
         result.validate().map_err(|_| HostActionError {
             code: "invalid_stroke",
         })?;
         return Ok(result);
     }
-    #[cfg(not(unix))]
-    Err(HostActionError {
-        code: "unavailable",
+    let Some(model) = model else {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    };
+    let candidates = tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::handwriting_local_candidates(model.to_str().unwrap_or_default(), &query)
     })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let result = HandwritingRecognitionResult { candidates };
+    result.validate().map_err(|_| HostActionError {
+        code: "invalid_stroke",
+    })?;
+    Ok(result)
+}
+
+/// Locate the Engine's packaged handwriting model: the host options first, then
+/// an explicit override, then the layouts the installers produce. Only an
+/// absolute path to a file that exists is accepted, so a stale setting cannot
+/// send strokes at something else.
+fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
+    serde_json::from_str::<Value>(host_options)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("handwriting_model")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let directory = exe.parent()?;
+            // Beside the executable, as the Windows package stages it, and one
+            // prefix up, as the unix install lays it out.
+            [
+                directory.join("handwriting/handwriting-zh_CN.model"),
+                directory
+                    .parent()?
+                    .join("share/msime-client/handwriting/handwriting-zh_CN.model"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file())
+        })
+        .filter(|path| path.is_absolute() && path.is_file())
 }
 
 #[derive(serde::Deserialize)]
@@ -2518,6 +2531,42 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("handwriting-zh_CN.model");
+        std::fs::write(&model, b"synthetic").unwrap();
+        let options = |value: String| serde_json::json!({ "handwriting_model": value }).to_string();
+
+        // The host options win when they name a model that is actually there.
+        assert_eq!(
+            super::packaged_handwriting_model(&options(model.to_string_lossy().into_owned())),
+            Some(model.clone())
+        );
+
+        // A relative or missing path is refused rather than handed to the
+        // recognizer, so a stale setting cannot send strokes at something else.
+        assert_eq!(
+            super::packaged_handwriting_model(&options("model".into())),
+            None
+        );
+        assert_eq!(
+            super::packaged_handwriting_model(&options(
+                directory
+                    .path()
+                    .join("absent.model")
+                    .to_string_lossy()
+                    .into_owned()
+            )),
+            None
+        );
+
+        // Options that never mention a model fall through to discovery, which
+        // finds nothing next to a test binary.
+        assert_eq!(super::packaged_handwriting_model("{}"), None);
+        assert_eq!(super::packaged_handwriting_model("not json"), None);
+    }
+
     #[test]
     fn typing_statistics_status_reports_file_availability_without_content() {
         let directory = tempfile::tempdir().unwrap();

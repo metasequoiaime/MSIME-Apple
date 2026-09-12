@@ -171,6 +171,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     CGFloat _appliedScale;
     CGFloat _appliedFontSize;
     NSUInteger _appliedComponentMask;
+    BOOL _hasHostSkin;
+    msime::mac::SkinTokens _lightSkin;
+    msime::mac::SkinTokens _darkSkin;
 }
 
 + (instancetype)sharedPanel
@@ -335,17 +338,26 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [self applySkin];
 }
 
+- (void)applyLightSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark
+{
+    _lightSkin = light;
+    _darkSkin = dark;
+    _hasHostSkin = YES;
+    [self applySkin];
+}
+
 - (void)applySkin
 {
     if (_inputModeButton == nil || _settingsButton == nil)
     {
         return;
     }
-    const metasequoia::mac::ResolvedSkin skin =
-        MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
-    _chrome.fillColor = MetasequoiaColorFromRgba(skin.tokens.surface);
-    _chrome.strokeColor = MetasequoiaColorFromRgba(skin.tokens.border);
-    NSColor *text = MetasequoiaColorFromRgba(skin.tokens.text);
+    const BOOL dark = MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance);
+    const auto tokens = _hasHostSkin ? (dark ? _darkSkin : _lightSkin)
+        : MetasequoiaResolveStoredCandidateSkin(dark).tokens;
+    _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
+    _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
+    NSColor *text = MetasequoiaColorFromRgba(tokens.text);
     for (NSButton *button in
          @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton ])
     {

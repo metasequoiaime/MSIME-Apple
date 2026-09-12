@@ -141,8 +141,10 @@ NSColor *KeymapAccentColor()
     NSColor *primaryColor = self.highlighted ? [NSColor whiteColor] : [NSColor labelColor];
     NSColor *secondaryColor =
         self.highlighted ? [[NSColor whiteColor] colorWithAlphaComponent:0.86] : [NSColor secondaryLabelColor];
+    NSFont *keyFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold]
+        ?: [NSFont systemFontOfSize:11.0 weight:NSFontWeightBold];
     NSDictionary<NSAttributedStringKey, id> *keyAttributes = @{
-        NSFontAttributeName : [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold],
+        NSFontAttributeName : keyFont,
         NSForegroundColorAttributeName : primaryColor,
     };
     NSDictionary<NSAttributedStringKey, id> *codeAttributes = @{

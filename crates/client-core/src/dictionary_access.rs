@@ -81,9 +81,21 @@ mod tests {
                 .is_none()
         );
         drop(second);
-        let writer = DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
-            .unwrap()
-            .unwrap();
+        // Other tests spawn processes concurrently. On Unix, fork can briefly
+        // inherit our locked file descriptions before close-on-exec runs.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let writer = loop {
+            if let Some(writer) =
+                DictionaryAccess::try_maintenance(user.path(), dictionaries.path()).unwrap()
+            {
+                break writer;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "released dictionary lock remained busy"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
         assert!(
             DictionaryAccess::try_session(user.path(), dictionaries.path())
                 .unwrap()
