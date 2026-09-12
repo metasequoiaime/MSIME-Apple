@@ -59,6 +59,7 @@ static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
+static NSString *const CloudCandidatesKey = @"MSIMEClientCloudCandidates";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
@@ -104,6 +105,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedChinesePunctuation;
     NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedAutocorrect;
+    NSNumber *_sharedCloudCandidates;
+    NSButton *_cloudCandidatesButton;
     id _sharedTransposition;
     id _sharedNeighbor;
     NSNumber *_sharedQuanpinHelpcode;
@@ -201,6 +204,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     if ([_defaults objectForKey:TraditionalKey] != nil)
         merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
+    if ([_defaults objectForKey:CloudCandidatesKey] != nil)
+        merged[@"cloud_candidates"] = @(self.cloudCandidates);
     if ([_defaults objectForKey:CharacterSetShortcutKey] != nil) {
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -350,6 +355,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (BOOL)cloudCandidates { if (_sharedCloudCandidates) return _sharedCloudCandidates.boolValue; return [_defaults objectForKey:CloudCandidatesKey] == nil ? YES : [_defaults boolForKey:CloudCandidatesKey]; }
+- (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : self.autocorrect; }
 - (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : self.autocorrect; }
@@ -449,6 +456,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
+    id cloud = preferences[@"cloud_candidates"];
+    if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
@@ -787,6 +796,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _transpositionButton.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborButton.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
+    _cloudCandidatesButton.state = self.cloudCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinHelpcodeButton.state = self.shuangpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSButton *button in _localModeButtons)
@@ -969,6 +979,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _transpositionButton = [NSButton checkboxWithTitle:@"全拼乱序纠错（sahng → shang）" target:self action:@selector(transpositionChanged:)];
     _neighborButton = [NSButton checkboxWithTitle:@"全拼邻键纠错（shabg → shang）" target:self action:@selector(neighborChanged:)];
+    _cloudCandidatesButton = [NSButton checkboxWithTitle:@"启用云候选（将查询发送至 Google 输入工具）" target:self action:@selector(cloudCandidatesChanged:)];
     _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
     _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
@@ -1003,6 +1014,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"五笔输入"], _wubiButton],
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
+        @[[NSTextField labelWithString:@"云候选"], _cloudCandidatesButton],
         @[[NSTextField labelWithString:@"乱序纠错"], _transpositionButton],
         @[[NSTextField labelWithString:@"邻键纠错"], _neighborButton],
         @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
@@ -1084,6 +1096,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
 - (void)transpositionChanged:(NSButton *)sender { self.autocorrectTransposition = sender.state == NSControlStateValueOn; }
 - (void)neighborChanged:(NSButton *)sender { self.autocorrectNeighbor = sender.state == NSControlStateValueOn; }
+- (void)cloudCandidatesChanged:(NSButton *)sender { self.cloudCandidates = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }

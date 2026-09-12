@@ -210,7 +210,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)synchronizeCloudCandidates {
-    NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode ? [_session onlineQueryWithError:nil] : nil;
+    NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
+        (!_appearance || _appearance.cloudCandidates) ? [_session onlineQueryWithError:nil] : nil;
     NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
     if (!url) { [self cancelCloudCandidates]; return; }
     if ([_cloudQuery isEqual:query]) return;
@@ -225,12 +226,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
+            (controller->_appearance && !controller->_appearance.cloudCandidates) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
         controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
+                (current->_appearance && !current->_appearance.cloudCandidates) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
             if (!body) return;
@@ -253,6 +256,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
+    if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
     if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
