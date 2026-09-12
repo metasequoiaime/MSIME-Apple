@@ -54,6 +54,22 @@ import SwiftUI
     let flowCells = (0..<7).map { MacEmojiFlowCell(rect: CGRect(x: ($0 % 5) * 60, y: ($0 / 5) * 60, width: 50, height: 56), row: $0 / 5, fontSize: 12) }
     let entries = MacEmojiHomeNavigation.entries(navigationSections, flowCells: flowCells)
     assert(entries.count == 15 && entries[8].row == 2 && entries[13].row == 3)
+    let initial = MacEmojiHomeNavigation.selection(nil, sections: navigationSections)
+    assert(initial == entries[0].key)
+    assert(MacEmojiHomeNavigation.destination(.activate, selected: initial, entries: entries)?.key == entries[0].key)
+    assert(MacEmojiHomeNavigation.destination(.right, selected: initial, entries: entries)?.key == entries[1].key)
+    assert(MacEmojiHomeNavigation.destination(.down, selected: initial, entries: entries)?.key == entries[6].key)
+    assert(MacEmojiHomeNavigation.selection(nil, sections: []) == nil)
+    let emptyFirst = [navigationSections[1], navigationSections[2]]
+    assert(MacEmojiHomeNavigation.selection(nil, sections: emptyFirst) == entries[8].key)
+    let recents = MacEmojiHomeSection(title: "fixture recent", category: "recent", items: items("recent", 1))
+    let recentKey = MacEmojiHomeNavigation.selection(nil, sections: [recents])
+    assert(recentKey?.category == "recent")
+    assert(MacEmojiHomeNavigation.selection(nil, sections: [recents] + navigationSections) == recentKey)
+    assert(MacEmojiHomeNavigation.selection(entries[3].key, sections: [recents] + navigationSections) == entries[3].key)
+    let stale = MacEmojiHomeNavigation.selection(entries[3].key, sections: emptyFirst)
+    assert(stale == entries[3].key)
+    assert(MacEmojiHomeNavigation.destination(.activate, selected: stale, entries: Array(entries.dropFirst(8))) == nil)
     func move(_ command: MacEmojiGridCommand, _ index: Int) -> MacEmojiHomeKey? {
       MacEmojiHomeNavigation.destination(command, selected: entries[index].key, entries: entries)?.key
     }
