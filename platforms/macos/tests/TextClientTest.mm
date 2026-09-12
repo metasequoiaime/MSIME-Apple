@@ -2,6 +2,8 @@
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>
+#include <sqlite3.h>
+#include <string>
 
 @interface FakeTextClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
@@ -12,6 +14,57 @@
 - (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); self.committed = text; }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); self.marked = text; self.selection = selection; }
 @end
+
+static NSDictionary *MaintenanceCandidate(MSIMEClientSession *session) {
+    for (NSDictionary *candidate in [session viewWithError:nil][@"candidates"])
+        if ([candidate[@"text"] isEqual:@"拟好"]) return candidate[@"id"];
+    return nil;
+}
+
+static void TestEngineMaintenance() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    sqlite3 *database = nullptr;
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+        "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(database) == SQLITE_OK);
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error && [session setFocused:YES error:&error]);
+    for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
+    NSDictionary *identifier = MaintenanceCandidate(session);
+    assert(identifier && !error);
+    uint64_t generation = [identifier[@"generation"] unsignedLongLongValue];
+    NSUInteger index = [identifier[@"index"] unsignedIntegerValue];
+    assert(![session pinGeneration:generation + 1 index:index error:&error] && error);
+    error = nil;
+    NSDictionary *result = [session pinGeneration:generation index:index error:&error];
+    assert(result && !error && [result[@"handled"] boolValue]);
+    assert([result[@"view"][@"candidates"][0][@"text"] isEqual:@"拟好"]);
+    identifier = MaintenanceCandidate(session);
+    result = [session fixGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] position:2 error:&error];
+    assert(result && !error && [result[@"handled"] boolValue]);
+    assert([result[@"view"][@"candidates"][1][@"text"] isEqual:@"拟好"]);
+    identifier = MaintenanceCandidate(session);
+    result = [session clearPositionGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
+    assert(result && !error && [result[@"handled"] boolValue]);
+    identifier = MaintenanceCandidate(session);
+    result = [session removeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
+    assert(result && !error && [result[@"handled"] boolValue] && !MaintenanceCandidate(session));
+    assert([session closeWithError:&error] && !error);
+    session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error && [session setFocused:YES error:&error]);
+    for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
+    assert(!MaintenanceCandidate(session));
+    assert([session closeWithError:&error] && !error);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
 
 static void TestEngineEdges(FakeTextClient *client) {
     for (NSString *code in @[@"4e2d", @"20000", @"41"]) {
@@ -193,6 +246,7 @@ int main() {
         FakeTextClient *client = [FakeTextClient new];
         TestEnginePreedit(client);
         TestEngineEdges(client);
+        TestEngineMaintenance();
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
