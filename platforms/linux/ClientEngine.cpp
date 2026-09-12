@@ -59,6 +59,7 @@ struct State {
   bool chinese_punctuation = true;
   bool properties_registered = false;
   std::optional<bool> english_override;
+  std::optional<bool> dedicated_english_override;
   std::optional<bool> cloud_candidates_override;
   std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
@@ -74,6 +75,7 @@ struct State {
   std::optional<bool> nine_key_override;
   Json local_mode_overrides = Json::object();
   bool fullwidth = false;
+  bool english_mode = false;
   bool traditional_output = false;
   std::string candidate_preedit_style = "pinyin";
   bool smart_punctuation = true;
@@ -251,8 +253,10 @@ struct State {
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
     view = response(msime_client_set_character_width(session, fullwidth));
-    if (options.at("preferences").value("default_ime_mode", "chinese") == "english")
-      view = response(msime_client_set_english_mode(session, true));
+    const bool default_english =
+        options.at("preferences").value("default_ime_mode", "chinese") == "english";
+    english_mode = dedicated_english_override.value_or(default_english);
+    view = response(msime_client_set_english_mode(session, english_mode));
     if (active_scheme == "quanpin" && nine_key_override)
       view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
     chinese_punctuation = punctuation_override.value_or(
@@ -1038,6 +1042,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("在中文方案中补充英文候选"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
       english_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto english_mode = ibus_property_new(
+      "EnglishMode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("英文输入模式"), "",
+      ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
+      s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
+      s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto autocorrect_property = ibus_property_new(
       "Autocorrect", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("拼音自动纠错"), "",
@@ -1351,6 +1361,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, english);
+    ibus_prop_list_append(properties, english_mode);
     ibus_prop_list_append(properties, autocorrect_property);
     ibus_prop_list_append(properties, helpcode_property);
     ibus_prop_list_append(properties, helpcode_schema);
@@ -1384,6 +1395,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, character_mode);
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
+    ibus_engine_update_property(engine, english_mode);
     ibus_engine_update_property(engine, autocorrect_property);
     ibus_engine_update_property(engine, helpcode_property);
     ibus_engine_update_property(engine, helpcode_schema);
@@ -1883,6 +1895,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "CharacterMode" &&
        std::string(name) != "TraditionalOutput" &&
        std::string(name) != "EnglishCandidates" &&
+       std::string(name) != "EnglishMode" &&
        std::string(name) != "Autocorrect" &&
        std::string(name) != "Helpcode" &&
        property_name.rfind("HelpcodeSchema/", 0) != 0 &&
@@ -2243,6 +2256,17 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       return;
     }
+    if (std::string(name) == "EnglishMode") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (!s.input_enabled || !s.session || s.english_mode == enabled)
+        return;
+      s.view = response(msime_client_set_english_mode(s.session, enabled));
+      s.english_mode = enabled;
+      s.dedicated_english_override = enabled;
+      render(engine, s.view);
+      publish_mode(engine);
+      return;
+    }
     if (std::string(name) == "Autocorrect") {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (s.autocorrect_override.value_or(
@@ -2492,7 +2516,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
-  const bool english_toggle =
+  const bool dedicated_english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
   const bool ctrl_alt_space =
@@ -2501,7 +2525,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   if (ctrl_alt_space && !s.mode_ctrl_alt_space_enabled)
     return FALSE;
   const bool mode_toggle =
-      english_toggle ||
       (key == IBUS_space &&
        (modifiers == IBUS_CONTROL_MASK ||
         ctrl_alt_space));
@@ -2568,6 +2591,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   bool handled = false;
   guarded(engine, "process_key", [&] {
     s.open();
+    if (dedicated_english_toggle) {
+      if (!s.session)
+        return;
+      const bool enabled = !s.english_mode;
+      s.view = response(msime_client_set_english_mode(s.session, enabled));
+      s.english_mode = enabled;
+      s.dedicated_english_override = enabled;
+      render(engine, s.view);
+      publish_mode(engine);
+      handled = true;
+      return;
+    }
     if (mode_toggle) {
       if (ctrl_alt_space && s.mode_chord_held) {
         handled = true;
