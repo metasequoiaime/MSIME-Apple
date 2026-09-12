@@ -58,6 +58,7 @@ struct SessionPreferences
 {
     SchemeType scheme;
     std::string shuangpinSchema;
+    bool shuangpinPreeditUsesRaw;
     bool autocorrectEnabled;
     bool helpcodeEnabled;
     std::string helpcodeSchema;
@@ -82,6 +83,7 @@ SessionPreferences ReadSessionPreferences()
     return {
         scheme,
         shuangpinSchema,
+        [[[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientShuangpinPreeditUsesRaw"] ?: @YES boolValue],
         [MetasequoiaPreferencesWindowController storedAutocorrectEnabled] == YES,
         [MetasequoiaPreferencesWindowController storedHelpcodeEnabled] == YES,
         metasequoia::mac::HelpcodeSchemaIdentifier(static_cast<int>(helpcodeSchema)),
@@ -115,9 +117,11 @@ bool SessionMatchesPreferences(const metasequoia::SessionOptions &options, const
         !SchemeUsesHelpcodes(preferences.scheme) || options.helpcode == preferences.helpcodeEnabled;
     const bool shuangpinMatches =
         preferences.scheme != SchemeType::Shuangpin || options.shuangpin_profile.name == preferences.shuangpinSchema;
+    const bool preeditMatches = preferences.scheme != SchemeType::Shuangpin ||
+                                options.shuangpin_preedit_uses_raw == preferences.shuangpinPreeditUsesRaw;
     const bool wubiMixedPinyinMatches =
         preferences.scheme != SchemeType::Wubi || options.wubi.mixed_pinyin == preferences.wubiMixedPinyinEnabled;
-    return options.scheme == preferences.scheme && shuangpinMatches &&
+    return options.scheme == preferences.scheme && shuangpinMatches && preeditMatches &&
            options.autocorrect_types == QuanpinAutocorrectTypesFor(preferences.autocorrectEnabled) && helpcodeMatches &&
            options.chinese_punctuation == preferences.chinesePunctuationEnabled &&
            options.learning == preferences.candidateLearningEnabled && wubiMixedPinyinMatches &&
@@ -308,6 +312,7 @@ static NSHashTable *LiveDictionaryControllers()
     options.paths = paths;
     options.scheme = preferences.scheme;
     options.shuangpin_profile = GetShuangpinProfile(preferences.shuangpinSchema);
+    options.shuangpin_preedit_uses_raw = preferences.shuangpinPreeditUsesRaw;
     options.autocorrect_types = QuanpinAutocorrectTypesFor(preferences.autocorrectEnabled);
     options.helpcode = preferences.helpcodeEnabled;
     options.helpcode_schema = preferences.helpcodeSchema;

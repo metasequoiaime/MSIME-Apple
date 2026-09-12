@@ -6,6 +6,7 @@ NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientApp
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
+static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
@@ -27,6 +28,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_schemeButton;
     NSPopUpButton *_profileButton;
+    NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
@@ -120,6 +122,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)shuangpinProfile { NSString *value = [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
+- (BOOL)shuangpinPreeditUsesRaw { return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
+- (void)setShuangpinPreeditUsesRaw:(BOOL)value { [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
@@ -212,6 +216,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_schemeButton selectItemAtIndex:[schemeIndexes[self.inputScheme] integerValue]];
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
+    [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
@@ -251,6 +256,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_profileButton addItemsWithTitles:@[@"小鹤", @"自然码", @"搜狗", @"微软"]];
     _profileButton.target = self;
     _profileButton.action = @selector(profileChanged:);
+    _preeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_preeditButton addItemsWithTitles:@[@"全拼显示", @"原始双拼显示"]];
+    _preeditButton.target = self;
+    _preeditButton.action = @selector(preeditChanged:);
     _fontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_fontButton addItemsWithTitles:@[@"小（16 pt）", @"标准（18 pt）", @"大（20 pt）"]];
     _fontButton.accessibilityLabel = @"候选字号";
@@ -283,6 +292,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"输入方案"], _schemeButton],
         @[[NSTextField labelWithString:@"双拼键盘"], _profileButton],
+        @[[NSTextField labelWithString:@"双拼预编辑"], _preeditButton],
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
@@ -342,6 +352,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)helpcodeChanged:(NSButton *)sender { self.helpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
+- (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
