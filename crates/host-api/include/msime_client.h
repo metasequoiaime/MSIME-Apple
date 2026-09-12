@@ -156,6 +156,8 @@ char *msime_client_view(uint64_t session);
 /* Return a copied OnlineQuery JSON object, or null when the current composition
  * is not eligible for an online provider. Linux responses may include the
  * validated ai_assistant provider/model/prompt configuration (never its token).
+ * The document also carries the validated cloud_candidates preference so a
+ * user-owned provider can distinguish cloud suggestions from AI suggestions.
  * The caller may perform provider work off-thread and pass the unchanged
  * document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);

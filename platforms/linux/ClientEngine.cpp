@@ -107,6 +107,7 @@ struct State {
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
   bool online_loading = false, translation_loading = false;
+  bool cloud_candidates = true;
   uint64_t provider_epoch = 0;
   void invalidate_providers() {
     ++provider_epoch;
@@ -197,6 +198,7 @@ struct State {
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
+    cloud_candidates = preferences.value("cloud_candidates", true);
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -271,6 +273,10 @@ struct State {
     }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
+    const bool next_cloud_candidates = preferences.value("cloud_candidates", true);
+    if (next_cloud_candidates != cloud_candidates)
+      invalidate_providers();
+    cloud_candidates = next_cloud_candidates;
     auto display_preferences = preferences;
     if (layout_override)
       display_preferences["candidate_layout"] = *layout_override;
@@ -671,7 +677,9 @@ void online_schedule(IBusEngine *engine) {
   try {
     auto query = response(msime_client_online_query(s.session));
     if (!query.is_object() ||
-        !(query.value("cloud_eligible", false) || query.value("ai_eligible", false)))
+        (!s.cloud_candidates && !query.value("ai_eligible", false)) ||
+        (s.cloud_candidates &&
+         !(query.value("cloud_eligible", false) || query.value("ai_eligible", false))))
       return;
     auto *task_data = new OnlineTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
     s.online_loading = true;
@@ -750,10 +758,12 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     const auto value = document.at("value");
     const auto candidate = value.value("text", std::string{});
     if (candidate.empty()) return;
+    const auto source = static_cast<uint8_t>(value.value("source", 0));
+    if (!s.cloud_candidates && source == 0) return;
     auto applied = response(msime_client_apply_online_candidate(
         s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
         reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
-        static_cast<uint8_t>(value.value("source", 0))));
+        source));
     s.view = applied.at("view");
     render(engine, s.view);
     translation_schedule(engine);

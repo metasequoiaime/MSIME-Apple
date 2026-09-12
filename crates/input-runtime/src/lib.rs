@@ -312,9 +312,16 @@ pub struct OnlineQuery {
     pub pinyin_segments: Vec<String>,
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
+    /// Host preference controlling whether a provider may return cloud suggestions.
+    #[serde(default = "default_cloud_candidates")]
+    pub cloud_candidates: bool,
     pub session_id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_assistant: Option<AiAssistantProviderConfig>,
+}
+
+fn default_cloud_candidates() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -458,7 +465,11 @@ impl UnixSocketProvider {
             source: u8,
         }
         let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+        if reply.text.is_empty()
+            || reply.text.len() > 4096
+            || reply.source > 1
+            || (!query.cloud_candidates && reply.source == 0)
+        {
             return None;
         }
         Some((reply.text, reply.source))
@@ -904,6 +915,7 @@ impl Runtime<Session> {
             pinyin_segments: query.pinyin_segments,
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            cloud_candidates: true,
             session_id: query.session_id,
             ai_assistant: None,
         }))
@@ -1580,6 +1592,7 @@ mod tests {
             pinyin_segments: vec!["ni".into(), "hao".into()],
             cloud_eligible: true,
             ai_eligible: true,
+            cloud_candidates: true,
             session_id: 9,
             ai_assistant: None,
         };
@@ -1622,6 +1635,7 @@ mod tests {
             pinyin_segments: vec![],
             cloud_eligible: false,
             ai_eligible: false,
+            cloud_candidates: true,
             session_id: 1,
             ai_assistant: None,
         };

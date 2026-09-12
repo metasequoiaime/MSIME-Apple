@@ -1010,6 +1010,7 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
                 return Ok(Value::Null);
             };
             let mut value = serde_json::to_value(query).map_err(|e| e.to_string())?;
+            value["cloud_candidates"] = Value::Bool(session.applied.cloud_candidates);
             let ai = &session.applied.ai_assistant;
             if ai.enabled {
                 value["ai_assistant"] = serde_json::to_value(AiAssistantProviderConfig {
