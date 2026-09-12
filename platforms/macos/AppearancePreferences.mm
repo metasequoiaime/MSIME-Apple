@@ -71,12 +71,15 @@ static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnab
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
+static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSNumber *_sharedControlOptionSpaceShortcut;
+    NSButton *_controlOptionSpaceShortcutButton;
     NSNumber *_sharedCharacterSetShortcut;
     NSButton *_characterSetShortcutButton;
     NSMutableDictionary *_sharedHelpcodeOptions;
@@ -164,6 +167,12 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
+    if ([_defaults objectForKey:ControlOptionSpaceShortcutKey] != nil) {
+        id existing = merged[@"keybindings"];
+        NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+        keys[@"switch_language_ctrl_alt_space"] = @(self.controlOptionSpaceShortcut);
+        merged[@"keybindings"] = keys;
+    }
     if ([_defaults objectForKey:TraditionalKey] != nil)
         merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
     if ([_defaults objectForKey:CharacterSetShortcutKey] != nil) {
@@ -398,6 +407,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
+        id inputMode = keys[@"switch_language_ctrl_alt_space"];
+        if (LocalModeBoolean(inputMode)) _sharedControlOptionSpaceShortcut = inputMode;
         id enabled = keys[@"toggle_character_set_ctrl_shift_f"];
         if (LocalModeBoolean(enabled)) _sharedCharacterSetShortcut = enabled;
     }
@@ -447,6 +458,15 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (BOOL)inputModeShortcut {
     return [_defaults objectForKey:InputModeShortcutKey] == nil || [_defaults boolForKey:InputModeShortcutKey];
+}
+- (BOOL)controlOptionSpaceShortcut {
+    if (_sharedControlOptionSpaceShortcut) return _sharedControlOptionSpaceShortcut.boolValue;
+    return [_defaults objectForKey:ControlOptionSpaceShortcutKey] == nil || [_defaults boolForKey:ControlOptionSpaceShortcutKey];
+}
+- (void)setControlOptionSpaceShortcut:(BOOL)value {
+    _sharedControlOptionSpaceShortcut = nil;
+    [_defaults setBool:value forKey:ControlOptionSpaceShortcutKey];
+    [self preferencesChanged];
 }
 - (BOOL)characterSetShortcut {
     if (_sharedCharacterSetShortcut) return _sharedCharacterSetShortcut.boolValue;
@@ -680,6 +700,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     for (NSButton *button in _localModeButtons)
         button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
+    _controlOptionSpaceShortcutButton.state = self.controlOptionSpaceShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     _characterSetShortcutButton.state = self.characterSetShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
@@ -834,6 +855,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
+    _controlOptionSpaceShortcutButton = [NSButton checkboxWithTitle:@"Control + Option + 空格切换中英文" target:self action:@selector(controlOptionSpaceShortcutChanged:)];
     _characterSetShortcutButton = [NSButton checkboxWithTitle:@"Control + Shift + F 切换简繁" target:self action:@selector(characterSetShortcutChanged:)];
     _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
     _fullWidthButton.toolTip = @"Control+Shift+Space 或 Option+Shift+H 切换全半角";
@@ -867,6 +889,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
         @[[NSTextField labelWithString:@"皮肤卡片"], browse],
         @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
+        @[[NSTextField labelWithString:@"输入切换"], _controlOptionSpaceShortcutButton],
         @[[NSTextField labelWithString:@"简繁切换"], _characterSetShortcutButton],
         @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
         @[[NSTextField labelWithString:@"双拼提示"], _keymapButton],
@@ -960,6 +983,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
+- (void)controlOptionSpaceShortcutChanged:(NSButton *)sender { self.controlOptionSpaceShortcut = sender.state == NSControlStateValueOn; }
 - (void)characterSetShortcutChanged:(NSButton *)sender { self.characterSetShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSButton *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }

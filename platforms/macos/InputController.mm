@@ -713,6 +713,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
+    if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
+        (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
+        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        return YES;
+    }
     if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
         if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
         return YES;
