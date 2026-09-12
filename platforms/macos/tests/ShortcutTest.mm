@@ -75,6 +75,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
 }
@@ -1633,12 +1634,180 @@ show_selected_bar = true
     std::filesystem::remove_all(root);
 }
 
+@interface CloudShortcutSession : ShortcutSession
+@property(nonatomic, copy) NSDictionary *query;
+@property(nonatomic) NSUInteger cloudApplications;
+@end
+@implementation CloudShortcutSession
+- (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
+- (NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error {
+    (void)body; (void)error;
+    assert([query isEqual:self.query] && NSThread.isMainThread);
+    ++self.cloudApplications;
+    NSMutableDictionary *updated = [self.query mutableCopy];
+    updated[@"generation"] = @([updated[@"generation"] unsignedLongLongValue] + 1);
+    self.query = updated;
+    return @{@"applied":@YES, @"view":@{@"focused":@YES, @"preedit":@"synthetic", @"editing_text":@"synthetic", @"caret_position":@0, @"candidates":@[]}};
+}
+@end
+@interface ControlledCloudRequest : MSIMECloudCandidateRequest
+@property(nonatomic, copy) void (^reply)(NSData *);
+@property(nonatomic) BOOL started;
+@property(nonatomic) BOOL cancelled;
+@end
+@implementation ControlledCloudRequest
+- (void)start { self.started = YES; }
+- (void)cancel { self.cancelled = YES; }
+@end
+@interface CloudShortcutController : ModeController
+@property(nonatomic, strong) NSMutableArray<ControlledCloudRequest *> *requests;
+@end
+@implementation CloudShortcutController
+- (MSIMECloudCandidateRequest *)cloudRequestForURL:(NSURL *)url completion:(void (^)(NSData *))completion {
+    assert([url.host isEqual:@"inputtools.google.com"]);
+    ControlledCloudRequest *request = [ControlledCloudRequest new];
+    request.reply = completion;
+    [self.requests addObject:request];
+    return request;
+}
+- (void)renderCandidates {} // Keep the test independent of real panel placement.
+@end
+
+static void TestCloudCandidateScheduling() {
+    CloudShortcutController *controller = [CloudShortcutController alloc];
+    controller.requests = [NSMutableArray array];
+    CloudShortcutSession *session = [CloudShortcutSession new];
+    session.query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
+    ShortcutClient *client = [ShortcutClient new], *other = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller synchronizeCloudCandidates];
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer && timer.fireDate.timeIntervalSinceNow > 0.4 && controller.requests.count == 0);
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == timer);
+    [timer fire]; [timer invalidate];
+    ControlledCloudRequest *first = controller.requests.lastObject;
+    assert(first.started && controller.requests.count == 1);
+    NSData *body = [@"synthetic" dataUsingEncoding:NSUTF8StringEncoding];
+    first.reply(body);
+    assert(session.cloudApplications == 1 && client.committed == nil && [client.marked isEqual:@"synthetic"]);
+    assert([controller valueForKey:@"cloudTimer"] == nil); // No response-triggered request loop.
+    [controller cancelCloudCandidates];
+    [controller synchronizeCloudCandidates];
+    timer = [controller valueForKey:@"cloudTimer"];
+    [timer fire]; [timer invalidate];
+    ControlledCloudRequest *stale = controller.requests.lastObject;
+    [controller setValue:other forKey:@"activeClient"];
+    stale.reply(body);
+    assert(session.cloudApplications == 1);
+    [controller cancelCloudCandidates];
+    assert(stale.cancelled);
+    [controller setValue:client forKey:@"activeClient"];
+    [controller synchronizeCloudCandidates];
+    timer = [controller valueForKey:@"cloudTimer"];
+    [timer fire]; [timer invalidate];
+    stale.reply(body); // A -> B -> A must still reject the old response.
+    assert(session.cloudApplications == 1);
+    ControlledCloudRequest *disabled = controller.requests.lastObject;
+    NSMutableDictionary *query = [session.query mutableCopy];
+    query[@"cloud_candidates"] = @NO;
+    session.query = query;
+    disabled.reply(body); // Recheck permission even before the next synchronization.
+    assert(session.cloudApplications == 1);
+    [controller synchronizeCloudCandidates];
+    assert(disabled.cancelled && [controller valueForKey:@"cloudTimer"] == nil);
+    query[@"cloud_candidates"] = @YES;
+    session.query = query;
+    [controller synchronizeCloudCandidates];
+    timer = [controller valueForKey:@"cloudTimer"];
+    session.query = nil; // Composition cancelled before debounce expires.
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 3);
+    [controller cancelCloudCandidates];
+    session.query = query;
+    [controller synchronizeCloudCandidates];
+    NSTimer *oldTimer = [controller valueForKey:@"cloudTimer"];
+    NSMutableDictionary *newQuery = [query mutableCopy];
+    newQuery[@"generation"] = @99;
+    session.query = newQuery;
+    [controller synchronizeCloudCandidates];
+    assert(!oldTimer.valid);
+    timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer != oldTimer);
+    [timer fire]; [timer invalidate];
+    ControlledCloudRequest *replaced = controller.requests.lastObject;
+    [controller setValue:[CloudShortcutSession new] forKey:@"session"];
+    replaced.reply(body);
+    assert(session.cloudApplications == 1);
+    [controller setValue:session forKey:@"session"];
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:MSIMEClientSessionDidReplaceSnapshotNotification object:session]];
+    assert(replaced.cancelled);
+    replaced.reply(body);
+    assert(session.cloudApplications == 1);
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil);
+    [controller setValue:@NO forKey:@"focusPending"];
+    [controller synchronizeCloudCandidates];
+    timer = [controller valueForKey:@"cloudTimer"];
+    [timer fire]; [timer invalidate];
+    ControlledCloudRequest *blurred = controller.requests.lastObject;
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+    [controller deactivateServer:other];
+    assert(!blurred.cancelled);
+    session.query = nil;
+    [controller deactivateServer:client];
+    assert(blurred.cancelled && [controller valueForKey:@"activeClient"] == nil);
+    blurred.reply(body);
+    assert(session.cloudApplications == 1);
+    method_setImplementation(base, original);
+}
+
+static void TestCloudCandidateEngineDelivery() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"cloud_candidates":@YES, @"learning":@NO}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    CloudShortcutController *controller = [CloudShortcutController alloc];
+    controller.requests = [NSMutableArray array];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller apply:[session setFocused:YES error:&error]];
+    for (char byte : std::string("nihao")) [controller apply:[session typeASCII:byte shift:NO error:&error]];
+    assert(!error && controller.requests.count == 0);
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer);
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 1);
+    controller.requests.lastObject.reply([@"[\"SUCCESS\", [[\"nihao\", [\"云端测试候选\"]]]]" dataUsingEncoding:NSUTF8StringEncoding]);
+    NSDictionary *view = [session viewWithError:&error];
+    assert(!error && [view[@"editing_text"] isEqual:@"nihao"]);
+    assert([view[@"candidates"][0][@"text"] isEqual:@"云端测试候选"]);
+    assert(client.committed == nil && [controller valueForKey:@"cloudTimer"] == nil);
+    [controller apply:[session command:MSIME_COMMIT_CANDIDATE error:&error]];
+    assert(!error && [client.committed isEqual:@"云端测试候选"] && client.marked.length == 0);
+    assert([controller valueForKey:@"cloudTimer"] == nil);
+    [controller cancelCloudCandidates];
+    assert([session closeWithError:&error] && !error);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
 int main() {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        TestCloudCandidateScheduling();
+        TestCloudCandidateEngineDelivery();
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();

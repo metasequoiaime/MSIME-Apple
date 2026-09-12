@@ -18,7 +18,7 @@ target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple . ../../crates/host-api/include)
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE CloudFileTransfer.mm main.mm CloudClipboardWindowController.mm CloudClipboardClient.mm AccountSessionManager.mm AccountAuthClient.mm AccountWindowController.mm AccountKeychain.mm CloudDictionaryClient.mm PreferencesWindowController.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm InputController.mm CandidatePanel.mm CandidateSkinAppearance.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm StringConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm DictionaryInstaller.mm)
-target_sources(MSIMEClientInputMethod PRIVATE ScreenKeyboardPanel.mm)
+target_sources(MSIMEClientInputMethod PRIVATE ScreenKeyboardPanel.mm CloudCandidateRequest.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
@@ -290,6 +290,10 @@ add_executable(text-client-test tests/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
 add_test(NAME text-client COMMAND text-client-test)
+add_executable(cloud-candidate-request-test tests/CloudCandidateRequestTest.mm CloudCandidateRequest.mm)
+target_compile_options(cloud-candidate-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(cloud-candidate-request-test PRIVATE "-framework Foundation")
+add_test(NAME cloud-candidate-request COMMAND cloud-candidate-request-test)
 # Run explicitly with the directory matching desktop-dictionary.lock.json.
 # This resource-dependent integration test does not enable or trigger CI.
 add_executable(snapshot-activation-test tests/SnapshotActivationTest.mm)
@@ -314,7 +318,7 @@ target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -U
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")
 target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
-target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm)
+target_sources(shortcut-test PRIVATE PreferencesWindowController.mm CandidateSkinAppearance.mm ScreenKeyboardPanel.mm VoiceInputService.mm VoiceSettings.mm VoiceProviderSettings.mm CloudCandidateRequest.mm)
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText")
 add_test(NAME shortcut COMMAND shortcut-test)
 add_executable(shuangpin-keymap-input-test tests/ShuangpinKeymapInputTest.mm ShuangpinKeymapPanel.mm)
