@@ -31,22 +31,38 @@ struct KeyboardLayoutSettingsView: View {
         Text("间距只改变键位外观，不影响输入方案。键盘布局在键盘的布局按钮里切换。")
       }
       Section {
-        Toggle("顶部语音入口", isOn: $voice).accessibilityIdentifier("appVoiceShortcutSwitch")
+        // Writes through the binding rather than onChange: reading the preferences back after a
+        // reset also assigns this, and onChange would store the default again, undoing the reset.
+        Toggle("顶部语音入口", isOn: Binding(
+          get: { voice },
+          set: { voice = $0; KeyboardLayoutPreference.voiceShortcutEnabled = $0 }
+        )).accessibilityIdentifier("appVoiceShortcutSwitch")
       } header: {
         Text("快捷入口")
       } footer: {
         Text("语音入口用于打开已识别的语音结果。")
       }
+      Section {
+        Button("恢复默认", role: .destructive) {
+          KeyboardLayoutPreference.resetToDefaults()
+          readPreferences()
+        }
+        .accessibilityIdentifier("appResetKeyboardSettings")
+      } footer: {
+        Text("把这一页的间距、高度和语音入口恢复成默认值。")
+      }
     }
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("键盘设置").navigationBarTitleDisplayMode(.inline)
-    .onChange(of: voice) { KeyboardLayoutPreference.voiceShortcutEnabled = $0 }
-    .onAppear {
-      keySpacing = KeyboardLayoutPreference.keySpacing
-      rowSpacing = KeyboardLayoutPreference.rowSpacing
-      voice = KeyboardLayoutPreference.voiceShortcutEnabled
-      height = KeyboardLayoutPreference.heightAdjustment
-    }
+    .onAppear { readPreferences() }
+  }
+
+  /// 把存储里的值读回控件。复位后也走这里,免得界面还停在旧数值上。
+  private func readPreferences() {
+    keySpacing = KeyboardLayoutPreference.keySpacing
+    rowSpacing = KeyboardLayoutPreference.rowSpacing
+    voice = KeyboardLayoutPreference.voiceShortcutEnabled
+    height = KeyboardLayoutPreference.heightAdjustment
   }
 
   private func spacingRow(

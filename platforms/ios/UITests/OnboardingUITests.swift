@@ -1110,6 +1110,39 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testResetRestoresTheKeyboardSettings() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardLayoutLink"].tap()
+
+    let keys = app.sliders["appKeySpacingSlider"]
+    let height = app.sliders["appKeyboardHeightSlider"]
+    XCTAssertTrue(keys.waitForExistence(timeout: 5))
+
+    // These settings outlive the app, and other cases here move them, so the defaults are taken by
+    // resetting first rather than by assuming the values on arrival are untouched.
+    app.buttons["appResetKeyboardSettings"].tap()
+    let defaultKeys = try XCTUnwrap(keys.value as? String)
+    let defaultHeight = try XCTUnwrap(height.value as? String)
+
+    keys.adjust(toNormalizedSliderPosition: 0)
+    height.adjust(toNormalizedSliderPosition: 1)
+    XCTAssertNotEqual(keys.value as? String, defaultKeys, "滑块应先被改动,否则复位无从验证")
+
+    app.buttons["appResetKeyboardSettings"].tap()
+    XCTAssertTrue(wait(keys, until: "value == '\(defaultKeys)'"))
+    XCTAssertEqual(height.value as? String, defaultHeight, "复位后高度应回到默认")
+
+    // The values survive leaving and coming back, so the reset reached storage rather than only
+    // the controls on screen.
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["keyboardLayoutLink"].tap()
+    XCTAssertEqual(keys.value as? String, defaultKeys)
+    XCTAssertEqual(height.value as? String, defaultHeight)
+  }
+
+  @MainActor
   func testNineKeySchemeSurvivesRelaunch() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]

@@ -2397,6 +2397,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardLayoutPreference.voiceShortcutEnabled = enabled
         self?.updateShortcutButtons()
       },
+      // The panel's controls take their values when it is built, so it is rebuilt rather than
+      // reaching back into it to move a slider that has just been reset underneath the user.
+      onReset: { [weak self] in
+        guard let self else { return }
+        KeyboardLayoutPreference.resetToDefaults()
+        applyLayoutPreferences()
+        updatePreferredKeyboardHeight()
+        updateShortcutButtons()
+        showLayoutPicker()
+      },
       onClose: { [weak self] in
         guard let self else { return }
         updateKeyboardLayout()

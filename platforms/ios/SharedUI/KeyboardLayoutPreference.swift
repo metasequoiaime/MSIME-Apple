@@ -58,6 +58,18 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
     set { defaults.set(newValue, forKey: voiceShortcutKey) }
   }
+
+  /// 把键盘设置恢复成默认。
+  ///
+  /// Forget the stored values rather than writing defaults over them. Every one of these reads
+  /// through a fallback already -- the preset's spacing, no height change, the voice entry the
+  /// preset implies -- so removing the key is what "default" means, and a later change to any of
+  /// those defaults reaches a reset keyboard without this having to be updated to match.
+  static func resetToDefaults() {
+    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey, voiceShortcutKey] {
+      defaults.removeObject(forKey: stored)
+    }
+  }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }

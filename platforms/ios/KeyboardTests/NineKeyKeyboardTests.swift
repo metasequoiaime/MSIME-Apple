@@ -434,6 +434,41 @@ final class NineKeyKeyboardTests: XCTestCase {
       "分词键不该有长按手势")
   }
 
+  func testResetForgetsTheStoredKeyboardSettings() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let previous = (
+      keys: defaults.object(forKey: KeyboardLayoutPreference.keySpacingKey),
+      rows: defaults.object(forKey: KeyboardLayoutPreference.rowSpacingKey),
+      height: defaults.object(forKey: KeyboardLayoutPreference.heightAdjustmentKey),
+      voice: defaults.object(forKey: KeyboardLayoutPreference.voiceShortcutKey)
+    )
+    defer {
+      defaults.set(previous.keys, forKey: KeyboardLayoutPreference.keySpacingKey)
+      defaults.set(previous.rows, forKey: KeyboardLayoutPreference.rowSpacingKey)
+      defaults.set(previous.height, forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+      defaults.set(previous.voice, forKey: KeyboardLayoutPreference.voiceShortcutKey)
+    }
+
+    KeyboardLayoutPreference.keySpacing = 4
+    KeyboardLayoutPreference.rowSpacing = 9
+    KeyboardLayoutPreference.heightAdjustment = 30
+    KeyboardLayoutPreference.voiceShortcutEnabled = !KeyboardLayoutPreference.voiceShortcutEnabled
+
+    KeyboardLayoutPreference.resetToDefaults()
+
+    // Reset forgets the values rather than writing defaults over them, so each one reads through
+    // its fallback again and a later change to those defaults still reaches this keyboard.
+    for stored in [
+      KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
+      KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey,
+    ] {
+      XCTAssertNil(defaults.object(forKey: stored), "\(stored) 应被遗忘而不是写入默认值")
+    }
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.selected.keySpacing)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, KeyboardLayoutPreference.selected.rowSpacing)
+  }
+
   func testKeyboardHeightFollowsTheSetting() throws {
     let previous = KeyboardLayoutPreference.heightAdjustment
     defer { KeyboardLayoutPreference.heightAdjustment = previous }

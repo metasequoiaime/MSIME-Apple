@@ -11,6 +11,7 @@ final class KeyboardLayoutPickerView: UIView {
        onRowSpacing: @escaping (Double) -> Void,
        onHeight: @escaping (Double) -> Void,
        onVoice: @escaping (Bool) -> Void,
+       onReset: @escaping () -> Void,
        onClose: @escaping () -> Void) {
     super.init(frame: .zero); accessibilityIdentifier = "keyboardLayoutPicker"
     let skin = KeyboardSkinPreference.selected; backgroundColor = skin.background
@@ -35,7 +36,16 @@ final class KeyboardLayoutPickerView: UIView {
     }, for: .valueChanged)
     let voice = UIStackView(arrangedSubviews: [voiceLabel, UIView(), voiceSwitch]); voice.alignment = .center; voice.spacing = 8
 
-    let stack = UIStackView(arrangedSubviews: [keys, rows, tall, voice]); stack.axis = .vertical; stack.spacing = 16
+    let reset = UIButton(type: .system)
+    reset.setTitle("恢复默认", for: .normal)
+    reset.setTitleColor(.systemRed, for: .normal)
+    reset.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+    reset.contentHorizontalAlignment = .leading
+    reset.accessibilityIdentifier = "resetKeyboardSettings"
+    reset.accessibilityHint = "把间距、高度和语音入口恢复成默认值"
+    reset.addAction(UIAction { _ in onReset() }, for: .primaryActionTriggered)
+
+    let stack = UIStackView(arrangedSubviews: [keys, rows, tall, voice, reset]); stack.axis = .vertical; stack.spacing = 16
     for item in [title, close, stack] { item.translatesAutoresizingMaskIntoConstraints = false; addSubview(item) }
     NSLayoutConstraint.activate([
       close.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
