@@ -69,6 +69,13 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
+/* Scan an absolute UTF-8 skin root and return the catalog the settings page
+ * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
+ * An unreadable root is an empty catalog; an invalid package becomes an issue
+ * and is never returned as renderable. Presenters must still check that a
+ * package supports the layout and theme before adopting its colors.
+ * Keys are camelCase, the same document the settings page consumes. */
+char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
  * Busy is not missing/corrupt and must not reset preferences to defaults. */

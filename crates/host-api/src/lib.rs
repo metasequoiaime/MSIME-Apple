@@ -505,6 +505,32 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
+/// Scan a skin root so native presenters read the same catalog the settings
+/// page edits. Unreadable roots return an empty catalog, not an error; a
+/// package that fails validation is reported as an issue and never rendered.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_catalog(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid skin directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid skin directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("skin directory must be absolute".into());
+        }
+        serde_json::to_value(msime_client_core::skin_catalog::scan(directory))
+            .map_err(|e| e.to_string())
+    })
+}
+
 /// Try to read preferences without waiting for the writer lock.
 /// # Safety
 /// `directory` must point to `length` readable bytes. Null is rejected.
@@ -1898,6 +1924,49 @@ mod tests {
         read(msime_client_destroy(handle));
     }
 
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("skins");
+        let scan =
+            |path: &str| read(unsafe { msime_client_skin_catalog(path.as_ptr(), path.len()) });
+        let path = root.to_str().unwrap().to_owned();
+        // An absent root is an empty catalog, not a failure the presenter shows.
+        assert_eq!(
+            scan(&path),
+            json!({"ok": true, "value": {"packages": [], "issues": []}})
+        );
+        std::fs::create_dir_all(root.join("sample")).unwrap();
+        std::fs::write(
+            root.join("sample/skin.toml"),
+            "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
+             base = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n\
+             [candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\n\
+             top_inset_dip = 0\nwidth_dip = 0\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("broken")).unwrap();
+        std::fs::write(root.join("broken/skin.toml"), "not a manifest").unwrap();
+        let catalog = scan(&path);
+        assert_eq!(catalog["ok"], true);
+        assert_eq!(catalog["value"]["packages"][0]["id"], "sample");
+        assert_eq!(catalog["value"]["packages"][0]["minWidthDip"], 10.0);
+        assert_eq!(catalog["value"]["packages"][0]["layouts"][0], "vertical");
+        assert_eq!(catalog["value"]["packages"].as_array().unwrap().len(), 1);
+        // A package that fails validation is reported, never offered for rendering.
+        assert_eq!(catalog["value"]["issues"][0]["folder"], "broken");
+        assert_eq!(
+            catalog["value"],
+            serde_json::to_value(msime_client_core::skin_catalog::scan(&root)).unwrap()
+        );
+        let relative = "skins";
+        assert_eq!(scan(relative)["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_skin_catalog(std::ptr::null(), 0) })["ok"],
+            false
+        );
+    }
     #[test]
     #[cfg(not(target_os = "android"))]
     fn try_preferences_reader_reports_contention_without_defaults() {
