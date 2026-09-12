@@ -398,25 +398,50 @@ int main(int argc, char **argv) {
     require(!key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
             "Released right Ctrl remained eligible for voice capture");
     key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
-    const auto locked_starts = voice_provider.started.load();
-    const auto locked_stops = voice_provider.stop_requests.load();
-    require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Locked recording did not start");
-    require(wait_voice([&] { return voice_provider.started.load() == locked_starts + 1; }),
-            "Locked recording did not reach provider");
-    require(key(IBUS_space, IBUS_MOD1_MASK) &&
-                key(IBUS_space, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
-            "Space did not lock recording while Alt was held");
-    require(key(IBUS_Alt_R, IBUS_RELEASE_MASK), "Locked Alt release was not consumed");
-    require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop locked recording");
-    require(wait_voice([&] { return voice_provider.stop_requests.load() == locked_stops + 1; }),
-            "Locked recording stopped on release or did not stop on Ctrl+F9");
-    key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
-    voice_provider.release_final = true;
-    require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
-            "Locked recording lost final recognition");
-    require(voice_provider.stop_requests.load() == locked_stops + 1,
-            "Locked recording sent duplicate stop requests");
-    seen.committed.clear();
+    for (auto chord : {std::pair<guint, guint>{IBUS_Alt_R, IBUS_MOD1_MASK},
+                       {IBUS_Super_L, IBUS_MOD4_MASK}, {IBUS_Super_R, IBUS_MOD4_MASK}}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const guint control = chord.first == IBUS_Alt_R ? IBUS_Control_R : IBUS_Control_L;
+      require(!key(control, IBUS_CONTROL_MASK) && key(chord.first, IBUS_CONTROL_MASK | chord.second),
+              "Ctrl-first release fixture did not start recording");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Ctrl-first release fixture did not reach provider");
+      require(!key(control, IBUS_RELEASE_MASK | chord.second),
+              "Voice chord intercepted the Ctrl release delivered to the editor");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Releasing Ctrl before the voice key did not stop recording");
+      require(key(chord.first, IBUS_RELEASE_MASK), "Voice chord tail release was not consumed");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Ctrl-first release discarded final recognition");
+      require(voice_provider.stop_requests.load() == stops + 1,
+              "Voice chord tail sent a duplicate stop request");
+      seen.committed.clear();
+    }
+    for (guint held_control : {guint(0), guint(IBUS_CONTROL_MASK)}) {
+      const auto locked_starts = voice_provider.started.load();
+      const auto locked_stops = voice_provider.stop_requests.load();
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Locked Ctrl press was intercepted");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control), "Locked recording did not start");
+      require(wait_voice([&] { return voice_provider.started.load() == locked_starts + 1; }),
+              "Locked recording did not reach provider");
+      require(key(IBUS_space, IBUS_MOD1_MASK | held_control) &&
+                  key(IBUS_space, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK),
+              "Space did not lock recording while Alt was held");
+      if (held_control) require(!key(IBUS_Control_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK), "Locked Ctrl release was intercepted");
+      require(key(IBUS_Alt_R, IBUS_RELEASE_MASK), "Locked Alt release was not consumed");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop locked recording");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == locked_stops + 1; }),
+              "Locked recording stopped on release or did not stop on Ctrl+F9");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Locked recording lost final recognition");
+      require(voice_provider.stop_requests.load() == locked_stops + 1,
+              "Locked recording sent duplicate stop requests");
+      seen.committed.clear();
+    }
 
 
 

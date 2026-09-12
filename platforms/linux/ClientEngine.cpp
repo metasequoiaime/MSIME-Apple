@@ -104,6 +104,7 @@ struct State {
   bool shift_down = false;
   bool ctrl_down = false;
   bool right_ctrl_down = false;
+  bool left_ctrl_down = false;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
     pure_shift_candidate = false;
@@ -111,6 +112,7 @@ struct State {
     shift_down = false;
     ctrl_down = false;
     right_ctrl_down = false;
+    left_ctrl_down = false;
     modifier_toggle_deadline = 0;
   }
   bool mode_shift_enabled = true;
@@ -159,6 +161,8 @@ struct State {
   bool voice_space_consumed = false;
   bool voice_space_locked = false;
   bool voice_active = false;
+  bool voice_stopping = false;
+  bool voice_requires_control = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
   std::shared_ptr<std::atomic_bool> alive =
@@ -2095,7 +2099,7 @@ void voice_cancel(IBusEngine *engine) {
 }
 void voice_stop(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.voice_active || s.voice_provider_socket.empty())
+  if (!s.voice_active || s.voice_stopping || s.voice_provider_socket.empty())
     return;
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       msime_client_voice_provider_stop(
@@ -2114,6 +2118,7 @@ void voice_stop(IBusEngine *engine) {
   if (!stopped)
     voice_cancel(engine);
   else {
+    s.voice_stopping = true;
     s.voice_space_consumed = false;
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -2133,6 +2138,8 @@ void voice_start(IBusEngine *engine) {
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
+  s.voice_stopping = false;
+  s.voice_requires_control = false;
   s.voice_generation = generation;
   s.voice_space_consumed = false;
   s.voice_space_locked = false;
@@ -3154,8 +3161,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool repeated_modifier = !release &&
       ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
   if (shift_key) s.shift_down = !release;
-  if (ctrl_key) s.ctrl_down = !release;
   if (key == IBUS_Control_R) s.right_ctrl_down = !release;
+  if (key == IBUS_Control_L) s.left_ctrl_down = !release;
+  if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;
 
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
@@ -3186,6 +3194,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return FALSE;
   }
   if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
+    if (s.voice_active && s.voice_requires_control && s.voice_hotkey_consumed_key &&
+        !s.voice_space_locked &&
+        (s.voice_hotkey_consumed_key == IBUS_Alt_R ? !s.right_ctrl_down : !s.ctrl_down)) {
+      s.pure_ctrl_candidate = false;
+      guarded(engine, "voice_control_release", [&] { voice_stop(engine); });
+      return FALSE;
+    }
     if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK) ||
         (flags & IBUS_SHIFT_MASK) ||
         g_get_monotonic_time() >= s.modifier_toggle_deadline) {
@@ -3412,8 +3427,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.voice_hotkey_consumed_key = key;
       if (s.voice_active)
         voice_stop(engine);
-      else
+      else {
         voice_start(engine);
+        s.voice_requires_control = key != IBUS_F9 && (modifiers & IBUS_CONTROL_MASK);
+      }
       handled = true;
       return;
     }
