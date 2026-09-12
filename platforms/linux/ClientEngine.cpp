@@ -1066,12 +1066,26 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
     }
   }
   const auto &surrounding = s.surrounding_text;
-  const auto cursor = std::min<std::size_t>(s.surrounding_cursor, surrounding.size());
+  // A commit replaces the selection, so inspect the character before its start.
+  const auto cursor = std::min<std::size_t>(
+      std::min(s.surrounding_cursor, s.surrounding_anchor), surrounding.size());
   if (cursor == 0)
     return false;
   const auto value = static_cast<unsigned char>(surrounding[cursor - 1]);
   // A UTF-8 continuation byte means the preceding code point is non-ASCII.
   return value < 0x80 && is_ascii_alphanumeric(value);
+}
+bool smart_punctuation_repeat_matches_document(const State &s) {
+  if (s.surrounding_cursor != s.surrounding_anchor)
+    return false;
+  auto previous = std::string(1, s.last_smart_punctuation);
+  if (s.fullwidth)
+    previous = fullwidth_text(std::move(previous));
+  const auto cursor = std::min<std::size_t>(s.surrounding_cursor,
+                                          s.surrounding_text.size());
+  return cursor >= previous.size() &&
+         s.surrounding_text.compare(cursor - previous.size(), previous.size(),
+                                    previous) == 0;
 }
 constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
 
@@ -2530,23 +2544,22 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
-  const auto length = static_cast<guint>(s.surrounding_text.size());
-  auto utf8_boundary = [&](guint offset) {
-    auto value = std::min(offset, length);
-    // IBus offsets are bytes; never split a UTF-8 sequence when forwarding
-    // surrounding text to the engine.
-    while (value > 0 && value < length &&
-           (static_cast<unsigned char>(s.surrounding_text[value]) & 0xc0) == 0x80)
-      --value;
-    return value;
+  const auto *utf8 = s.surrounding_text.c_str();
+  const auto length = static_cast<guint>(g_utf8_strlen(utf8, -1));
+  // IBus reports Unicode character offsets. Store byte offsets for the UTF-8
+  // document lookup used by smart punctuation, including non-BMP characters.
+  auto byte_offset = [&](guint offset) {
+    return static_cast<guint>(
+        g_utf8_offset_to_pointer(utf8, std::min(offset, length)) - utf8);
   };
-  s.surrounding_cursor = utf8_boundary(cursor);
-  s.surrounding_anchor = utf8_boundary(anchor);
+  s.surrounding_cursor = byte_offset(cursor);
+  s.surrounding_anchor = byte_offset(anchor);
 }
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
     s.focused = true;
+    ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     s.open();
     watch_clipboard_history(engine);
     sync_global_input_mode(engine);
@@ -3915,6 +3928,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
             kSmartPunctuationRepeatIntervalUs &&
+        smart_punctuation_repeat_matches_document(s) &&
         s.view.at("editing_text").get<std::string>().empty()) {
       if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
         ibus_engine_delete_surrounding_text(engine, -1, 1);
@@ -4332,6 +4346,10 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
   engine->process_key_event = process_key;
   engine->property_activate = property_activate;
+  engine->enable = [](IBusEngine *engine) {
+    // Advertise surrounding-text use so native IM modules send document updates.
+    ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
+  };
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
   engine->disable = focus_out;

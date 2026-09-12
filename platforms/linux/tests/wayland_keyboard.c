@@ -27,7 +27,7 @@ static const struct mapping keys[] = {
   {"6",7}, {"7",8}, {"8",9}, {"9",10}, {"0",11}, {"BackSpace",14},
   {"q",16}, {"w",17}, {"e",18}, {"r",19}, {"i",23}, {"o",24},
   {"Return",28}, {"a",30}, {"h",35}, {"apostrophe",40}, {"Shift_L",42},
-  {"x",45}, {"n",49}, {"space",57}, {"F1",59}, {"Multi_key",127},
+  {"x",45}, {"n",49}, {"period",52}, {"space",57}, {"F1",59}, {"Multi_key",127},
   {"dead_circumflex",200}, {"U1F600",201}
 };
 int main(void) {

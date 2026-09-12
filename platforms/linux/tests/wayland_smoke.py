@@ -48,6 +48,8 @@ password.set_visibility(False)
 password.set_input_purpose(Gtk.InputPurpose.PASSWORD)
 for entry in (first, second, password):
     layout.pack_start(entry, False, False, 0)
+text_view = Gtk.TextView()
+layout.pack_start(text_view, True, True, 0)
 preedit = {"text": ""}
 first.connect("preedit-changed", lambda _entry, text: preedit.update(text=text))
 window.show_all()
@@ -112,6 +114,9 @@ password.grab_focus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.get_text() == "nihao ", "GTK password input was intercepted by the IME")
+from gtk_surrounding import check_surrounding, TextViewAdapter
+check_surrounding(first, keys, pump, wait)
+check_surrounding(TextViewAdapter(text_view), keys, pump, wait, selections=True)
 window.destroy()
 pump()
 print("GTK3 Wayland IBus-module candidate/edit/focus/password acceptance passed")
