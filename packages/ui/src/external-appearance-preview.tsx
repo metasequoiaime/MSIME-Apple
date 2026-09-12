@@ -4,6 +4,7 @@ import { dimension, paletteCss, type ExternalSkin, type SkinCatalog } from "./ex
 import { installSkinPalette } from "./skin-palette";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
+import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 
 function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean;
@@ -21,13 +22,14 @@ function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   useEffect(() => setDecodeFailed(false), [image]);
   const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base) ? skin.base : "fluent";
   const geometry = {
+    ...candidateFontStyle(preferences),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
   } as CSSProperties;
   return <div className={decorated ? "external-skin-decorated" : undefined}>
     <div className={`skin-card-preview appearance-candidate-preview skin-${base} ${scope}`} style={geometry}
-      data-preview-theme="dark" data-font-size={preferences.candidate_font_size ?? 18} aria-hidden="true">
+      data-preview-theme="dark" data-font-size={candidateFontSize(preferences.candidate_font_size)} aria-hidden="true">
       <div className="skin-preview-stage"><SkinCandidatePreview orientation={preferences.candidate_layout ?? "vertical"}
         count={preferences.candidate_page_size} preedit={preferences.candidate_preedit_style !== "empty"} helpcode={helpcode}
         decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
