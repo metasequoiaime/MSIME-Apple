@@ -261,3 +261,5 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 语音 provider 支持 `--capture pipewire`，使用原生 `pw-cat` 录制 16 kHz 单声道 PCM；提示音也可通过 `pw-cat` 播放。`auto` 保持优先 `parec`，其次 `pw-cat`，再尝试 `arecord`。`--capture-device` 可指定 PulseAudio source、PipeWire node name/object.serial 或 ALSA PCM 名称，建议与明确的 `--capture` 后端配合使用。原生 PipeWire 录音无需 PulseAudio 兼容录音工具；系统音频静音优先使用 `pactl`，不可用时回退到 `pw-dump` 与 `wpctl`。参数依据 [PipeWire pw-cat 官方手册](https://docs.pipewire.org/page_man_pw-cat_1.html)。
 
 录音期间静音支持原生 PipeWire/WirePlumber：`pactl` 缺失或无法枚举时，使用 `pw-dump` 查找应用播放流并通过 `wpctl` 静音，录音结束后仅恢复本次静音且节点序列号一致的流。原本已静音、已退出或被新节点复用的流不会被恢复。最多处理 32 个播放流，不更改麦克风静音或默认输出设备音量。参考 [WirePlumber wpctl](https://pipewire.pages.freedesktop.org/wireplumber/man/wpctl.html) 与 [PipeWire pw-dump](https://docs.pipewire.org/page_man_pw-dump_1.html)。
+
+语音服务启动时持有同路径 `.lock` 进程锁。异常终止留下的 socket 在确认属于当前用户、连接被拒绝且 inode 未变化后自动清理，使服务可重新启动；活跃服务、普通文件、符号链接及无法确定状态的端点不会被替换。锁文件保留并由内核在进程退出时释放锁。
