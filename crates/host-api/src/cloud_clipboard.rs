@@ -18,7 +18,6 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
                 .and_then(Value::as_str)
                 .ok_or("invalid cloud clipboard request")?;
             if text.is_empty()
-                || text.len() > 4000
                 || text.encode_utf16().count() > 4000
                 || text.contains('\0')
                 || text.chars().any(|character| {
