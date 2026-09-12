@@ -5,6 +5,7 @@
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
+#include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
@@ -13,6 +14,24 @@
 #include <memory>
 
 namespace {
+// The desktop shell is packaged beside this Server; a development build points
+// at another copy with the same variable the Linux host reads.
+std::filesystem::path executable_directory() {
+  std::vector<wchar_t> path(32768);
+  const DWORD length =
+      GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+  if (!length || length == path.size())
+    return {};
+  return std::filesystem::path(std::wstring(path.data(), length)).parent_path();
+}
+std::wstring configured_shell_command() {
+  std::vector<wchar_t> value(32768);
+  const DWORD length = GetEnvironmentVariableW(
+      L"MSIME_CLIENT_SETTINGS_COMMAND", value.data(),
+      static_cast<DWORD>(value.size()));
+  return length && length < value.size() ? std::wstring(value.data(), length)
+                                         : std::wstring{};
+}
 // Resolve the configured skin through the shared catalog. Appearance is not
 // worth failing a running Server over, so an unreadable root or an unknown
 // package leaves the built-in theme in place.
@@ -157,20 +176,32 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     toolbar.set_palette(palette);
-    // The Server owns the floating toolbar, so that row works here. The other
-    // entries open shell surfaces this process cannot reach, so they stay
-    // visible and disabled rather than accepting a click that does nothing.
+    // The Server owns the floating toolbar. Every other row opens a surface in
+    // the shared desktop shell, which is a separate process: with no shell
+    // installed beside this Server those rows stay visible and disabled rather
+    // than accepting a click that does nothing.
     bool toolbar_visible = config.floating_toolbar_enabled;
+    const auto shell = shell_executable(executable_directory(),
+                                        configured_shell_command());
     TrayMenuCapabilities menu_capabilities;
+    menu_capabilities.emoji_panel = shell.has_value();
+    menu_capabilities.handwriting_panel = shell.has_value();
+    menu_capabilities.keyboard_panel = shell.has_value();
+    menu_capabilities.voice_input = shell.has_value();
+    menu_capabilities.settings = shell.has_value();
     TrayMenuWindow tray(
         menu_capabilities,
         [&](TrayMenuCommand command) {
-          if (command != TrayMenuCommand::ToggleFloatingToolbar)
-            return false;
-          toolbar_visible = !toolbar_visible;
-          if (!toolbar_visible)
-            toolbar.hide();
-          return true;
+          if (command == TrayMenuCommand::ToggleFloatingToolbar) {
+            toolbar_visible = !toolbar_visible;
+            if (!toolbar_visible)
+              toolbar.hide();
+            return true;
+          }
+          const auto request = shell_surface_request(command);
+          // Report only what was observed: a row that could not start the
+          // shell stays unhandled, so the menu does not close on a promise.
+          return shell && request && launch_shell_surface(*shell, *request);
         },
         [&] { return toolbar_visible; });
     tray.set_palette(palette);

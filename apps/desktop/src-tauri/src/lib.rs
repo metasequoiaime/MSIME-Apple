@@ -38,6 +38,29 @@ fn supports_font_catalog() -> bool {
     system_fonts::supported()
 }
 
+/// The settings section a host menu asked for, if any. The launcher passes it
+/// in the environment, like the panel routes; the settings page falls back to
+/// its own default when this is absent or unusable.
+#[tauri::command]
+fn initial_settings_page() -> Option<String> {
+    requested_settings_page(std::env::var("MSIME_CLIENT_SETTINGS_PAGE").ok().as_deref())
+}
+
+fn requested_settings_page(value: Option<&str>) -> Option<String> {
+    // Only a short identifier is accepted here; the page list itself lives in
+    // the shared settings UI, which refuses ids it does not have.
+    value
+        .map(str::trim)
+        .filter(|page| {
+            !page.is_empty()
+                && page.len() <= 32
+                && page
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        })
+        .map(str::to_owned)
+}
+
 #[tauri::command]
 async fn list_font_families() -> Result<Vec<String>, CommandError> {
     tauri::async_runtime::spawn_blocking(system_fonts::list)
@@ -2514,7 +2537,10 @@ pub fn run() {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
             });
-            #[cfg(target_os = "linux")]
+            // Both desktop hosts launch this shell with the panel their menu
+            // named; the IBus property menu and the Windows tray menu are the
+            // same contract, so the routes stay in one place.
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Ok(panel) = std::env::var("MSIME_CLIENT_PANEL") {
                 let route = match panel.as_str() {
                     "keyboard" => Some((
@@ -2562,17 +2588,26 @@ pub fn run() {
                     _ => None,
                 };
                 if let Some((label, route, title, width, height)) = route {
-                    // The property-menu process is the panel launcher in this
-                    // path, so capture the foreground editor before the new
-                    // window can take focus. This is the same handoff used by
-                    // the settings-page panel commands.
+                    // The menu process is the panel launcher in this path, so
+                    // capture the foreground editor before the new window can
+                    // take focus. This is the same handoff used by the
+                    // settings-page panel commands.
                     let panel_input = app.state::<PanelInputState>();
-                    let _ = remember_panel_input_target(panel_input.inner(), true);
+                    #[cfg(target_os = "linux")]
+                    let position = {
+                        let _ = remember_panel_input_target(&panel_input, true);
+                        None
+                    };
+                    #[cfg(target_os = "windows")]
+                    let position = {
+                        let _ = remember_panel_input_target(&panel_input);
+                        windows_panel_position(width, height)
+                    };
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
                     open_panel_window(
-                        app.handle(), label, route, title, width, height, None,
+                        app.handle(), label, route, title, width, height, position,
                     )
                     .map_err(|_| "Cannot open requested panel".to_string())?;
                 }
@@ -2581,6 +2616,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             supports_font_catalog,
+            initial_settings_page,
             list_font_families,
             load_preferences,
             load_typing_statistics,
@@ -2626,6 +2662,26 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn requested_settings_page_only_accepts_a_plain_section_identifier() {
+        assert_eq!(
+            super::requested_settings_page(Some(" about ")),
+            Some("about".into())
+        );
+        assert_eq!(
+            super::requested_settings_page(Some("screen-keyboard")),
+            Some("screen-keyboard".into())
+        );
+        assert_eq!(super::requested_settings_page(None), None);
+        assert_eq!(super::requested_settings_page(Some("   ")), None);
+        // Anything that could carry a path, a query or a script stays out of
+        // the window the launcher is about to open.
+        assert_eq!(super::requested_settings_page(Some("../etc")), None);
+        assert_eq!(super::requested_settings_page(Some("About")), None);
+        assert_eq!(super::requested_settings_page(Some("a?b=c")), None);
+        assert_eq!(super::requested_settings_page(Some(&"a".repeat(33))), None);
+    }
+
     #[test]
     fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
         let directory = tempfile::tempdir().unwrap();

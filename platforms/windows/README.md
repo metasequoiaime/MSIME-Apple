@@ -276,6 +276,12 @@ key_bindings 可选对象示例：
 
 对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。显式对象覆盖共享设置，修改启动文件需重启。未提供对象时使用共享 preferences.json 的 navigation 和 word_character，并通过现有监听器动态发布；旧设置缺省采用 Windows 默认值（除方括号外全部开启，以词定字关闭、键组为方括号）。共享设置禁止以词定字与同键翻页同时开启；UI 切换会同时关闭冲突项。绑定在输入队列更新，不读盘、不解析每次按键；它独立于延迟中的 Engine 方案。显式启动配置仍按以词定字优先处理同键绑定，Microsoft 分号及 Unicode 编辑优先级不变。此预览配置不替代 TSF 同步契约，实验客户端必须使用匹配的吃键配置。
 
+#### 托盘菜单与共享界面
+
+托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；表情/符号面板、手写识别板、屏幕键盘、语音输入、设置和关于都在共享桌面外壳（Tauri）里打开，与 Linux 的 IBus 属性菜单走同一套契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。
+
+外壳可执行文件按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe`、同目录的 `MSIME Client Preview.exe` 顺序查找。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。外壳用 `CreateProcessW` 启动并继承本进程令牌，因此打包时外壳与 Server 的完整性级别一致。
+
 这是不注册 TSF 的开发预览，不是可安装输入法：已接候选窗口、后台点击选词和原生模式面板，使用 configured_key 的已有路径；未支持的路由会断开当前连接。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。不能连接旧产品或用它取代完整产品 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻预览进程；CMake 另登记无副作用的 --help 测试。
 
 #### TSF 适配器交接契约
