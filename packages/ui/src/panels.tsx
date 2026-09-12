@@ -88,7 +88,7 @@ const keyboardRows: KeyboardKey[][] = [
   [key("Tab", 0x09), ...[..."QWERTYUIOP"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key("[", 0xdb, "{"), key("]", 0xdd, "}"), key("\\", 0xdc, "|")],
   [modifier("Caps Lock", 0x14), ...[..."ASDFGHJKL"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(";", 0xba, ":"), key("'", 0xde, '"'), key("Enter", 0x0d)],
   [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
-  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), key("←", 0x25), key("↑", 0x26), key("↓", 0x28), key("→", 0x27), modifier("Ctrl", 0x11)],
+  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Menu", 0x5d), key("Del", 0x2e), key("←", 0x25), key("↑", 0x26), key("↓", 0x28), key("→", 0x27), modifier("Ctrl", 0x11)],
 ];
 const nineKeyRows: KeyboardKey[][] = [
   [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
