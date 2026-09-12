@@ -33,7 +33,11 @@ def wait(predicate, description):
 
 
 def keys(*values):
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "--delay", "40", *values], check=True)
+    process = subprocess.Popen(["xdotool", "key", "--clearmodifiers", "--delay", "40", *values])
+    while process.poll() is None:
+        pump()
+        time.sleep(0.005)
+    assert process.returncode == 0, "XTest keyboard injection failed"
     pump()
 
 
@@ -107,6 +111,20 @@ second.setText("")
 keys("n", "i", "h", "a", "o", "Escape")
 wait(lambda: not second.preedit, "Qt Escape did not clear preedit")
 assert second.text() == "", "Qt Escape committed cancelled composition"
+second.setText("")
+keys("Multi_key", "apostrophe", "e")
+wait(lambda: second.text() == "é", "Qt native Compose sequence failed")
+second.setText("")
+keys("Multi_key", "Escape", "n", "i", "h", "a", "o", "space")
+wait(lambda: second.text() == "你好", "Qt Compose cancellation did not restore IME input")
+second.setText("")
+keys("dead_circumflex")
+first.setText("")
+first.setFocus()
+pump()
+keys("e", "Return")
+wait(lambda: first.text() == "e", "Qt focus transfer retained the previous dead key")
+assert second.text() == "", "Qt dead-key focus loss inserted text"
 password.setFocus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
