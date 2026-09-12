@@ -10,6 +10,10 @@ public final class NativeSmoke {
         if (!NativeClient.prepareHost("{\"resources\":\"relative\",\"state_root\":\"relative\"}").contains("\"ok\":false")) {
             throw new AssertionError("bootstrap accepted relative paths");
         }
+        if (!NativeClient.emojiCatalog("{\"cursor\":true,\"limit\":64}", "relative")
+                .contains("\"ok\":false")) {
+            throw new AssertionError("emoji catalog accepted a relative resource path");
+        }
         Path root = Files.createTempDirectory("msime-jni-");
         try {
             Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));

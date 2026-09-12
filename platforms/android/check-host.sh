@@ -32,6 +32,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardFeedbackSmoke.java" \
   "$repo_root/platforms/android/tests/TypingSourceSmoke.java" \
+  "$repo_root/platforms/android/tests/EmojiCatalogModelSmoke.java" \
   "$repo_root/platforms/android/tests/MoreToolsLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/LocalInputModeSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardSchemeSmoke.java" \
@@ -59,6 +60,7 @@ java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir" TypingSourceSmoke
+java -cp "$output_dir" EmojiCatalogModelSmoke
 java -cp "$output_dir" MoreToolsLayoutSmoke
 java -cp "$output_dir" LocalInputModeSmoke
 java -cp "$output_dir" KeyboardSchemeSmoke

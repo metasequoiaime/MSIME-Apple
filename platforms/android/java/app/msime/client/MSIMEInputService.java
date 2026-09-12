@@ -29,6 +29,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.ScrollView;
@@ -59,6 +60,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
+    private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
+    private static final String EMOJI_RECENTS_KEY = "items";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
     private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
@@ -89,6 +92,12 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout layoutSettingsPanel;
     private ScrollView moreToolsScroll;
     private LinearLayout moreToolsPanel;
+    private LinearLayout emojiPanel;
+    private HorizontalScrollView emojiTabsScroll;
+    private LinearLayout emojiTabs;
+    private ScrollView emojiGridScroll;
+    private GridLayout emojiGrid;
+    private TextView emojiStatus;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
     private SeekBar keyboardHeightSlider;
@@ -114,6 +123,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button skinButton;
     private Button layoutSettingsButton;
     private Button scriptShortcutButton;
+    private Button emojiShortcutButton;
     private Button voiceShortcutButton;
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
@@ -213,11 +223,21 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean replySuppressed;
     private boolean statisticsFailureReported;
     private long editorContextRevision;
+    private SharedPreferences emojiPreferences;
+    private java.util.List<String> emojiRecents = java.util.List.of();
+    private java.util.List<EmojiCatalogModel.Item> emojiItems = java.util.List.of();
+    private String emojiResources = "";
+    private int emojiSelectedCategory = Integer.MIN_VALUE;
+    private int emojiNextOffset;
+    private boolean emojiComplete;
+    private boolean emojiLoading;
+    private long emojiLoadGeneration;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
         new ThreadPoolExecutor.AbortPolicy());
+    private final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
@@ -411,6 +431,8 @@ public final class MSIMEInputService extends InputMethodService {
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
+                String resources = options.optString("resources", "");
+                if (new File(resources).isAbsolute()) emojiResources = resources;
                 apply(NativeClient.focus(session, true));
                 view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
                 message = "MSIME Preview";
@@ -442,6 +464,7 @@ public final class MSIMEInputService extends InputMethodService {
         stop(false);
         preferencesWorker.shutdown();
         typingStatisticsWorker.shutdown();
+        emojiWorker.shutdown();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -453,6 +476,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesReloader.stop();
         preferenceSaveGeneration++;
         preferencesDirectory = "";
+        emojiResources = "";
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
@@ -471,6 +495,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeSchemePicker();
         closeLayoutSettings();
         closeMoreTools();
+        closeEmojiPicker();
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
@@ -910,6 +935,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && emojiPickerVisible()) {
+            closeEmojiPicker();
+            return true;
+        }
         if (session == 0 || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
             if (session != 0 && connection != null) {
                 // Preserve displayed source text before the editor handles a shortcut.
@@ -1093,6 +1122,8 @@ public final class MSIMEInputService extends InputMethodService {
             layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (moreToolsPanel != null)
             moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (emojiPanel != null)
+            emojiPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (voiceResultPanel != null)
             voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (aiPolishPanel != null)
@@ -1169,6 +1200,234 @@ public final class MSIMEInputService extends InputMethodService {
         if (moreToolsScroll != null) moreToolsScroll.setVisibility(View.GONE);
     }
 
+    private void closeEmojiPicker() {
+        emojiLoadGeneration++;
+        emojiLoading = false;
+        emojiSelectedCategory = Integer.MIN_VALUE;
+        emojiItems = java.util.List.of();
+        if (emojiPanel != null) emojiPanel.setVisibility(View.GONE);
+        synchronizeReplyKeyboard();
+    }
+
+    private java.util.List<String> loadEmojiRecents() {
+        if (emojiPreferences == null) return java.util.List.of();
+        String document = emojiPreferences.getString(EMOJI_RECENTS_KEY, "[]");
+        if (document == null || document.length() > 16_384) return java.util.List.of();
+        try {
+            JSONArray values = new JSONArray(document);
+            java.util.ArrayList<String> stored = new java.util.ArrayList<>();
+            int count = Math.min(values.length(), EmojiCatalogModel.RECENTS_LIMIT * 2);
+            for (int index = 0; index < count; index++) {
+                Object value = values.opt(index);
+                if (value instanceof String) stored.add((String) value);
+            }
+            return EmojiCatalogModel.normalizeRecents(stored);
+        } catch (JSONException error) {
+            return java.util.List.of();
+        }
+    }
+
+    private void saveEmojiRecents() {
+        if (emojiPreferences == null) return;
+        emojiPreferences.edit().putString(
+            EMOJI_RECENTS_KEY, new JSONArray(emojiRecents).toString()).apply();
+    }
+
+    private boolean emojiPickerVisible() {
+        return emojiPanel != null && emojiPanel.getVisibility() == View.VISIBLE;
+    }
+
+    private void selectEmojiCategory(int category) {
+        if (!emojiPickerVisible()) return;
+        if (category < -1 || category >= EmojiCatalogModel.categories().size()) return;
+        emojiLoadGeneration++;
+        emojiSelectedCategory = category;
+        emojiNextOffset = 0;
+        emojiComplete = category == -1;
+        emojiLoading = false;
+        emojiItems = java.util.List.of();
+        renderEmojiTabs();
+        if (category == -1) {
+            java.util.ArrayList<EmojiCatalogModel.Item> recent = new java.util.ArrayList<>();
+            for (String text : emojiRecents)
+                recent.add(new EmojiCatalogModel.Item(text, "", "最近"));
+            emojiItems = java.util.List.copyOf(recent);
+            renderEmojiGrid();
+        } else {
+            renderEmojiGrid();
+            loadEmojiPage();
+        }
+    }
+
+    private EmojiCatalogModel.Page decodeEmojiPage(
+            String response, int offset, EmojiCatalogModel.Category category) throws JSONException {
+        JSONObject envelope = new JSONObject(response);
+        if (!envelope.getBoolean("ok")) throw new JSONException("Emoji catalog unavailable");
+        JSONObject value = envelope.getJSONObject("value");
+        JSONArray entries = value.getJSONArray("items");
+        if (entries.length() > EmojiCatalogModel.PAGE_SIZE)
+            throw new JSONException("Emoji catalog page too large");
+        java.util.ArrayList<EmojiCatalogModel.Item> items = new java.util.ArrayList<>();
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.getJSONObject(index);
+            EmojiCatalogModel.Item item;
+            try {
+                item = new EmojiCatalogModel.Item(entry.getString("text"),
+                    entry.getString("annotation"), entry.getString("group"));
+            } catch (IllegalArgumentException error) {
+                throw new JSONException("Invalid emoji catalog item");
+            }
+            if (!category.group().equals(item.group()))
+                throw new JSONException("Unexpected emoji catalog group");
+            items.add(item);
+        }
+        try {
+            return EmojiCatalogModel.validatePage(items, offset, EmojiCatalogModel.PAGE_SIZE,
+                value.getLong("next_offset"), value.getBoolean("complete"));
+        } catch (IllegalArgumentException error) {
+            throw new JSONException("Invalid emoji catalog cursor");
+        }
+    }
+
+    private void loadEmojiPage() {
+        if (!emojiPickerVisible() || emojiSelectedCategory < 0 || emojiLoading || emojiComplete
+                || emojiResources.isEmpty()) return;
+        int categoryIndex = emojiSelectedCategory;
+        EmojiCatalogModel.Category category = EmojiCatalogModel.categories().get(categoryIndex);
+        int offset = emojiNextOffset;
+        long generation = ++emojiLoadGeneration;
+        String resources = emojiResources;
+        String query;
+        try {
+            query = new JSONObject().put("category", "").put("group", category.group())
+                .put("offset", offset).put("limit", EmojiCatalogModel.PAGE_SIZE)
+                .put("cursor", true).toString();
+        } catch (JSONException error) {
+            return;
+        }
+        emojiLoading = true;
+        renderEmojiStatus();
+        emojiWorker.execute(() -> {
+            EmojiCatalogModel.Page page = null;
+            try { page = decodeEmojiPage(NativeClient.emojiCatalog(query, resources), offset, category); }
+            catch (JSONException | RuntimeException | LinkageError ignored) {
+                // The UI reports a sanitized catalog error; never expose resource paths or rows.
+            }
+            EmojiCatalogModel.Page result = page;
+            main.post(() -> {
+                if (!emojiPickerVisible() || generation != emojiLoadGeneration
+                        || categoryIndex != emojiSelectedCategory) return;
+                emojiLoading = false;
+                if (result == null) {
+                    emojiComplete = true;
+                    if (emojiStatus != null) emojiStatus.setText("表情目录暂时不可用；点分类重试");
+                    return;
+                }
+                java.util.ArrayList<EmojiCatalogModel.Item> combined =
+                    new java.util.ArrayList<>(emojiItems);
+                combined.addAll(result.items());
+                emojiItems = java.util.List.copyOf(combined);
+                emojiNextOffset = result.nextOffset();
+                emojiComplete = result.complete();
+                renderEmojiGrid();
+                if (!emojiComplete && result.items().isEmpty()) {
+                    loadEmojiPage();
+                } else if (!emojiComplete && emojiGridScroll != null) {
+                    emojiGridScroll.post(() -> {
+                        if (emojiPickerVisible() && generation == emojiLoadGeneration
+                                && categoryIndex == emojiSelectedCategory
+                                && !emojiGridScroll.canScrollVertically(1)) loadEmojiPage();
+                    });
+                }
+            });
+        });
+    }
+
+    private void renderEmojiStatus() {
+        if (emojiStatus == null) return;
+        if (emojiLoading) emojiStatus.setText("正在加载表情…");
+        else if (emojiItems.isEmpty()) emojiStatus.setText("暂无表情");
+        else if (emojiComplete) emojiStatus.setText(emojiItems.size() + " 个表情");
+        else emojiStatus.setText(emojiItems.size() + " 个表情 · 继续滚动加载");
+    }
+
+    private void renderEmojiTabs() {
+        if (emojiTabs == null) return;
+        emojiTabs.removeAllViews();
+        if (!emojiRecents.isEmpty()) addEmojiTab("最近", -1);
+        for (int index = 0; index < EmojiCatalogModel.categories().size(); index++)
+            addEmojiTab(EmojiCatalogModel.categories().get(index).title(), index);
+    }
+
+    private void addEmojiTab(String title, int category) {
+        Button tab = new Button(this);
+        tab.setAllCaps(false);
+        tab.setText(title);
+        tab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tab.setSelected(emojiSelectedCategory == category);
+        tab.setContentDescription("表情分类 " + title);
+        if (Build.VERSION.SDK_INT >= 30)
+            tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
+        styleButton(tab, true);
+        tab.setOnClickListener(ignored -> {
+            playFeedback(tab);
+            selectEmojiCategory(category);
+        });
+        emojiTabs.addView(tab, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, pixels(38)));
+    }
+
+    private void renderEmojiGrid() {
+        if (emojiGrid == null) return;
+        emojiGrid.removeAllViews();
+        for (EmojiCatalogModel.Item item : emojiItems) {
+            Button cell = keyboardKey(item.text(), "表情 " + item.text(),
+                () -> insertEmoji(item.text()));
+            cell.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+            cell.setPadding(0, 0, 0, 0);
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams(
+                GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
+            params.width = 0;
+            params.height = pixels(48);
+            emojiGrid.addView(cell, params);
+        }
+        renderEmojiStatus();
+        applySkin();
+    }
+
+    private void insertEmoji(String text) {
+        if (!emojiPickerVisible() || connection == null) return;
+        if (!commitText(text, TypingSource.LOCAL)) return;
+        emojiRecents = EmojiCatalogModel.recordRecent(emojiRecents, text);
+        saveEmojiRecents();
+    }
+
+    private void deleteFromEmojiPicker() {
+        if (connection != null && !command(0))
+            connection.deleteSurroundingTextInCodePoints(1, 0);
+    }
+
+    private void showEmojiPicker() {
+        if (session == 0 || connection == null || emojiPanel == null || emojiResources.isEmpty()) {
+            Toast.makeText(this, "表情目录尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        command(9);
+        if (session == 0 || connection == null) return;
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeMoreTools();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        emojiRecents = loadEmojiRecents();
+        emojiPanel.setVisibility(View.VISIBLE);
+        emojiPanel.requestFocus();
+        selectEmojiCategory(emojiRecents.isEmpty() ? 0 : -1);
+    }
+
     private void closeVoiceResult() {
         if (voiceResultScroll != null) voiceResultScroll.setVisibility(View.GONE);
         voiceResultEntry = null;
@@ -1237,6 +1496,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showReplyKeyboard() {
         if (selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY) return;
         replySuppressed = false;
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -1726,6 +1986,7 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "请先完成当前输入，再选择一万字以内的文字", Toast.LENGTH_SHORT).show();
             return;
         }
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -1916,6 +2177,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         captureVoiceTarget();
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -2033,6 +2295,7 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "键盘设置尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -2140,6 +2403,7 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeLayoutSettings();
@@ -2374,6 +2638,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void showClipboardHistory() {
         if (!clipboardHistoryEnabled || clipboardScroll == null) return;
+        closeEmojiPicker();
         closeCandidatePanel();
         closeSchemePicker();
         closeLayoutSettings();
@@ -2425,6 +2690,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void showFeedbackMenu() {
         if (moreButton == null || moreToolsPanel == null || moreToolsScroll == null) return;
+        closeEmojiPicker();
         closeCandidatePanel();
         closeClipboardHistory();
         closeSchemePicker();
@@ -2531,6 +2797,11 @@ public final class MSIMEInputService extends InputMethodService {
         moreToolsPanel.addView(header);
 
         appendMoreToolsSection(MoreToolsLayout.Section.TOOLS,
+            moreToolsCard("表情", MoreToolsLayout.Section.TOOLS, false,
+                session != 0 && !emojiResources.isEmpty(), true, () -> {
+                    closeMoreTools();
+                    showEmojiPicker();
+                }),
             moreToolsCard("剪贴板历史", MoreToolsLayout.Section.TOOLS, false,
                 clipboardHistoryEnabled, true, () -> {
                     closeMoreTools();
@@ -3402,6 +3673,10 @@ public final class MSIMEInputService extends InputMethodService {
         scriptShortcutButton.setContentDescription("切换到繁体");
         scriptShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        emojiShortcutButton = button(candidateHeader, "☺", this::showEmojiPicker);
+        emojiShortcutButton.setContentDescription("打开表情浏览");
+        emojiShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         voiceShortcutButton = button(candidateHeader, "语音", this::showVoiceResult);
         voiceShortcutButton.setContentDescription("打开语音结果");
         voiceShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
@@ -3661,6 +3936,59 @@ public final class MSIMEInputService extends InputMethodService {
         moreToolsScroll.setVisibility(View.GONE);
         keyboardRoot.addView(moreToolsScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        emojiPreferences = getSharedPreferences(EMOJI_RECENTS_PREFERENCES, MODE_PRIVATE);
+        emojiRecents = loadEmojiRecents();
+        emojiPanel = new LinearLayout(this);
+        emojiPanel.setOrientation(LinearLayout.VERTICAL);
+        emojiPanel.setPadding(pixels(8), 0, pixels(8), pixels(6));
+        emojiPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        emojiPanel.setContentDescription("表情面板");
+        emojiPanel.setFocusable(true);
+        LinearLayout emojiHeader = new LinearLayout(this);
+        emojiHeader.setGravity(Gravity.CENTER_VERTICAL);
+        Button closeEmoji = button(emojiHeader, "‹", this::closeEmojiPicker);
+        closeEmoji.setContentDescription("返回键盘");
+        closeEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(56), pixels(40)));
+        TextView emojiTitle = new TextView(this);
+        emojiTitle.setText("表情");
+        emojiTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        emojiTitle.setGravity(Gravity.CENTER);
+        emojiHeader.addView(emojiTitle, new LinearLayout.LayoutParams(0, pixels(40), 1));
+        Button deleteEmoji = button(emojiHeader, "⌫", this::deleteFromEmojiPicker);
+        deleteEmoji.setContentDescription("删除");
+        deleteEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(56), pixels(40)));
+        emojiPanel.addView(emojiHeader);
+        emojiTabs = new LinearLayout(this);
+        emojiTabs.setOrientation(LinearLayout.HORIZONTAL);
+        emojiTabsScroll = new HorizontalScrollView(this);
+        emojiTabsScroll.setHorizontalScrollBarEnabled(false);
+        emojiTabsScroll.setContentDescription("表情分类");
+        emojiTabsScroll.addView(emojiTabs);
+        emojiPanel.addView(emojiTabsScroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(40)));
+        emojiStatus = new TextView(this);
+        emojiStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        emojiStatus.setGravity(Gravity.CENTER_VERTICAL);
+        emojiPanel.addView(emojiStatus, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(20)));
+        emojiGrid = new GridLayout(this);
+        emojiGrid.setColumnCount(EmojiCatalogModel.COLUMNS);
+        emojiGrid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
+        emojiGrid.setUseDefaultMargins(false);
+        emojiGridScroll = new ScrollView(this);
+        emojiGridScroll.setFillViewport(false);
+        emojiGridScroll.setVerticalScrollBarEnabled(false);
+        emojiGridScroll.setContentDescription("表情网格；每行八个");
+        emojiGridScroll.addView(emojiGrid, new ScrollView.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        emojiGridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
+            if (scrollY > oldY && !view.canScrollVertically(1)) loadEmojiPage();
+        });
+        emojiPanel.addView(emojiGridScroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        emojiPanel.setVisibility(View.GONE);
+        keyboardRoot.addView(emojiPanel, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
         synchronizeReplyKeyboard();
@@ -3693,11 +4021,11 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.setText(view == null ? "" : view.optString("editing_text", ""));
         }
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
+        JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
+        boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
+            && "none".equals(view.optString("local_mode", "none"))
+            && (visibleCandidates == null || visibleCandidates.length() == 0));
         if (scriptShortcutButton != null) {
-            JSONArray visible = view == null ? null : view.optJSONArray("candidates");
-            boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
-                && "none".equals(view.optString("local_mode", "none"))
-                && (visible == null || visible.length() == 0));
             boolean replaced = touchVoiceShortcutEnabled
                 || selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY;
             scriptShortcutButton.setVisibility(idle && !replaced ? View.VISIBLE : View.GONE);
@@ -3721,6 +4049,11 @@ public final class MSIMEInputService extends InputMethodService {
                 Build.VERSION.SDK_INT >= 30 ? label : label + "，" + outputState);
             if (Build.VERSION.SDK_INT >= 30)
                 scriptShortcutButton.setStateDescription(outputState);
+        }
+        if (emojiShortcutButton != null) {
+            emojiShortcutButton.setVisibility(idle && session != 0 && !emojiResources.isEmpty()
+                && selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY ? View.VISIBLE : View.GONE);
+            emojiShortcutButton.setEnabled(session != 0 && !emojiResources.isEmpty());
         }
         if (voiceShortcutButton != null) {
             voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled

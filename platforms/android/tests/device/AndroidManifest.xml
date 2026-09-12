@@ -3,6 +3,7 @@
     <instrumentation android:name="app.msime.client.test.DeviceSmoke" android:targetPackage="app.msime.client.test" />
     <instrumentation android:name="app.msime.client.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.client.test" />
     <instrumentation android:name="app.msime.client.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.client.test" />
+    <instrumentation android:name="app.msime.client.test.EmojiPickerDeviceSmoke" android:targetPackage="app.msime.client.test" />
     <instrumentation android:name="app.msime.client.test.HandwritingDeviceSmoke" android:targetPackage="app.msime.client.test" />
     <instrumentation android:name="app.msime.client.test.PreferencesDeviceSmoke" android:targetPackage="app.msime.client.preview" />
     <instrumentation android:name="app.msime.client.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.client.preview" />
