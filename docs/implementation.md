@@ -678,11 +678,11 @@ CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 
 
 ### Windows 剪贴板历史基础能力
 
-依据 Windows `PRIVACY.md`、`tools-settings.html` 和 `clipboard_history` 配置语义，新增共享有界剪贴板历史存储：最多 50 条、单条最多 4096 字节、去重置顶、临时文件发布及关闭后清空；控制字符和超长文本不会落盘。PreferencesStore 新增默认关闭的 `clipboard_history`，Host 不把它误当作 Engine 配置，避免只切换剪贴板设置就重建输入会话。
+依据 Windows `PRIVACY.md`、`tools-settings.html` 和 `clipboard_history` 配置语义，新增共享有界剪贴板历史存储：最多 50 条、单条最多 4000 个 UTF-16 单元、去重置顶、临时文件发布及关闭后清空；控制字符和超长文本不会落盘。PreferencesStore 新增默认关闭的 `clipboard_history`，Host 不把它误当作 Engine 配置，避免只切换剪贴板设置就重建输入会话。
 
 桌面 Tauri 宿主加载同一状态目录的历史，提供读取、清空、从系统剪贴板同步和重新复制命令；macOS 使用 `pbpaste`/`pbcopy`，Windows 使用 PowerShell，Linux 使用 `xclip`。设置页在“实用功能”中展示开关和历史列表，关闭开关立即清空，系统同步按钮仅在已启用时可用。20 项 client-core、20 项 host-api、desktop Rust 测试、fmt/clippy、20 项前端测试、TypeScript/Vite 构建通过。
 
-本增量尚未实现 Windows Server 的持续剪贴板监听、表情面板分页及跨进程事件同步，也没有把快捷短语 CRUD/导入/导出伪装成已完成；Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
+本增量已在 Linux 实现持续剪贴板监听：Wayland 使用选择监听，X11 使用 XFixes 事件与原生文本读取，包含重复相同文本、UTF8/STRING 回退和 INCR 分块边界；Windows Server 的原生持续监听、表情面板分页及跨进程事件同步仍未在本工程复刻，也没有把快捷短语 CRUD/导入/导出伪装成已完成。Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
 
 ### Windows 屏幕键盘与手写板平台契约
 
