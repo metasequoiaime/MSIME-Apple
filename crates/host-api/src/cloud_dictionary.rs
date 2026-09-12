@@ -186,6 +186,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_quick_phrase_code_alphabet() {
+        let request = |code| CloudDictionaryRequest::Add { kind: "quick".into(), code, word: "短语".into(), weight: 1 };
+        assert!(validate_cloud_request(&request("k2".into())).is_ok());
+        assert!(validate_cloud_request(&request("K2".into())).is_err());
+        assert!(validate_cloud_request(&request("k-2".into())).is_err());
+    }
+
+    #[test]
     fn validates_import_and_export_formats() {
         assert!(validate_cloud_request(&CloudDictionaryRequest::Import {
             kind: "pinyin".into(),
