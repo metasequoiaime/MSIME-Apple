@@ -13,6 +13,7 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
+use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
@@ -20,7 +21,7 @@ use msime_input_runtime::{
     Runtime, Transition,
 };
 #[cfg(unix)]
-use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
+use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -37,11 +38,11 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
 };
 
-/// Run the optional offline Engine handwriting recognizer for a native panel.
+/// Run the optional offline Engine handwriting recognizer for a panel host.
 /// The caller must provide a trusted absolute model path; strokes are copied
-/// before crossing the C++ bridge. The shared Linux panel uses a 420 by 420
-/// canvas, which is also the coordinate space passed to the Engine.
-#[cfg(unix)]
+/// before crossing the C++ bridge. The shared panel uses a 420 by 420 canvas,
+/// which is also the coordinate space passed to the Engine. This path needs no
+/// provider socket, so every host can use it.
 pub fn handwriting_local_candidates(
     model_path: &str,
     query: &HandwritingQuery,
