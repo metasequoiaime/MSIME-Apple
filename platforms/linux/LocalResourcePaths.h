@@ -72,4 +72,5 @@ inline std::string local_resource(const char *environment,
       return found;
   }
   return {};
+}
 } // namespace msime_linux
