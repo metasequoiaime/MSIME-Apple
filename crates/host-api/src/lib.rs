@@ -32,6 +32,7 @@ use std::ffi::{c_char, CString};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
+mod tencent_translation;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
@@ -1153,6 +1154,44 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             }
         }
         Ok(json!(results))
+    })
+}
+
+/// Build a signed Tencent TMT descriptor with an exact UTF-8 payload. No I/O.
+/// # Safety
+/// `request` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_tencent_translation_http_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid Tencent request buffer".into());
+        }
+        tencent_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(String::from)
+    })
+}
+
+/// Parse a bounded response preserving batch positions (unusable slots are null).
+/// # Safety
+/// `body` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_parse_tencent_translation_response(
+    body: *const u8,
+    length: usize,
+    expected: usize,
+) -> *mut c_char {
+    response(|| {
+        if body.is_null() || length > 1048576 || !(1..=9).contains(&expected) {
+            return Err("invalid Tencent response buffer".into());
+        }
+        Ok(tencent_translation::parse(
+            unsafe { std::slice::from_raw_parts(body, length) },
+            expected,
+        )
+        .unwrap_or(Value::Null))
     })
 }
 
@@ -3940,6 +3979,27 @@ mod tests {
             read(unsafe { msime_client_custom_translation_plan(std::ptr::null(), 0) })["ok"],
             false
         );
+    }
+    #[test]
+    fn tencent_translation_buffers_are_bounded() {
+        assert_eq!(
+            read(unsafe { msime_client_tencent_translation_http_request(std::ptr::null(), 0) })
+                ["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_tencent_translation_http_request(b"x".as_ptr(), 65537) })
+                ["ok"],
+            false
+        );
+        for (length, expected) in [(1048577, 1), (1, 0), (1, 10)] {
+            assert_eq!(
+                read(unsafe {
+                    msime_client_parse_tencent_translation_response(b"x".as_ptr(), length, expected)
+                })["ok"],
+                false
+            );
+        }
     }
     #[test]
     fn custom_translation_http_bridge_is_bounded_and_pure() {
