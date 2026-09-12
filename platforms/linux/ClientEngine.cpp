@@ -2648,6 +2648,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
           handled = apply(engine, msime_client_select_edge(
               s.session, id.at("generation").get<uint64_t>(),
               id.at("index").get<size_t>(), *edge));
+          if (!handled)
+            handled = apply(engine, msime_client_punctuation(
+                s.session, static_cast<uint8_t>(key)));
           return;
         }
         return;
