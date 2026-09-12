@@ -499,7 +499,11 @@ def main():
     parser.add_argument("socket", type=Path, help="absolute socket path in a private runtime directory")
     parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider/endpoint/model/token and optional profiles by provider")
     parser.add_argument("--tencent-config", type=Path, help="owner-only JSON: secret_id, secret_key, optional region")
+    parser.add_argument("--config-directory", type=Path,
+                        help="absolute directory for optional AI/Tencent config files, read on each request")
     args = parser.parse_args()
+    if args.config_directory and not args.config_directory.is_absolute():
+        parser.error("config directory must be absolute")
     if args.ai_config:
         try:
             load_ai_config(args.ai_config)
@@ -510,6 +514,12 @@ def main():
             load_tencent_config(args.tencent_config)
         except Exception:
             parser.error("Tencent configuration must be valid owner-only JSON")
+    # Explicit files retain startup validation. Directory defaults may be
+    # absent or invalid until the user creates or repairs them; each request
+    # still uses the existing owner-only configuration readers.
+    if args.config_directory:
+        args.ai_config = args.ai_config or args.config_directory / "ai-provider.json"
+        args.tencent_config = args.tencent_config or args.config_directory / "tencent-provider.json"
     try:
         parent = args.socket.parent.stat()
         if (not args.socket.is_absolute() or parent.st_uid != os.getuid() or

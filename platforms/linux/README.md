@@ -286,6 +286,8 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务需要 `voice-provider.json`。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
 
+随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
+
 按需启动服务：
 
 ```sh

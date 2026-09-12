@@ -28,11 +28,8 @@ def main():
         executable = Path(__file__).resolve().parent / ("msime-client-" + args.provider + "-provider")
         command = [str(executable), str(runtime / (args.provider + ".sock"))]
         if args.provider == "online":
-            for filename, option in (("ai-provider.json", "--ai-config"),
-                                     ("tencent-provider.json", "--tencent-config")):
-                path = config / filename
-                if path.exists() or path.is_symlink():
-                    command.extend([option, str(path)])
+            # Track optional files even when configured after this service starts.
+            command.extend(["--config-directory", str(config)])
         else:
             command.extend(["--config", str(config / "voice-provider.json")])
             for variable, option in (("MSIME_VOICE_CAPTURE", "--capture"),
