@@ -113,8 +113,44 @@ with sync_playwright() as playwright:
       const directSet = installToolbarCss('card1', '.sample { --remote: image-set("https://invalid.example/a.svg" 1x); background-image: var(--remote); }');
       if (!directSet.partial || getComputedStyle(first).backgroundImage !== 'none') throw Error('unprepared image-set bypassed validation');
       directSet.remove();
+      const motionA = installToolbarCss('card1', '@supports (display: block) { @keyframes pulse { from { opacity: .2; } to { opacity: .8; } } } .sample { animation: pulse 1s linear both paused !important; }');
+      const motionB = installToolbarCss('card2', '@-webkit-keyframes pulse { from { opacity: .4; } to { opacity: 1; } } .sample { animation: pulse 1s linear both paused; }');
+      if (motionA.partial || motionB.partial) throw Error('supported animations reported partial');
+      const firstMotion = first.getAnimations()[0], secondMotion = second.getAnimations()[0];
+      if (!firstMotion || !secondMotion || firstMotion.animationName === secondMotion.animationName) throw Error('animation names not isolated');
+      firstMotion.currentTime = 500; secondMotion.currentTime = 500;
+      if (Math.abs(Number(getComputedStyle(first).opacity) - .5) > .01 || Math.abs(Number(getComputedStyle(second).opacity) - .7) > .01) throw Error('keyframe playback or timing lost');
+      motionA.remove();
+      if (first.getAnimations().length || !second.getAnimations().length) throw Error('animation cleanup affected another card');
+      motionB.remove();
+      const quotedMotion = installToolbarCss('card1', '@keyframes "skin,pulse" { from { opacity: .2; } to { opacity: .8; } } .sample { animation: "skin,pulse" 1s linear both paused; }');
+      if (quotedMotion.partial || first.getAnimations().length !== 1) throw Error('quoted comma animation name lost');
+      quotedMotion.remove();
+      const escapedMotion = await prepareToolbarImages('@keyframes "skin pulse" { from { opacity: .2; } to { opacity: .8; } } .sample { animation: "skin pulse" 1s linear both paused; }', async () => { throw Error('animation name is not a resource'); });
+      const escapedMotionSheet = installToolbarCss('card1', escapedMotion.css);
+      if (escapedMotion.partial || escapedMotionSheet.partial || first.getAnimations().length !== 1) throw Error('escaped animation name lost during image preparation');
+      escapedMotionSheet.remove();
+      const nestedMotion = installToolbarCss('card1', '@keyframes pulse { from { opacity: .2; } to { opacity: .8; } } .sample { @media screen { animation: pulse 1s linear both paused; } }');
+      if (nestedMotion.partial || first.getAnimations().length !== 1) throw Error('nested animation declarations lost');
+      nestedMotion.remove();
+      const orderedMotion = installToolbarCss('card1', '@keyframes pulse { from { opacity: 0; } to { opacity: .2; } } @media screen { @keyframes pulse { from { opacity: .4; } to { opacity: 1; } } } .sample { animation: pulse 1s linear both paused; }');
+      if (orderedMotion.partial || first.getAnimations().length !== 1) throw Error('duplicate conditional keyframes lost');
+      first.getAnimations()[0].currentTime = 500;
+      if (Math.abs(Number(getComputedStyle(first).opacity) - .7) > .01) throw Error('duplicate keyframe definition order changed');
+      orderedMotion.remove();
+      let frameReads = 0;
+      const preparedFrames = await prepareToolbarImages('@keyframes images { from { background-image: url(images/a.svg); opacity: .2; } to { background-image: url(images/a.svg); opacity: .8; } } .sample { animation: images 1s linear both paused; }', async () => { frameReads++; return imageData; });
+      const frameSheet = installToolbarCss('card1', preparedFrames.css);
+      if (preparedFrames.partial || frameSheet.partial || frameReads !== 1 || !first.getAnimations()[0]?.effect.getKeyframes()[0].backgroundImage.includes('data:image/svg+xml')) throw Error('keyframe image preparation failed');
+      frameSheet.remove();
+      const unpreparedFrames = installToolbarCss('card1', '@keyframes images { from { background-image: url(https://invalid.example/frame.png); opacity: .2; } to { opacity: .8; } } .sample { animation: images 1s linear both paused; }');
+      if (!unpreparedFrames.partial || !first.getAnimations().length || first.getAnimations()[0].effect.getKeyframes().some(frame => frame.backgroundImage?.includes('invalid.example'))) throw Error('keyframe filtering retained unsafe resource or dropped valid motion');
+      unpreparedFrames.remove();
+      const variableMotion = installToolbarCss('card1', '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --motion: pulse 1s; animation: var(--motion); }');
+      if (!variableMotion.partial || first.getAnimations().length) throw Error('unisolated variable animation survived');
+      variableMotion.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true};
     }""")
     print(result)
     browser.close()

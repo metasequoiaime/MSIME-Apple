@@ -239,3 +239,19 @@ scope/cleanup and rejection of escaped traversal, remote and unsupported
 filename characters before reads. This supersedes the escaped image-set
 limitation above. Escaped outer function identifiers, fonts, global animations,
 imports and native platform visual parity remain unfinished.
+
+Toolbar keyframes now receive per-installation private names, with matching
+animation-name longhands rewritten after browser shorthand parsing. Duration,
+delay, easing, fill mode, play state and priority remain intact. Media/supports
+conditions, native nesting and duplicate definition order are retained. Quoted
+and escaped names use the browser's keyframes grammar. Keyframe image URLs use
+the existing bounded package reader, cache and final resource sanitizer.
+Chromium regressions seek paused animations to verify independent playback in
+two cards, name collisions, quoted/escaped names, nested declarations, image
+embedding, rejection of unprepared remote frames and cleanup.
+See https://www.w3.org/TR/css-animations-1/ for the animation-name/keyframes
+contract. This supersedes the blanket keyframes limitation above, not full
+animation compatibility: var()-dependent animation names/shorthands and
+unresolved external/inherited names are disabled with a partial-support notice.
+Fonts, imports, escaped resource function identifiers and native-platform
+visual parity remain unfinished.
