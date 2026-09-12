@@ -32,7 +32,9 @@ static BOOL MSIMEScriptConversionApplies(id value) {
     if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
     if ([value[@"scheme"] integerValue] < 0 || [value[@"scheme"] integerValue] > 2) return NO;
     NSString *mode = value[@"local_mode"];
-    return ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"unicode"];
+    // Temporary Japanese retains the original Chinese scheme in the host snapshot.
+    return ![mode isKindOfClass:NSString.class] ||
+        (![mode isEqualToString:@"unicode"] && ![mode isEqualToString:@"temporary_japanese"]);
 }
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {

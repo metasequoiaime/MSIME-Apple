@@ -894,7 +894,7 @@ int main() {
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
         NSUInteger contextIndex = 0;
-        for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{}]) {
+        for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{@"scheme": @0, @"local_mode": @"temporary_japanese"}, @{@"scheme": @1, @"local_mode": @"temporary_japanese"}, @{}]) {
             BOOL convert = contextIndex++ < 2;
             assert(MSIMEScriptConversionApplies(context) == convert);
             NSMutableDictionary *candidateView = [scriptView mutableCopy];
@@ -910,6 +910,16 @@ int main() {
             assert([client.committed isEqual:convert ? @"漢語" : @"汉语"]);
             assert([transition[@"commit"] isEqual:@"汉语"]);
         }
+        NSMutableDictionary *japaneseView = [scriptView mutableCopy];
+        japaneseView[@"local_mode"] = @"temporary_japanese";
+        japaneseView[@"candidates"] = @[@{@"text": @"日本国", @"highlighted": @YES, @"id": word[@"id"]}];
+        [controller setValue:japaneseView forKey:@"view"];
+        [controller renderCandidates];
+        assert([PageButton(layoutPanel.contentView, 0).toolTip isEqual:@"日本国"]);
+        assert([PageButton(layoutPanel.contentView, 0).candidateID isEqual:word[@"id"]]);
+        [controller apply:@{@"commit": @"日本国", @"commit_context": @{@"scheme": @0, @"local_mode": @"temporary_japanese"},
+                            @"view": @{@"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"candidates": @[]}}];
+        assert([client.committed isEqual:@"日本国"]);
         [controller selectSimplifiedOutput:nil];
         assert([controller.menu itemAtIndex:3].state == NSControlStateValueOn);
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
