@@ -2472,8 +2472,8 @@ bool modifier(guint key) {
          key == IBUS_Scroll_Lock || key == IBUS_Mode_switch ||
          key == IBUS_ISO_Level3_Shift || key == IBUS_ISO_Level5_Shift;
 }
-std::optional<size_t> candidate_digit_slot(guint key, guint flags,
-                                           const Json &view) {
+std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
+                                           guint flags, const Json &view) {
   if (!view.is_object() ||
       view.value("local_mode", std::string("none")) == "unknown")
     return std::nullopt;
@@ -2488,6 +2488,11 @@ std::optional<size_t> candidate_digit_slot(guint key, guint flags,
   if (modifiers != (unicode ? IBUS_SHIFT_MASK : 0))
     return std::nullopt;
   if (!unicode) {
+    // IBus keycode is the XKB hardware code on both X11 and Wayland. The
+    // standard number row is 10..19 (1..9,0); using it preserves physical-key
+    // selection when the active layout produces symbols such as '&' or 'é'.
+    if (keycode >= 10 && keycode <= 19)
+      return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
     if (key >= IBUS_1 && key <= IBUS_9)
       return static_cast<size_t>(key - IBUS_1);
     if (key == IBUS_0)
@@ -2500,6 +2505,8 @@ std::optional<size_t> candidate_digit_slot(guint key, guint flags,
   }
   if (!shifted)
     return std::nullopt;
+  if (keycode >= 10 && keycode <= 19)
+    return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
   switch (key) {
   case '!': return 0;
   case '@': return 1;
@@ -2541,7 +2548,7 @@ void toggle_input_mode(IBusEngine *engine) {
   clear(engine);
   publish_mode(engine);
 }
-gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
+gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {
   auto &s = state(engine);
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
@@ -2785,7 +2792,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
     }
     if (s.number_row_selection && !s.view.value("nine_key", false) &&
         !s.view.at("candidates").empty()) {
-      if (const auto index = candidate_digit_slot(key, flags, s.view)) {
+      if (const auto index = candidate_digit_slot(key, keycode, flags, s.view)) {
         if (*index >= s.view.at("candidates").size()) return;
         const auto &candidate = s.view.at("candidates").at(*index);
         const auto &id = candidate.at("id");
