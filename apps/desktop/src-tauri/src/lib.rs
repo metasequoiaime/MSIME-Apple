@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use tauri::Emitter;
 use tauri::Manager;
-#[cfg(all(not(target_os = "windows"), not(mobile)))]
+#[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod skin_directory;
@@ -193,7 +193,13 @@ enum PanelInputTarget {
     Wayland,
 }
 
-#[cfg(not(target_os = "linux"))]
+// The window that owned the caret before the panel appeared. Panels never take
+// focus, but a click still has to reach that window and not the panel itself.
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug)]
+struct PanelInputTarget(msime_host_windows::InputTarget);
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 #[derive(Clone, Debug)]
 struct PanelInputTarget;
 
@@ -1109,11 +1115,93 @@ fn send_panel_voice_text(
     send_panel_text_to_target(app, &target, text)
 }
 
+// Windows panels are ordinary Tauri windows that never activate, so the host
+// injects input on their behalf through the Windows host layer; this shell
+// itself stays free of unsafe code.
+#[cfg(target_os = "windows")]
+fn remember_panel_input_target(
+    state: &tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
+    let target = msime_host_windows::foreground_window().ok_or(HostActionError {
+        code: "unavailable",
+    })?;
+    *state.0.lock().map_err(|_| HostActionError {
+        code: "unavailable",
+    })? = Some(PanelInputTarget(target));
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn focused_panel_target(
+    state: &tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
+    let target = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    msime_host_windows::focus(target.0)
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn send_panel_key_windows(
+    state: &tauri::State<'_, PanelInputState>,
+    request: KeyboardInputRequest,
+) -> Result<(), HostActionError> {
+    request.validate().map_err(|_| HostActionError {
+        code: "invalid_key",
+    })?;
+    focused_panel_target(state)?;
+    // Sticky modifiers only travel with keys the panel marked as inheriting
+    // them; shift always applies to the key being sent.
+    let sticky = request.include_sticky_modifiers;
+    let modifiers = msime_host_windows::Modifiers {
+        shift: request.shift,
+        ctrl: sticky && request.modifiers.ctrl,
+        alt: sticky && request.modifiers.alt,
+        win: sticky && request.modifiers.win,
+    };
+    msime_host_windows::send_key(request.virtual_key, modifiers)
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn send_panel_text_windows(
+    state: &tauri::State<'_, PanelInputState>,
+    text: &str,
+) -> Result<(), HostActionError> {
+    focused_panel_target(state)?;
+    msime_host_windows::send_text(text)
+        .then_some(())
+        .ok_or(HostActionError {
+            code: "invalid_text",
+        })
+}
+
+// Panels sit bottom-centered on the work area, where the native ones did.
+#[cfg(target_os = "windows")]
+fn windows_panel_position(width: f64, height: f64) -> Option<(f64, f64)> {
+    msime_host_windows::work_area().map(|area| area.bottom_center(width, height))
+}
+
 #[tauri::command]
 fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     return remember_panel_input_target(&state, false);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    return remember_panel_input_target(&state);
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = state;
         Ok(())
@@ -1126,9 +1214,14 @@ fn send_key(
     state: tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
+    // Linux routes through the display server, Windows injects directly, so the
+    // app handle belongs to only one of them.
+    let _ = &app;
     #[cfg(target_os = "linux")]
     return send_panel_key(&app, &state, request);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    return send_panel_key_windows(&state, request);
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, request);
         Err(HostActionError {
@@ -1145,6 +1238,10 @@ async fn recognize_handwriting(
     request.validate().map_err(|_| HostActionError {
         code: "invalid_stroke",
     })?;
+    // Recognition runs through the unix provider socket; other hosts answer
+    // unavailable rather than pretending to recognize.
+    #[cfg(not(unix))]
+    let _ = options;
     #[cfg(unix)]
     {
         let query = HandwritingQuery {
@@ -1240,6 +1337,7 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
+#[cfg(unix)]
 #[derive(serde::Serialize, Clone)]
 struct VoiceRecognitionUpdate {
     text: String,
@@ -1247,6 +1345,7 @@ struct VoiceRecognitionUpdate {
     final_result: bool,
 }
 
+#[cfg(unix)]
 fn voice_provider_options(document: &Value) -> Value {
     let Some(voice) = document
         .get("preferences")
@@ -1300,6 +1399,9 @@ async fn recognize_voice(
     request: VoiceRecognitionRequest,
     runtime: tauri::State<'_, RuntimeOptionsState>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
+    // Streaming updates are emitted by the unix provider path only.
+    #[cfg(not(unix))]
+    let _ = &app;
     if request.language.is_empty()
         || request.language.len() > 64
         || request.language.chars().any(char::is_control)
@@ -1428,9 +1530,12 @@ fn send_text(
     state: tauri::State<'_, PanelInputState>,
     text: String,
 ) -> Result<(), HostActionError> {
+    let _ = &app;
     #[cfg(target_os = "linux")]
     return send_panel_text(&app, &state, &text);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    return send_panel_text_windows(&state, &text);
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, state, text);
         Err(HostActionError {
@@ -1526,12 +1631,10 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }
 
-#[cfg(not(target_os = "windows"))]
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -1552,7 +1655,7 @@ fn open_panel_window(
     {
         let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some((x, y)) = position {
                 let _ = window.set_position(tauri::Position::Physical(
                     tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32),
@@ -1603,38 +1706,22 @@ fn open_keyboard_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
     {
-        let _ = (app, state);
-        let executable = std::env::var_os("MSIME_CLIENT_KEYBOARD_PANEL")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::current_exe().ok().and_then(|path| {
-                    path.parent()
-                        .map(|parent| parent.join("msime-client-keyboard-panel.exe"))
-                })
-            })
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        std::process::Command::new(executable)
-            .spawn()
-            .map(|_| ())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
             let _ = remember_panel_input_target(&state, true);
             panel_position(&state, 1100.0, 400.0)
         };
-        #[cfg(not(target_os = "linux"))]
+        // The panel never activates, so the window that owns the caret now is
+        // the one synthetic input has to reach later.
+        #[cfg(target_os = "windows")]
+        let position = {
+            let _ = remember_panel_input_target(&state);
+            windows_panel_position(1100.0, 400.0)
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
@@ -1653,38 +1740,22 @@ fn open_handwriting_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
     {
-        let _ = (app, state);
-        let executable = std::env::var_os("MSIME_CLIENT_HANDWRITING_PANEL")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::current_exe().ok().and_then(|path| {
-                    path.parent()
-                        .map(|parent| parent.join("msime-client-handwriting-panel.exe"))
-                })
-            })
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        std::process::Command::new(executable)
-            .spawn()
-            .map(|_| ())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
             let _ = remember_panel_input_target(&state, true);
             panel_position(&state, 980.0, 650.0)
         };
-        #[cfg(not(target_os = "linux"))]
+        // The panel never activates, so the window that owns the caret now is
+        // the one synthetic input has to reach later.
+        #[cfg(target_os = "windows")]
+        let position = {
+            let _ = remember_panel_input_target(&state);
+            windows_panel_position(980.0, 650.0)
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
@@ -1704,41 +1775,8 @@ fn open_emoji_panel(
     options: tauri::State<'_, DictionaryHostOptions>,
     input: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
     {
-        let _ = (app, input);
-        let executable = std::env::var_os("MSIME_CLIENT_EMOJI_PANEL")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::current_exe().ok().and_then(|path| {
-                    path.parent()
-                        .map(|parent| parent.join("msime-client-emoji-panel.exe"))
-                })
-            })
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        let resources = serde_json::from_str::<serde_json::Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("resources")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            })
-            .filter(|value| std::path::Path::new(value).is_absolute());
-        let mut command = std::process::Command::new(executable);
-        if let Some(resources) = resources {
-            command.arg("--resources").arg(resources);
-        }
-        command.spawn().map(|_| ()).map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-        return Ok(());
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = (&options, &input);
         #[cfg(target_os = "linux")]
         let position = {
@@ -1746,7 +1784,13 @@ fn open_emoji_panel(
             let _ = remember_panel_input_target(&input, true);
             panel_position(&input, 720.0, 720.0)
         };
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        let position = {
+            let _ = &options;
+            let _ = remember_panel_input_target(&input);
+            windows_panel_position(720.0, 720.0)
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
@@ -1768,9 +1812,9 @@ fn open_voice_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = (app, state);
-        return Err(HostActionError {
+        Err(HostActionError {
             code: "unavailable",
-        });
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1803,9 +1847,9 @@ fn open_cloud_clipboard_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = (app, state);
-        return Err(HostActionError {
+        Err(HostActionError {
             code: "unavailable",
-        });
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1838,9 +1882,9 @@ fn open_cloud_dictionary_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = (app, state);
-        return Err(HostActionError {
+        Err(HostActionError {
             code: "unavailable",
-        });
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {

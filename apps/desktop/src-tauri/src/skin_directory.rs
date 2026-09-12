@@ -42,58 +42,15 @@ fn launch_directory(directory: &Path) -> std::io::Result<()> {
 #[cfg(target_os = "windows")]
 fn launch_directory(directory: &Path) -> std::io::Result<()> {
     let directory = directory.to_path_buf();
-    // A dedicated thread avoids inheriting a runtime worker's COM apartment.
-    std::thread::spawn(move || launch_windows_directory(&directory))
-        .join()
-        .map_err(|_| std::io::Error::other("directory opener failed"))?
-}
-
-#[cfg(target_os = "windows")]
-fn launch_windows_directory(directory: &Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "ole32")]
-    unsafe extern "system" {
-        fn CoInitializeEx(reserved: *mut std::ffi::c_void, flags: u32) -> i32;
-        fn CoUninitialize();
-    }
-    #[link(name = "shell32")]
-    unsafe extern "system" {
-        fn ShellExecuteW(
-            window: *mut std::ffi::c_void,
-            operation: *const u16,
-            file: *const u16,
-            parameters: *const u16,
-            directory: *const u16,
-            show: i32,
-        ) -> *mut std::ffi::c_void;
-    }
-    let path: Vec<u16> = directory.as_os_str().encode_wide().chain(Some(0)).collect();
-    let operation: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
-    // SAFETY: this fresh thread has no COM apartment; reserved is null.
-    // COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE, per ShellExecuteW.
-    let initialized = unsafe { CoInitializeEx(std::ptr::null_mut(), 0x2 | 0x4) };
-    if initialized < 0 {
-        return Err(std::io::Error::other("directory opener failed"));
-    }
-    // SAFETY: both strings are NUL terminated and live through the call; all
-    // optional pointers are null. ShellExecuteW does not retain these buffers.
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            operation.as_ptr(),
-            path.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            1,
-        )
-    };
-    // SAFETY: balance the successful initialization on the same thread.
-    unsafe { CoUninitialize() };
-    if result as isize > 32 {
-        Ok(())
-    } else {
-        Err(std::io::Error::other("directory opener failed"))
-    }
+    // A dedicated thread avoids inheriting a runtime worker's COM apartment;
+    // the shell call itself lives in the Windows host layer.
+    std::thread::spawn(move || {
+        msime_host_windows::open_directory(&directory)
+            .then_some(())
+            .ok_or_else(|| std::io::Error::other("directory opener failed"))
+    })
+    .join()
+    .map_err(|_| std::io::Error::other("directory opener failed"))?
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]

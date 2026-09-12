@@ -2100,6 +2100,7 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-host-api",
+ "msime-host-windows",
  "msime-input-runtime",
  "serde",
  "serde_json",
@@ -2133,6 +2134,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "msime-host-windows"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
