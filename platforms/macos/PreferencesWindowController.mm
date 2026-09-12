@@ -10,10 +10,7 @@ static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema
 + (NSDictionary *)cloudSettingsSnapshot { return MSIMECloudAppearanceSnapshot(NSUserDefaults.standardUserDefaults); }
 + (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary *)values { return @(MSIMEValidateCloudAppearance(values)); }
 + (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary *)values {
-    if (!MSIMEApplyCloudAppearance(values, NSUserDefaults.standardUserDefaults)) return @NO;
-    [[MSIMEAppearancePreferences sharedPreferences] reloadSkins];
-    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:nil];
-    return @YES;
+    return @([[MSIMEAppearancePreferences sharedPreferences] applyCloudSettingsSnapshot:values]);
 }
 + (NSString *)storedCandidateSkin { return MetasequoiaStoredCandidateSkin(); }
 + (void)setStoredCandidateSkin:(NSString *)skinId { MetasequoiaSetStoredCandidateSkin(skinId); }
