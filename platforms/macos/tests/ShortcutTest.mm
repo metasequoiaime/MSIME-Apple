@@ -1984,6 +1984,63 @@ static void TestCloudCandidatePreference() {
 static NSDictionary *TencentConfig() {
     return @{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"ap-guangzhou"};
 }
+static void WaitForGloss(CustomTranslationController *controller) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
+    while (![controller valueForKey:@"glossResults"] && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert([controller valueForKey:@"glossResults"]);
+}
+static void TestLearnedGlossRuntime() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    CustomTranslationController *writer = [CustomTranslationController alloc]; writer.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.targetLanguage = @"en"; session.tencent = TencentConfig();
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}];
+    [writer setValue:session forKey:@"session"]; [writer setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [writer setValue:root forKey:@"preferencesDirectory"];
+    [writer synchronizeCandidateGloss]; WaitForGloss(writer);
+    [writer synchronizeCustomTranslations];
+    assert(writer.batches.count == 1);
+    writer.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"学习释义"}, @{@"text":@"测试", @"translation":@"test"}]);
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    [writer cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
+    // A new controller with both providers absent reuses the persisted glosses.
+    CustomTranslationController *reader = [CustomTranslationController alloc]; reader.batches = [NSMutableArray array];
+    session.tencent = nil; session.generation++;
+    [reader setValue:session forKey:@"session"]; [reader setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [reader setValue:root forKey:@"preferencesDirectory"];
+    [reader synchronizeCandidateGloss]; WaitForGloss(reader);
+    assert(reader.batches.count == 0 && session.delivered.count == 2);
+    assert([session.delivered[0][@"translation"] isEqual:@"学习释义"]);
+    // Learned glossary entries override packaged values, matching Engine.
+    [reader cancelCandidateTranslations]; session.offline = YES;
+    [reader synchronizeCandidateGloss]; WaitForGloss(reader);
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"学习释义"}, @{@"text":@"测试", @"translation":@"test"}]]));
+    [reader cancelCandidateTranslations]; session.offline = NO;
+    [reader setValue:[root stringByAppendingPathComponent:@"another-profile"] forKey:@"preferencesDirectory"];
+    [reader synchronizeCandidateGloss]; WaitForGloss(reader);
+    assert(session.delivered.count == 0); // User directories cannot share learned words.
+    [reader cancelCandidateTranslations]; [reader setValue:root forKey:@"preferencesDirectory"];
+    session.targetLanguage = @"fr";
+    assert(![reader currentGlossRequest]);
+    // A stale online completion must not persist text, even if it is otherwise valid.
+    session.targetLanguage = @"en"; session.tencent = TencentConfig();
+    session.page = @[@{@"text":@"stale", @"source":@4}];
+    [writer synchronizeCandidateGloss]; WaitForGloss(writer); [writer synchronizeCustomTranslations];
+    ControlledTranslationBatch *pending = writer.batches.lastObject;
+    session.generation++;
+    pending.reply(@[@{@"text":@"stale", @"translation":@"不应保存"}]);
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    [writer cancelCandidateTranslations];
+    session.tencent = nil; session.delivered = @[];
+    [reader synchronizeCandidateGloss]; WaitForGloss(reader);
+    assert(session.delivered.count == 0);
+    [reader cancelCandidateTranslations];
+    NSError *error = nil;
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestTencentCandidateScheduling() {
     [[MSIMETranslationCache sharedCache] clear];
     CustomTranslationController *controller = [CustomTranslationController alloc];
@@ -2407,6 +2464,7 @@ int main() {
         TestCustomTranslationIdleDelay(NO);
         TestCustomTranslationIdleDelay(YES);
         TestTencentCandidateScheduling();
+        TestLearnedGlossRuntime();
         TestCandidateTranslationPreference();
         TestGlossModePolicy();
         TestSharedInputPreferences();
