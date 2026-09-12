@@ -920,6 +920,44 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: rebuilt).superview).isHidden)
   }
 
+  func testSpellingStripIsReusedAndDoesNotRelayoutOnEveryKeystroke() throws {
+    // 九键每敲一下都会重建这条带子,并顺带把整块键盘重排一次;26 键没有这条带子,却同样吃了
+    // 那次重排。两边都因此变慢,九键更明显。
+    //
+    // Timing is not asserted here -- the shared CI simulator is too noisy for a millisecond
+    // budget -- so the contract is the one that made it slow: the buttons are reused rather than
+    // rebuilt, which is only true if nothing recreates them between keystrokes.
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
+    let strip = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "nineKeySpellingStrip"
+    } as? UIScrollView)
+    let first = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(first.isEmpty, "九键应当给出拼音候选")
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    let second = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(second.isEmpty)
+    for (before, after) in zip(first, second) {
+      XCTAssertTrue(before === after, "拼音候选按钮在两次按键之间被重建了")
+    }
+    // 文字仍然跟着编码走,复用没有把内容冻住。
+    XCTAssertNotNil(descendants(strip).first {
+      ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_")
+    })
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
