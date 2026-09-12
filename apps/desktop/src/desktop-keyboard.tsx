@@ -30,5 +30,6 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
     return () => { active = false; unsubscribe?.(); };
   }, [preferences]);
   const theme = useCandidatePreviewTheme(snapshot?.preferences.theme, snapshot?.preferences.screen_keyboard_theme);
-  return <KeyboardPanel client={client} theme={theme} />;
+  const layout = snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
+  return <KeyboardPanel client={client} theme={theme} layout={layout} />;
 }
