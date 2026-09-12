@@ -584,6 +584,13 @@ bool clipboard_remove_index(const std::string &path, size_t index) {
   return removed;
 }
 State &state(IBusEngine *engine);
+// Record the exact text sent to IBus after each route's output conversion.
+void commit_text(IBusEngine *engine, const std::string &text) {
+  if (text.empty())
+    return;
+  ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+  state(engine).remember_commit(text);
+}
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
@@ -1943,8 +1950,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
     if (state(engine).fullwidth)
       text = fullwidth_text(text);
     if (!text.empty()) {
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
-      s.remember_commit(text);
+      commit_text(engine, text);
     }
   }
   state(engine).view = result.at("view");
@@ -2178,9 +2184,7 @@ void voice_start(IBusEngine *engine) {
                       applied.get<std::string>());
                   if (s.fullwidth)
                     text = fullwidth_text(std::move(text));
-                  ibus_engine_commit_text(
-                      result->engine,
-                      ibus_text_new_from_string(text.c_str()));
+                  commit_text(result->engine, text);
                 }
                 render(result->engine, s.view);
                 publish_mode(result->engine);
@@ -2627,7 +2631,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         const auto index = std::stoul(property_name.substr(17));
         const auto items = clipboard_items(s.clipboard_history_path);
         if (index < items.size())
-          ibus_engine_commit_text(engine, ibus_text_new_from_string(items[index].c_str()));
+          commit_text(engine, items[index]);
       } catch (...) {}
       return;
     }
@@ -3278,7 +3282,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!editing_text.empty() || (candidates.is_array() && !candidates.empty()))
       return false;
     auto text = fullwidth_text(std::string(1, static_cast<char>(value)));
-    ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+    commit_text(engine, text);
     return true;
   };
   guarded(engine, "process_key", [&] {
@@ -3436,8 +3440,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           auto text = std::string(".");
           if (s.fullwidth)
             text = fullwidth_text(text);
-          ibus_engine_commit_text(
-              engine, ibus_text_new_from_string(text.c_str()));
+          commit_text(engine, text);
           handled = true;
         }
       } else {
@@ -3500,7 +3503,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         auto text = std::string("{}");
         if (s.fullwidth)
           text = fullwidth_text(std::move(text));
-        ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+        commit_text(engine, text);
         handled = true;
       }
       if (!handled)
@@ -3516,7 +3519,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         s.view.at("editing_text").get<std::string>().empty()) {
       if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
         ibus_engine_delete_surrounding_text(engine, -1, 1);
-        ibus_engine_commit_text(engine, ibus_text_new_from_static_string(replacement));
+        // The preceding mark was replaced in the editor, not appended.
+        if (!s.ai_context.empty()) {
+          size_t last = s.ai_context.size() - 1;
+          while (last > 0 &&
+                 (static_cast<unsigned char>(s.ai_context[last]) & 0xc0) == 0x80)
+            --last;
+          s.ai_context.erase(last);
+        }
+        commit_text(engine, replacement);
         s.last_smart_punctuation = 0;
         s.last_smart_punctuation_time = 0;
         handled = true;
@@ -3537,7 +3548,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         std::string text(1, static_cast<char>(key));
         if (s.fullwidth)
           text = fullwidth_text(text);
-        ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+        commit_text(engine, text);
         if (s.paired_punctuation) {
           s.last_smart_punctuation = static_cast<char>(key);
           s.last_smart_punctuation_time = g_get_monotonic_time();
@@ -3552,7 +3563,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       auto text = std::string(1, static_cast<char>(key));
       if (s.fullwidth)
         text = fullwidth_text(text);
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+      commit_text(engine, text);
       handled = true;
       return;
     }
@@ -3665,8 +3676,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_space:
       if (s.fullwidth && !has_composition && !candidate_active) {
-        ibus_engine_commit_text(
-            engine, ibus_text_new_from_static_string("\xe3\x80\x80"));
+        commit_text(engine, "\xe3\x80\x80");
         handled = true;
         return;
       }
