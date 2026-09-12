@@ -113,7 +113,7 @@ function keyboardKeyWeight(label: string, row: number, index: number) {
   return 1;
 }
 function isImeCommitKey(virtualKey: number) {
-  return [0x20, 0x0d, 0x09, 0x08, 0x2e].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39);
+  return [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39) || (virtualKey >= 0x60 && virtualKey <= 0x69);
 }
 
 export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
