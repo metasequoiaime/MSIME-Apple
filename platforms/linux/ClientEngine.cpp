@@ -1839,7 +1839,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "CharacterMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("全角字符"), "",
       ibus_text_new_from_static_string("切换 ASCII 全角或半角输出"),
-      s.focused && !s.blocked && s.input_enabled, TRUE,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto traditional = ibus_property_new(
       "TraditionalOutput", PROP_TYPE_TOGGLE,
@@ -3516,6 +3516,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name) == "CharacterMode") {
+      if (menu_save_pending || s.fullwidth == (value == PROP_STATE_CHECKED)) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CharacterWidth, value == PROP_STATE_CHECKED);
+        return;
+      }
       s.fullwidth = value == PROP_STATE_CHECKED;
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
@@ -4969,6 +4975,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->input_enabled = request.value.get<bool>();
           if (request.preference == MenuPreference::ChinesePunctuation)
             self->state->punctuation_override.reset();
+          if (request.preference == MenuPreference::CharacterWidth)
+            self->state->fullwidth = request.value.get<bool>();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -5077,6 +5085,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::ClipboardHistoryEnabled:
             snapshot["preferences"]["clipboard_history"] = request.value;
+            break;
+          case MenuPreference::CharacterWidth:
+            snapshot["preferences"]["character_width"] = request.value.get<bool>() ? "fullwidth" : "halfwidth";
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
