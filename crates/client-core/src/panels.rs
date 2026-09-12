@@ -40,7 +40,58 @@ pub struct KeyboardModifiers {
     pub win: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+)]
+pub struct ClientFocusLease {
+    pub client: u64,
+    pub epoch: u64,
+    pub token: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ClientKeyEvent {
+    pub lease: ClientFocusLease,
+    pub virtual_key: u32,
+    pub scan_code: u32,
+    pub modifiers: u32,
+    pub character: char,
+    pub ui_less: bool,
+}
+
+impl ClientKeyEvent {
+    pub fn validate(&self) -> Result<(), PanelContractError> {
+        if self.lease.client == 0
+            || self.lease.epoch == 0
+            || self.lease.token == 0
+            || self.virtual_key > 0xff
+            || self.modifiers & !0x0f != 0
+        {
+            return Err(PanelContractError::InvalidKeyboardInput);
+        }
+        Ok(())
+    }
+}
+
+pub trait ClientKeyRouter {
+    type Error;
+    fn dispatch(&mut self, event: &ClientKeyEvent) -> Result<bool, Self::Error>;
+    fn cancel(&mut self, lease: &ClientFocusLease) -> Result<bool, Self::Error>;
+}
+
 pub struct KeyboardInputRequest {
     /// Windows virtual-key value. Other hosts may map this value to their own
     /// native key event while keeping the panel contract stable.
