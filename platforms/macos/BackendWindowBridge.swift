@@ -21,7 +21,7 @@ final class BackendWindowBridge: NSObject {
   @objc func showSnapshot(forAccountID accountID: String) { show("snapshot", accountID: accountID, title: "词库快照", size: NSSize(width: 560, height: 460)) { MacCloudSnapshotView(accountID: accountID) } }
   @objc func showSettings(forAccountID accountID: String) { show("settings", accountID: accountID, title: "桌面设置同步", size: NSSize(width: 540, height: 520)) { MacCloudSettingsView(accountID: accountID) } }
   @objc func showHandwriting() { show("handwriting", accountID: "local", title: "手写输入", size: NSSize(width: 560, height: 360)) { MacHandwritingToolView() } }
-  @objc func showEmoji() { show("emoji", accountID: "local", title: "表情与符号", size: NSSize(width: 420, height: 360)) { MacEmojiView() } }
+  @objc func showEmoji(withResources resources: String) { show("emoji", accountID: resources, title: "表情与符号", size: NSSize(width: 420, height: 360)) { MacEmojiView(resources: resources) } }
   @objc func showCommunityResources(forAccountID accountID: String) { show("resources", accountID: accountID, title: "词包与回复模板", size: NSSize(width: 650, height: 650)) { BackendCommunityResourcesView(accountID: accountID) } }
 
   private func show<Content: View>(_ key: String, accountID: String, title: String, size: NSSize, @ViewBuilder content: () -> Content) {

@@ -65,6 +65,23 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = [self handwritingProviderRequest:request error:&error];
     return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
++ (NSDictionary *)emojiCatalogRequest:(NSDictionary<NSString *, id> *)request {
+    NSError *error = nil;
+    NSString *resources = request[@"resources"];
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath ||
+        ![NSJSONSerialization isValidJSONObject:request]) {
+        return @{ @"error": [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+    }
+    NSData *query = [NSJSONSerialization dataWithJSONObject:request options:0 error:&error];
+    NSData *path = [resources dataUsingEncoding:NSUTF8StringEncoding];
+    if (!query || query.length > 16384 || path.length > 4096) {
+        return @{ @"error": [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+    }
+    NSDictionary *result = decode(msime_client_emoji_catalog_request(
+        static_cast<const uint8_t *>(query.bytes), query.length,
+        static_cast<const uint8_t *>(path.bytes), path.length), &error);
+    return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+}
 + (NSString *)snapshotVersionForOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"本地词库版本参数无效"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
