@@ -72,6 +72,7 @@ struct State {
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
   std::optional<bool> nine_key_override;
+  Json local_mode_overrides = Json::object();
   bool fullwidth = false;
   bool traditional_output = false;
   std::string candidate_preedit_style = "pinyin";
@@ -236,6 +237,9 @@ struct State {
       options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
       options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
+    auto &local_modes = options["preferences"]["local_modes"];
+    for (const auto &[key, value] : local_mode_overrides.items())
+      local_modes[key] = value;
     if (private_input)
       options["preferences"]["learning"] = false;
     auto encoded = options.dump();
@@ -386,6 +390,9 @@ struct State {
       preferences["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
       preferences["mixed_input"]["kaomoji"] = *kaomoji_override;
+    auto &local_modes = preferences["local_modes"];
+    for (const auto &[key, value] : local_mode_overrides.items())
+      local_modes[key] = value;
     if (private_input)
       preferences["learning"] = false;
   }
@@ -1185,6 +1192,37 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("使用数字键输入全拼并选择拼音候选"),
       s.focused && !s.blocked && s.input_enabled && active_scheme == "quanpin",
       TRUE, nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto local_modes_property = ibus_property_new(
+      "LocalModes", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("本地输入模式"), "",
+      ibus_text_new_from_static_string("启用或停用当前会话的本地快捷输入模式"),
+      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      nullptr);
+  auto local_modes_menu = ibus_prop_list_new();
+  const auto configured_local_modes = configured.at("preferences").value(
+      "local_modes", Json::object());
+  const std::pair<const char *, const char *> local_mode_options[] = {
+      {"unicode", "Unicode（U 模式）"},
+      {"date_time", "日期时间（T 模式）"},
+      {"quick_phrase", "快捷短语（K 模式）"},
+      {"emoji", "Emoji（E 模式）"},
+      {"kaomoji", "颜文字（M 模式）"},
+      {"super_jianpin", "超级简拼（J 模式）"},
+      {"temporary_english", "临时英文（Y 模式）"},
+      {"temporary_japanese", "临时日文（R 模式）"}};
+  for (const auto &[key, label] : local_mode_options) {
+    const bool enabled = local_mode_overrides.contains(key)
+                             ? local_mode_overrides.at(key).get<bool>()
+                             : configured_local_modes.value(key, true);
+    auto item = ibus_property_new(
+        (std::string("LocalModes/") + key).c_str(), PROP_TYPE_TOGGLE,
+        ibus_text_new_from_static_string(label), "",
+        ibus_text_new_from_static_string("当前会话本地快捷输入模式"),
+        s.focused && !s.blocked && s.input_enabled, TRUE,
+        enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+    ibus_prop_list_append(local_modes_menu, item);
+  }
+  ibus_property_set_sub_props(local_modes_property, local_modes_menu);
   auto word_character_property = ibus_property_new(
       "WordCharacter", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("以词定字"), "",
@@ -1324,6 +1362,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, frequency_property);
     ibus_prop_list_append(properties, number_row_property);
     ibus_prop_list_append(properties, nine_key_property);
+    ibus_prop_list_append(properties, local_modes_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
@@ -1356,6 +1395,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, number_row_property);
     ibus_engine_update_property(engine, nine_key_property);
+    ibus_engine_update_property(engine, local_modes_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
@@ -1854,6 +1894,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        property_name.rfind("FrequencyMode/", 0) != 0 &&
        std::string(name) != "NumberRowSelection" &&
        std::string(name) != "NineKey" &&
+       property_name.rfind("LocalModes/", 0) != 0 &&
        std::string(name) != "WordCharacter" &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
@@ -1909,6 +1950,34 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       s.nine_key_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    if (property_name.rfind("LocalModes/", 0) == 0) {
+      const auto key = property_name.substr(std::string("LocalModes/").size());
+      const auto allowed = [](const std::string &value) {
+        return value == "unicode" || value == "date_time" ||
+               value == "quick_phrase" || value == "emoji" ||
+               value == "kaomoji" || value == "super_jianpin" ||
+               value == "temporary_english" || value == "temporary_japanese";
+      };
+      if (!allowed(key))
+        return;
+      const auto configured_modes = configured.at("preferences").value(
+          "local_modes", Json::object());
+      const bool current = s.local_mode_overrides.contains(key)
+                               ? s.local_mode_overrides.at(key).get<bool>()
+                               : configured_modes.value(key, true);
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (current == enabled)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.local_mode_overrides[key] = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
