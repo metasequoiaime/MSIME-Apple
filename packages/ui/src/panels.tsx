@@ -322,8 +322,8 @@ function appendPointerSamples(points: Point[], event: PointerEvent<SVGSVGElement
   return appendInkPoint(next, pointFromCoordinates(event.currentTarget, event), endpoint);
 }
 
-function HandwritingCandidateButton({ candidate, copy, disabled, onChoose }: {
-  candidate: string; copy: boolean; disabled: boolean; onChoose: () => void;
+function HandwritingCandidateButton({ candidate, copy, disabled, onChoose, onCopy }: {
+  candidate: string; copy: boolean; disabled: boolean; onChoose: () => void; onCopy?: () => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [width, setWidth] = useState(64);
@@ -343,9 +343,16 @@ function HandwritingCandidateButton({ candidate, copy, disabled, onChoose }: {
   // Use Unicode code points so supplementary Han does not count as two glyphs.
   const length = Math.max(1, Array.from(candidate).length);
   const fontSize = Math.max(13, Math.min(34, width * 0.52, (width - 12) / length));
+  function copyShortcut(event: import("react").KeyboardEvent<HTMLButtonElement>) {
+    if (!onCopy || disabled || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 ||
+        !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== "c") return;
+    event.preventDefault();
+    if (!event.repeat) onCopy();
+  }
   return <button ref={button} type="button" className="handwriting-candidate-submit"
     style={{ fontSize }} title={`${copy ? "复制" : "输入"}：${candidate}`}
-    disabled={disabled} onClick={onChoose}>{candidate}</button>;
+    aria-keyshortcuts={onCopy ? "Control+c" : undefined}
+    disabled={disabled} onClick={onChoose} onKeyDown={copyShortcut}>{candidate}</button>;
 }
 
 export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
@@ -619,7 +626,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
           <button type="button" aria-pressed={effectiveMode === "input"} disabled={closing || submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
         </div>
         <div className="handwriting-candidate-grid" onKeyDown={navigateCandidates}>{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
-          <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={closing || submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} />
+          <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={closing || submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} onCopy={client.copyHandwritingCandidate ? () => void chooseCandidate(candidate, true) : undefined} />
           {effectiveMode === "copy" && client.submitHandwritingCandidate
             ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
             : effectiveMode === "input" && client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}
