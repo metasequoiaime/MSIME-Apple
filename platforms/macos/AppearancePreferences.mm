@@ -7,6 +7,20 @@ static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
+static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
+static NSArray<NSArray<NSString *> *> *LocalModeControls() {
+    return @[@[@"quick_phrase", @"快捷短语（K 模式）"], @[@"date_time", @"日期与时间（T 模式）"],
+             @[@"unicode", @"Unicode 录入（U 模式）"], @[@"emoji", @"Emoji（E 模式）"],
+             @[@"kaomoji", @"颜文字（M 模式）"], @[@"super_jianpin", @"超级简拼（J 模式）"],
+             @[@"temporary_english", @"临时英文（Y 模式）"], @[@"temporary_japanese", @"临时日语（R 模式）"]];
+}
+static BOOL KnownLocalMode(NSString *mode) {
+    for (NSArray *entry in LocalModeControls()) if ([entry[0] isEqual:mode]) return YES;
+    return NO;
+}
+static BOOL LocalModeBoolean(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
+}
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
@@ -25,6 +39,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSMutableDictionary *_sharedLocalModes;
+    NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_schemeButton;
     NSPopUpButton *_profileButton;
@@ -95,7 +111,42 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
     merged[@"floating_toolbar"] = toolbar;
+    NSDictionary *stored = [_defaults dictionaryForKey:LocalModesKey];
+    NSMutableDictionary *modes = [merged[@"local_modes"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    for (NSArray *entry in LocalModeControls()) {
+        NSString *mode = entry[0];
+        if (LocalModeBoolean(stored[mode])) modes[mode] = @([self localModeEnabled:mode]);
+    }
+    if (modes.count) merged[@"local_modes"] = modes;
     return merged;
+}
+- (BOOL)localModeEnabled:(NSString *)mode {
+    if (!KnownLocalMode(mode)) return NO;
+    NSNumber *value = _sharedLocalModes[mode] ?: [_defaults dictionaryForKey:LocalModesKey][mode];
+    return LocalModeBoolean(value) ? value.boolValue : YES;
+}
+- (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled {
+    if (!KnownLocalMode(mode)) return;
+    NSMutableDictionary *stored = [[_defaults dictionaryForKey:LocalModesKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    stored[mode] = @(enabled);
+    [_defaults setObject:stored forKey:LocalModesKey];
+    if (!_sharedLocalModes) _sharedLocalModes = [NSMutableDictionary dictionary];
+    _sharedLocalModes[mode] = @(enabled);
+    [self preferencesChanged];
+}
+- (void)applySharedLocalModes:(NSDictionary *)modes {
+    if (![modes isKindOfClass:NSDictionary.class]) return;
+    if (!_sharedLocalModes) _sharedLocalModes = [NSMutableDictionary dictionary];
+    for (NSArray *entry in LocalModeControls()) {
+        id value = modes[entry[0]];
+        if (LocalModeBoolean(value))
+            _sharedLocalModes[entry[0]] = value;
+    }
+    for (NSButton *button in _localModeButtons)
+        button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
+}
+- (void)localModeChanged:(NSButton *)sender {
+    [self setLocalMode:sender.identifier enabled:sender.state == NSControlStateValueOn];
 }
 - (NSImage *)decorationImage { return _decorationImage; }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
@@ -211,6 +262,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _autocorrectButton.state = self.autocorrect ? NSControlStateValueOn : NSControlStateValueOff;
     _helpcodeButton.state = self.helpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    for (NSButton *button in _localModeButtons)
+        button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
@@ -311,6 +364,13 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"辅助码"], _helpcodeButton]
     ]];
     grid.rowSpacing = 16;
+    _localModeButtons = [NSMutableArray array];
+    for (NSArray<NSString *> *entry in LocalModeControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
+        button.identifier = entry[0];
+        [_localModeButtons addObject:button];
+        [grid addRowWithViews:@[[NSTextField labelWithString:@"扩展输入"], button]];
+    }
     grid.columnSpacing = 20;
     grid.translatesAutoresizingMaskIntoConstraints = NO;
     NSScrollView *settingsScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];

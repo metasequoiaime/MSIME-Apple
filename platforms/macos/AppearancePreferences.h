@@ -36,6 +36,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL floatingToolbarEnabled;
 /// Cache shared visibility without emitting a local-save notification.
 - (void)applySharedToolbarVisibility:(BOOL)enabled;
+- (BOOL)localModeEnabled:(NSString *)mode;
+- (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled;
+/// Refresh shared state without emitting a local-save notification.
+- (void)applySharedLocalModes:(NSDictionary *)modes;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

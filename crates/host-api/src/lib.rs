@@ -110,6 +110,14 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
+        options.local_unicode = snapshot.preferences.local_modes.unicode;
+        options.local_date_time = snapshot.preferences.local_modes.date_time;
+        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
+        options.local_emoji = snapshot.preferences.local_modes.emoji;
+        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
+        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
+        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
+        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
         options.helpcode_schema = helpcode.schema.as_str().into();

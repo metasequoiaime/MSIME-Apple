@@ -468,6 +468,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [_appearance applySharedLocalModes:preferences[@"local_modes"]];
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
