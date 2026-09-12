@@ -34,6 +34,15 @@ public final class NativeClient {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
         return text(pinCandidateRaw(session, generation, index));
     }
+    public static String fixCandidatePosition(long session, long generation, long index, int position) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(fixCandidatePositionRaw(session, generation, index,
+            CandidateManagementAction.validatePosition(position)));
+    }
+    public static String clearCandidatePosition(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(clearCandidatePositionRaw(session, generation, index));
+    }
     public static String removeCandidate(long session, long generation, long index) {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
         return text(removeCandidateRaw(session, generation, index));
@@ -55,6 +64,9 @@ public final class NativeClient {
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);
     private static native byte[] pinCandidateRaw(long session, long generation, long index);
+    private static native byte[] fixCandidatePositionRaw(long session, long generation, long index,
+        int position);
+    private static native byte[] clearCandidatePositionRaw(long session, long generation, long index);
     private static native byte[] removeCandidateRaw(long session, long generation, long index);
     private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
     private static native byte[] viewRaw(long session);

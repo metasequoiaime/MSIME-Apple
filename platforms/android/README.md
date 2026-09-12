@@ -32,7 +32,7 @@ AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且�
 
 手写迁移提供 Android 原生画布和平台识别器注入边界：画布限制 64 笔、每笔 512 个采样点，支持单笔撤销、清空、坐标夹取和尺寸变化失效；识别请求复制不可变笔画快照，并以 session/revision/generation 拒绝过期结果，候选去重后最多 12 项。Tauri Android 适配器使用 ML Kit Digital Ink Recognition 19.0.0 和 `zh-Hani-CN` 模型，执行模型检查/下载、书写区域与时间戳笔画转换；轻量原生预览不依赖 ML Kit，缺少适配器时显示明确状态。手写方案、键盘内候选确认、无墨迹删除及退出清理已接入，仍需设备上的模型下载与产品验收。
 
-中文候选在支持个人词典管理的方案中支持长按菜单：优先显示或删除词条；删除操作要求 Android 确认对话框。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，过期候选不会修改当前会话；本轮不把 Engine 尚未提供的固定位置操作伪装成已支持功能。
+中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除操作要求 Android 确认对话框。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
 候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size` 和 `candidate_preedit_font_size`；偏好热更新成功后立即调整候选排列和字号，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16。
 
