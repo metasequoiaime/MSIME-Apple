@@ -128,7 +128,8 @@ void FloatingToolbarWindow::paint() {
     const wchar_t *labels[] = {label(value->chinese, L"\u4e2d", L"\u82f1"),
                                label(value->chinese_punctuation, L"\u3002", L"."),
                                label(value->fullwidth, L"\u5168", L"\u534a"),
-                               L"\u8bbe", L"😀", L"\u624b", L"⌨", L"🎙", L"?", L"×"};
+                               items_[5] ? L"\u8bbe" : L"", items_[3] ? L"😀" : L"",
+                               L"\u624b", items_[4] ? L"⌨" : L"", L"🎙", L"?", L"×"};
     for (int i = 0; i < 10; ++i) {
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
@@ -170,11 +171,11 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         const WorkerMode modes[] = {WorkerMode::Chinese,
                                     WorkerMode::ChinesePunctuation,
                                     WorkerMode::Fullwidth};
-        if (slot < 3) self->click_(ModeClick{value->lease, modes[slot]});
-        else if (slot == 3 && self->settings_action_) self->settings_action_();
-        else if (slot == 4 && self->emoji_action_) self->emoji_action_();
+        if (slot < 3 && self->items_[slot]) self->click_(ModeClick{value->lease, modes[slot]});
+        else if (slot == 3 && self->items_[5] && self->settings_action_) self->settings_action_();
+        else if (slot == 4 && self->items_[3] && self->emoji_action_) self->emoji_action_();
         else if (slot == 5 && self->handwriting_action_) self->handwriting_action_();
-        else if (slot == 6 && self->keyboard_action_) self->keyboard_action_();
+        else if (slot == 6 && self->items_[4] && self->keyboard_action_) self->keyboard_action_();
         else if (slot == 7 && self->voice_action_) self->voice_action_();
         else if (slot == 8 && self->about_action_) self->about_action_();
         else if (slot == 9 && self->hide_action_) self->hide_action_();

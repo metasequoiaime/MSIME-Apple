@@ -203,6 +203,7 @@ int wmain(int argc, wchar_t **argv) {
     toolbar.set_palette(palette);
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
+    toolbar.set_items(config.floating_toolbar_items);
     // The Server owns the floating toolbar. Every other row opens a surface in
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather

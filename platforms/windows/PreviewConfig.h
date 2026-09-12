@@ -27,6 +27,7 @@ struct PreviewConfig {
   int candidate_font_size = 16;
   int candidate_preedit_font_size = 16;
   std::string candidate_text_color;
+  std::array<bool, 6> floating_toolbar_items{true, true, true, true, false, true};
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
@@ -36,6 +37,7 @@ struct PreviewConfig {
                          (value.contains("floating_toolbar_enabled") ? 1u : 0u) +
                          (value.contains("floating_toolbar_scale") ? 1u : 0u) +
                          (value.contains("floating_toolbar_font_size") ? 1u : 0u) +
+                         (value.contains("floating_toolbar_items") ? 1u : 0u) +
                          (value.contains("appearance") ? 1u : 0u)) ||
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
@@ -142,6 +144,15 @@ struct PreviewConfig {
       result.floating_toolbar_font_size = value.at("floating_toolbar_font_size").get<int>();
       if (result.floating_toolbar_font_size < 16 || result.floating_toolbar_font_size > 28)
         throw std::invalid_argument("Invalid floating toolbar font size");
+    }
+    if (value.contains("floating_toolbar_items")) {
+      const auto &items = value.at("floating_toolbar_items");
+      if (!items.is_object() || items.size() != 6)
+        throw std::invalid_argument("Invalid floating toolbar items");
+      result.floating_toolbar_items = {
+          items.at("character_set").get<bool>(), items.at("punctuation").get<bool>(),
+          items.at("fullwidth").get<bool>(), items.at("emoji").get<bool>(),
+          items.at("screen_keyboard").get<bool>(), items.at("settings").get<bool>()};
     }
     return result;
   }

@@ -1,6 +1,7 @@
 #pragma once
 #include "ModeWindow.h"
 #include <functional>
+#include <array>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
@@ -17,6 +18,7 @@ public:
   void set_palette(CandidatePalette palette);
   void set_scale(double scale) { scale_ = scale; }
   void set_font_size(int size) { font_size_ = size; }
+  void set_items(std::array<bool, 6> items) { items_ = items; }
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
   void set_handwriting_action(Action action) { handwriting_action_ = std::move(action); }
@@ -57,5 +59,6 @@ private:
   bool failed_ = false;
   double scale_ = 1.0;
   int font_size_ = 24;
+  std::array<bool, 6> items_{true, true, true, true, false, true};
 };
 } // namespace msime::windows
