@@ -71,6 +71,10 @@ bool save(const std::filesystem::path &path, const std::vector<std::string> &ite
 }
 }
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-clipboard <history.json> <list|get|add|remove|remove-index|clear> [value]\n";
+    return 0;
+  }
   if (argc < 3) return 2;
   const std::filesystem::path path = argv[1];
   const std::string op = argv[2];
