@@ -447,22 +447,37 @@ fn sync_linux_runtime_options(
 fn start_linux_preferences_monitor(
     app: &tauri::AppHandle,
     store: std::sync::Arc<PreferencesStore>,
+    history: Arc<Mutex<ClipboardHistoryStore>>,
 ) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
             let mut revision = store.load().ok().map(|snapshot| snapshot.revision);
+            let mut last_history: Option<Vec<String>> = None;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 let Ok(snapshot) = store.load() else {
                     continue;
                 };
-                if revision == Some(snapshot.revision) {
-                    continue;
+                let entries = if snapshot.preferences.clipboard_history {
+                    history.lock().ok().and_then(|mut history| {
+                        history.load().ok().map(|_| history.entries().to_vec())
+                    })
+                } else {
+                    Some(Vec::new())
+                };
+                if let Some(entries) = entries {
+                    if last_history.as_ref() != Some(&entries) {
+                        last_history = Some(entries);
+                        // Only invalidate the view; clipboard text stays out of events.
+                        let _ = app.emit("clipboard-history-changed", ());
+                    }
                 }
-                revision = Some(snapshot.revision);
-                let _ = app.emit("preferences-changed", snapshot);
+                if revision != Some(snapshot.revision) {
+                    revision = Some(snapshot.revision);
+                    let _ = app.emit("preferences-changed", snapshot);
+                }
             }
         });
 }
@@ -2711,10 +2726,14 @@ pub fn run() {
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(preferences.clone());
-            #[cfg(target_os = "linux")]
-            start_linux_preferences_monitor(app.handle(), preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
+            #[cfg(target_os = "linux")]
+            start_linux_preferences_monitor(
+                app.handle(),
+                preferences.clone(),
+                Arc::clone(&clipboard_state.0),
+            );
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
             app.manage(PanelInputState::default());

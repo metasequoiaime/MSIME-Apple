@@ -70,6 +70,7 @@ export interface EmojiPanelClient extends PanelClient {
   copyText?(text: string): Promise<void>;
   clipboard?: {
     list?(): Promise<string[]>;
+    onChanged?(listener: () => void): Promise<() => void>;
     sync?(): Promise<string[]>;
     copy?(text: string): Promise<void>;
   };
@@ -706,15 +707,26 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
   useEffect(() => {
     if (!client.clipboard?.list) return;
     let active = true;
-    void client.clipboard.list().then(value => { if (active) setClipboard(value); }).catch(() => { if (active) setClipboard([]); });
-    return () => { active = false; };
-  }, [client]);
-
-  useEffect(() => {
-    if (page !== "clipboard" || !client.clipboard?.list) return;
-    let active = true;
-    void client.clipboard.list().then(value => { if (active) setClipboard(value); }).catch(() => { if (active) setClipboard([]); });
-    return () => { active = false; };
+    let generation = 0;
+    let unsubscribe: (() => void) | undefined;
+    const refresh = () => {
+      const request = ++generation;
+      void client.clipboard!.list!().then(value => {
+        if (active && request === generation) setClipboard(value);
+      }).catch(() => {
+        if (active && request === generation) setClipboard([]);
+      });
+    };
+    const start = async () => {
+      try {
+        const stop = await client.clipboard?.onChanged?.(refresh);
+        if (!active) { stop?.(); return; }
+        unsubscribe = stop;
+      } catch { /* Opening and tab changes still refresh without notifications. */ }
+      if (active) refresh();
+    };
+    void start();
+    return () => { active = false; unsubscribe?.(); };
   }, [client, page]);
 
   const groups = page === "emoji" ? catalog.emoji : page === "kaomoji" ? catalog.kaomoji : catalog.symbols;
