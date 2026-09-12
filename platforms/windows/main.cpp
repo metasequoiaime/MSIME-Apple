@@ -134,14 +134,21 @@ int wmain(int argc, wchar_t **argv) {
       throw std::runtime_error("Host preparation failed");
     if (stopping.load())
       return 0;
+    ClipboardHistory clipboard_history(config.state_root / "clipboard-history");
     WindowsServerOptions options;
     options.pipes.names = config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
+    options.preferences_published =
+        [&](const PreferenceSnapshot &snapshot) {
+          const auto preferences =
+              nlohmann::json::parse(snapshot.serialized()).at("preferences");
+          clipboard_history.set_enabled(
+              preferences.value("clipboard_history", false));
+        };
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
-    ClipboardHistory clipboard_history(config.state_root / "clipboard-history");
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [](std::string) {});
     if (!clipboard_monitor.start())
