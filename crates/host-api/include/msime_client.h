@@ -146,6 +146,7 @@ char *msime_client_tencent_translation_http_request(const uint8_t *request, size
 // requires translation; lookup forbids it. Returns {generation,translations,saved}.
 // Never pass packaged resources. Learned text is private; never log requests.
 // A malformed batch makes no writes; an I/O failure can leave earlier items saved.
+// New writes use Engine translation-glosses.db; old JSON records remain read-only fallback.
 char *msime_client_learned_translation_request(const uint8_t *request, size_t length);
 /* Returns [string|null] with exact expected count (1..9), or null for invalid body. */
 char *msime_client_parse_tencent_translation_response(const uint8_t *body, size_t length, size_t expected);
