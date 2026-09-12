@@ -10,6 +10,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 #include <vector>
+#include "voice_provider_fixture.h"
 
 namespace {
 void require(bool condition, const char *message) {
@@ -182,6 +183,9 @@ int main(int argc, char **argv) {
     auto result = nlohmann::json::parse(prepared.get());
     require(result.at("ok").get<bool>(), "Locked dictionary bootstrap failed");
     auto options = result.at("value");
+    const auto voice_socket = (root / "voice.sock").string();
+    VoiceProviderFixture voice_provider(voice_socket);
+    options["voice_provider_socket"] = voice_socket;
     options["preferences"]["learning"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
@@ -308,6 +312,41 @@ int main(int argc, char **argv) {
               "Modifier release crossed a focus boundary");
     }
     require(seen.committed.empty(), "Mode setup unexpectedly committed text");
+    auto wait_voice = [&](auto ready) {
+      const auto deadline = g_get_monotonic_time() + 2000000;
+      while (!ready() && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      return ready();
+    };
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == 1; }),
+            "Synthetic voice capture did not start");
+    mode(PROP_STATE_UNCHECKED);
+    require(wait_voice([&] { return voice_provider.cancelled.load() == 1; }),
+            "Disabling input through the menu did not cancel voice capture");
+    mode(PROP_STATE_CHECKED);
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return voice_provider.finished.load() == 1; }),
+            "Synthetic late voice result did not finish");
+    const auto voice_settle = g_get_monotonic_time() + 100000;
+    while (g_get_monotonic_time() < voice_settle) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
+    require(seen.committed.empty() && seen.input_enabled,
+            "Cancelled voice result committed after input was re-enabled");
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == 2; }),
+            "Voice capture could not restart after mode cancellation");
+    voice_provider.release_final = true;
+    const bool fresh_committed = wait_voice([&] { return seen.committed == "synthetic voice"; });
+    require(fresh_committed,
+            "Fresh voice result did not commit after mode cancellation");
+    seen.committed.clear();
+
+
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
       phrase();
       require(!key(modifier_key), "Composing modifier press was intercepted");

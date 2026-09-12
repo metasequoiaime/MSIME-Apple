@@ -613,6 +613,7 @@ void commit_text(IBusEngine *engine, const std::string &text) {
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
+void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
@@ -1814,6 +1815,8 @@ void sync_global_input_mode(IBusEngine *engine) {
   if (!s.mode_scope_global || !global_input_enabled ||
       s.input_enabled == *global_input_enabled)
     return;
+  if (!*global_input_enabled && s.voice_active)
+    voice_cancel(engine);
   s.invalidate_providers();
   if (!*global_input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
@@ -2168,8 +2171,8 @@ void voice_start(IBusEngine *engine) {
           return;
         auto *result = new VoiceResult{engine, alive, generation,
                                        std::move(text), false};
-        g_main_context_invoke(
-            nullptr,
+        g_idle_add_full(
+            G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
               std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
               if (!result->alive->load())
@@ -2186,12 +2189,12 @@ void voice_start(IBusEngine *engine) {
                   TRUE, IBUS_ENGINE_PREEDIT_CLEAR);
               return G_SOURCE_REMOVE;
             },
-            result);
+            result, nullptr);
       },
       [engine, alive, generation](std::string text) {
         auto *result = new VoiceResult{engine, alive, generation, std::move(text)};
-        g_main_context_invoke(
-            nullptr,
+        g_idle_add_full(
+            G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
               std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
               if (!result->alive->load())
@@ -2247,7 +2250,7 @@ void voice_start(IBusEngine *engine) {
               }
               return G_SOURCE_REMOVE;
             },
-            result);
+            result, nullptr);
       });
   publish_mode(engine);
 }
@@ -2958,6 +2961,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (enabled != s.input_enabled) {
+      if (!enabled && s.voice_active)
+        voice_cancel(engine);
       s.invalidate_providers();
       if (!enabled && s.session)
         apply(engine,
