@@ -103,6 +103,13 @@ struct HostSession {
 }
 
 impl HostSession {
+    fn cloud_candidates_enabled(&self) -> bool {
+        self.applied.cloud_candidates
+            && self
+                .requested
+                .as_ref()
+                .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
+    }
     fn apply_pending(&mut self) -> Result<(), String> {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
@@ -1429,7 +1436,7 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
                 return Ok(Value::Null);
             };
             let mut value = serde_json::to_value(query).map_err(|e| e.to_string())?;
-            value["cloud_candidates"] = Value::Bool(session.applied.cloud_candidates);
+            value["cloud_candidates"] = Value::Bool(session.cloud_candidates_enabled());
             let ai = &session.applied.ai_assistant;
             if ai.enabled {
                 value["ai_assistant"] = serde_json::to_value(AiAssistantProviderConfig {
@@ -2154,6 +2161,48 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
     })
 }
 
+/// Parse a bounded host-fetched cloud response and apply it to its original query.
+/// Invalid/no-result provider documents leave the current view unchanged.
+///
+/// # Safety
+/// Both pointers must reference readable buffers of their stated lengths.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_apply_cloud_response(
+    handle: u64,
+    query: *const u8,
+    query_length: usize,
+    body: *const u8,
+    body_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null() || body.is_null() || query_length > 16384 || body_length > 262144 {
+            return Err("invalid cloud response buffer".into());
+        }
+        let query = serde_json::from_slice::<OnlineQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid online query document")?;
+        let candidate = msime_input_runtime::cloud_candidate_from_response(query, unsafe {
+            std::slice::from_raw_parts(body, body_length)
+        });
+        with_session(handle, |session| {
+            let applied = if session.cloud_candidates_enabled() {
+                if let Some(candidate) = candidate {
+                    session
+                        .runtime
+                        .apply_online_candidate(&candidate.query, &candidate.text, candidate.source)
+                        .map_err(|e| e.to_string())?
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            Ok(json!({ "applied": applied, "view": session.runtime.view() }))
+        })
+    })
+}
+
 /// Apply an ordered JSON array of candidate strings for one online source.
 ///
 /// # Safety
@@ -2168,18 +2217,26 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
     source: u8,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || candidates.is_null() || query_length > 16384
-            || candidates_length > 16384 || source > 1 {
+        if query.is_null()
+            || candidates.is_null()
+            || query_length > 16384
+            || candidates_length > 16384
+            || source > 1
+        {
             return Err("invalid online candidates buffer".into());
         }
         let query = serde_json::from_slice::<OnlineQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
-        }).map_err(|_| "invalid online query document")?;
+        })
+        .map_err(|_| "invalid online query document")?;
         let candidates = serde_json::from_slice::<Vec<String>>(unsafe {
             std::slice::from_raw_parts(candidates, candidates_length)
-        }).map_err(|_| "invalid online candidates document")?;
+        })
+        .map_err(|_| "invalid online candidates document")?;
         with_session(handle, |session| {
-            let applied = session.runtime.apply_online_candidates(&query, &candidates, source)
+            let applied = session
+                .runtime
+                .apply_online_candidates(&query, &candidates, source)
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "applied": applied, "view": session.runtime.view() }))
         })
@@ -3428,6 +3485,80 @@ mod tests {
         assert_eq!(read(msime_client_destroy(handle))["ok"], true);
         assert_eq!(read(msime_client_view(handle))["ok"], false);
         assert_eq!(read(msime_client_destroy(handle))["ok"], false);
+    }
+    #[test]
+    fn cloud_response_boundary_guards_identity_permission_and_buffers() {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            scheme: InputScheme::Quanpin,
+            cloud_candidates: true,
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), preferences.clone());
+        read(msime_client_focus(handle, true));
+        assert!(read(msime_client_online_query(handle))["value"].is_null());
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let query = read(msime_client_online_query(handle))["value"].to_string();
+        let body = r#"["SUCCESS", [["nihao", ["你好"]]]]"#.as_bytes();
+        let apply = |target, query: &str, body: &[u8]| {
+            read(unsafe {
+                msime_client_apply_cloud_response(
+                    target,
+                    query.as_ptr(),
+                    query.len(),
+                    body.as_ptr(),
+                    body.len(),
+                )
+            })
+        };
+        let before = read(msime_client_view(handle))["value"].clone();
+        let malformed = apply(handle, &query, b"not json");
+        assert_eq!(malformed["value"]["applied"], false);
+        assert_eq!(malformed["value"]["view"], before);
+        assert_eq!(apply(handle, &query, body)["value"]["applied"], true);
+        assert_eq!(
+            read(msime_client_view(handle))["value"]["editing_text"],
+            before["editing_text"]
+        );
+        let other_dir = tempfile::tempdir().unwrap();
+        let other = test_host_preferences(other_dir.path(), preferences.clone());
+        read(msime_client_focus(other, true));
+        for byte in b"nihao" {
+            read(msime_client_character(other, *byte, false));
+        }
+        assert_eq!(apply(other, &query, body)["value"]["applied"], false);
+        read(msime_client_character(handle, b'a', false));
+        assert_eq!(apply(handle, &query, body)["value"]["applied"], false);
+        let current = read(msime_client_online_query(handle))["value"].to_string();
+        let disabled = Preferences {
+            cloud_candidates: false,
+            ..preferences
+        };
+        assert_eq!(update(handle, 1, &disabled)["value"]["deferred"], true);
+        assert_eq!(
+            read(msime_client_online_query(handle))["value"]["cloud_candidates"],
+            false
+        );
+        assert_eq!(apply(handle, &current, body)["value"]["applied"], false);
+        for (q, qlen, b, blen) in [
+            (std::ptr::null(), 0, body.as_ptr(), body.len()),
+            (query.as_ptr(), query.len(), std::ptr::null(), 0),
+            (query.as_ptr(), 16385, body.as_ptr(), body.len()),
+            (query.as_ptr(), query.len(), body.as_ptr(), 262145),
+        ] {
+            assert_eq!(
+                read(unsafe { msime_client_apply_cloud_response(handle, q, qlen, b, blen) })["ok"],
+                false
+            );
+        }
+        assert_eq!(
+            apply(handle, "invalid", body)["error"],
+            "invalid online query document"
+        );
+        read(msime_client_destroy(other));
+        read(msime_client_destroy(handle));
     }
     #[test]
     fn invalid_buffers_and_commands_return_owned_errors() {

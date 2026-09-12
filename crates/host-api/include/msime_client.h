@@ -217,6 +217,13 @@ char *msime_client_translation_query(uint64_t session);
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
  * host performs network I/O and applies the copied result separately. */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
+/* Parse a host-fetched response using the shared cloud parser. Returns
+ * {applied,view}; no-result/malformed provider documents do not mutate input.
+ * Query <=16 KiB, response <=256 KiB. Stale queries and disabled cloud
+ * preferences (including a pending disable) cannot apply candidates. */
+char *msime_client_apply_cloud_response(uint64_t session,
+                                      const uint8_t *query, size_t query_length,
+                                      const uint8_t *body, size_t body_length);
 /* Linux: perform one bounded request to a user-owned Unix-socket provider.
  * Call from a worker thread with a copied query; returns null value when no
  * candidate is available. Credentials and network policy stay in that service. */

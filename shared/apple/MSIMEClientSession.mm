@@ -25,7 +25,7 @@ static intptr_t SnapshotNext(void *opaque, uint8_t *buffer, size_t capacity) {
     return static_cast<intptr_t>(data.length);
 }
 
-static NSDictionary *decode(char *response, NSError **error) {
+static id decodeValue(char *response, NSError **error) {
     if (!response) { setError(error, @"输入运行时未返回响应"); return nil; }
     NSData *data = [NSData dataWithBytes:response length:std::strlen(response)];
     msime_client_string_free(response);
@@ -36,8 +36,12 @@ static NSDictionary *decode(char *response, NSError **error) {
         setError(error, [envelope[@"error"] isKindOfClass:[NSString class]] ? envelope[@"error"] : @"输入运行时调用失败");
         return nil;
     }
-    id value = envelope[@"value"];
-    return [value isKindOfClass:[NSDictionary class]] ? value : @{};
+    return envelope[@"value"] ?: NSNull.null;
+}
+
+static NSDictionary *decode(char *response, NSError **error) {
+    id value = decodeValue(response, error);
+    return !value ? nil : ([value isKindOfClass:NSDictionary.class] ? value : @{});
 }
 
 @implementation MSIMEClientSession {
@@ -59,6 +63,25 @@ static NSDictionary *decode(char *response, NSError **error) {
     return NO;
 }
 - (NSDictionary *)hostOptions { return _hostOptions; }
+- (NSDictionary *)onlineQueryWithError:(NSError **)error {
+    id value = decodeValue(msime_client_online_query(_handle), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
++ (NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"在线查询格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"在线查询过大"); return nil; }
+    id value = decodeValue(msime_client_cloud_request_url((const uint8_t *)data.bytes, data.length), error);
+    return [value isKindOfClass:NSString.class] ? value : nil;
+}
+- (NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error {
+    if (![body isKindOfClass:NSData.class] || body.length == 0 || body.length > 262144 ||
+        ![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"云候选响应格式错误或过大"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
+    if (!data || data.length > 16384) { setError(error, @"在线查询过大"); return nil; }
+    return decode(msime_client_apply_cloud_response(_handle, (const uint8_t *)data.bytes, data.length,
+        (const uint8_t *)body.bytes, body.length), error);
+}
 + (NSDictionary *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"词典请求格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
