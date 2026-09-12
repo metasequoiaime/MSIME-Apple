@@ -245,12 +245,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
                 return;
             }
             if (!MSIMEActivateToolApplication(NSApp, NSRunningApplication.currentApplication, application)) {
-                current->_emojiReturn.discard(token);
+                if (current->_emojiReturn.fail(token)) [current reportEmojiDeliveryFailure];
             }
         });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
-            if (current) current->_emojiReturn.discard(token);
+            if (current && current->_emojiReturn.fail(token)) [current reportEmojiDeliveryFailure];
         });
         return YES;
     };
@@ -370,8 +370,17 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)commitPendingEmojiForClient:(id)client {
+    const BOOL hadPending = _emojiReturn.pending != nil;
     NSString *toolText = _emojiReturn.take(client, NSProcessInfo.processInfo.systemUptime);
     if (toolText) [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
+    else if (hadPending) [self reportEmojiDeliveryFailure];
+}
+
+- (void)reportEmojiDeliveryFailure {
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(showEmojiDeliveryFailure)])
+        [shared performSelector:@selector(showEmojiDeliveryFailure)];
 }
 
 - (void)handwritingCandidateSelected:(NSNotification *)notification {

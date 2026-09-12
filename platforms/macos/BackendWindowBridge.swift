@@ -8,10 +8,14 @@ import SwiftUI
 final class BackendWindowBridge: NSObject {
   @objc static let shared = BackendWindowBridge()
   private let windows = BackendAccountWindowCache<NSWindowController>()
+  private let emojiDeliveryNotice = MacEmojiDeliveryNotice()
+
+  @objc func showEmojiDeliveryFailure() { emojiDeliveryNotice.show() }
 
   @objc func applyEmojiPreferences(_ preferences: NSDictionary) { MacEmojiAppearance.shared.apply(preferences) }
 
   func closeAll() {
+    emojiDeliveryNotice.dismiss()
     windows.closeAll { controller in
       controller.close()
       controller.window?.contentViewController = nil

@@ -30,6 +30,11 @@ struct MSIMEToolTextReturn {
         deadline = 0;
         ++generation;
     }
+    bool fail(uint64_t token) {
+        if (token != generation || !pending) return false;
+        discard(token);
+        return true;
+    }
     NSString *take(id client, double now) {
         if (!pending) return nil;
         NSString *text = client && client == target && now < deadline ? pending : nil;
