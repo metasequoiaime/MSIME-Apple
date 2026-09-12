@@ -53,6 +53,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) uint8_t lastEdge;
 @property(nonatomic) uint64_t edgeGeneration;
 @property(nonatomic) NSUInteger edgeIndex;
+@property(nonatomic) NSUInteger selectCalls;
+@property(nonatomic) uint64_t selectedGeneration;
+@property(nonatomic) NSUInteger selectedIndex;
 @property(nonatomic, copy) NSDictionary *nextTransition;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
@@ -65,6 +68,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    (void)error; ++self.selectCalls; self.selectedGeneration = generation; self.selectedIndex = index;
+    return nil;
+}
 - (NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error {
     (void)error; ++self.edgeCalls; self.lastEdge = edge; self.edgeGeneration = generation; self.edgeIndex = index;
     return self.nextTransition;
@@ -1134,6 +1141,42 @@ int main() {
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         CGFloat verticalHeight = layoutPanel.frame.size.height;
+        MSIMECandidateButton *clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        assert(clickCandidate);
+        NSDictionary *validClickID = clickCandidate.candidateID;
+        NSUInteger selectedCalls = session.selectCalls;
+        [controller selectCandidate:clickCandidate];
+        assert(session.selectCalls == selectedCalls + 1 && session.selectedGeneration == 2 && session.selectedIndex == 1);
+        for (NSString *field in @[@"session", @"generation", @"index"]) {
+            for (id invalid in @[@(-1), @YES, @1.5, @"1", NSNull.null, @"missing"]) {
+                NSMutableDictionary *bad = [validClickID mutableCopy];
+                bad[field] = invalid;
+                if ([invalid isEqual:@"missing"]) [bad removeObjectForKey:field];
+                clickCandidate.candidateID = bad;
+                [controller selectCandidate:clickCandidate];
+                assert(session.selectCalls == selectedCalls + 1);
+            }
+        }
+        clickCandidate.candidateID = validClickID;
+        for (NSString *field in @[@"session", @"generation", @"focused"]) {
+            NSMutableDictionary *staleView = [pageView mutableCopy];
+            staleView[field] = [field isEqual:@"focused"] ? @NO : @99;
+            [controller setValue:staleView forKey:@"view"];
+            [controller selectCandidate:clickCandidate];
+            assert(session.selectCalls == selectedCalls + 1);
+        }
+        [controller setValue:pageView forKey:@"view"];
+        layoutPanel.requestedVisible = NO;
+        [controller selectCandidate:clickCandidate];
+        assert(session.selectCalls == selectedCalls + 1);
+        layoutPanel.requestedVisible = YES;
+        clickCandidate.enabled = NO;
+        [controller selectCandidate:clickCandidate];
+        assert(session.selectCalls == selectedCalls + 1);
+        clickCandidate.enabled = YES;
+        [controller renderCandidates];
+        [controller selectCandidate:clickCandidate];
+        assert(session.selectCalls == selectedCalls + 1); // Detached button from an earlier render.
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
         [controller appearanceChanged:nil];

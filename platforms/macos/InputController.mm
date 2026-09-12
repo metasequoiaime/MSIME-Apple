@@ -53,6 +53,13 @@ static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
            !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value compare:@0] != NSOrderedAscending;
 }
+static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
+    if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
+    for (NSString *key in @[@"session", @"generation", @"index"])
+        if (!MSIMEUnsignedCandidateIdentityValue(identifier[key])) return NO;
+    return [identifier[@"session"] isEqual:view[@"session"]] && [identifier[@"generation"] isEqual:view[@"generation"]] &&
+           [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
+}
 
 @interface MSIMECandidatePanel : NSPanel
 @end
@@ -608,11 +615,7 @@ static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
                     if (![candidate isKindOfClass:NSDictionary.class]) continue;
                     if (![candidate[@"highlighted"] isEqual:@YES]) continue;
                     NSDictionary *identifier = candidate[@"id"];
-                    if (![identifier isKindOfClass:NSDictionary.class]) return YES;
-                    for (NSString *key in @[@"session", @"generation", @"index"])
-                        if (!MSIMEUnsignedCandidateIdentityValue(identifier[key])) return YES;
-                    if (![identifier[@"session"] isEqual:_view[@"session"]] || ![identifier[@"generation"] isEqual:_view[@"generation"]] ||
-                        [identifier[@"index"] compare:@(NSUIntegerMax)] == NSOrderedDescending) return YES;
+                    if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
                     NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
                     if (selected) [self apply:selected];
                     return YES; // Unsupported/stale candidates must not turn into punctuation.
@@ -900,10 +903,9 @@ static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
 }
 
 - (void)selectCandidate:(MSIMECandidateButton *)button {
+    if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
     NSDictionary *identifier = button.candidateID;
-    if (![identifier isKindOfClass:NSDictionary.class] ||
-        ![identifier[@"session"] isEqual:_view[@"session"]])
-        return;
+    if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
     [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
 }
 
