@@ -2415,40 +2415,16 @@ fn linux_clipboard_text() -> Result<String, HostActionError> {
 
 #[cfg(target_os = "linux")]
 fn write_linux_clipboard(text: &str) -> bool {
-    fn write_with(mut child: std::process::Child, text: &str) -> bool {
-        let Some(mut input) = child.stdin.take() else {
-            return false;
-        };
-        if std::io::Write::write_all(&mut input, text.as_bytes()).is_err() {
-            return false;
-        }
-        drop(input);
-        child.wait().map(|status| status.success()).unwrap_or(false)
-    }
-
-    if let Ok(child) = std::process::Command::new("wl-copy")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
+    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
+        && linux_clipboard::write_text("wl-copy", &["--type", "text/plain;charset=utf-8"], text)
     {
-        if write_with(child, text) {
-            return true;
-        }
+        return true;
     }
-    if let Ok(child) = std::process::Command::new("xclip")
-        .args(["-selection", "clipboard"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-    {
-        if write_with(child, text) {
-            return true;
-        }
+    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
+        return linux_clipboard::write_text("xclip", &["-selection", "clipboard"], text)
+            || linux_clipboard::write_text("xsel", &["--clipboard", "--input"], text);
     }
-    std::process::Command::new("xsel")
-        .args(["--clipboard", "--input"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map(|child| write_with(child, text))
-        .unwrap_or(false)
+    false
 }
 
 #[cfg(target_os = "linux")]
