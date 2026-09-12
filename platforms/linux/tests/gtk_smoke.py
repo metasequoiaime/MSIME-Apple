@@ -34,7 +34,12 @@ def wait(predicate, description):
 
 
 def keys(*values):
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "--delay", "40", *values], check=True)
+    # Process temporary XKB mappings while xdotool injects Unicode keysyms.
+    process = subprocess.Popen(["xdotool", "key", "--clearmodifiers", "--delay", "40", *values])
+    while process.poll() is None:
+        pump()
+        time.sleep(0.005)
+    assert process.returncode == 0, "XTest keyboard injection failed"
     pump()
 
 
@@ -72,6 +77,9 @@ wait(lambda: first.get_text() == "你好", "GTK did not insert the selected cand
 first.set_text("")
 keys("n", "i", "h", "a", "o", "BackSpace", "Return")
 wait(lambda: first.get_text() == "niha", "GTK composition editing/raw commit failed")
+first.set_text("")
+keys("n", "i", "h", "a", "o", "U1f600")
+wait(lambda: first.get_text() == "nihao😀", "GTK Unicode keysym discarded pending spelling")
 first.set_text("")
 keys("q", "w", "e", "r", "Return")
 wait(lambda: first.get_text() == "qwer", "GTK letter keys were mistaken for candidate slots")
