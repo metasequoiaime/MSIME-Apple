@@ -1,6 +1,7 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
 #import "CloudAppearanceSettings.h"
+#import "PreferenceSnapshotMerge.h"
 #import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>
@@ -287,7 +288,17 @@ int main(int argc, const char **argv) {
         [NSApp sendAction:tabControl.action to:tabControl.target from:tabControl];
         assert([preferences navigationEnabled:@"tab"]);
         NSDictionary *navigation = [preferences sharedPreferencesByMerging:@{}][@"navigation"];
-        assert(navigation.count == 6 && [navigation[@"tab"] isEqual:@YES]);
+        assert([navigation[@"tab"] isEqual:@YES]);
+        assert(navigation[@"comma_period"] == nil && navigation[@"arrows"] == nil);
+        // The persistence worker merges captured edits into each fresh revision,
+        // including CAS retries; it must not overwrite unowned navigation flags.
+        NSDictionary *capturedNavigation = @{@"navigation": navigation};
+        NSDictionary *latestNavigation = @{@"navigation": @{@"minus_equal": @NO, @"brackets": @YES,
+            @"page_up_down": @NO, @"comma_period": @NO, @"tab": @NO, @"arrows": @NO}};
+        NSDictionary *retryNavigation = MSIMEMergePreferenceSnapshot(latestNavigation, capturedNavigation)[@"navigation"];
+        assert(retryNavigation.count == 6 && [retryNavigation[@"tab"] isEqual:@YES]);
+        assert([retryNavigation[@"comma_period"] isEqual:@NO] && [retryNavigation[@"arrows"] isEqual:@NO]);
+        assert([latestNavigation[@"navigation"][@"tab"] isEqual:@NO]);
         [preferences setNavigation:@"tab" enabled:NO];
         MSIMEAppearancePreferences *navigationReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
         assert(![navigationReloaded navigationEnabled:@"tab"]);
