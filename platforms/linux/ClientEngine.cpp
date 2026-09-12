@@ -3279,7 +3279,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                   : local_mode == "date_time"
                         ? lowercase_letter
                         : (local_mode != "none" || lowercase_letter ||
-                           (uppercase_letter && helpcode));
+                           (uppercase_letter && (helpcode || s.english_mode)));
     const bool nine_key_digit =
         local_mode != "unicode" && s.view.value("nine_key", false) &&
         ((key >= IBUS_KP_2 && key <= IBUS_KP_9) ||
