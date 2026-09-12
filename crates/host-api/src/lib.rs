@@ -2911,7 +2911,12 @@ mod tests {
             remove(std::path::Path::new("relative"), "synthetic")["ok"],
             false
         );
-        assert_eq!(remove(directory.path(), &"x".repeat(4097))["ok"], false);
+        let maximum = msime_client_core::clipboard::MAX_TEXT_BYTES;
+        assert_eq!(remove(directory.path(), &"x".repeat(maximum))["ok"], true);
+        assert_eq!(
+            remove(directory.path(), &"x".repeat(maximum + 1))["ok"],
+            false
+        );
         let mut preferences = saved.preferences;
         preferences.clipboard_history = false;
         store.save(saved.revision, preferences).unwrap();
@@ -2957,8 +2962,13 @@ mod tests {
             capture(json!({"directory": "relative", "text": "synthetic"}))["ok"],
             false
         );
+        let maximum = msime_client_core::clipboard::MAX_TEXT_BYTES;
         assert_eq!(
-            capture(json!({"directory": directory.path(), "text": "x".repeat(4097)}))["ok"],
+            capture(json!({"directory": directory.path(), "text": "x".repeat(maximum)}))["ok"],
+            true
+        );
+        assert_eq!(
+            capture(json!({"directory": directory.path(), "text": "x".repeat(maximum + 1)}))["ok"],
             false
         );
         assert_eq!(capture(json!({"directory": directory.path()}))["ok"], false);
