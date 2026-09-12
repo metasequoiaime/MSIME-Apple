@@ -368,6 +368,7 @@ int main(int argc, char **argv) {
       auto translated = options;
       translated.erase("preferences_directory");
       translated["translation_provider_socket"] = socket;
+      translated["preferences"]["candidate_translations"] = false;
       msime_preview_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
@@ -385,6 +386,10 @@ int main(int argc, char **argv) {
         require(translated_page(), "Synthetic candidate translation did not render");
       };
       phrase();
+      require(!translated_page(), "Initially disabled translations showed glosses");
+      invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_CHECKED));
+      require(seen.preedit == "nihao" && seen.committed.empty(),
+              "Enabling translation disturbed the active composition");
       wait_translation();
       const auto settled = g_get_monotonic_time() + 1200000;
       while (g_get_monotonic_time() < settled) {
