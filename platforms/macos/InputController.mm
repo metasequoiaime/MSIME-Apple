@@ -270,7 +270,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (!candidates.count) return nil;
     return @{@"generation":query[@"generation"], @"target_language":query[@"target_language"],
-        (custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy]};
+        (custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
+        @"directory":_preferencesDirectory ?: @""};
 }
 - (void)applyCandidateTranslationResults {
     NSMutableArray *results = [NSMutableArray array];
@@ -354,6 +355,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                     if ([result[@"text"] isEqual:text]) { translation = result[@"translation"]; break; }
                 [cache rememberTranslation:translation identity:identities[text]];
             }
+            [current persistCandidateTranslations:results query:query];
             current->_customResults = [combined copy];
             [current applyCandidateTranslationResults];
         };
@@ -383,10 +385,45 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     for (NSDictionary *candidate in view[@"candidates"])
         if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
             [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
-    return candidates.count ? @{@"generation":query[@"generation"], @"candidates":[candidates copy]} : nil;
+    return candidates.count ? @{@"generation":query[@"generation"], @"candidates":[candidates copy],
+        @"directory":_preferencesDirectory ?: @""} : nil;
 }
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
-    return [MSIMEClientSession candidateGlossRequest:request resources:resources error:nil];
+    return [MSIMEClientSession candidateGlossRequest:@{@"generation":request[@"generation"],
+        @"candidates":request[@"candidates"]} resources:resources error:nil];
+}
++ (dispatch_queue_t)learnedTranslationQueue {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("msime.learned-translations", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
+- (NSArray *)learnedTranslationItems:(NSArray *)candidates results:(NSArray *)results {
+    NSArray *plan = [MSIMEClientSession customTranslationPlan:@{@"target_language":@"en", @"candidates":candidates} error:nil];
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSDictionary *item in plan) {
+        NSMutableDictionary *entry = [@{@"text":item[@"text"], @"direction":[item[@"source_language"] isEqual:@"en"]
+            ? @"english_to_chinese" : @"chinese_to_english"} mutableCopy];
+        if (results) {
+            for (NSDictionary *result in results)
+                if ([result[@"text"] isEqual:item[@"text"]]) { entry[@"translation"] = result[@"translation"]; break; }
+            if (!entry[@"translation"]) continue;
+        }
+        [items addObject:entry];
+    }
+    return items;
+}
+- (void)persistCandidateTranslations:(NSArray *)results query:(NSDictionary *)query {
+    NSString *directory = query[@"directory"];
+    if (!directory.isAbsolutePath || ![query[@"target_language"] isEqual:@"en"] || !results.count) return;
+    NSArray *items = [self learnedTranslationItems:query[@"candidates"] results:results];
+    if (!items.count) return;
+    // Copy only storage fields; never retain provider credentials in the IO queue.
+    NSDictionary *request = @{@"directory":[directory copy], @"generation":query[@"generation"],
+        @"target_language":@"en", @"action":@"remember", @"items":items};
+    dispatch_async([MSIMEInputController learnedTranslationQueue], ^{
+        [MSIMEClientSession learnedTranslationRequest:request error:nil];
+    });
 }
 - (void)synchronizeCandidateGloss {
     NSDictionary *request = [self currentGlossRequest];
@@ -395,19 +432,41 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self cancelCandidateGloss];
     _glossRequest = request;
     NSString *resources = [_session.hostOptions[@"resources"] copy];
-    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) { _glossResults = @[]; return; }
+    BOOL hasResources = [resources isKindOfClass:NSString.class] && resources.isAbsolutePath;
+    NSString *directory = request[@"directory"];
+    if (!hasResources && !directory.isAbsolutePath) { _glossResults = @[]; return; }
+    NSArray *learnedItems = [self learnedTranslationItems:request[@"candidates"] results:nil];
     if (!_glossQueue) { _glossQueue = [NSOperationQueue new]; _glossQueue.maxConcurrentOperationCount = 1; _glossQueue.qualityOfService = NSQualityOfServiceUtility; }
     const uint64_t epoch = _glossEpoch;
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
     [_glossQueue addOperationWithBlock:^{
-        NSDictionary *result = [weakSelf readCandidateGloss:request resources:resources];
+        NSDictionary *result = hasResources ? [weakSelf readCandidateGloss:request resources:resources] : nil;
+        if (result && ![result[@"generation"] isEqual:request[@"generation"]]) return;
+        NSMutableArray *translations = [result[@"translations"] mutableCopy] ?: [NSMutableArray array];
+        if (directory.isAbsolutePath && learnedItems.count) {
+            __block NSDictionary *learned;
+            dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{
+                learned = [MSIMEClientSession learnedTranslationRequest:@{@"directory":directory,
+                    @"generation":request[@"generation"], @"target_language":@"en", @"action":@"lookup", @"items":learnedItems} error:nil];
+            });
+            for (NSDictionary *entry in learned[@"translations"]) {
+                NSUInteger index = [translations indexOfObjectPassingTest:^BOOL(NSDictionary *existing, NSUInteger position, BOOL *stop) {
+                    (void)position; (void)stop;
+                    return [entry[@"text"] isEqual:existing[@"text"]];
+                }];
+                // Learned records override packaged glosses, matching Engine's
+                // user glossary overlay and Windows INSERT OR REPLACE semantics.
+                if (index == NSNotFound) [translations addObject:entry];
+                else translations[index] = entry;
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_glossEpoch != epoch || current->_session != session || current->_activeClient != client ||
                 ![[current currentGlossRequest] isEqual:request] || (result && ![result[@"generation"] isEqual:request[@"generation"]])) return;
-            current->_glossResults = [result[@"translations"] copy] ?: @[];
+            current->_glossResults = [translations copy];
             [current applyCandidateTranslationResults];
         });
     }];
