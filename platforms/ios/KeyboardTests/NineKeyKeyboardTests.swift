@@ -1038,6 +1038,31 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(withGloss.lowercased().contains("hello"), "你好 的释义应当是 hello:\(withGloss)")
   }
 
+  func testNineKeyOffersEnglishForTheDigitsTyped() throws {
+    // 反馈:九键打 65 想要 ok,但候选里没有。
+    let previousScheme = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    for key in ["nineKey6", "nineKey5"] {
+      try button(key, in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    let chips = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+      .compactMap { chip -> String? in
+        chip.configuration?.attributedTitle.map { String($0.characters) } ?? chip.configuration?.title
+      }
+    XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "九键 65 应当给出 ok:\(chips)")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
