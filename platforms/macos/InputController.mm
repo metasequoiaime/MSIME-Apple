@@ -49,6 +49,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
 
+static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value compare:@0] != NSOrderedAscending;
+}
+
 @interface MSIMECandidatePanel : NSPanel
 @end
 @implementation MSIMECandidatePanel
@@ -598,10 +603,16 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
             BOOL first = character == (brackets ? '[' : '-');
             BOOL last = character == (brackets ? ']' : '=');
             if ([wordCharacter[@"enabled"] boolValue] && (first || last)) {
+                if (![_view[@"focused"] isEqual:@YES] || ![_view[@"candidates"] isKindOfClass:NSArray.class]) return YES;
                 for (NSDictionary *candidate in _view[@"candidates"]) {
-                    if (![candidate[@"highlighted"] boolValue]) continue;
+                    if (![candidate isKindOfClass:NSDictionary.class]) continue;
+                    if (![candidate[@"highlighted"] isEqual:@YES]) continue;
                     NSDictionary *identifier = candidate[@"id"];
-                    if (![identifier isKindOfClass:NSDictionary.class] || ![identifier[@"session"] isEqual:_view[@"session"]]) return YES;
+                    if (![identifier isKindOfClass:NSDictionary.class]) return YES;
+                    for (NSString *key in @[@"session", @"generation", @"index"])
+                        if (!MSIMEUnsignedCandidateIdentityValue(identifier[key])) return YES;
+                    if (![identifier[@"session"] isEqual:_view[@"session"]] || ![identifier[@"generation"] isEqual:_view[@"generation"]] ||
+                        [identifier[@"index"] compare:@(NSUIntegerMax)] == NSOrderedDescending) return YES;
                     NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
                     if (selected) [self apply:selected];
                     return YES; // Unsupported/stale candidates must not turn into punctuation.
