@@ -13,7 +13,7 @@ NSNotificationName const MSIMEVoiceSettingsDidChangeNotification = @"MSIMEClient
 + (instancetype)sharedSettings { static MSIMEVoiceSettings *value; static dispatch_once_t once; dispatch_once(&once, ^{ value = [[self alloc] initWithWindow:nil]; }); return value; }
 - (void)showAndActivate {
     if (!self.window) {
-        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 420, 190) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 560, 500) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
         window.title = @"语音输入设置";
         _service = [[MSIMEVoiceInputService alloc] init];
         _language = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_language addItemsWithTitles:@[@"中文（简体）", @"English"]];
