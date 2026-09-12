@@ -3088,6 +3088,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
+    if (!s.view.at("candidates").empty()) {
+      if (const auto touch_navigation =
+              msime::linux_host::touch_keyboard_command(key)) {
+        handled = apply(engine, msime_client_command(
+                                   s.session, *touch_navigation));
+        return;
+      }
+    }
     // Disabled navigation keys belong to the application, including when a
     // composition is active. Finalize that composition first so the editor
     // never receives a navigation key while stale preedit is still owned by
