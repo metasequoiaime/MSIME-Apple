@@ -25,4 +25,6 @@ test("emoji panel paginates catalog items and resets on search", async () => {
   await waitFor(() => expect(screen.getByText("第 1 / 2 页")).toBeDefined());
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
   await waitFor(() => expect(screen.getByText("第 2 / 2 页")).toBeDefined());
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "item0" } });
+  await waitFor(() => expect(screen.queryByText("第 2 / 2 页")).toBeNull());
 });
