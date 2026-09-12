@@ -1548,7 +1548,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 return Ok(Value::Null);
             }
             let view = session.runtime.view();
-            if view.candidates.is_empty() {
+            // Windows does not request glosses for Japanese candidates. Use
+            // Engine's active mode, including temporary Japanese composition.
+            if view.candidates.is_empty()
+                || view.scheme == 3
+                || view.local_mode == "temporary_japanese"
+            {
                 return Ok(Value::Null);
             }
             let candidates = view
@@ -3139,6 +3144,55 @@ mod tests {
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
+    }
+
+    #[test]
+    fn translation_queries_follow_active_japanese_mode() {
+        for temporary in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let preferences = Preferences {
+                scheme: if temporary {
+                    InputScheme::Quanpin
+                } else {
+                    InputScheme::Japanese
+                },
+                candidate_translations: true,
+                ..Preferences::default()
+            };
+            let handle = test_host_preferences(dir.path(), preferences.clone());
+            read(msime_client_focus(handle, true));
+            if temporary {
+                read(msime_client_character(handle, b'R', true));
+            }
+            let view = read(msime_client_character(handle, b'a', false))["value"]["view"].clone();
+            assert!(!view["candidates"].as_array().unwrap().is_empty());
+            assert_eq!(view["local_mode"] == "temporary_japanese", temporary);
+            assert_eq!(
+                read(msime_client_translation_query(handle))["value"],
+                Value::Null
+            );
+            read(msime_client_command(handle, 3));
+            update(
+                handle,
+                1,
+                &Preferences {
+                    scheme: InputScheme::Quanpin,
+                    ..preferences
+                },
+            );
+            for byte in b"U4e2d" {
+                read(msime_client_character(
+                    handle,
+                    *byte,
+                    byte.is_ascii_uppercase(),
+                ));
+            }
+            let query = read(msime_client_translation_query(handle));
+            assert!(query["value"]["candidates"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty()));
+            read(msime_client_destroy(handle));
+        }
     }
 
     #[test]
