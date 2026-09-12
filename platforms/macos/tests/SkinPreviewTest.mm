@@ -24,6 +24,15 @@ int main(int argc, const char **argv) {
         assert(mkdtemp(temporary));
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        NSDictionary *input = @{@"shuangpin_preedit_uses_raw": @NO, @"synthetic_unowned": @42};
+        assert(preferences.shuangpinPreeditUsesRaw);
+        assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@YES]);
+        preferences.shuangpinPreeditUsesRaw = NO;
+        NSDictionary *merged = [preferences sharedPreferencesByMerging:input];
+        assert([merged[@"shuangpin_preedit_uses_raw"] isEqual:@NO]);
+        assert([merged[@"synthetic_unowned"] isEqual:@42]);
+        assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] shuangpinPreeditUsesRaw]);
+        preferences.shuangpinPreeditUsesRaw = YES;
         NSWindow *window = preferences.window;
         NSGridView *grid = (id)window.contentView.subviews[0];
         NSScrollView *scroll = (id)window.contentView.subviews[1];

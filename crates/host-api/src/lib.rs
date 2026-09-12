@@ -94,6 +94,7 @@ impl HostSession {
         let mut options = self.options.clone();
         options.scheme = scheme_code(snapshot.preferences.scheme);
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
+        options.shuangpin_preedit_uses_raw = snapshot.preferences.shuangpin_preedit_uses_raw;
         options.learning = snapshot.preferences.learning;
         options.autocorrect_transposition =
             snapshot.preferences.quanpin_autocorrect_transposition();
@@ -2658,6 +2659,32 @@ mod tests {
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
+    }
+
+    #[test]
+    fn shuangpin_preedit_mode_is_applied_after_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = Preferences { scheme: InputScheme::Shuangpin, ..Preferences::default() };
+        let handle = test_host_preferences(dir.path(), raw.clone());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'h', false));
+        let before = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
+        let expanded = Preferences { shuangpin_preedit_uses_raw: false, ..raw.clone() };
+        let queued = update(handle, 1, &expanded);
+        assert_eq!(queued["value"]["deferred"], true);
+        assert_eq!(queued["value"]["view"], before);
+        read(msime_client_command(handle, 3));
+        assert_eq!(update(handle, 1, &expanded)["value"]["deferred"], false);
+        read(msime_client_character(handle, b'h', false));
+        let after = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
+        assert_eq!(after["editing_text"], before["editing_text"]);
+        assert_ne!(after["preedit"], before["preedit"]);
+        read(msime_client_command(handle, 3));
+        update(handle, 2, &raw);
+        read(msime_client_character(handle, b'h', false));
+        let restored = read(msime_client_character(handle, b'k', false));
+        assert_eq!(restored["value"]["view"]["preedit"], before["preedit"]);
+        msime_client_destroy(handle);
     }
 
     #[test]

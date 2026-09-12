@@ -76,6 +76,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
     merged[@"scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
+    merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
     qh[@"enabled"] = @(self.helpcodeEnabled);
     merged[@"quanpin_helpcode"] = qh;
