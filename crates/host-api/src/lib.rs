@@ -247,6 +247,10 @@ struct HostOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     translation_provider_socket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    cloud_dictionary_provider_socket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cloud_clipboard_provider_socket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     voice_provider_socket: Option<String>,
 }
 
@@ -331,6 +335,8 @@ pub fn prepare_host_configuration(
         clipboard_history_path: None,
         online_provider_socket: None,
         translation_provider_socket: None,
+        cloud_dictionary_provider_socket: None,
+        cloud_clipboard_provider_socket: None,
         voice_provider_socket: None,
     })?)
 }
