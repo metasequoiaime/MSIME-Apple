@@ -113,6 +113,7 @@ static void TestEngineMaintenance() {
     result = [session fixGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] position:2 error:&error];
     assert(result && !error && [result[@"handled"] boolValue]);
     assert([result[@"view"][@"candidates"][1][@"text"] isEqual:@"拟好"]);
+    assert([result[@"view"][@"candidates"][1][@"fixed_position"] isEqual:@2]);
     identifier = MaintenanceCandidate(session);
     result = [session clearPositionGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
     assert(result && !error && [result[@"handled"] boolValue]);

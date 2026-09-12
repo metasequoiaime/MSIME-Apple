@@ -4,6 +4,7 @@
 @interface MSIMECandidateButton : NSButton
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic) BOOL candidateHighlighted;
+@property(nonatomic) BOOL candidateFixed;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *titleColor;
 @property(nonatomic, copy) NSColor *numberColor;
