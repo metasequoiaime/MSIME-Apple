@@ -357,3 +357,6 @@ AI 联想设置提供三个独立自定义槽位选择，online provider 根据 
 ### 语音处理阶段
 
 Linux 桌面语音面板区分“正在录音”“正在识别”和“正在润色”。支持阶段通知的宿主在语音查询中发送 `events:["status"]`，服务才发送 `type:"status"`、`phase:"recording"|"recognizing"|"polishing"` 和当前 `generation`。状态不包含转写文本，不会清空已有转写或触发提交；进入识别、润色后停止录音按钮禁用，取消仍可用。旧宿主不协商此能力时继续只收到 partial/final 文本，旧服务不返回阶段时面板仍按原流程完成识别。
+
+
+IBus 快捷键语音输入也通过可选阶段回调接入以上协议，在辅助文本和“语音输入”属性中显示录音、识别、润色状态。阶段通知回到 GLib 主线程后校验会话代次、焦点与启用状态；取消或失焦后的通知不会重新显示。状态与转写预编辑分离，关闭行内预编辑仍可看到处理阶段。旧 C ABI `msime_client_voice_provider_stream` 保持文本回调行为；新宿主可使用 `msime_client_voice_provider_stream_events` 接收独立阶段回调。

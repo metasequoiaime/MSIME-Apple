@@ -287,6 +287,13 @@ char *msime_client_voice_provider_stream(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
     size_t socket_length, msime_client_voice_update_callback callback,
     void *context);
+/* Optional phase notifications: 0=recording, 1=recognizing, 2=polishing.
+ * Both callbacks run synchronously on the caller thread and must not throw. */
+typedef void (*msime_client_voice_status_callback)(uint8_t phase, void *context);
+char *msime_client_voice_provider_stream_events(
+    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
+    size_t socket_length, msime_client_voice_update_callback callback,
+    msime_client_voice_status_callback status_callback, void *context);
 /* Request cancellation of a provider capture session by generation. */
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,

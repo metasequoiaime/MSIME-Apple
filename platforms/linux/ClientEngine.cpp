@@ -218,6 +218,7 @@ struct State {
   bool voice_requires_control = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
+  std::string voice_phase = "正在录音…";
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -1559,7 +1560,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
   auto voice = ibus_property_new(
       "VoiceInput", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("语音输入"), "",
+      ibus_text_new_from_string(s.voice_active ? s.voice_phase.c_str() : "语音输入"), "",
       ibus_text_new_from_static_string("通过用户管理的 Linux 语音服务录音并识别"),
       s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
           !s.voice_provider_socket.empty(),
@@ -2181,14 +2182,15 @@ void render(IBusEngine *engine, const Json &view) {
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
   const auto style = state(engine).preedit_style;
-  if (!state(engine).voice_preedit.empty()) {
+  if (state(engine).voice_active) {
     ibus_engine_update_preedit_text_with_mode(
         engine,
         ibus_text_new_from_string(state(engine).voice_preedit.c_str()),
-        static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)), TRUE,
-        IBUS_ENGINE_PREEDIT_CLEAR);
+        static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)),
+        !state(engine).voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
-    ibus_engine_hide_auxiliary_text(engine);
+    ibus_engine_update_auxiliary_text(engine,
+        ibus_text_new_from_string(state(engine).voice_phase.c_str()), TRUE);
     return;
   }
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
@@ -2331,7 +2333,14 @@ struct VoiceResult {
 };
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
+  std::function<void(uint8_t)> status;
 };
+extern "C" void voice_provider_status_update(uint8_t phase, void *context) {
+  auto *stream = static_cast<VoiceStreamContext *>(context);
+  try {
+    if (stream && stream->status && phase <= 2) stream->status(phase);
+  } catch (...) {}
+}
 extern "C" void voice_provider_stream_update(const uint8_t *text,
                                                size_t length, bool final,
                                                void *context) {
@@ -2408,6 +2417,8 @@ void voice_stop(IBusEngine *engine) {
     voice_cancel(engine);
   else {
     s.voice_stopping = true;
+    s.voice_phase = "正在识别…";
+    render(engine, s.view);
     s.voice_space_consumed = false;
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -2427,6 +2438,7 @@ void voice_start(IBusEngine *engine) {
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
+  s.voice_phase = "正在录音…";
   s.voice_stopping = false;
   s.voice_requires_control = false;
   s.voice_generation = generation;
@@ -2440,7 +2452,7 @@ void voice_start(IBusEngine *engine) {
       provider_options.value("stream_inline_preedit", false);
   const auto alive = s.alive;
   s.voice_worker.run_stream(
-      [socket, language, generation,
+      [socket, language, generation, engine, alive,
        provider_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
@@ -2449,11 +2461,29 @@ void voice_start(IBusEngine *engine) {
                                 {"generation", generation},
                                 {"options", provider_options}}
                                .dump();
-        VoiceStreamContext stream{progress};
-        auto *raw = msime_client_voice_provider_stream(
+        VoiceStreamContext stream{progress, [engine, alive, generation, &cancelled](uint8_t phase) {
+          if (cancelled.load()) return;
+          const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
+          auto *result = new VoiceResult{engine, alive, generation, labels[phase], false};
+          g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
+            std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
+            if (!result->alive->load()) return G_SOURCE_REMOVE;
+            auto &s = state(result->engine);
+            if (!s.voice_active || s.voice_generation != result->generation ||
+                !s.session || !s.focused || s.blocked || !s.input_enabled)
+              return G_SOURCE_REMOVE;
+            if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
+            s.voice_phase = std::move(result->text);
+            if (s.voice_phase != "正在录音…") s.voice_stopping = true;
+            render(result->engine, s.view);
+            publish_mode(result->engine);
+            return G_SOURCE_REMOVE;
+          }, result, nullptr);
+        }};
+        auto *raw = msime_client_voice_provider_stream_events(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-            voice_provider_stream_update, &stream);
+            voice_provider_stream_update, voice_provider_status_update, &stream);
         std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
             raw, msime_client_string_free);
         if (cancelled.load() || !raw)
@@ -2557,6 +2587,7 @@ void voice_start(IBusEngine *engine) {
             },
             result, nullptr);
       });
+  render(engine, s.view);
   publish_mode(engine);
 }
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
