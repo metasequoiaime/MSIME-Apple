@@ -123,9 +123,17 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     return saved === "nine_key" || saved === "twenty_six_key" ? saved : layout;
   });
   function switchLayout() {
-    setActiveLayout(value => { const next = value === "nine_key" ? "twenty_six_key" : "nine_key"; try { window.localStorage.setItem("msime.keyboard.layout", next); } catch { /* preference is optional */ } return next; });
+    const next = activeLayout === "nine_key" ? "twenty_six_key" : "nine_key";
+    setActiveLayout(next);
+    try { window.localStorage.setItem("msime.keyboard.layout", next); } catch { /* preference is optional */ }
   }
-  useEffect(() => { setActiveLayout(layout); }, [layout]);
+  const previousHostLayout = useRef(layout);
+  useEffect(() => {
+    // Initial mounting (including StrictMode replay) must preserve the saved preference.
+    if (previousHostLayout.current === layout) return;
+    previousHostLayout.current = layout;
+    setActiveLayout(layout);
+  }, [layout]);
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
