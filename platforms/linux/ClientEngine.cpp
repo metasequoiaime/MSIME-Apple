@@ -3812,7 +3812,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       return;
     }
-    if (enabled != s.input_enabled) {
+    if (enabled != s.input_enabled && !menu_save_pending) {
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::InputMode, enabled);
+        return;
+      }
       if (!enabled && s.voice_active)
         voice_cancel(engine);
       s.invalidate_providers();
@@ -4944,6 +4949,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->word_character_override.reset();
           if (request.preference == MenuPreference::TraditionalOutput)
             self->state->traditional_output_override.reset();
+          if (request.preference == MenuPreference::InputMode)
+            self->state->input_enabled = request.value.get<bool>();
           if (request.preference == MenuPreference::ChinesePunctuation)
             self->state->punctuation_override.reset();
           accepted_preferences_directory = request.directory;
@@ -5048,6 +5055,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::ChinesePunctuation:
             snapshot["preferences"]["chinese_punctuation"] = request.value;
+            break;
+          case MenuPreference::InputMode:
+            snapshot["preferences"]["ime_mode"] = request.value.get<bool>() ? "chinese" : "english";
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
