@@ -10,11 +10,13 @@
 #include <limits>
 #include <filesystem>
 #include "../../vendor/MSIME-Engine/contracts/assets/assets.h"
+#include "../../vendor/MSIME-Engine/english/english_dictionary.h"
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+#include <string_view>
 
 namespace msime {
 namespace {
@@ -53,6 +55,87 @@ bool is_han(std::uint32_t codepoint) {
            (codepoint >= 0x4e00 && codepoint <= 0x9fff) ||
            (codepoint >= 0xf900 && codepoint <= 0xfaff) ||
            (codepoint >= 0x20000 && codepoint <= 0x2fa1f);
+}
+bool candidate_gloss_key(const CandidateGlossInput& candidate, std::string& key,
+                         bool& chinese_to_english) {
+    if (candidate.source == static_cast<std::uint8_t>(CandidateSource::Emoji) ||
+        candidate.source == static_cast<std::uint8_t>(CandidateSource::Kaomoji))
+        return false;
+    const std::string text(candidate.text);
+    bool has_ascii_letter = false;
+    key.clear();
+    key.reserve(text.size());
+    for (const unsigned char ch : text) {
+        if (ch >= 'A' && ch <= 'Z') {
+            key.push_back(static_cast<char>(ch + ('a' - 'A')));
+            has_ascii_letter = true;
+        } else if (ch >= 'a' && ch <= 'z') {
+            key.push_back(static_cast<char>(ch));
+            has_ascii_letter = true;
+        } else if (ch == ' ' || ch == '-' || ch == '\'') {
+            key.push_back(static_cast<char>(ch));
+        } else {
+            has_ascii_letter = false;
+            break;
+        }
+    }
+    if (has_ascii_letter) {
+        chinese_to_english = false;
+        return true;
+    }
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        std::string character;
+        std::uint32_t codepoint = 0;
+        if (!next_utf8(text, offset, character, codepoint)) return false;
+        if (is_han(codepoint)) {
+            chinese_to_english = true;
+            key = text;
+            return true;
+        }
+    }
+    return false;
+}
+std::string collapse_ascii_whitespace(std::string_view text) {
+    std::string output;
+    output.reserve(text.size());
+    bool pending_space = false;
+    for (const unsigned char ch : text) {
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            pending_space = !output.empty();
+            continue;
+        }
+        if (pending_space) {
+            output.push_back(' ');
+            pending_space = false;
+        }
+        output.push_back(static_cast<char>(ch));
+    }
+    return output;
+}
+std::string candidate_gloss_display(const std::string& text) {
+    std::string output;
+    std::size_t begin = 0;
+    std::size_t count = 0;
+    constexpr std::string_view fullwidth_delimiter = "；";
+    while (begin <= text.size() && count < 2) {
+        const auto ascii = text.find(';', begin);
+        const auto fullwidth = text.find(fullwidth_delimiter, begin);
+        const bool use_fullwidth =
+            fullwidth != std::string::npos && (ascii == std::string::npos || fullwidth < ascii);
+        const auto end = use_fullwidth ? fullwidth : ascii;
+        const auto stop = end == std::string::npos ? text.size() : end;
+        auto sense = collapse_ascii_whitespace(
+            std::string_view(text).substr(begin, stop - begin));
+        if (!sense.empty()) {
+            if (!output.empty()) output += "; ";
+            output += sense;
+            ++count;
+        }
+        if (end == std::string::npos) break;
+        begin = end + (use_fullwidth ? fullwidth_delimiter.size() : 1);
+    }
+    return output;
 }
 std::unordered_map<std::string, std::string> single_hanzi_map(sqlite3* database) {
     std::unordered_map<std::string, std::string> result;
@@ -589,6 +672,31 @@ rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str cate
     }
     if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
     return groups;
+}
+rust::Vec<rust::String> candidate_glosses(
+    rust::Str resources, rust::Slice<const CandidateGlossInput> candidates) {
+    const auto database_path = std::filesystem::u8path(std::string(resources)) /
+                               metasequoia::assets::english_dictionary;
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(database_path, error))
+        throw std::runtime_error("Candidate gloss dictionary unavailable");
+    EnglishDictionary dictionary(database_path.u8string(), false);
+    if (!dictionary.ready())
+        throw std::runtime_error("Candidate gloss dictionary unavailable");
+    rust::Vec<rust::String> output;
+    output.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        std::string key;
+        bool chinese_to_english = false;
+        if (!candidate_gloss_key(candidate, key, chinese_to_english)) {
+            output.push_back(rust::String());
+            continue;
+        }
+        const auto raw = chinese_to_english ? dictionary.query_english_gloss(key)
+                                            : dictionary.query_chinese_gloss(key);
+        output.push_back(rust::String(candidate_gloss_display(raw)));
+    }
+    return output;
 }
 rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources) {
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";

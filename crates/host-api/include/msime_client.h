@@ -130,6 +130,12 @@ char *msime_client_voice_apply(uint64_t session, uint64_t generation,
 /* Apply JSON [{"text":"candidate","translation":"gloss"}] for a candidate generation. */
 char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
+/* Resolve copied candidates against the packaged offline English dictionary.
+ * JSON request: {generation,candidates:[{text,source}]}; the generation is
+ * echoed for the host to pass to apply_translations on the session thread.
+ * This function owns no session handle and may run on a worker thread. */
+char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
+                                           const uint8_t *resources, size_t resources_length);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);

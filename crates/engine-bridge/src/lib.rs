@@ -139,6 +139,11 @@ mod ffi {
         pub title: String,
     }
     #[derive(Clone, Debug)]
+    pub struct CandidateGlossInput {
+        pub text: String,
+        pub source: u8,
+    }
+    #[derive(Clone, Debug)]
     pub struct HandwritingPoint {
         pub stroke: u32,
         pub x: f32,
@@ -219,6 +224,10 @@ mod ffi {
         ) -> Result<EmojiCatalogSlice>;
         fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
+        fn candidate_glosses(
+            resources: &str,
+            candidates: &[CandidateGlossInput],
+        ) -> Result<Vec<String>>;
         fn handwriting_recognize(
             model_path: &str,
             points: &[HandwritingPoint],
@@ -375,6 +384,22 @@ pub fn emoji_catalog_groups(
     category: &str,
 ) -> Result<Vec<String>, cxx::Exception> {
     ffi::emoji_catalog_groups(resources, category)
+}
+
+/// Look up display-only candidate glosses in the packaged Engine dictionary.
+/// The result is parallel to `candidates`; an ineligible candidate has an empty gloss.
+pub fn candidate_glosses(
+    resources: &str,
+    candidates: &[(String, u8)],
+) -> Result<Vec<String>, cxx::Exception> {
+    let candidates = candidates
+        .iter()
+        .map(|(text, source)| ffi::CandidateGlossInput {
+            text: text.clone(),
+            source: *source,
+        })
+        .collect::<Vec<_>>();
+    ffi::candidate_glosses(resources, &candidates)
 }
 
 /// Run the Engine's optional offline handwriting recognizer on copied strokes.

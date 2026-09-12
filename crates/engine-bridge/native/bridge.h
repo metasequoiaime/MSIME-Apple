@@ -17,6 +17,7 @@ struct OnlineQuerySnapshot;
 struct EmojiCatalogItem;
 struct EmojiCatalogSlice;
 struct EmojiSymbolGroup;
+struct CandidateGlossInput;
 struct HandwritingPoint;
 struct DictionaryEntry;
 struct DictionaryPage;
@@ -70,6 +71,8 @@ EmojiCatalogSlice emoji_catalog_slice(rust::Str resources, rust::Str search,
     rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent);
 rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources);
 rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str category);
+rust::Vec<rust::String> candidate_glosses(
+    rust::Str resources, rust::Slice<const CandidateGlossInput> candidates);
 rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
                                                rust::Slice<const HandwritingPoint> points,
                                                float width, float height);
