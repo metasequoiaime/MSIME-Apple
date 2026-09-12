@@ -19,6 +19,8 @@ use std::io::Write;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use tauri::Emitter;
@@ -1532,7 +1534,7 @@ fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::pa
     document.get("voice_provider_socket").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET").map(std::path::PathBuf::from).filter(|path| path.is_absolute()))
-        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).map(|dir| dir.join("msime-client/voice.sock")).filter(|path| path.is_socket()))
+        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).map(|dir| dir.join("msime-client/voice.sock")).filter(|path| path.metadata().map(|metadata| metadata.file_type().is_socket()).unwrap_or(false)))
 }
 
 #[tauri::command]
