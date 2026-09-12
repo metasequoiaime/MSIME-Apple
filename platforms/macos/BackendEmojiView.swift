@@ -30,7 +30,7 @@ struct MacEmojiView: View {
   @State private var historyEnabled: Bool?
   @State private var enablingHistory = false
   @State private var enableNotice = ""
-  @State private var captureStatus: MacClipboardMonitor.Status?
+  @ObservedObject private var clipboardService = MacClipboardService.shared
   @State private var deletingHistory = false
   @State private var deletionNotice = ""
   @State private var loadedQuery: [String] = []
@@ -125,7 +125,7 @@ struct MacEmojiView: View {
         }
         if !enableNotice.isEmpty { Text(enableNotice).font(.caption) }
         HStack {
-          Text(captureStatus?.message ?? "正在检查剪贴板采集设置…").font(.caption)
+          Text(clipboardService.status?.message ?? "正在检查剪贴板采集设置…").font(.caption)
           Spacer()
           Button("刷新") { historyRevision += 1 }
         }
@@ -192,10 +192,6 @@ struct MacEmojiView: View {
       .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; clipboardNotice = "" }
       .onChange(of: parent) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
-      .task(id: preferencesDirectory) {
-        captureStatus = nil
-        await MacClipboardMonitor.run(directory: preferencesDirectory) { captureStatus = $0 }
-      }
       .task(id: category) {
         groupsCategory = nil
         groups = []

@@ -12,7 +12,8 @@ int main(int argc, const char *argv[]) {
                                     @"showSnapshotForAccountID:", @"showSettingsForAccountID:",
                                     @"showCommunityResourcesForAccountID:", @"showHandwriting",
                                     @"showEmojiWithOptions:selectionAttempt:", @"applyEmojiPreferences:",
-                                    @"showEmojiDeliveryFailure"]) {
+                                    @"showEmojiDeliveryFailure", @"startClipboardCaptureWithOptions:",
+                                    @"stopClipboardCapture"]) {
             assert([bridge instancesRespondToSelector:NSSelectorFromString(selector)]);
         }
         Class account = NSClassFromString(@"MSIMEBackendAccountWindow");
