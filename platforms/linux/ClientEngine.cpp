@@ -79,6 +79,9 @@ struct State {
   std::optional<bool> number_row_override;
   char last_smart_punctuation = 0;
   gint64 last_smart_punctuation_time = 0;
+  // A deleted ASCII smart mark keeps this caret position on the Chinese path
+  // when the same key is immediately retyped, matching the Windows behavior.
+  char smart_punctuation_rejected = 0;
   std::string punctuation_lock = "follow";
   std::string preedit_style = "raw";
   std::optional<guint> candidate_text_color, candidate_background_color;
@@ -137,6 +140,9 @@ struct State {
     surrounding_text.clear();
     surrounding_cursor = 0;
     surrounding_anchor = 0;
+    last_smart_punctuation = 0;
+    last_smart_punctuation_time = 0;
+    smart_punctuation_rejected = 0;
   }
   void open() {
     if (session || blocked || !focused || !input_enabled)
@@ -261,6 +267,7 @@ struct State {
     if (!smart_punctuation || !smart_punctuation_repeat || !paired_punctuation) {
       last_smart_punctuation = 0;
       last_smart_punctuation_time = 0;
+      smart_punctuation_rejected = 0;
     }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
@@ -1898,22 +1905,27 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.paired_punctuation_override = enabled;
       s.paired_punctuation = enabled;
       s.last_smart_punctuation = 0;
+      s.smart_punctuation_rejected = 0;
       publish_mode(engine);
       return;
     }
     if (std::string(name) == "SmartPunctuation") {
       s.smart_punctuation = value == PROP_STATE_CHECKED;
       s.smart_punctuation_override = s.smart_punctuation;
-      if (!s.smart_punctuation)
+      if (!s.smart_punctuation) {
         s.last_smart_punctuation = 0;
+        s.smart_punctuation_rejected = 0;
+      }
       publish_mode(engine);
       return;
     }
     if (std::string(name) == "SmartPunctuationRepeat") {
       s.smart_punctuation_repeat = value == PROP_STATE_CHECKED;
       s.smart_repeat_override = s.smart_punctuation_repeat;
-      if (!s.smart_punctuation_repeat)
+      if (!s.smart_punctuation_repeat) {
         s.last_smart_punctuation = 0;
+        s.smart_punctuation_rejected = 0;
+      }
       publish_mode(engine);
       return;
     }
@@ -2288,6 +2300,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
   }
   if (modifier(key))
     return FALSE;
+  if (key == IBUS_BackSpace) {
+    if (s.last_smart_punctuation != 0) {
+      s.smart_punctuation_rejected = s.last_smart_punctuation;
+      s.last_smart_punctuation = 0;
+      s.last_smart_punctuation_time = 0;
+    }
+  } else if (s.smart_punctuation_rejected != 0 &&
+             s.smart_punctuation_rejected != static_cast<char>(key)) {
+    s.smart_punctuation_rejected = 0;
+  }
   bool handled = false;
   guarded(engine, "process_key", [&] {
     s.open();
@@ -2391,6 +2413,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         }
     }
     if (s.smart_punctuation && is_smart_punctuation_key(key) &&
+        s.smart_punctuation_rejected != static_cast<char>(key) &&
         smart_punctuation_preceded_by_ascii_alphanumeric(s)) {
       const auto &editing_text = s.view.at("editing_text").get<std::string>();
       const auto &candidates = s.view.at("candidates");
@@ -2428,6 +2451,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         (ascii != '\'' || !has_composition)) {
       handled = apply(engine, msime_client_punctuation(
           s.session, static_cast<uint8_t>(ascii)));
+      if (is_smart_punctuation_key(key))
+        s.smart_punctuation_rejected = 0;
       return;
     }
     if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 &&
