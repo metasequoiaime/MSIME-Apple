@@ -56,4 +56,17 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
     }
     return try decode(response)
   }
+
+  static func remove(directory: String, text: String) throws -> Bool {
+    let selector = NSSelectorFromString("removeClipboardHistoryRequest:")
+    guard NSString(string: directory).isAbsolutePath, !text.isEmpty, text.utf8.count <= 4096,
+          let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
+          type.responds(to: selector),
+          let response = type.perform(selector, with: ["directory": directory, "text": text] as NSDictionary)?.takeUnretainedValue() as? NSDictionary,
+          response["error"] == nil, let removed = response["removed"] as? NSNumber,
+          CFGetTypeID(removed) == CFBooleanGetTypeID() else {
+      throw NSError(domain: "MSIMEClipboardHistory", code: 3)
+    }
+    return removed.boolValue
+  }
 }

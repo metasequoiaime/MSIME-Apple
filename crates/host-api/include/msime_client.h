@@ -71,6 +71,8 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
+/* JSON {directory,text}; removes exact saved entry, not the system clipboard. */
+char *msime_client_remove_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
  * Busy is not missing/corrupt and must not reset preferences to defaults. */

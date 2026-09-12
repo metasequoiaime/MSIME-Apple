@@ -29,6 +29,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (NSDictionary<NSString *, id> *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request;
 + (NSDictionary<NSString *, id> *)emojiCatalogRequest:(NSDictionary<NSString *, id> *)request;
 + (NSDictionary<NSString *, id> *)clipboardHistoryRequest:(NSString *)directory;
++ (NSDictionary<NSString *, id> *)removeClipboardHistoryRequest:(NSDictionary<NSString *, id> *)request;
 /// Return the current local dictionary version without exposing dictionary text.
 + (nullable NSString *)snapshotVersionForOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error;
 /// Dynamic Swift-backend form; returns {version} or {error}.
