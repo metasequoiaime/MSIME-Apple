@@ -5,6 +5,7 @@
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "UpdateController.h"
+#import "ScreenKeyboardPanel.h"
 #import "DictionaryWindowController.h"
 #import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
@@ -164,6 +165,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
     emoji.target = self;
     [menu addItem:emoji];
+    NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
+    keyboard.target = self;
+    [menu addItem:keyboard];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
@@ -217,6 +221,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
+}
+- (void)showScreenKeyboard:(id)sender {
+    (void)sender;
+    [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
 }
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
