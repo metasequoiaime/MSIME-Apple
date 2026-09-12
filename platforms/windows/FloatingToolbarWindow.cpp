@@ -102,8 +102,9 @@ void FloatingToolbarWindow::paint() {
       throw std::runtime_error("Toolbar brush unavailable");
     return created;
   };
+  const float unit = static_cast<float>(dpi_scale(window_, 1));
   auto *format = device_.GetTextFormat(
-      L"Segoe UI", 18.0f, DWRITE_FONT_WEIGHT_NORMAL,
+      L"Segoe UI", 18.0f * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)
@@ -112,11 +113,11 @@ void FloatingToolbarWindow::paint() {
   target->BeginDraw();
   target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
                              palette_.surface.b, palette_.surface.a));
-  const float inset = palette_.border_width / 2.0f;
+  const float inset = palette_.border_width * unit / 2.0f;
   target->DrawRoundedRectangle(
-      {{inset, inset, size.width - inset, size.height - inset}, palette_.radius,
-       palette_.radius},
-      brush(palette_.border), palette_.border_width);
+      {{inset, inset, size.width - inset, size.height - inset}, palette_.radius * unit,
+       palette_.radius * unit},
+      brush(palette_.border), palette_.border_width * unit);
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
     // An unreported mode shows a question mark rather than a guessed state.
@@ -129,7 +130,6 @@ void FloatingToolbarWindow::paint() {
                                label(value->fullwidth, L"\u5168", L"\u534a"),
                                L"\u8bbe"};
     for (int i = 0; i < 4; ++i) {
-      const float unit = static_cast<float>(dpi_scale(window_, 1));
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
       target->DrawText(labels[i], static_cast<UINT32>(wcslen(labels[i])), format,
