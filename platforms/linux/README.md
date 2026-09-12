@@ -257,3 +257,5 @@ IBus 属性菜单中的“桌面工具”可直接打开手写识别板、屏幕
 IBus 剪贴板历史按每组 10 条显示最近 50 条，较早条目也可粘贴和删除。“刷新历史”异步重新加载文件，不必切换输入焦点；刷新会使旧菜单行失效，正在运行的旧加载完成后会重新调度最新加载。
 
 IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具新增、删除或原子替换历史文件后自动异步刷新菜单。失焦或受限上下文停止监听；目录尚不存在时利用既有宿主定时器重试接入。仅监听已配置历史文件，不采集系统剪贴板。
+
+语音 provider 支持 `--capture pipewire`，使用原生 `pw-cat` 录制 16 kHz 单声道 PCM；提示音也可通过 `pw-cat` 播放。`auto` 保持优先 `parec`，其次 `pw-cat`，再尝试 `arecord`。`--capture-device` 可指定 PulseAudio source、PipeWire node name/object.serial 或 ALSA PCM 名称，建议与明确的 `--capture` 后端配合使用。原生 PipeWire 录音无需 PulseAudio 兼容录音工具；现有系统音频静音功能仍依赖 `pactl`。参数依据 [PipeWire pw-cat 官方手册](https://docs.pipewire.org/page_man_pw-cat_1.html)。
