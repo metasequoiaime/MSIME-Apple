@@ -8,6 +8,7 @@
 #include "VoiceWorker.h"
 #include "msime_client.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -255,7 +256,7 @@ struct State {
     clipboard_history_path = std::move(path);
     clipboard_enabled = enabled;
   }
-  unsigned online_loading = 0;
+  std::array<bool, 2> online_loading{};
   bool translation_loading = false;
   guint online_delay_source = 0;
   guint translation_delay_source = 0;
@@ -265,7 +266,7 @@ struct State {
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   std::string translation_dispatched_query;
-  std::string online_dispatched_query;
+  std::array<std::string, 2> online_dispatched_query;
   void invalidate_providers() {
     if (online_delay_source) {
       const auto source = online_delay_source;
@@ -278,10 +279,10 @@ struct State {
       g_source_remove(source);
     }
     ++provider_epoch;
-    online_loading = 0;
+    online_loading.fill(false);
     translation_loading = false;
     translation_dispatched_query.clear();
-    online_dispatched_query.clear();
+    for (auto &query : online_dispatched_query) query.clear();
   }
   std::string surrounding_text;
   bool surrounding_utf16 = false;
@@ -1277,7 +1278,7 @@ bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
 }
 void online_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
-  if (s.online_provider_socket.empty() || s.online_loading || !s.session ||
+  if (s.online_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled)
     return;
   try {
@@ -1313,13 +1314,13 @@ void online_dispatch(IBusEngine *engine) {
     if (!s.private_input && ai_requested)
       query["ai_context"] = s.ai_context;
     const auto encoded = query.dump();
-    // Empty replies also redraw the page. Dispatch each input/configuration
-    // once instead of polling the same provider every idle interval.
-    if (encoded == s.online_dispatched_query) return;
     // Keep the original Engine identity for application, while each transport
     // request enables only one source. Fast cloud results need not wait for AI.
     std::vector<std::unique_ptr<OnlineTask>> requests;
     for (uint8_t source = 0; source < 2; ++source) {
+      // Each source has one in-flight request and its own duplicate guard.
+      // A pending AI result must not delay cloud for a newer composition.
+      if (s.online_loading[source] || encoded == s.online_dispatched_query[source]) continue;
       if (source == 0 && !(s.cloud_candidates && query.value("cloud_eligible", false))) continue;
       if (source == 1 && !ai_requested) continue;
       auto provider_query = query;
@@ -1333,9 +1334,9 @@ void online_dispatch(IBusEngine *engine) {
           s.session, s.provider_epoch, encoded, s.online_provider_socket,
           provider_query.dump(), source}));
     }
-    s.online_dispatched_query = encoded;
-    s.online_loading = static_cast<unsigned>(requests.size());
     for (auto &request : requests) {
+      s.online_dispatched_query[request->source] = encoded;
+      s.online_loading[request->source] = true;
       auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
       g_task_set_task_data(task, request.release(), [](gpointer value) {
         delete static_cast<OnlineTask *>(value);
@@ -1351,9 +1352,7 @@ void online_dispatch(IBusEngine *engine) {
       });
       g_object_unref(task);
     }
-  } catch (...) {
-    s.online_loading = 0;
-  }
+  } catch (...) {}
 }
 // Match Windows cloud_ime's 500ms idle delay without sleeping on the
 // IBus input thread. Read the latest Engine query only when the timer fires.
@@ -1441,9 +1440,10 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
       msime_client_string_free);
   const auto *request = static_cast<const OnlineTask *>(
       g_task_get_task_data(G_TASK(result)));
-  if (!request || request->session != s.session || request->epoch != s.provider_epoch)
+  if (!request || request->source >= s.online_loading.size() ||
+      request->session != s.session || request->epoch != s.provider_epoch)
     return;
-  if (s.online_loading) --s.online_loading;
+  s.online_loading[request->source] = false;
   if (!s.session || !s.focused || s.blocked || !s.input_enabled)
     return;
   if (online_request_is_stale(engine, request->query)) {
