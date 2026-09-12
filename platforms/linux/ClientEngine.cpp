@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1962,19 +1962,19 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto layout_property = ibus_property_new(
       "CandidateLayout", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选布局"), "",
-      ibus_text_new_from_static_string("当前焦点会话的候选排列方向"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      ibus_text_new_from_static_string("选择候选排列方向"),
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto layout_menu = ibus_prop_list_new();
   auto vertical = ibus_property_new(
       "CandidateLayout/Vertical", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("竖排"), "",
-      ibus_text_new_from_static_string("竖直排列候选"), TRUE, TRUE,
+      ibus_text_new_from_static_string("竖直排列候选"), !menu_save_pending, TRUE,
       layout == "vertical" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto horizontal = ibus_property_new(
       "CandidateLayout/Horizontal", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("横排"), "",
-      ibus_text_new_from_static_string("水平排列候选"), TRUE, TRUE,
+      ibus_text_new_from_static_string("水平排列候选"), !menu_save_pending, TRUE,
       layout == "horizontal" ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   ibus_prop_list_append(layout_menu, vertical);
@@ -2074,8 +2074,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto preedit_property = ibus_property_new(
       "PreeditStyle", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("预编辑显示"), "",
-      ibus_text_new_from_static_string("当前焦点会话的预编辑显示方式"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      ibus_text_new_from_static_string("选择预编辑显示方式"),
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto preedit_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> preedit_options[] = {
       {"raw", "编码"}, {"pinyin", "拼音"}, {"empty", "隐藏"}};
@@ -2083,7 +2083,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("PreeditStyle/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择预编辑显示方式"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择预编辑显示方式"), !menu_save_pending, TRUE,
         preedit == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
     ibus_prop_list_append(preedit_menu, item);
@@ -2092,8 +2092,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选主题"), "",
-      ibus_text_new_from_static_string("当前焦点会话的候选背景主题"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      ibus_text_new_from_static_string("选择候选背景主题"),
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto theme_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> theme_options[] = {
       {"follow", "跟随系统"}, {"light", "浅色"}, {"dark", "深色"}};
@@ -2101,7 +2101,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidateTheme/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选主题"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择候选主题"), !menu_save_pending, TRUE,
         theme == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(theme_menu, item);
   }
@@ -3419,9 +3419,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name).rfind("CandidateTheme/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("CandidateTheme/").size());
+      if (value != PROP_STATE_CHECKED || menu_save_pending)
+        return;
       if (s.theme_override.value_or(
               configured.at("preferences").value("candidate_theme", "follow")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CandidateTheme, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3449,9 +3456,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name).rfind("PreeditStyle/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("PreeditStyle/").size());
+      if (value != PROP_STATE_CHECKED || menu_save_pending)
+        return;
       if (s.preedit_override.value_or(
               configured.at("preferences").value("tsf_preedit_style", "raw")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::PreeditStyle, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3466,9 +3480,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         std::string(name) == "CandidateLayout/Horizontal") {
       const auto selected = std::string(name) == "CandidateLayout/Horizontal"
                                 ? "horizontal" : "vertical";
+      if (value != PROP_STATE_CHECKED || menu_save_pending)
+        return;
       if (s.layout_override.value_or(
               configured.at("preferences").value("candidate_layout", "vertical")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CandidateLayout, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4701,6 +4722,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->candidate_translations_override.reset();
           if (request.preference == MenuPreference::TranslationLanguage)
             self->state->translation_target_language_override.reset();
+          if (request.preference == MenuPreference::CandidateTheme)
+            self->state->theme_override.reset();
+          if (request.preference == MenuPreference::PreeditStyle)
+            self->state->preedit_override.reset();
+          if (request.preference == MenuPreference::CandidateLayout)
+            self->state->layout_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4719,6 +4746,15 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           auto snapshot = response(msime_client_load_preferences(path, request.directory.size()));
           const auto revision = snapshot.at("revision").get<uint64_t>();
           switch (request.preference) {
+          case MenuPreference::CandidateTheme:
+            snapshot["preferences"]["candidate_theme"] = request.value;
+            break;
+          case MenuPreference::PreeditStyle:
+            snapshot["preferences"]["tsf_preedit_style"] = request.value;
+            break;
+          case MenuPreference::CandidateLayout:
+            snapshot["preferences"]["candidate_layout"] = request.value;
+            break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
             break;
