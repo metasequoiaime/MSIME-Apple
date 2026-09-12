@@ -44,6 +44,11 @@ if(MSIME_OPTIONS_FILE)
 endif()
 enable_testing()
 include(ClipboardTests.cmake)
+add_executable(emoji-host-cursor-test tests/EmojiHostCursorTest.mm)
+target_compile_options(emoji-host-cursor-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(emoji-host-cursor-test PRIVATE apple-client)
+add_test(NAME emoji-host-cursor COMMAND emoji-host-cursor-test)
+set_tests_properties(emoji-host-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift BackendEmojiCatalogCursor.swift
   BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHomeHeading.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
   BackendEmojiKeyboard.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiNavigation.swift tests/EmojiHomeTest.swift)

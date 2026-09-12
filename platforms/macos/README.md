@@ -98,6 +98,13 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 首页重置后的有效选择为首个可见条目，选中样式和键盘导航共用此选择。空分组自动跳过，最近记录优先，异步目录到达后无需先按方向键即可激活首项；第一次右键／下键从首项按原步长移动。显式选择仍按条目标识保持，条目被移除后激活不回退复制其他条目。合成测试覆盖空目录、分组顺序、最近记录、目录到达、初始激活及步长、显式选择和过期选择；整页安装后视觉效果尚未验证。
 
+原生宿主游标集成测试 `emoji-host-cursor-test` 直接链接 `apple-client` 与当前构建的 Rust host 静态库，经真实 `MSIMEClientSession.emojiCatalogRequest` 读取临时合成 SQLite 数据库。覆盖表情／颜文字／符号的空扫描批次、重复项、短尾批次、显式 EOF、旧接口去重及响应格式、相对路径拒绝。此测试验证 Objective-C → Rust → SQLite 链路，不使用模拟宿主，不读取真实输入；仍不等于 Swift 页面到安装后 IMK 的完整交互验证。运行前需从当前提交重新 `cargo build -p msime-host-api`，并将产物传给 `MSIME_HOST_LIBRARY`。
+
+```sh
+cmake --build target/macos-isolated --target emoji-host-cursor-test --parallel
+ctest --test-dir target/macos-isolated -R '^emoji-host-cursor$' --output-on-failure
+```
+
 表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，滚动使用 `emoji-scroll-test-build`，同属 `emoji-local`）：
 
 ```sh
