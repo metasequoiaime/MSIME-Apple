@@ -253,6 +253,7 @@ EngineSnapshot EngineSession::snapshot() const {
         output.candidate_annotations.push_back(rust::String(annotation));
         output.candidate_sources.push_back(static_cast<std::uint8_t>(candidate.source));
         output.candidate_positions.push_back(static_cast<std::uint8_t>(candidate.fixed_position));
+        output.candidate_corrected.push_back(!candidate.corrected_from.empty());
     }
     return output;
 }

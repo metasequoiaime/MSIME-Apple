@@ -95,6 +95,7 @@ mod ffi {
         pub candidate_annotations: Vec<String>,
         pub candidate_sources: Vec<u8>,
         pub candidate_positions: Vec<u8>,
+        pub candidate_corrected: Vec<bool>,
     }
     #[derive(Debug)]
     pub struct EngineResult {

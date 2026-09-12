@@ -1721,6 +1721,8 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
+    if (candidate.value("corrected", false))
+      value += "*";
     if (candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose
