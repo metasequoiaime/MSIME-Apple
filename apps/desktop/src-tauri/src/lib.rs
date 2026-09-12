@@ -72,7 +72,29 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
 }
 
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
-struct DictionaryHostOptions(Arc<String>);
+#[derive(Clone)]
+struct DictionaryHostOptions {
+    #[cfg(target_os = "linux")]
+    path: PathBuf,
+    #[cfg(not(target_os = "linux"))]
+    document: Arc<Value>,
+}
+
+impl DictionaryHostOptions {
+    fn snapshot(&self) -> Result<Value, CommandError> {
+        #[cfg(target_os = "linux")]
+        {
+            // Keep the installer-selected path separate from the IBus runtime
+            // path; deployments can supply different files for these roles.
+            read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok((*self.document).clone())
+        }
+    }
+}
+
 struct SkinDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 
@@ -463,10 +485,9 @@ async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
     action: serde_json::Value,
 ) -> Result<serde_json::Value, CommandError> {
-    let options = state.0.clone();
+    let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let options: serde_json::Value =
-            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
         let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         msime_host_api::dictionary_request_json(&bytes)
@@ -483,18 +504,15 @@ async fn cloud_clipboard_request(
 ) -> Result<Value, CommandError> {
     msime_host_api::cloud_clipboard::validate_request(&action)
         .map_err(|_| CommandError { code: "invalid" })?;
-    let options = options.0.clone();
+    let options = options.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(unix)]
         {
-            let configured = serde_json::from_str::<Value>(&options)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("cloud_clipboard_provider_socket")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
+            let document = options.snapshot()?;
+            let configured = document
+                .get("cloud_clipboard_provider_socket")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let path = configured
                 .or_else(|| {
                     std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
@@ -538,18 +556,15 @@ async fn cloud_dictionary_request(
         .map_err(|_| CommandError { code: "invalid" })?;
     msime_host_api::cloud_dictionary::validate_cloud_request(&request)
         .map_err(|_| CommandError { code: "invalid" })?;
-    let options = options.0.clone();
+    let options = options.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(unix)]
         {
-            let configured = serde_json::from_str::<Value>(&options)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("cloud_dictionary_provider_socket")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
+            let document = options.snapshot()?;
+            let configured = document
+                .get("cloud_dictionary_provider_socket")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let path = configured
                 .or_else(|| {
                     std::env::var_os("MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET")
@@ -670,10 +685,9 @@ fn read_local_emoji_groups(
 async fn load_emoji_catalog(
     state: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<EmojiCatalogResponse, CommandError> {
-    let options = state.0.clone();
+    let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let document: Value =
-            serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        let document = options.snapshot()?;
         #[cfg(target_os = "linux")]
         let resource_directory = packaged_emoji_resources(&document)
             .ok_or(CommandError { code: "unavailable" })?;
@@ -1490,7 +1504,20 @@ async fn recognize_handwriting(
             })
             .collect(),
     };
-    let model = packaged_handwriting_model(&options.0);
+    let options = options.inner().clone();
+    let model = tauri::async_runtime::spawn_blocking(move || {
+        let document = options.snapshot().map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+        let document = serde_json::to_string(&document).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+        Ok::<_, HostActionError>(packaged_handwriting_model(&document))
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })??;
     // A user-managed socket owns recognizer and model policy where one is
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
@@ -2721,7 +2748,12 @@ pub fn run() {
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
-            app.manage(DictionaryHostOptions(Arc::new(host_options)));
+            app.manage(DictionaryHostOptions {
+                #[cfg(target_os = "linux")]
+                path: host_options_path,
+                #[cfg(not(target_os = "linux"))]
+                document: Arc::new(host_document.clone()),
+            });
             app.manage(RuntimeOptionsState {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
