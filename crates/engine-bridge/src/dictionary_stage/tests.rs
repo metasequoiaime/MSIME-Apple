@@ -113,6 +113,51 @@ fn hiding_helpcode_restores_correction_annotations() {
     }
 }
 
+#[test]
+fn correction_types_are_independent_for_real_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    Connection::open(Path::new(&options.resources).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_2_s VALUES('shang''hao','sh','上好',100);",
+        )
+        .unwrap();
+    options = stage(&options, &root.path().join("correction-matrix"), Vec::new()).unwrap();
+    for transposition in [false, true] {
+        for neighbor in [false, true] {
+            options.autocorrect_transposition = transposition;
+            options.autocorrect_neighbor = neighbor;
+            for (input, expected) in [
+                // Use a non-alias transposition: legacy sahng -> shang remains
+                // available independently of both correction switches.
+                ("shnaghao", transposition),
+                ("sahnghao", true),
+                ("shabghao", neighbor),
+                ("shanghao", true),
+            ] {
+                let mut session = Session::new(&options).unwrap();
+                for ch in input.bytes() {
+                    session.character(ch, false).unwrap();
+                }
+                let view = session.snapshot().unwrap();
+                let candidate = view.candidates.iter().position(|text| text == "上好");
+                assert_eq!(
+                    candidate.is_some(),
+                    expected,
+                    "{input}: transposition={transposition}, neighbor={neighbor}"
+                );
+                assert_eq!(view.editing_text, input);
+                if expected && input != "shanghao" {
+                    assert_eq!(view.candidate_annotations[candidate.unwrap()], input);
+                    assert_eq!(view.preedit, input);
+                }
+            }
+        }
+    }
+}
+
 fn records() -> Vec<DictionaryStateRecord> {
     use DictionaryStateRecord::*;
     vec![
