@@ -3052,11 +3052,11 @@ std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
   if (modifiers != (unicode ? IBUS_SHIFT_MASK : 0))
     return std::nullopt;
   if (!unicode) {
-    // IBus keycode is the XKB hardware code on both X11 and Wayland. The
-    // standard number row is 10..19 (1..9,0); using it preserves physical-key
+    // IBus clients send evdev codes (GTK subtracts 8 from XKB hardware
+    // codes). The number row is 2..11 (1..9,0); this preserves physical-key
     // selection when the active layout produces symbols such as '&' or 'é'.
-    if (keycode >= 10 && keycode <= 19)
-      return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
+    if (keycode >= 2 && keycode <= 11)
+      return keycode == 11 ? 9 : static_cast<size_t>(keycode - 2);
     if (key >= IBUS_1 && key <= IBUS_9)
       return static_cast<size_t>(key - IBUS_1);
     if (key == IBUS_0)
@@ -3069,8 +3069,8 @@ std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
   }
   if (!shifted)
     return std::nullopt;
-  if (keycode >= 10 && keycode <= 19)
-    return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
+  if (keycode >= 2 && keycode <= 11)
+    return keycode == 11 ? 9 : static_cast<size_t>(keycode - 2);
   switch (key) {
   case '!': return 0;
   case '@': return 1;
