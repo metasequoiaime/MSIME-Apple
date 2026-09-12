@@ -411,7 +411,7 @@ def stream_identity(stream):
     return (stream["index"], props.get("application.process.id"), props.get("application.name"))
 
 
-def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None):
+def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None, failed_indices=None):
     nodes = json.loads(command(["pw-dump"], timeout=0.5))
     streams = []
     for node in nodes:
@@ -443,7 +443,9 @@ def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None)
                             "mute": b"[MUTED]" in volume})
         except Exception:
             if indices is not None:
-                raise
+                if failed_indices is None:
+                    raise
+                failed_indices.add(index)
             continue
         if len(streams) >= (len(wanted) if wanted is not None else len(indices) if indices is not None else 32):
             break
@@ -544,10 +546,16 @@ class AudioMuteJournal:
             if not keys:
                 continue
             try:
-                streams = (pipewire_sink_inputs(indices={int(key.split(":")[1]) for key in keys})
-                           if backend == "pipewire" else sink_inputs())
+                failed_indices = set()
+                streams = (pipewire_sink_inputs(
+                    indices={int(key.split(":")[1]) for key in keys}, failed_indices=failed_indices)
+                    if backend == "pipewire" else sink_inputs())
                 current = {backend + ":" + str(stream["index"]): stream for stream in streams}
                 for key in keys:
+                    # Unreadable is not absent: keep recovery intent for that
+                    # node while independently restoring the available ones.
+                    if int(key.split(":")[1]) in failed_indices:
+                        continue
                     stream = current.get(key)
                     try:
                         if stream is not None and self.fingerprint(backend, stream) == self.entries[key]:
@@ -650,11 +658,11 @@ def restore_audio(muted):
         streams = (pipewire_sink_inputs(wanted={identity for _, identity in muted})
                    if backend == "pipewire" else sink_inputs())
         for stream in streams:
-            if stream.get("mute") and (backend, stream_identity(stream)) in muted:
-                try:
+            try:
+                if stream.get("mute") and (backend, stream_identity(stream)) in muted:
                     set_stream_mute(backend, stream["index"], False)
-                except Exception:
-                    continue
+            except Exception:
+                continue
     except Exception:
         pass
 
