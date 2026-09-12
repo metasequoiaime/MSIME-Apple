@@ -57,6 +57,7 @@ struct State {
   bool chinese_punctuation = true;
   bool properties_registered = false;
   std::optional<bool> english_override;
+  std::optional<bool> cloud_candidates_override;
   std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
@@ -198,7 +199,8 @@ struct State {
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
-    cloud_candidates = preferences.value("cloud_candidates", true);
+    cloud_candidates = cloud_candidates_override.value_or(
+        preferences.value("cloud_candidates", true));
     if (english_override)
       options["preferences"]["mixed_input"]["english"] = *english_override;
     if (emoji_override)
@@ -273,7 +275,8 @@ struct State {
     }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
-    const bool next_cloud_candidates = preferences.value("cloud_candidates", true);
+    const bool next_cloud_candidates = cloud_candidates_override.value_or(
+        preferences.value("cloud_candidates", true));
     if (next_cloud_candidates != cloud_candidates)
       invalidate_providers();
     cloud_candidates = next_cloud_candidates;
@@ -676,6 +679,8 @@ void online_schedule(IBusEngine *engine) {
     return;
   try {
     auto query = response(msime_client_online_query(s.session));
+    if (query.is_object())
+      query["cloud_candidates"] = s.cloud_candidates;
     if (!query.is_object() ||
         (!s.cloud_candidates && !query.value("ai_eligible", false)) ||
         (s.cloud_candidates &&
@@ -905,6 +910,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
           !s.voice_provider_socket.empty(),
       TRUE, s.voice_active ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto cloud = ibus_property_new(
+      "CloudCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("云联想"), "",
+      ibus_text_new_from_static_string("通过用户管理的 provider 请求云候选"),
+      s.focused && !s.blocked && s.input_enabled && s.session &&
+          !s.online_provider_socket.empty(),
+      TRUE, s.cloud_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("中文标点"), "",
@@ -1236,6 +1248,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, voice);
+    ibus_prop_list_append(properties, cloud);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
     ibus_prop_list_append(properties, smart_repeat);
@@ -1266,6 +1279,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, voice);
+    ibus_engine_update_property(engine, cloud);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
@@ -1744,6 +1758,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
        std::string(name) != "InputMode" &&
        std::string(name) != "VoiceInput" &&
+       std::string(name) != "CloudCandidates" &&
        std::string(name) != "Punctuation" &&
        std::string(name) != "SmartPunctuation" &&
        std::string(name) != "SmartPunctuationRepeat" &&
@@ -1788,6 +1803,16 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         voice_start(engine);
       else if (s.voice_active)
         voice_cancel(engine);
+      return;
+    }
+    if (property_name == "CloudCandidates") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (enabled == s.cloud_candidates)
+        return;
+      s.cloud_candidates_override = enabled;
+      s.cloud_candidates = enabled;
+      s.invalidate_providers();
+      publish_mode(engine);
       return;
     }
     if (property_name == "NumberRowSelection") {
