@@ -452,7 +452,7 @@ test("clipboard history defaults off, clears when disabled, and saves independen
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, clipboard_history: false });
 });
 
-test("quick phrase manager queries, edits and removes Engine entries", async () => {
+test("dictionary manager queries, edits and removes Engine entries", async () => {
   const quick = { kind: "quick_phrase" as const, key: "x", value: "fixture", weight: 100000 };
   const list = vi.fn().mockResolvedValue({
     entries: [quick, { kind: "pinyin" as const, key: "ni", value: "你好", weight: 100 }],
@@ -463,7 +463,7 @@ test("quick phrase manager queries, edits and removes Engine entries", async () 
     load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit },
   };
   render(<SettingsPage client={client} />);
-  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
   expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
@@ -474,6 +474,35 @@ test("quick phrase manager queries, edits and removes Engine entries", async () 
   await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, { ...quick, value: "updated" }, expect.stringMatching(/^ui-edit-/)));
   fireEvent.click(await screen.findByRole("button", { name: "删除" }));
   await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)));
+});
+
+test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
+  const page = (offset: number, count: number, has_more: boolean) => ({
+    entries: Array.from({ length: count }, (_, index) => ({
+      kind: "pinyin" as const, key: `k${offset + index}`, value: `词${offset + index}`, weight: 100,
+    })),
+    has_more,
+  });
+  const list = vi.fn()
+    .mockResolvedValueOnce(page(0, 100, true))
+    .mockResolvedValueOnce(page(100, 20, false));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
+  expect(list).toHaveBeenCalledWith(0, 100);
+  // The first page must not be followed by a second request on its own.
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(await screen.findByText("第 101–120 条")).toBeDefined();
+  expect(list).toHaveBeenLastCalledWith(100, 100);
+  expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", false);
 });
 const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
 
@@ -595,8 +624,11 @@ test("screen keyboard matches upstream Shift and Caps posting combinations", asy
     const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
     if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
     if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
-    const letter = panel.container.querySelectorAll(".keyboard-row")[2].querySelectorAll("button")[1];
-    expect(letter.textContent).toBe(shift ? "A" : "a");
+    // Find the key by what it types: the preview's row layout is presentation
+    // and has already been rearranged once.
+    const letter = Array.from(panel.container.querySelectorAll<HTMLButtonElement>(".keyboard-row button"))
+      .find(button => button.textContent === (shift ? "A" : "a"))!;
+    expect(letter).toBeDefined();
     expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
     fireEvent.click(letter);
     expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps || shift, include_sticky_modifiers: true }));
@@ -1187,17 +1219,25 @@ test("failed initial load never enables saving fabricated defaults", async () =>
   expect(client.save).not.toHaveBeenCalled();
 });
 
-test("legacy autocorrect defaults on and can be saved off", async () => {
+test("legacy autocorrect seeds both correction toggles and saves them separately", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const control = await screen.findByRole("checkbox", { name: /全拼纠错/ }) as HTMLInputElement;
-  expect(control.checked).toBe(true);
-  fireEvent.click(control);
+  // A configuration that only knows the old single switch starts with both
+  // granular corrections on.
+  const transposition = await screen.findByLabelText("全拼纠错：字母顺序错位") as HTMLInputElement;
+  const neighbor = screen.getByLabelText("全拼纠错：相邻键误触") as HTMLInputElement;
+  expect(transposition.checked).toBe(true);
+  expect(neighbor.checked).toBe(true);
+  fireEvent.click(transposition);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, autocorrect: false });
-  expect(control.checked).toBe(false);
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    quanpin: { autocorrect_transposition: false, autocorrect_neighbor: true },
+  });
+  expect(transposition.checked).toBe(false);
+  expect(neighbor.checked).toBe(true);
 });
 
 test("category navigation preserves one draft and saves edits across pages", async () => {
