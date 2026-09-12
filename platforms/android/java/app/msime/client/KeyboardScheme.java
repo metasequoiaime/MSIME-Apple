@@ -11,7 +11,8 @@ public enum KeyboardScheme {
     WUBI("wubi", null, "twenty_six_key", "86 五笔", "五", "86"),
     JAPANESE("japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
     JAPANESE_NINE_KEY("japanese", null, "nine_key", "日语 9 键", "あ", "9"),
-    HANDWRITING("quanpin", null, "handwriting", "手写", "写", "手");
+    HANDWRITING("quanpin", null, "handwriting", "手写", "写", "手"),
+    THOUGHTFUL_REPLY("quanpin", null, "twenty_six_key", "高情商回复", "聊", "AI");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -42,6 +43,13 @@ public enum KeyboardScheme {
     public String glyph() { return glyph; }
     public String badge() { return badge; }
 
+    public static KeyboardScheme fromHostSelection(String value, boolean thoughtfulEnabled,
+                                                    KeyboardScheme engineSelection) {
+        if (thoughtfulEnabled && THOUGHTFUL_REPLY.name().equals(value)
+                && engineSelection == QUANPIN) return THOUGHTFUL_REPLY;
+        return engineSelection;
+    }
+
     public static KeyboardScheme fromPreferences(String scheme, String profile, String touchLayout) {
         if ("quanpin".equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
@@ -53,7 +61,7 @@ public enum KeyboardScheme {
             return XIAOHE;
         }
         for (KeyboardScheme candidate : values()) {
-            if (candidate.shuangpinProfile == null && candidate.engineScheme.equals(scheme)
+            if (candidate != THOUGHTFUL_REPLY && candidate.shuangpinProfile == null && candidate.engineScheme.equals(scheme)
                     && !"nine_key".equals(candidate.touchKeyboardLayout)) return candidate;
         }
         return QUANPIN;

@@ -37,6 +37,10 @@ public final class AiPolishConfiguration {
             + (port == -1 || port == 443 ? "" : ":" + port);
     }
 
+    public AiPolishConfiguration withPrompt(String replacement) {
+        return new AiPolishConfiguration(endpoint.toString(), model, replacement, token);
+    }
+
     public static String credentialOrigin(String endpoint) {
         return credentialOrigin(validatedEndpoint(endpoint));
     }

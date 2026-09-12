@@ -51,6 +51,9 @@ public final class MSIMEInputService extends InputMethodService {
     private static final int JAPANESE_NINE_KEY_LAYOUT = 2;
     private static final int HANDWRITING_LAYOUT = 3;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
+    private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
+    private static final String SELECTED_HOST_SCHEME = "selected-scheme";
+    private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -96,7 +99,10 @@ public final class MSIMEInputService extends InputMethodService {
     private Button layoutSettingsButton;
     private Button voiceShortcutButton;
     private Button aiPolishShortcutButton;
+    private Button replyShortcutButton;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
+    private KeyboardScheme schemeSaveTarget;
+    private SharedPreferences schemeHostPreferences;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
@@ -127,6 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     private long preferenceSaveGeneration;
     private boolean schemeSaving;
     private boolean touchGeometrySaving;
+    private boolean skinSaving;
     private ScrollView voiceResultScroll;
     private LinearLayout voiceResultPanel;
     private VoiceResultStore voiceResultStore;
@@ -144,12 +151,47 @@ public final class MSIMEInputService extends InputMethodService {
     private String aiOutputText = "";
     private String aiError = "";
     private boolean aiBusy;
+    private LinearLayout replyKeyboard;
+    private LinearLayout replyMain;
+    private LinearLayout replyActions;
+    private TextView replyStatus;
+    private Button replyReplyModeButton;
+    private Button replyPolishModeButton;
+    private Button replySourceButton;
+    private Button replyTemplateButton;
+    private Button replySkinButton;
+    private CommunityReplyLibrary communityReplyLibrary;
+    private final ReplyKeyboardModel replyModel = new ReplyKeyboardModel();
+    private AiPolishClient.Operation replyOperation;
+    private EditorContextSnapshot replyTarget;
+    private AiPolishConfiguration replyRequestConfiguration;
+    private boolean replySuppressed;
     private long editorContextRevision;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
+
+    private boolean thoughtfulReplyEnabled() {
+        return schemeHostPreferences == null
+            || schemeHostPreferences.getBoolean(THOUGHTFUL_REPLY_ENABLED, true);
+    }
+
+    private KeyboardScheme hostScheme(KeyboardScheme engineScheme) {
+        String stored = schemeHostPreferences == null ? null
+            : schemeHostPreferences.getString(SELECTED_HOST_SCHEME, null);
+        KeyboardScheme resolved = KeyboardScheme.fromHostSelection(
+            stored, thoughtfulReplyEnabled(), engineScheme);
+        if (resolved != KeyboardScheme.THOUGHTFUL_REPLY && stored != null
+                && !resolved.name().equals(stored)) saveHostScheme(resolved);
+        return resolved;
+    }
+
+    private void saveHostScheme(KeyboardScheme scheme) {
+        if (schemeHostPreferences != null)
+            schemeHostPreferences.edit().putString(SELECTED_HOST_SCHEME, scheme.name()).apply();
+    }
 
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
@@ -174,6 +216,7 @@ public final class MSIMEInputService extends InputMethodService {
         connection = getCurrentInputConnection();
         editorContextRevision++;
         bridge = new EditorBridge();
+        schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
         shift = false;
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
@@ -185,11 +228,11 @@ public final class MSIMEInputService extends InputMethodService {
                 if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
                 JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
                 JSONObject preferences = options.optJSONObject("preferences");
-                selectedScheme = KeyboardScheme.fromPreferences(
+                selectedScheme = hostScheme(KeyboardScheme.fromPreferences(
                     preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
                     preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
                     preferences == null ? "twenty_six_key"
-                        : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+                        : preferences.optString("touch_keyboard_layout", "twenty_six_key")));
                 skin = KeyboardSkin.from(preferences == null ? "fluent"
                     : preferences.optString("candidate_skin", "fluent"));
                 localModes = preferences == null ? new JSONObject()
@@ -217,6 +260,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         rebuildKeyRows();
         render();
+        replySuppressed = false;
+        synchronizeReplyKeyboard();
     }
 
     @Override public void onFinishInput() { stop(true); connection = null; super.onFinishInput(); }
@@ -236,7 +281,9 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesDirectory = "";
         preferencesSnapshot = null;
         schemeSaving = false;
+        schemeSaveTarget = null;
         touchGeometrySaving = false;
+        skinSaving = false;
         if (session != 0) {
             try { if (finish && connection != null) apply(NativeClient.command(session, 9)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
@@ -251,6 +298,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeVoiceResult();
         closeAiPolish();
+        closeReplyKeyboard();
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
@@ -306,7 +354,11 @@ public final class MSIMEInputService extends InputMethodService {
             cancelAiRequest();
             aiError = "AI 配置已变化，请返回键盘后重新打开。";
             renderAiPolish();
-        } else if (previous != null && !previous.equals(next)) render();
+        }
+        if (replyRequestConfiguration != null && !replyRequestConfiguration.equals(next)) {
+            invalidateReplyContext("AI 配置已变化，请重新选择回复方式");
+        }
+        if (previous != null && !previous.equals(next)) render();
     }
 
     private void applyClipboardPreference(JSONObject preferences) {
@@ -399,7 +451,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
-        selectedScheme = nextScheme;
+        selectedScheme = hostScheme(nextScheme);
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
             clipboardHistory.clear();
@@ -501,6 +553,10 @@ public final class MSIMEInputService extends InputMethodService {
             cancelAiRequest();
             aiError = "输入位置已变化，请返回键盘后重新选择文字。";
             renderAiPolish();
+        }
+        if (selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY && replyTarget != null
+                && !replyTargetMatches()) {
+            invalidateReplyContext("输入位置已变化，请重新选择回复方式");
         }
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
@@ -619,6 +675,8 @@ public final class MSIMEInputService extends InputMethodService {
             aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (aiPolishContainer != null)
             aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
+        if (replyKeyboard != null)
+            replyKeyboard.setBackgroundColor(Color.parseColor(skin.background()));
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
     }
@@ -679,6 +737,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void closeSchemePicker() {
         if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
+        synchronizeReplyKeyboard();
     }
 
     private void closeLayoutSettings() {
@@ -705,6 +764,403 @@ public final class MSIMEInputService extends InputMethodService {
         aiSourceText = "";
         aiOutputText = "";
         aiError = "";
+    }
+
+    private void clearReplyRequestReferences() {
+        replyOperation = null;
+        replyTarget = null;
+        replyRequestConfiguration = null;
+    }
+
+    private void closeReplyKeyboard() {
+        replyModel.resetResults();
+        clearReplyRequestReferences();
+        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
+    }
+
+    private void invalidateReplyContext(String message) {
+        replyModel.invalidate(message);
+        clearReplyRequestReferences();
+        renderReplyKeyboard();
+    }
+
+    private boolean replyTargetMatches() {
+        return replyTarget != null && replyTarget.matches(connection, editorContextRevision,
+            editorContext(true), selectedEditorText(), editorContext(false));
+    }
+
+    private boolean replyReady() {
+        return selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY && thoughtfulReplyEnabled()
+            && aiPolishReady();
+    }
+
+    private void synchronizeReplyKeyboard() {
+        if (replyKeyboard == null) return;
+        if (selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY || !thoughtfulReplyEnabled()) {
+            closeReplyKeyboard();
+            replySuppressed = false;
+            return;
+        }
+        if (replySuppressed) {
+            replyKeyboard.setVisibility(View.GONE);
+            return;
+        }
+        renderReplyKeyboard();
+        replyKeyboard.setVisibility(View.VISIBLE);
+    }
+
+    private void showReplyKeyboard() {
+        if (selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY) return;
+        replySuppressed = false;
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeVoiceResult();
+        closeAiPolish();
+        synchronizeReplyKeyboard();
+    }
+
+    private void pasteReplySource() {
+        try {
+            ClipboardManager manager = getSystemService(ClipboardManager.class);
+            if (manager == null || !manager.hasPrimaryClip() || manager.getPrimaryClip() == null
+                    || manager.getPrimaryClip().getItemCount() == 0
+                    || manager.getPrimaryClipDescription() == null
+                    || !(manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                        || manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
+                replyModel.setSource("");
+            } else {
+                CharSequence value = manager.getPrimaryClip().getItemAt(0).getText();
+                replyModel.setSource(value == null ? "" : value.toString());
+            }
+        } catch (SecurityException | IllegalStateException error) {
+            replyModel.invalidate("无法读取剪贴板，请重试");
+        }
+        clearReplyRequestReferences();
+        renderReplyKeyboard();
+    }
+
+    private void generateReply(String style) {
+        if (aiPolishConfiguration == null) {
+            replyModel.showStatus("请先在共享设置中启用并配置 AI 辅助");
+            renderReplyKeyboard();
+            return;
+        }
+        if (!replyReady()) {
+            replyModel.showStatus("请先完成输入，再选择回复方式");
+            renderReplyKeyboard();
+            return;
+        }
+        java.util.List<CommunityReplyLibrary.Template> templates = java.util.List.of();
+        if (style != null && style.startsWith("community:")) {
+            try { templates = communityReplyLibrary == null ? java.util.List.of() : communityReplyLibrary.read(); }
+            catch (java.io.IOException error) {
+                replyModel.showStatus("回复模板无法读取，请重试");
+                renderReplyKeyboard();
+                return;
+            }
+        }
+        ReplyKeyboardModel.Request request = replyModel.begin(style, templates);
+        if (request == null) {
+            renderReplyKeyboard();
+            return;
+        }
+        replyRequestConfiguration = aiPolishConfiguration;
+        replyTarget = new EditorContextSnapshot(connection, editorContextRevision, editorContext(true),
+            selectedEditorText(), editorContext(false));
+        renderReplyKeyboard();
+        try {
+            AiPolishConfiguration requestConfiguration = aiPolishConfiguration.withPrompt(request.prompt());
+            replyOperation = aiPolishClient.request(requestConfiguration, request.source(),
+                (generation, result, failure) -> main.post(
+                    () -> finishReply(request.generation(), generation, result, failure)));
+            replyModel.attachCancellation(request.generation(), replyOperation::cancel);
+        } catch (AiPolishClient.Failure | IllegalArgumentException error) {
+            replyModel.fail(request.generation(), "无法启动 AI 请求，请检查配置");
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        }
+    }
+
+    private void finishReply(long modelGeneration, long operationGeneration, String result,
+                             AiPolishClient.Failure failure) {
+        if (replyOperation == null || replyOperation.generation() != operationGeneration) return;
+        replyOperation = null;
+        if (!replyTargetMatches() || replyRequestConfiguration == null
+                || !replyRequestConfiguration.equals(aiPolishConfiguration)
+                || selectedScheme != KeyboardScheme.THOUGHTFUL_REPLY) {
+            invalidateReplyContext("输入位置或 AI 配置已变化，请重新选择回复方式");
+            return;
+        }
+        if (failure == null) replyModel.finish(modelGeneration, result);
+        else replyModel.fail(modelGeneration, failure.reason() == AiPolishClient.Reason.INVALID
+            ? "服务返回的文字为空或超过一万字" : "AI 请求失败，请检查网络、地址、模型和密钥");
+        if (!replyModel.busy()) replyOperation = null;
+        renderReplyKeyboard();
+    }
+
+    private void useReply(String text) {
+        boolean inserted = replyModel.use(text, value -> {
+            if (!replyReady() || !replyTargetMatches() || replyRequestConfiguration == null
+                    || !replyRequestConfiguration.equals(aiPolishConfiguration)
+                    || connection == null) return false;
+            try {
+                if (!connection.commitText(value, 1)) return false;
+            } catch (RuntimeException error) { return false; }
+            replySuppressed = true;
+            return true;
+        });
+        clearReplyRequestReferences();
+        renderReplyKeyboard();
+        if (inserted) replyKeyboard.setVisibility(View.GONE);
+    }
+
+    private void showReplyTemplates() {
+        if (replyTemplateButton == null || replyModel.busy()) return;
+        final java.util.List<CommunityReplyLibrary.Template> templates;
+        try { templates = communityReplyLibrary == null ? java.util.List.of() : communityReplyLibrary.read(); }
+        catch (java.io.IOException error) {
+            replyModel.showStatus("回复模板无法读取，请重试");
+            renderReplyKeyboard();
+            return;
+        }
+        if (templates.isEmpty()) {
+            Toast.makeText(this, "请先在 App 社区收藏并添加回复模板", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        PopupMenu popup = new PopupMenu(this, replyTemplateButton);
+        for (CommunityReplyLibrary.Template template : templates) {
+            popup.getMenu().add(template.name()).setOnMenuItemClickListener(ignored -> {
+                generateReply("community:" + template.id());
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private void showReplySkins() {
+        if (replySkinButton == null || skinSaving) return;
+        PopupMenu popup = new PopupMenu(this, replySkinButton);
+        String[][] choices = {{"fluent", "流光白"}, {"wechat", "微信绿"},
+            {"graphite", "石墨黑"}, {"willow_green", "柳绿"}};
+        for (String[] choice : choices) {
+            MenuItem item = popup.getMenu().add(choice[1]);
+            item.setCheckable(true).setChecked(skin.id().equals(choice[0]));
+            item.setOnMenuItemClickListener(ignored -> {
+                saveKeyboardSkin(choice[0]);
+                return true;
+            });
+        }
+        popup.show();
+    }
+
+    private void saveKeyboardSkin(String identifier) {
+        KeyboardSkin next = KeyboardSkin.from(identifier);
+        if (skin.id().equals(next.id()) || skinSaving || session == 0
+                || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
+        final long targetSession = session;
+        final String targetDirectory = preferencesDirectory;
+        final JSONObject pending;
+        final long expectedRevision;
+        try {
+            pending = new JSONObject(preferencesSnapshot.toString());
+            expectedRevision = pending.getLong("revision");
+            pending.getJSONObject("preferences").put("candidate_skin", next.id());
+        } catch (JSONException error) {
+            replyModel.showStatus("皮肤切换失败，保留当前皮肤");
+            renderReplyKeyboard();
+            return;
+        }
+        skin = next;
+        skinSaving = true;
+        replyModel.showStatus("正在保存皮肤");
+        final long operation = ++preferenceSaveGeneration;
+        applySkin();
+        renderReplyKeyboard();
+        try {
+            preferencesWorker.execute(() -> {
+                String response;
+                try { response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString()); }
+                catch (Exception | LinkageError error) { response = null; }
+                final String savedResponse = response;
+                main.post(() -> finishKeyboardSkinSave(operation, targetSession, targetDirectory, savedResponse));
+            });
+        } catch (RuntimeException error) {
+            finishKeyboardSkinSave(operation, targetSession, targetDirectory, null);
+        }
+    }
+
+    private void finishKeyboardSkinSave(long operation, long targetSession, String targetDirectory,
+                                        String response) {
+        if (operation != preferenceSaveGeneration || session != targetSession
+                || !targetDirectory.equals(preferencesDirectory)) return;
+        skinSaving = false;
+        try {
+            if (response == null) throw new JSONException("Preferences save unavailable");
+            applyPreferencesSnapshot(value(response));
+            replyModel.showStatus("皮肤已切换");
+        } catch (JSONException | LinkageError error) {
+            JSONObject accepted = preferencesSnapshot == null ? null
+                : preferencesSnapshot.optJSONObject("preferences");
+            skin = KeyboardSkin.from(accepted == null ? "fluent"
+                : accepted.optString("candidate_skin", "fluent"));
+            replyModel.showStatus("皮肤切换失败，已恢复原皮肤");
+        }
+        applySkin();
+        renderReplyKeyboard();
+    }
+
+    private LinearLayout createReplyKeyboard() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pixels(6), pixels(5), pixels(6), pixels(5));
+        root.setBackgroundColor(Color.parseColor(skin.background()));
+        root.setContentDescription("高情商回复键盘");
+
+        LinearLayout header = new LinearLayout(this);
+        replyReplyModeButton = button(header, "帮你回", () -> {
+            replyModel.setMode(ReplyKeyboardModel.Mode.REPLY);
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        });
+        replyReplyModeButton.setContentDescription("帮你回模式");
+        replyPolishModeButton = button(header, "帮润色", () -> {
+            replyModel.setMode(ReplyKeyboardModel.Mode.POLISH);
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        });
+        replyPolishModeButton.setContentDescription("帮润色模式");
+        Button schemes = button(header, "⌨", this::showSchemePicker);
+        schemes.setContentDescription("选择输入方案");
+        replyTemplateButton = button(header, "模板", this::showReplyTemplates);
+        replyTemplateButton.setContentDescription("回复模板");
+        replySkinButton = button(header, "皮肤", this::showReplySkins);
+        replySkinButton.setContentDescription("切换皮肤");
+        Button dismiss = button(header, "⌄", () -> requestHideSelf(0));
+        dismiss.setContentDescription("收起键盘");
+        root.addView(header, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(42)));
+
+        LinearLayout sourceRow = new LinearLayout(this);
+        replySourceButton = button(sourceRow, "+ 粘贴 TA 的话帮你回", this::pasteReplySource);
+        replySourceButton.setSingleLine(true);
+        replySourceButton.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        replySourceButton.setContentDescription("回复源文字");
+        Button paste = button(sourceRow, "粘贴", this::pasteReplySource);
+        paste.setContentDescription("粘贴回复源文字");
+        paste.setLayoutParams(new LinearLayout.LayoutParams(pixels(64),
+            LinearLayout.LayoutParams.MATCH_PARENT));
+        root.addView(sourceRow, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
+
+        LinearLayout body = new LinearLayout(this);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        replyMain = new LinearLayout(this);
+        replyMain.setOrientation(LinearLayout.VERTICAL);
+        replyMain.setContentDescription("回复风格与候选");
+        scroll.addView(replyMain);
+        body.addView(scroll, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        replyActions = new LinearLayout(this);
+        replyActions.setOrientation(LinearLayout.VERTICAL);
+        body.addView(replyActions, new LinearLayout.LayoutParams(pixels(68),
+            LinearLayout.LayoutParams.MATCH_PARENT));
+        root.addView(body, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+
+        LinearLayout footer = new LinearLayout(this);
+        replyStatus = new TextView(this);
+        replyStatus.setSingleLine(true);
+        replyStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        replyStatus.setContentDescription("回复键盘状态");
+        footer.addView(replyStatus, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button styles = button(footer, "选风格", () -> {
+            replyModel.chooseStyle();
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        });
+        styles.setContentDescription("重新选择回复风格");
+        root.addView(footer, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(36)));
+        return root;
+    }
+
+    private void renderReplyKeyboard() {
+        if (replyKeyboard == null || replyMain == null || replyActions == null) return;
+        replyMain.removeAllViews();
+        replyActions.removeAllViews();
+        replyReplyModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
+        replyPolishModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
+        styleButton(replyReplyModeButton, true);
+        styleButton(replyPolishModeButton, true);
+        replyTemplateButton.setEnabled(!replyModel.busy());
+        replySkinButton.setEnabled(!skinSaving);
+        replySourceButton.setText(replyModel.source().isEmpty()
+            ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
+        if (replyModel.replies().isEmpty()) {
+            for (int start = 0; start < ReplyKeyboardModel.STYLES.size(); start += 3) {
+                LinearLayout row = new LinearLayout(this);
+                for (int column = 0; column < 3; column++) {
+                    int index = start + column;
+                    ReplyKeyboardModel.Style style = ReplyKeyboardModel.STYLES.get(index);
+                    Button choice = button(row, style.emoji() + " " + style.label(),
+                        () -> generateReply(style.label()));
+                    choice.setContentDescription("回复风格 " + style.label());
+                    choice.setEnabled(!replyModel.busy());
+                }
+                replyMain.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, pixels(52)));
+            }
+        } else {
+            for (String reply : replyModel.replies()) {
+                Button candidate = button(replyMain, reply, () -> useReply(reply));
+                candidate.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+                candidate.setContentDescription("回复候选，点按插入");
+                candidate.setMinHeight(pixels(48));
+                candidate.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+        }
+        Button delete = button(replyActions, "⌫", () -> {
+            replyModel.deleteLastCodePoint();
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        });
+        delete.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        delete.setContentDescription("删除源文字");
+        Button clear = button(replyActions, "清空", () -> {
+            replyModel.setSource("");
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        });
+        clear.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        clear.setContentDescription("清空源文字");
+        if (replyModel.busy()) {
+            Button cancel = button(replyActions, "取消", () -> {
+                replyModel.cancel();
+                clearReplyRequestReferences();
+                renderReplyKeyboard();
+            });
+            cancel.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            cancel.setContentDescription("取消回复生成");
+        } else if (replyModel.replies().isEmpty()) {
+            Button generate = button(replyActions, "生成", () -> generateReply(replyModel.style()));
+            generate.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            generate.setContentDescription("生成回复");
+        } else {
+            Button regenerate = button(replyActions, "换一句", () -> generateReply(replyModel.style()));
+            regenerate.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            regenerate.setContentDescription("换一句回复");
+        }
+        replyStatus.setText(replyModel.status());
+        applySkinToView(replyKeyboard);
     }
 
     private boolean voiceInsertionReady() {
@@ -759,6 +1215,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeVoiceResult();
         closeAiPolish();
+        closeReplyKeyboard();
         aiRequestConfiguration = aiPolishConfiguration;
         aiSourceText = selected;
         aiTarget = new EditorContextSnapshot(connection, editorContextRevision, editorContext(true),
@@ -1137,6 +1594,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeVoiceResult();
         closeAiPolish();
+        if (replyKeyboard != null) replyKeyboard.setVisibility(View.GONE);
         renderSchemePicker();
         schemeScroll.setVisibility(View.VISIBLE);
     }
@@ -1153,18 +1611,19 @@ public final class MSIMEInputService extends InputMethodService {
         Button close = button(header, "返回键盘", this::closeSchemePicker);
         close.setContentDescription("返回键盘");
         schemePanel.addView(header);
-        KeyboardScheme[] schemes = KeyboardScheme.values();
-        for (int start = 0; start < schemes.length; start += 4) {
+        java.util.List<KeyboardScheme> schemes = java.util.Arrays.stream(KeyboardScheme.values())
+            .filter(value -> value != KeyboardScheme.THOUGHTFUL_REPLY || thoughtfulReplyEnabled()).toList();
+        for (int start = 0; start < schemes.size(); start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int slot = 0; slot < 4; slot++) {
                 int index = start + slot;
-                if (index >= schemes.length) {
+                if (index >= schemes.size()) {
                     View spacer = new View(this);
                     row.addView(spacer, new LinearLayout.LayoutParams(0, pixels(72), 1));
                     continue;
                 }
-                KeyboardScheme scheme = schemes[index];
+                KeyboardScheme scheme = schemes.get(index);
                 Button card = button(row, scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title(),
                     () -> selectKeyboardScheme(scheme));
                 card.setSelected(scheme == selectedScheme);
@@ -1179,8 +1638,14 @@ public final class MSIMEInputService extends InputMethodService {
             }
             schemePanel.addView(row);
         }
+        Button toggleReply = button(schemePanel, thoughtfulReplyEnabled()
+            ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
+        toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        toggleReply.setContentDescription(thoughtfulReplyEnabled()
+            ? "禁用高情商回复输入方案" : "启用高情商回复输入方案");
         TextView hint = new TextView(this);
-        hint.setText("切换会先完成当前组词，并同步到共享设置");
+        hint.setText("切换会先完成当前组词，并同步到共享设置；高情商回复只保存宿主展示状态");
         schemePanel.addView(hint);
         applySkin();
     }
@@ -1190,8 +1655,11 @@ public final class MSIMEInputService extends InputMethodService {
                 || preferencesDirectory.isEmpty()) return;
         if (scheme == selectedScheme) {
             closeSchemePicker();
+            if (scheme == KeyboardScheme.THOUGHTFUL_REPLY) showReplyKeyboard();
             return;
         }
+        replyModel.resetResults();
+        clearReplyRequestReferences();
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
@@ -1221,6 +1689,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         closeSchemePicker();
         schemeSaving = true;
+        schemeSaveTarget = scheme;
         preferencesNotice = " · 正在切换输入方案";
         final long operation = ++preferenceSaveGeneration;
         render();
@@ -1239,6 +1708,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (RuntimeException error) {
             if (operation == preferenceSaveGeneration) {
                 schemeSaving = false;
+                schemeSaveTarget = null;
                 preferencesNotice = " · 输入方案切换失败，保留当前设置";
                 render();
             }
@@ -1259,6 +1729,10 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
+                if (schemeSaveTarget != null) {
+                    saveHostScheme(schemeSaveTarget);
+                    selectedScheme = schemeSaveTarget;
+                }
                 preferencesNotice = " · 输入方案已切换";
             }
         } catch (JSONException | LinkageError error) {
@@ -1266,6 +1740,22 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 输入方案切换失败，保留当前设置";
             Toast.makeText(this, "输入方案未能保存", Toast.LENGTH_SHORT).show();
         }
+        schemeSaveTarget = null;
+        synchronizeReplyKeyboard();
+        render();
+    }
+
+    private void toggleThoughtfulReplyScheme() {
+        if (schemeHostPreferences == null || schemeSaving) return;
+        boolean enabled = thoughtfulReplyEnabled();
+        schemeHostPreferences.edit().putBoolean(THOUGHTFUL_REPLY_ENABLED, !enabled).apply();
+        if (enabled && selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY) {
+            selectedScheme = KeyboardScheme.QUANPIN;
+            saveHostScheme(selectedScheme);
+            replySuppressed = false;
+            closeReplyKeyboard();
+        }
+        renderSchemePicker();
         render();
     }
 
@@ -2152,6 +2642,7 @@ public final class MSIMEInputService extends InputMethodService {
         File files = getFilesDir();
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
+        communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         if (!clipboardHistoryEnabled) clipboardHistory.clear();
         keyboardRoot = new FrameLayout(this);
         LinearLayout keyboard = new LinearLayout(this);
@@ -2178,6 +2669,10 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishShortcutButton = button(candidateHeader, "AI", this::showAiPolish);
         aiPolishShortcutButton.setContentDescription("打开 AI 润色");
         aiPolishShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        replyShortcutButton = button(candidateHeader, "回复", this::showReplyKeyboard);
+        replyShortcutButton.setContentDescription("生成高情商回复");
+        replyShortcutButton.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         expandCandidates = new Button(this);
         expandCandidates.setAllCaps(false);
@@ -2383,8 +2878,13 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishContainer.setVisibility(View.GONE);
         keyboardRoot.addView(aiPolishContainer, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        replyKeyboard = createReplyKeyboard();
+        replyKeyboard.setVisibility(View.GONE);
+        keyboardRoot.addView(replyKeyboard, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
+        synchronizeReplyKeyboard();
         return keyboardRoot;
     }
 
@@ -2418,6 +2918,11 @@ public final class MSIMEInputService extends InputMethodService {
                 aiPolishConfiguration == null ? View.GONE : View.VISIBLE);
             aiPolishShortcutButton.setEnabled(aiPolishReady());
         }
+        if (replyShortcutButton != null) {
+            replyShortcutButton.setVisibility(selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY
+                ? View.VISIBLE : View.GONE);
+            replyShortcutButton.setEnabled(replyReady());
+        }
         if (layerButton != null) {
             layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
             layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -2432,6 +2937,7 @@ public final class MSIMEInputService extends InputMethodService {
             schemeButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving);
         }
+        synchronizeReplyKeyboard();
         if (layoutSettingsButton != null)
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving);

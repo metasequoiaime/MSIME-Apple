@@ -19,9 +19,9 @@ public final class KeyboardSchemeSmoke {
 
     public static void main(String[] args) {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
-            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 26 键", "日语 9 键", "手写")));
+            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 26 键", "日语 9 键", "手写", "高情商回复")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
-            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ26", "あ9", "写手")));
+            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ26", "あ9", "写手", "聊AI")));
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting") == KeyboardScheme.HANDWRITING);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "nine_key") == KeyboardScheme.QUANPIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key") == KeyboardScheme.JAPANESE_NINE_KEY);
@@ -36,7 +36,14 @@ public final class KeyboardSchemeSmoke {
         mapping(KeyboardScheme.JAPANESE, "wubi", "shoudao", "japanese", "wubi", "shoudao");
         mapping(KeyboardScheme.JAPANESE_NINE_KEY, "wubi", "shoudao", "japanese", "wubi", "shoudao");
         mapping(KeyboardScheme.HANDWRITING, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
+        mapping(KeyboardScheme.THOUGHTFUL_REPLY, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
+        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", true, KeyboardScheme.QUANPIN)
+            == KeyboardScheme.THOUGHTFUL_REPLY);
+        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", false, KeyboardScheme.QUANPIN)
+            == KeyboardScheme.QUANPIN);
+        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", true, KeyboardScheme.WUBI)
+            == KeyboardScheme.WUBI);
         mapping(KeyboardScheme.JAPANESE, "invalid", "invalid", "japanese", "quanpin", "xiaohe");
-        System.out.println("Android keyboard schemes: ten labels, glyphs and shared preference mappings passed");
+        System.out.println("Android keyboard schemes: eleven labels, glyphs, host fallback and shared preference mappings passed");
     }
 }

@@ -18,6 +18,9 @@ public final class AiPolishClientSmoke {
         check(!AiPolishConfiguration.credentialOrigin(
             "https://fixture.invalid:444/v1/chat/completions").equals(config.credentialOrigin()));
         check(config.toString().contains("fixture-model") && !config.toString().contains("fixture-key"));
+        AiPolishConfiguration overridden = config.withPrompt("reply prompt");
+        check(overridden.prompt().equals("reply prompt") && overridden.credentialOrigin().equals(config.credentialOrigin()));
+        check(overridden.toString().contains("fixture-model") && !overridden.toString().contains("fixture-key"));
         check(AiPolishConfiguration.acceptableText("𠮷".repeat(10_000)));
         check(!AiPolishConfiguration.acceptableText("a".repeat(10_001)));
         check(!AiPolishConfiguration.acceptableText("\ud800"));
