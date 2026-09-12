@@ -7,16 +7,27 @@ from pathlib import Path
 import select
 import shutil
 import signal
+import stat
 import sys
 import subprocess
 import time
 
 
+# Full preferences include custom prompts and dictionaries, not just clipboard settings.
+MAX_CONFIGURATION_BYTES = 1024 * 1024
+
+
 def document(path):
-    with path.open("rb") as source:
-        raw = source.read(16385)
-    if len(raw) > 16384:
-        raise ValueError()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as source:
+        before = os.fstat(source.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_CONFIGURATION_BYTES:
+            raise ValueError()
+        raw = source.read(MAX_CONFIGURATION_BYTES + 1)
+        after = os.fstat(source.fileno())
+        identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        if len(raw) > MAX_CONFIGURATION_BYTES or identity(before) != identity(after):
+            raise ValueError()
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError()
