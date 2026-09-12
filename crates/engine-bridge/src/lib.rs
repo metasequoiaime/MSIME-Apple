@@ -235,6 +235,17 @@ mod ffi {
             resources: &str,
             candidates: &[CandidateGlossInput],
         ) -> Result<Vec<String>>;
+        fn candidate_glosses_with_user(
+            resources: &str,
+            user_data: &str,
+            candidates: &[CandidateGlossInput],
+        ) -> Result<Vec<String>>;
+        fn save_candidate_gloss(
+            user_data: &str,
+            chinese_to_english: bool,
+            key: &str,
+            gloss: &str,
+        ) -> bool;
         #[cfg(not(target_os = "android"))]
         fn handwriting_recognize(
             model_path: &str,
@@ -400,6 +411,23 @@ pub fn candidate_glosses(
     resources: &str,
     candidates: &[(String, u8)],
 ) -> Result<Vec<String>, cxx::Exception> {
+    candidate_glosses_with_user(resources, "", candidates)
+}
+
+pub fn save_candidate_gloss(
+    user_data: &str,
+    chinese_to_english: bool,
+    key: &str,
+    gloss: &str,
+) -> bool {
+    ffi::save_candidate_gloss(user_data, chinese_to_english, key, gloss)
+}
+
+pub fn candidate_glosses_with_user(
+    resources: &str,
+    user_data: &str,
+    candidates: &[(String, u8)],
+) -> Result<Vec<String>, cxx::Exception> {
     let candidates = candidates
         .iter()
         .map(|(text, source)| ffi::CandidateGlossInput {
@@ -407,7 +435,11 @@ pub fn candidate_glosses(
             source: *source,
         })
         .collect::<Vec<_>>();
-    ffi::candidate_glosses(resources, &candidates)
+    if user_data.is_empty() {
+        ffi::candidate_glosses(resources, &candidates)
+    } else {
+        ffi::candidate_glosses_with_user(resources, user_data, &candidates)
+    }
 }
 
 /// Apply Engine's shared handwriting candidate policy to provider results.

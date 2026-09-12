@@ -262,6 +262,12 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     size_t request_length,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
+/* Persist {target_language,translations:[{text,translation}]} in an existing
+ * absolute user-data directory. Only short changed English-target glosses are
+ * saved. Candidate gloss requests may include user_data to read this overlay.
+ * Maximum request size 128 KiB; path 4096 bytes. Does not access a session. */
+char *msime_client_translation_gloss_save(const uint8_t *request, size_t request_length,
+                                         const uint8_t *user_data, size_t user_data_length);
 char *msime_client_translation_provider_request(const uint8_t *query,
                                                 size_t query_length,
                                                 const uint8_t *socket_path,

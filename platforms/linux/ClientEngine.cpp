@@ -1199,6 +1199,23 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
         : msime_client_translation_provider_request(
               reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
               reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
+    // Persistence is display-data I/O and stays on this worker. View updates
+    // still pass the session/epoch/generation checks in translation_complete.
+    if (!request.offline && raw) {
+      try {
+        const auto query = Json::parse(request.query);
+        const auto result = Json::parse(raw);
+        const auto user_data = Json::parse(request.gloss_query).value("user_data", std::string{});
+        if (query.value("target_language", std::string{}) == "en" &&
+            result.value("ok", false) && !user_data.empty()) {
+          const auto save = Json{{"target_language", "en"},
+                                 {"translations", result.at("value").at("translations")}}.dump();
+          msime_client_string_free(msime_client_translation_gloss_save(
+              reinterpret_cast<const uint8_t *>(save.data()), save.size(),
+              reinterpret_cast<const uint8_t *>(user_data.data()), user_data.size()));
+        }
+      } catch (...) {}
+    }
     g_task_return_pointer(task, raw, [](gpointer value) { msime_client_string_free(static_cast<char *>(value)); });
   });
   g_object_unref(task);
@@ -1230,6 +1247,7 @@ void translation_dispatch(IBusEngine *engine) {
     for (const auto &candidate : s.view.at("candidates"))
       candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
     const auto gloss_query = Json{{"generation", query.at("generation")},
+                                  {"user_data", configured.value("user_data", std::string{})},
                                   {"candidates", candidates}}.dump();
     start_translation_task(engine, TranslationTask{
         s.session, s.provider_epoch, encoded, s.translation_provider_socket,
