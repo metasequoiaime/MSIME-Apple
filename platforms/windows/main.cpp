@@ -214,6 +214,10 @@ int wmain(int argc, wchar_t **argv) {
       const auto request = shell_surface_request(TrayMenuCommand::OpenKeyboardPanel);
       if (shell && request) (void)launch_shell_surface(*shell, *request);
     });
+    toolbar.set_voice_action([&] {
+      const auto request = shell_surface_request(TrayMenuCommand::ToggleVoiceInput);
+      if (shell && request) (void)launch_shell_surface(*shell, *request);
+    });
     TrayMenuCapabilities menu_capabilities;
     menu_capabilities.emoji_panel = shell.has_value();
     menu_capabilities.handwriting_panel = shell.has_value();
