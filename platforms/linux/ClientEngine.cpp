@@ -768,6 +768,7 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   // A UTF-8 continuation byte means the preceding code point is non-ASCII.
   return value < 0x80 && is_ascii_alphanumeric(value);
 }
+constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
 
 struct OnlineTask {
   uint64_t session;
@@ -3110,7 +3111,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (s.smart_punctuation_repeat && s.paired_punctuation && s.last_smart_punctuation == key &&
         s.last_smart_punctuation_time != 0 &&
-        g_get_monotonic_time() - s.last_smart_punctuation_time <= 500000 &&
+        g_get_monotonic_time() - s.last_smart_punctuation_time <=
+            kSmartPunctuationRepeatIntervalUs &&
         s.view.at("editing_text").get<std::string>().empty()) {
       if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
         ibus_engine_delete_surrounding_text(engine, -1, 1);
