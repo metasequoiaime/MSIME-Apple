@@ -88,7 +88,9 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         default: throw std::invalid_argument("Unsupported shuangpin profile");
     }
     options.learning = value.learning;
-    options.autocorrect_types = value.autocorrect ? (quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor) : 0u;
+    options.autocorrect_types =
+        (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
+        (value.autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
     options.chinese_punctuation = value.chinese_punctuation;
     options.paired_punctuation = value.paired_punctuation;
     options.punctuation_lock = value.punctuation_lock;

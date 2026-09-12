@@ -65,7 +65,8 @@ struct State {
   std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
-  std::optional<bool> punctuation_override, autocorrect_override, helpcode_override;
+  std::optional<bool> punctuation_override, helpcode_override;
+  std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
   std::optional<bool> smart_punctuation_override, smart_repeat_override, paired_punctuation_override;
@@ -197,7 +198,11 @@ struct State {
     if (preedit_override) preferences["tsf_preedit_style"] = *preedit_override;
     if (theme_override) preferences["candidate_theme"] = *theme_override;
     if (skin_override) preferences["candidate_skin"] = *skin_override;
-    if (autocorrect_override) preferences["autocorrect"] = *autocorrect_override;
+    auto &quanpin = preferences["quanpin"];
+    if (autocorrect_transposition_override)
+      quanpin["autocorrect_transposition"] = *autocorrect_transposition_override;
+    if (autocorrect_neighbor_override)
+      quanpin["autocorrect_neighbor"] = *autocorrect_neighbor_override;
     if (frequency_mode_override) preferences["frequency"]["mode"] = *frequency_mode_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
@@ -428,8 +433,11 @@ struct State {
       preferences["candidate_theme"] = *theme_override;
     if (skin_override)
       preferences["candidate_skin"] = *skin_override;
-    if (autocorrect_override)
-      preferences["autocorrect"] = *autocorrect_override;
+    auto &quanpin = preferences["quanpin"];
+    if (autocorrect_transposition_override)
+      quanpin["autocorrect_transposition"] = *autocorrect_transposition_override;
+    if (autocorrect_neighbor_override)
+      quanpin["autocorrect_neighbor"] = *autocorrect_neighbor_override;
     if (frequency_mode_override)
       preferences["frequency"]["mode"] = *frequency_mode_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
@@ -1086,8 +1094,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").at("mixed_input").value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       configured.at("preferences").at("mixed_input").value("kaomoji", false));
-  const bool autocorrect = s.autocorrect_override.value_or(
-      configured.at("preferences").value("autocorrect", true));
+  const auto quanpin_preferences = configured.at("preferences").value(
+      "quanpin", Json::object());
+  const bool autocorrect_transposition = s.autocorrect_transposition_override.value_or(
+      quanpin_preferences.value("autocorrect_transposition",
+          configured.at("preferences").value("autocorrect", true)));
+  const bool autocorrect_neighbor = s.autocorrect_neighbor_override.value_or(
+      quanpin_preferences.value("autocorrect_neighbor",
+          configured.at("preferences").value("autocorrect", true)));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
   const bool nine_key = active_scheme == "quanpin" &&
@@ -1197,12 +1211,18 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto autocorrect_property = ibus_property_new(
-      "Autocorrect", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("拼音自动纠错"), "",
-      ibus_text_new_from_static_string("启用拼音输入自动纠错"),
+  auto autocorrect_transposition_property = ibus_property_new(
+      "AutocorrectTransposition", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("拼音错位纠错"), "",
+      ibus_text_new_from_static_string("纠正拼音字母顺序错位"),
       s.focused && !s.blocked && s.input_enabled, TRUE,
-      autocorrect ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+      autocorrect_transposition ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto autocorrect_neighbor_property = ibus_property_new(
+      "AutocorrectNeighbor", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("拼音邻键纠错"), "",
+      ibus_text_new_from_static_string("纠正相邻键误触"),
+      s.focused && !s.blocked && s.input_enabled, TRUE,
+      autocorrect_neighbor ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
       "Helpcode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("辅助码"), "",
@@ -1512,7 +1532,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, english_mode);
-    ibus_prop_list_append(properties, autocorrect_property);
+    ibus_prop_list_append(properties, autocorrect_transposition_property);
+    ibus_prop_list_append(properties, autocorrect_neighbor_property);
     ibus_prop_list_append(properties, helpcode_property);
     ibus_prop_list_append(properties, helpcode_schema);
     ibus_prop_list_append(properties, emoji);
@@ -1547,7 +1568,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, english_mode);
-    ibus_engine_update_property(engine, autocorrect_property);
+    ibus_engine_update_property(engine, autocorrect_transposition_property);
+    ibus_engine_update_property(engine, autocorrect_neighbor_property);
     ibus_engine_update_property(engine, helpcode_property);
     ibus_engine_update_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, emoji);
@@ -2199,7 +2221,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "TraditionalOutput" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EnglishMode" &&
-       std::string(name) != "Autocorrect" &&
+       std::string(name) != "AutocorrectTransposition" &&
+       std::string(name) != "AutocorrectNeighbor" &&
        std::string(name) != "Helpcode" &&
        property_name.rfind("HelpcodeSchema/", 0) != 0 &&
        std::string(name) != "EmojiCandidates" &&
@@ -2570,15 +2593,21 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       return;
     }
-    if (std::string(name) == "Autocorrect") {
+    if (std::string(name) == "AutocorrectTransposition" ||
+        std::string(name) == "AutocorrectNeighbor") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      if (s.autocorrect_override.value_or(
-              configured.at("preferences").value("autocorrect", true)) == enabled)
+      const bool transposition = std::string(name) == "AutocorrectTransposition";
+      const auto key = transposition ? "autocorrect_transposition" : "autocorrect_neighbor";
+      const auto current = configured.at("preferences").value("quanpin", Json::object())
+          .value(key, configured.at("preferences").value("autocorrect", true));
+      auto &setting_override = transposition ? s.autocorrect_transposition_override
+                                             : s.autocorrect_neighbor_override;
+      if (setting_override.value_or(current) == enabled)
         return;
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
-      s.autocorrect_override = enabled;
+      setting_override = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));

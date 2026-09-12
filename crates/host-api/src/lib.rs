@@ -94,7 +94,9 @@ impl HostSession {
         options.scheme = scheme_code(snapshot.preferences.scheme);
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.learning = snapshot.preferences.learning;
-        options.autocorrect = snapshot.preferences.autocorrect;
+        options.autocorrect_transposition =
+            snapshot.preferences.quanpin_autocorrect_transposition();
+        options.autocorrect_neighbor = snapshot.preferences.quanpin_autocorrect_neighbor();
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
         options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
@@ -268,7 +270,8 @@ impl HostOptions {
             scheme: scheme_code(self.preferences.scheme),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             learning: self.preferences.learning,
-            autocorrect: self.preferences.autocorrect,
+            autocorrect_transposition: self.preferences.quanpin_autocorrect_transposition(),
+            autocorrect_neighbor: self.preferences.quanpin_autocorrect_neighbor(),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -747,7 +750,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             scheme: scheme_code(options.preferences.scheme),
             shuangpin_profile: profile_code(options.preferences.shuangpin_profile),
             learning: options.preferences.learning,
-            autocorrect: options.preferences.autocorrect,
+            autocorrect_transposition: options.preferences.quanpin_autocorrect_transposition(),
+            autocorrect_neighbor: options.preferences.quanpin_autocorrect_neighbor(),
             frequency_mode: options.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: options.preferences.frequency.trigger_count,
             frequency_linear_step: options.preferences.frequency.linear_step,
@@ -2214,14 +2218,23 @@ mod tests {
         };
         assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
         assert_eq!(read(msime_client_view(handle))["value"], before);
-        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.autocorrect));
+        SESSIONS.with(|sessions| {
+            assert!(sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
+        });
         read(msime_client_command(handle, 3));
-        SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.autocorrect));
+        SESSIONS.with(|sessions| {
+            assert!(!sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(!sessions.borrow()[&handle].options.autocorrect_neighbor);
+        });
         assert_eq!(
             update(handle, 2, &Preferences::default())["value"]["deferred"],
             false
         );
-        SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.autocorrect));
+        SESSIONS.with(|sessions| {
+            assert!(sessions.borrow()[&handle].options.autocorrect_transposition);
+            assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
+        });
         read(msime_client_destroy(handle));
     }
 

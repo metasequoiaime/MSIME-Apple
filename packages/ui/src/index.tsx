@@ -125,6 +125,10 @@ export type Preferences = {
   candidate_skin?: string;
   learning: boolean;
   autocorrect?: boolean;
+  quanpin?: {
+    autocorrect_transposition?: boolean;
+    autocorrect_neighbor?: boolean;
+  };
   quanpin_helpcode?: HelpcodePreferences;
   shuangpin_helpcode?: HelpcodePreferences;
   chinese_punctuation: boolean;
@@ -528,6 +532,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const localModes = draft?.local_modes ?? defaultLocalModes;
+  const quanpinAutocorrect = {
+    autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
+    autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? draft?.autocorrect ?? true,
+  };
   const clipboardHistory = draft?.clipboard_history ?? false;
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
@@ -771,7 +779,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>
           </div>
         </div>
-        <div className="section"><label className="section-header"><span className="section-title">全拼纠错<small>自动纠正常见拼音输入错误</small></span><input className="toggle" type="checkbox" checked={draft.autocorrect ?? true} onChange={event => setDraft({ ...draft, autocorrect: event.target.checked })} /></label></div>
+        <div className="section" role="group" aria-label="全拼纠错">
+          <div className="section-title">全拼纠错<small>分别控制字母错位和邻键误触的拼音纠错</small></div>
+          <label className="section-header"><span className="section-title">字母顺序错位<small>例如把 shang 输入为 sahng</small></span><input aria-label="全拼纠错：字母顺序错位" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_transposition} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_transposition: event.target.checked } })} /></label>
+          <div className="input-option-divider" />
+          <label className="section-header"><span className="section-title">相邻键误触<small>例如把 shang 输入为 shabg</small></span><input aria-label="全拼纠错：相邻键误触" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_neighbor} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_neighbor: event.target.checked } })} /></label>
+        </div>
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>

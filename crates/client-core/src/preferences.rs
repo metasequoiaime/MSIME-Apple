@@ -140,7 +140,11 @@ pub struct Preferences {
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
+    /// Legacy all-types switch retained for older snapshots. New callers should
+    /// use `quanpin.autocorrect_transposition` and `quanpin.autocorrect_neighbor`.
     pub autocorrect: bool,
+    #[serde(default, skip_serializing_if = "QuanpinPreferences::is_empty")]
+    pub quanpin: QuanpinPreferences,
     #[serde(default)]
     pub quanpin_helpcode: HelpcodePreferences,
     #[serde(default)]
@@ -663,6 +667,7 @@ impl Default for Preferences {
             candidate_fallback_fonts: Vec::new(),
             learning: true,
             autocorrect: true,
+            quanpin: QuanpinPreferences::default(),
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             traditional_chinese_output: false,
@@ -682,6 +687,22 @@ impl Default for Preferences {
             candidate_translations: true,
             translation_target_language: TranslationTargetLanguage::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct QuanpinPreferences {
+    /// Optional keeps legacy snapshots distinguishable from an explicit value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autocorrect_transposition: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autocorrect_neighbor: Option<bool>,
+}
+
+impl QuanpinPreferences {
+    fn is_empty(&self) -> bool {
+        self.autocorrect_transposition.is_none() && self.autocorrect_neighbor.is_none()
     }
 }
 
@@ -740,6 +761,16 @@ impl Default for HelpcodePreferences {
 }
 
 impl Preferences {
+    pub fn quanpin_autocorrect_transposition(&self) -> bool {
+        self.quanpin
+            .autocorrect_transposition
+            .unwrap_or(self.autocorrect)
+    }
+
+    pub fn quanpin_autocorrect_neighbor(&self) -> bool {
+        self.quanpin.autocorrect_neighbor.unwrap_or(self.autocorrect)
+    }
+
     pub fn active_helpcode(&self) -> HelpcodePreferences {
         match self.scheme {
             InputScheme::Shuangpin => self.shuangpin_helpcode,
