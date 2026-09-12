@@ -1087,9 +1087,11 @@ fn send_panel_voice_text(
     text: &str,
     commit_mode: &str,
 ) -> Result<(), HostActionError> {
-    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
-        code: "invalid_text",
-    })?;
+    if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control) {
+        return Err(HostActionError {
+            code: "invalid_text",
+        });
+    }
     let target = state
         .0
         .lock()

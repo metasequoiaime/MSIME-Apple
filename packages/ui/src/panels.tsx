@@ -304,7 +304,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
       <label className="voice-panel-language">识别语言<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></select></label>
       <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
-      <textarea aria-label="识别结果" value={text} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
+      <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
       <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
       <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
