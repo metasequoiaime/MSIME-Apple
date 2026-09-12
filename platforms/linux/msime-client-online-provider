@@ -19,6 +19,8 @@ import time
 import urllib.parse
 import urllib.request
 
+from msime_provider_runtime import claim_socket
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -329,12 +331,23 @@ def main():
                 raise ValueError()
         except Exception:
             parser.error("Tencent configuration must be valid owner-only JSON")
-    parent = args.socket.parent.stat()
-    if not args.socket.is_absolute() or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
+    try:
+        parent = args.socket.parent.stat()
+        if (not args.socket.is_absolute() or parent.st_uid != os.getuid() or
+                parent.st_mode & 0o077 or not stat.S_ISDIR(parent.st_mode)):
+            raise ValueError()
+    except (OSError, ValueError):
         parser.error("socket requires an absolute path in an owner-only directory")
     os.umask(0o077)
-    # Bind fails on an existing socket: never unlink another running service.
-    server = Server(str(args.socket), Handler)
+    try:
+        service_lock = claim_socket(args.socket)
+    except (OSError, ValueError):
+        parser.error("online service is already running or its socket cannot be recovered")
+    try:
+        server = Server(str(args.socket), Handler)
+    except Exception:
+        os.close(service_lock)
+        raise
     server.ai_config = config
     server.tencent_config = tencent_config
     server.translation_cache = {}
@@ -355,6 +368,8 @@ def main():
                 args.socket.unlink()
         except FileNotFoundError:
             pass
+        finally:
+            os.close(service_lock)
 
 
 if __name__ == "__main__":
