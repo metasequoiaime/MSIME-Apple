@@ -1044,6 +1044,8 @@ std::optional<guint> candidate_number_color(const Json &preferences) {
 std::optional<guint> candidate_background_color(const Json &preferences) {
   if (const auto custom = palette_color(preferences.value("candidate_background_color", Json(nullptr))))
     return custom;
+  if (const auto custom = palette_color(preferences.value("candidate_surface_color", Json(nullptr))))
+    return custom;
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";
