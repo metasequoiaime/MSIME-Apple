@@ -1887,6 +1887,7 @@ static void TestCloudCandidatePreference() {
 
 @interface GlossSession : ShortcutSession
 @property(nonatomic) NSUInteger applications;
+@property(nonatomic) NSUInteger clears;
 @property(nonatomic) BOOL enabled;
 @end
 @implementation GlossSession
@@ -1894,8 +1895,8 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)viewWithError:(NSError **)error { (void)error; return @{@"generation":@1, @"candidates":@[@{@"text":@"hello", @"source":@4}]}; }
 - (NSDictionary *)hostOptions { return @{@"resources":@"/synthetic"}; }
 - (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert(NSThread.isMainThread && generation == 1 && translations.count == 1);
-    ++self.applications;
+    (void)error; assert(NSThread.isMainThread && generation == 1 && translations.count <= 1);
+    if (translations.count) ++self.applications; else ++self.clears;
     return @{@"applied":@YES, @"view":[self viewWithError:nil]};
 }
 @end
@@ -1941,6 +1942,65 @@ static void TestGlossScheduling() {
     [controller cancelCandidateGloss];
 }
 
+static void TestCandidateTranslationPreference() {
+    NSString *suite = [@"msime.gloss.preference." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(candidateTranslationsChanged:));
+    assert(prefs.candidateTranslations && toggle.state == NSControlStateValueOn);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"candidate_translations"]);
+    assert([[prefs sharedPreferencesByMerging:@{@"candidate_translations":@NO}][@"candidate_translations"] isEqual:@NO]);
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    [prefs applySharedInputPreferences:@{@"candidate_translations":@NO}];
+    assert(!prefs.candidateTranslations && toggle.state == NSControlStateValueOff && saves == 0);
+    for (id invalid in @[NSNull.null, @1, @"true"]) [prefs applySharedInputPreferences:@{@"candidate_translations":invalid}];
+    assert(!prefs.candidateTranslations && saves == 0 && ![defaults objectForKey:@"MSIMEClientCandidateTranslations"]);
+    toggle.state = NSControlStateValueOn;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(prefs.candidateTranslations && saves == 1);
+    GlossController *controller = [GlossController alloc];
+    controller.started = dispatch_semaphore_create(0);
+    controller.released = dispatch_semaphore_create(0);
+    GlossSession *session = [GlossSession new]; session.enabled = YES;
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCandidateGloss];
+    assert(dispatch_semaphore_wait(controller.started, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    toggle.state = NSControlStateValueOff;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(![controller currentGlossRequest] && saves == 2);
+    [controller appearanceChanged:nil];
+    assert(session.clears == 1);
+    dispatch_semaphore_signal(controller.released);
+    [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    assert(session.applications == 0);
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] candidateTranslations]);
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSDictionary *merged = [prefs sharedPreferencesByMerging:snapshot[@"preferences"]];
+    assert([merged[@"candidate_translations"] isEqual:@NO]);
+    assert([merged[@"custom_translation"] isEqual:snapshot[@"preferences"][@"custom_translation"]]);
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":merged} error:&error];
+    assert(saved && !error);
+    NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(loaded && !error && [loaded[@"preferences"][@"candidate_translations"] isEqual:@NO]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+    MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(fresh.candidateTranslations);
+    [fresh applySharedInputPreferences:loaded[@"preferences"]];
+    assert(!fresh.candidateTranslations);
+    [prefs.window close];
+    [controller cancelCandidateGloss];
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+}
+
 int main() {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
@@ -1951,6 +2011,7 @@ int main() {
         TestCloudCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();
+        TestCandidateTranslationPreference();
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();

@@ -223,7 +223,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _glossRequest = nil;
 }
 - (NSDictionary *)currentGlossRequest {
-    if (!_activeClient || !_session || _focusPending || _appearance.englishMode || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
+        (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
     if (!query) return nil;
     NSDictionary *view = [_session viewWithError:nil];
@@ -323,6 +324,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
+    if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
+    if (_appearance && !_appearance.candidateTranslations) {
+        [self cancelCandidateGloss];
+        NSDictionary *view = [_session viewWithError:nil];
+        if (view) {
+            NSDictionary *cleared = [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+            if (cleared[@"view"]) _view = cleared[@"view"];
+        }
+    }
     if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
