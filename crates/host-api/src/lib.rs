@@ -63,6 +63,8 @@ struct HostSession {
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     punctuation_override: Option<bool>,
+    paired_punctuation_override: Option<bool>,
+    punctuation_lock_override: Option<u8>,
     english_mode: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
@@ -111,6 +113,16 @@ impl HostSession {
         if let Some(enabled) = self.punctuation_override {
             engine
                 .set_chinese_punctuation_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+        }
+        if let Some(enabled) = self.paired_punctuation_override {
+            engine
+                .set_paired_punctuation_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+        }
+        if let Some(lock) = self.punctuation_lock_override {
+            engine
+                .set_punctuation_lock(lock)
                 .map_err(|e| e.to_string())?;
         }
         let layout_changed =
@@ -634,6 +646,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     applied,
                     requested: None,
                     punctuation_override: None,
+                    paired_punctuation_override: None,
+                    punctuation_lock_override: None,
                     english_mode: default_english,
                     page_size_override: None,
                     nine_key_override: None,
@@ -786,6 +800,7 @@ pub extern "C" fn msime_client_set_paired_punctuation(handle: u64, enabled: bool
                 .runtime
                 .set_paired_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
+            session.paired_punctuation_override = Some(enabled);
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
@@ -799,6 +814,7 @@ pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *m
                 .runtime
                 .set_punctuation_lock(lock)
                 .map_err(|e| e.to_string())?;
+            session.punctuation_lock_override = Some(lock);
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
