@@ -1263,6 +1263,27 @@ int main() {
                 session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
                 assert([controller handleEvent:event client:client]);
                 assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
+                for (NSString *field in @[@"session", @"generation", @"index"]) {
+                    for (id invalid in @[@(-1), @YES, @1.5, @"8", NSNull.null, @"missing"]) {
+                        NSMutableDictionary *badID = [@{@"session": @71, @"generation": @72, @"index": @8} mutableCopy];
+                        badID[field] = invalid;
+                        if ([invalid isEqual:@"missing"]) [badID removeObjectForKey:field];
+                        NSMutableDictionary *badView = [edgeView mutableCopy];
+                        badView[@"candidates"] = @[@{@"text": @"合成", @"highlighted": @YES, @"id": badID}];
+                        [controller setValue:badView forKey:@"view"];
+                        layoutPanel.requestedVisible = YES;
+                        NSUInteger before = session.edgeCalls;
+                        assert([controller handleEvent:event client:client] && session.edgeCalls == before);
+                    }
+                }
+                for (NSString *field in @[@"session", @"generation", @"focused"]) {
+                    NSMutableDictionary *staleView = [edgeView mutableCopy];
+                    staleView[field] = [field isEqual:@"focused"] ? @NO : @99;
+                    [controller setValue:staleView forKey:@"view"];
+                    layoutPanel.requestedVisible = YES;
+                    NSUInteger before = session.edgeCalls;
+                    assert([controller handleEvent:event client:client] && session.edgeCalls == before);
+                }
             }
             [appearance setWordCharacterEnabled:NO keys:keys];
         }
