@@ -522,7 +522,7 @@ test("appearance preview follows drafts, skin selection and reload without savin
 test("appearance preview identifies external skins instead of showing a false built-in match", async () => {
   render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, candidate_skin: "external.sample" } }), save: vi.fn() }} />);
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
-  expect(preview.textContent).toContain("此处暂不预览外部皮肤");
+  expect(preview.textContent).toContain("当前宿主不支持扫描外部皮肤");
   expect(preview.querySelector(".candidate")).toBeNull();
 });
 
