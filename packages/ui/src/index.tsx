@@ -40,6 +40,14 @@ const defaultKeybindings: KeybindingPreferences = {
   switch_language_ctrl_alt_space: true,
   toggle_character_set_ctrl_shift_f: true,
 };
+export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[] };
+const defaultFuzzyPinyin: FuzzyPinyinPreferences = { enabled: false, rules: [] };
+const fuzzyPinyinGroups: [string, [string, string][]][] = [
+  ["平翘舌", [["z-zh", "z ↔ zh"], ["c-ch", "c ↔ ch"], ["s-sh", "s ↔ sh"]]],
+  ["声母", [["n-l", "n ↔ l"], ["f-h", "f ↔ h"], ["r-l", "r ↔ l"]]],
+  ["前后鼻音", [["an-ang", "an ↔ ang"], ["en-eng", "en ↔ eng"], ["in-ing", "in ↔ ing"]]],
+  ["其他韵母", [["ian-iang", "ian ↔ iang"], ["uan-uang", "uan ↔ uang"]]],
+];
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
@@ -83,6 +91,7 @@ function isLinuxDesktop(): boolean {
 
 export type ThemeMode = "dark" | "light" | "system";
 export type SurfaceTheme = "follow" | "dark" | "light";
+export { useCandidatePreviewTheme } from "./candidate-preview-theme";
 
 function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
   if (surface !== "follow") return surface;
@@ -97,6 +106,8 @@ export type Preferences = {
   candidate_theme?: SurfaceTheme;
   toolbar_theme?: SurfaceTheme;
   screen_keyboard_theme?: SurfaceTheme;
+  handwriting_theme?: SurfaceTheme;
+  voice_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   voice_input?: VoiceInputPreferences;
@@ -107,6 +118,7 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
+  fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
@@ -312,6 +324,8 @@ export interface SettingsClient {
     copy?(text: string): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
+  /** Android exposes the Apple-parity fuzzy-pinyin settings; desktop hosts keep this absent. */
+  fuzzyPinyin?: boolean;
 }
 
 function message(error: unknown): string {
@@ -587,6 +601,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const keybindings = draft?.keybindings ?? defaultKeybindings;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
+  const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
@@ -717,6 +732,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">手写面板主题<small>覆盖手写识别板的明暗外观</small></span><select aria-label="手写面板主题" value={draft.handwriting_theme ?? "follow"} onChange={event => setDraft({ ...draft, handwriting_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} />
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -862,6 +879,29 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">相邻键误触<small>例如把 shang 输入为 shabg</small></span><input aria-label="全拼纠错：相邻键误触" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_neighbor} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_neighbor: event.target.checked } })} /></label>
         </div>
+        {client.fuzzyPinyin && <div className="section" role="group" aria-label="模糊音">
+          <label className="section-header"><span className="section-title">模糊音<small>全拼、九键与双拼均支持；更改会在当前输入结束后生效</small></span>
+            <input aria-label="启用模糊音" className="toggle" type="checkbox" checked={fuzzyPinyin.enabled} onChange={event => setDraft({
+              ...draft, fuzzy_pinyin: { ...fuzzyPinyin, enabled: event.target.checked },
+            })} />
+          </label>
+          <p className="input-setting-description">勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。</p>
+          {fuzzyPinyinGroups.map(([title, rules]) => <div key={title} className="fuzzy-pinyin-group">
+            <div className="section-title">{title}</div>
+            <div className="input-option-content">{rules.map(([id, label], index) => <div className="input-option-item" key={id}>
+              {index > 0 && <div className="input-option-divider" />}
+              <label className="check-option"><input aria-label={`模糊音规则 ${id}`} type="checkbox" disabled={!fuzzyPinyin.enabled}
+                checked={fuzzyPinyin.rules.includes(id)} onChange={event => {
+                  const selected = new Set(fuzzyPinyin.rules);
+                  if (event.target.checked) selected.add(id); else selected.delete(id);
+                  setDraft({ ...draft, fuzzy_pinyin: { ...fuzzyPinyin, rules: [...selected].sort() } });
+                }} /><span>{label}</span></label>
+            </div>)}</div>
+          </div>)}
+          <button type="button" className="secondary fuzzy-pinyin-reset" onClick={() => {
+            if (window.confirm("关闭模糊音并清空所有规则？")) setDraft({ ...draft, fuzzy_pinyin: { enabled: false, rules: [] } });
+          }}>重置模糊音配置</button>
+        </div>}
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>
@@ -1019,7 +1059,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
-        <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；macOS 原生屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；桌面屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section" role="group" aria-labelledby="touch-keyboard-spacing-title">
           <div className="section-title" id="touch-keyboard-spacing-title">触屏键盘间距<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>

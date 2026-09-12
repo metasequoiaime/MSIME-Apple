@@ -23,6 +23,29 @@ test("titlebar sits above the shared sidebar and content body", async () => {
   expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
 });
 
+test("Android fuzzy-pinyin settings preserve rules while disabled and reset explicitly", async () => {
+  const save = vi.fn().mockResolvedValue(initial);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const enabled = screen.getByRole("checkbox", { name: "启用模糊音" }) as HTMLInputElement;
+  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
+  expect(enabled.checked).toBe(false);
+  expect(rule.disabled).toBe(true);
+  fireEvent.click(enabled);
+  fireEvent.click(rule);
+  expect(rule.checked).toBe(true);
+  fireEvent.click(enabled);
+  expect(rule.checked).toBe(true);
+  expect(rule.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
+  expect(confirm).toHaveBeenCalledWith("关闭模糊音并清空所有规则？");
+  expect(enabled.checked).toBe(false);
+  expect(rule.checked).toBe(false);
+  confirm.mockRestore();
+});
+
 test("window SVGs follow host state and retain accessible controls", async () => {
   let publish: (maximized: boolean) => void = () => {};
   const windowControl = vi.fn().mockResolvedValue(undefined);
@@ -1046,7 +1069,7 @@ test("native panel views support close, modifier, drawing and undo interactions"
 
   const panel = render(<HandwritingPanel client={{ close }} />);
   const canvas = screen.getByLabelText("手写画布");
-  fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
   fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
   fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
   expect(screen.getByRole("status").textContent).toContain("识别结果");
@@ -1275,4 +1298,29 @@ test("category navigation preserves one draft and saves edits across pages", asy
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: true } });
   expect(client.load).toHaveBeenCalledTimes(1);
+});
+
+
+test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ignores delayed recognition after %s", async action => {
+  let resolve!: (result: { candidates: string[] }) => void;
+  const recognizeHandwriting = vi.fn(() => new Promise<{ candidates: string[] }>(done => { resolve = done; }));
+  const client = { close: vi.fn().mockResolvedValue(undefined), recognizeHandwriting };
+  const panel = render(<HandwritingPanel client={client} />);
+  const canvas = screen.getByLabelText("手写画布");
+  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
+  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+  fireEvent.pointerUp(canvas, { pointerId: 1 });
+  expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
+  if (action === "undo") fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+  if (action === "clear") fireEvent.click(screen.getByRole("button", { name: /重写/ }));
+  if (action === "next stroke") fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 30, clientY: 30, pointerId: 2 });
+  if (action === "host replacement") panel.rerender(<HandwritingPanel client={{ close: client.close }} />);
+  await act(async () => resolve({ candidates: ["fixture-stale"] }));
+  expect(screen.queryByRole("button", { name: "fixture-stale" })).toBeNull();
+  if (action === "next stroke") {
+    fireEvent.pointerMove(canvas, { clientX: 90, clientY: 90, pointerId: 2 });
+    fireEvent.pointerUp(canvas, { pointerId: 2 });
+    await act(async () => resolve({ candidates: ["fixture-current"] }));
+    expect(screen.getByRole("button", { name: "fixture-current" })).toBeDefined();
+  }
 });

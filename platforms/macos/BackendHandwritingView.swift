@@ -27,14 +27,15 @@ private struct MacInkCanvas: NSViewRepresentable {
     private var active: [CGPoint] = []
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-      NSColor.white.setFill(); dirtyRect.fill()
+      let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+      (dark ? NSColor(calibratedWhite: 0.145, alpha: 1) : .white).setFill(); dirtyRect.fill()
       if strokes.isEmpty && active.isEmpty {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor]
         let text = NSString(string: "请在这里书写")
         let size = text.size(withAttributes: attributes)
         text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2), withAttributes: attributes)
       }
-      NSColor.black.setStroke()
+      (dark ? NSColor(calibratedWhite: 0.96, alpha: 1) : .black).setStroke()
       for stroke in strokes + (active.isEmpty ? [] : [MacInkStroke(points: active)]) {
         guard stroke.points.count > 1 else { continue }
         let path = NSBezierPath(); path.lineWidth = 3; path.lineCapStyle = .round

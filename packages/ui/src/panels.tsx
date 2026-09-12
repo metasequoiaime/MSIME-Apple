@@ -213,14 +213,23 @@ function pointFromEvent(event: PointerEvent<SVGSVGElement>): Point {
   return { x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)), y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)) };
 }
 
-export function HandwritingPanel({ client }: { client: PanelClient }) {
+export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
   const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [drawing, setDrawing] = useState<Point[]>([]);
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const recognitionRevision = useRef(0);
+  const activeStroke = useRef<{ pointerId: number; canvas: SVGSVGElement; points: Point[] } | null>(null);
+  function releaseStroke() {
+    const active = activeStroke.current;
+    activeStroke.current = null;
+    if (active?.canvas.hasPointerCapture?.(active.pointerId)) active.canvas.releasePointerCapture(active.pointerId);
+  }
+  useEffect(() => () => { recognitionRevision.current++; releaseStroke(); }, [client]);
   async function recognize(nextStrokes: InkStroke[]) {
     const revision = ++recognitionRevision.current;
+    setCandidates([]);
+    setNotice("正在识别…");
     if (!client.recognizeHandwriting) { setCandidates([]); setNotice("识别结果需由宿主提供"); return; }
     try {
       const result = await client.recognizeHandwriting({ language: "zh-CN", strokes: nextStrokes });
@@ -229,38 +238,70 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
       setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
     } catch { if (revision === recognitionRevision.current) { setCandidates([]); setNotice("手写识别失败，请确认识别服务已启动"); } }
   }
-  function start(event: PointerEvent<SVGSVGElement>) { event.currentTarget.setPointerCapture?.(event.pointerId); setDrawing([pointFromEvent(event)]); }
-  function move(event: PointerEvent<SVGSVGElement>) {
-    if (!drawing.length) return;
-    const nextPoint = pointFromEvent(event);
-    setDrawing(current => [...current, nextPoint]);
+  function start(event: PointerEvent<SVGSVGElement>) {
+    if (activeStroke.current || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+    recognitionRevision.current++;
+    setCandidates([]);
+    setNotice("书写中，松开后自动识别");
+    const points = [pointFromEvent(event)];
+    activeStroke.current = { pointerId: event.pointerId, canvas: event.currentTarget, points };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDrawing(points);
   }
-  function end() {
-    if (!drawing.length) return;
-    const nextStrokes = [...strokes, { points: drawing }];
-    setStrokes(nextStrokes); setDrawing([]); void recognize(nextStrokes);
+  function move(event: PointerEvent<SVGSVGElement>) {
+    const active = activeStroke.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    active.points = [...active.points, pointFromEvent(event)];
+    setDrawing(active.points);
+  }
+  function recognizeRemaining(nextStrokes: InkStroke[]) {
+    setCandidates([]);
+    if (!nextStrokes.length) setNotice("请在左侧书写，松开鼠标后自动识别");
+    else void recognize(nextStrokes);
+  }
+  function end(event: PointerEvent<SVGSVGElement>) {
+    const active = activeStroke.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const point = pointFromEvent(event);
+    const last = active.points[active.points.length - 1];
+    if (Number.isFinite(point.x) && Number.isFinite(point.y) && (point.x !== last.x || point.y !== last.y)) active.points = [...active.points, point];
+    const nextStrokes = active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
+    releaseStroke();
+    setStrokes(nextStrokes);
+    setDrawing([]);
+    recognizeRemaining(nextStrokes);
+  }
+  function cancel(event: PointerEvent<SVGSVGElement>) {
+    if (!activeStroke.current || activeStroke.current.pointerId !== event.pointerId) return;
+    recognitionRevision.current++;
+    releaseStroke();
+    setDrawing([]);
+    recognizeRemaining(strokes);
   }
   function undo() {
+    recognitionRevision.current++;
+    releaseStroke();
+    setDrawing([]);
     const nextStrokes = strokes.slice(0, -1);
-    setStrokes(nextStrokes); setCandidates([]);
-    if (!nextStrokes.length) setNotice("请在左侧书写，松开鼠标后自动识别"); else void recognize(nextStrokes);
+    setStrokes(nextStrokes);
+    recognizeRemaining(nextStrokes);
   }
-  function clear() { recognitionRevision.current++; setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
+  function clear() { recognitionRevision.current++; releaseStroke(); setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
   function chooseCandidate(candidate: string) {
     if (!client.submitHandwritingCandidate) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
     void client.submitHandwritingCandidate(candidate).then(() => setNotice(`已提交：${candidate}`)).catch(() => setNotice(`提交失败：${candidate}`));
   }
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
-  return <main className="native-panel handwriting-panel" aria-label="手写识别板">
+  return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header"><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
-      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
+      <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
       <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} onClick={() => chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
 }
 
-export function VoicePanel({ client }: { client: VoicePanelClient }) {
+export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -359,7 +400,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     await client.close();
   }
 
-  return <main className="native-panel voice-panel" aria-label="语音输入">
+  return <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
     <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
