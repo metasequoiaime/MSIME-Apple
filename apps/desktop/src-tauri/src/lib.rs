@@ -467,6 +467,7 @@ async fn cloud_clipboard_request(
                         .and_then(|value| value.into_string().ok())
                 })
                 .map(PathBuf::from)
+                .or_else(|| discover_session_provider("cloud-clipboard.sock"))
                 .filter(|path| path.is_absolute())
                 .ok_or(CommandError {
                     code: "unavailable",
@@ -521,6 +522,7 @@ async fn cloud_dictionary_request(
                         .and_then(|value| value.into_string().ok())
                 })
                 .map(PathBuf::from)
+                .or_else(|| discover_session_provider("cloud-dictionary.sock"))
                 .filter(|path| path.is_absolute())
                 .ok_or(CommandError {
                     code: "unavailable",
@@ -1459,9 +1461,18 @@ async fn recognize_handwriting(
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
     #[cfg(unix)]
-    let socket = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_absolute());
+    let socket = match std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET") {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if !path.is_absolute() {
+                return Err(HostActionError {
+                    code: "unavailable",
+                });
+            }
+            Some(path)
+        }
+        None => discover_session_provider("handwriting.sock"),
+    };
     #[cfg(unix)]
     if let Some(path) = socket {
         let candidates = tauri::async_runtime::spawn_blocking(move || {
@@ -1661,6 +1672,20 @@ fn voice_provider_options(document: &Value) -> Value {
     Value::Object(options)
 }
 
+// Resolve on each request so services started after the panel remain discoverable.
+#[cfg(unix)]
+fn discover_session_provider(filename: &str) -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join("msime-client").join(filename))
+        .filter(|path| {
+            path.metadata()
+                .map(|metadata| metadata.file_type().is_socket())
+                .unwrap_or(false)
+        })
+}
+
 #[cfg(unix)]
 fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
     document
@@ -1673,16 +1698,7 @@ fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::pa
                 .map(std::path::PathBuf::from)
                 .filter(|path| path.is_absolute())
         })
-        .or_else(|| {
-            std::env::var_os("XDG_RUNTIME_DIR")
-                .map(std::path::PathBuf::from)
-                .map(|dir| dir.join("msime-client/voice.sock"))
-                .filter(|path| {
-                    path.metadata()
-                        .map(|metadata| metadata.file_type().is_socket())
-                        .unwrap_or(false)
-                })
-        })
+        .or_else(|| discover_session_provider("voice.sock"))
 }
 
 #[tauri::command]
