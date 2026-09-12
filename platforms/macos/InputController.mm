@@ -1202,6 +1202,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (event.type == NSEventTypeKeyDown) { if (!event.isARepeat) [self toggleVoiceInput:nil]; return YES; }
         if (event.type == NSEventTypeKeyUp && _voiceService.active) { [self toggleVoiceInput:nil]; return YES; }
     }
+    BOOL rightAlt = [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+    if (rightAlt && event.keyCode == 61 && (event.modifierFlags & (NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagShift)) == NSEventModifierFlagOption) {
+        if (event.type == NSEventTypeKeyDown) { if (!event.isARepeat) [self toggleVoiceInput:nil]; return YES; }
+        if (event.type == NSEventTypeKeyUp && _voiceService.active) { [self toggleVoiceInput:nil]; return YES; }
+    }
     if (_modifierTap.observe(event, _appearance.shiftTapShortcut, _appearance.controlTapShortcut)) {
         [self setEnglishInputMode:!_appearance.englishMode];
         return YES;
