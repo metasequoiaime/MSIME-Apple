@@ -144,6 +144,8 @@ def stop_watch(process):
         except ProcessLookupError:
             pass
     process.wait()
+    if process.stdout is not None:
+        process.stdout.close()
 
 
 def main():
@@ -186,14 +188,26 @@ def main():
                              str(Path(__file__).resolve()), "--capture-event", str(args.options)],
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, start_new_session=True)
-                    # X11 and compositors without data-control keep bounded polling.
-                    if watcher is None:
+                    x11_watch = Path(__file__).resolve().parent / "msime-client-clipboard-watch-x11"
+                    if (watcher is None and time.monotonic() >= retry_watch and
+                            not os.environ.get("WAYLAND_DISPLAY") and os.environ.get("DISPLAY") and
+                            x11_watch.is_file()):
+                        watcher = subprocess.Popen([str(x11_watch)], stdin=subprocess.DEVNULL,
+                                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                   start_new_session=True)
+                    changed = False
+                    if watcher is not None and watcher.stdout is not None:
+                        if select.select([watcher.stdout], [], [], 0)[0]:
+                            changed = bool(os.read(watcher.stdout.fileno(), 4096))
+                    # Event mode also captures an explicit copy of identical text.
+                    # Systems without a usable watcher retain bounded polling.
+                    if watcher is None or changed:
                         text = clipboard_text()
                         identity = (str(directory), text)
                         # Reading the selection can block while runtime options
                         # or preferences change. Match watch-mode revalidation
                         # before delivering text to the capture process.
-                        if (text is not None and identity != last and
+                        if (text is not None and (changed or identity != last) and
                                 history_directory(args.options) == directory):
                             result = subprocess.run([str(capture), str(directory)], input=text.encode(),
                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -207,7 +221,10 @@ def main():
                 watcher = None
                 retry_watch = time.monotonic() + 30
                 last = None
-            time.sleep(0.75)
+            if watcher is not None and watcher.stdout is not None:
+                select.select([watcher.stdout], [], [], 0.75)
+            else:
+                time.sleep(0.75)
     finally:
         stop_watch(watcher)
 
