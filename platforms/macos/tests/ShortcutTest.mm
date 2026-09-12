@@ -483,6 +483,21 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     appearance.showsCandidatePreedit = YES;
     [controller updateKeymapPanel];
     assert(panel.clearance > hiddenClearance);
+    NSUInteger savedFontSize = appearance.fontSize;
+    BOOL savedVertical = appearance.vertical;
+    NSString *savedFamily = appearance.fontFamily;
+    appearance.fontFamily = @"Helvetica";
+    appearance.fontSize = 32;
+    appearance.vertical = YES;
+    appearance.showsCandidatePreedit = NO;
+    [controller updateKeymapPanel];
+    NSFont *clearanceFont = [appearance candidateFontOfSize:32];
+    CGFloat measuredHeight = ceil([@"合成" sizeWithAttributes:@{NSFontAttributeName:clearanceFont}].height);
+    assert(panel.clearance >= measuredHeight + 12 + 24);
+    appearance.fontSize = savedFontSize;
+    appearance.fontFamily = savedFamily;
+    appearance.vertical = savedVertical;
+    appearance.showsCandidatePreedit = YES;
     for (NSString *display in @[@"b;", @"bing", @""]) {
         NSMutableDictionary *next = [view mutableCopy];
         next[@"preedit"] = display;
@@ -1037,6 +1052,28 @@ int main() {
         pageView[@"page_count"] = @1;
         // The candidate preedit uses Engine display text, independent of candidate font.
         pageView[@"preedit"] = @"ce'shi";
+        [controller setValue:pageView forKey:@"view"];
+        // Fallback text can be taller than the primary family at the same size.
+        appearance.fontFamily = @"Helvetica";
+        appearance.fontSize = 32;
+        appearance.preeditFontSize = 32;
+        appearance.showsCandidatePreedit = YES;
+        NSFont *fallbackFont = [appearance candidateFontOfSize:32];
+        CGFloat fallbackHeight = ceil([@"合😀" sizeWithAttributes:@{NSFontAttributeName:fallbackFont}].height);
+        assert(fallbackHeight > ceil(fallbackFont.ascender - fallbackFont.descender + fallbackFont.leading));
+        NSMutableDictionary *fallbackView = [pageView mutableCopy];
+        fallbackView[@"preedit"] = @"合😀";
+        fallbackView[@"candidates"] = @[@{@"text": @"合😀", @"highlighted": @YES}];
+        for (NSNumber *vertical in @[@NO, @YES]) {
+            appearance.vertical = vertical.boolValue;
+            [controller setValue:fallbackView forKey:@"view"];
+            [controller renderCandidates];
+            for (NSView *child in layoutPanel.contentView.subviews) {
+                if ([child.identifier isEqual:@"candidate-preedit"]) assert(child.frame.size.height >= fallbackHeight + 6);
+                if ([child isKindOfClass:MSIMECandidateButton.class]) assert(child.frame.size.height >= fallbackHeight + 12);
+            }
+        }
+        appearance.fontSize = 18;
         [controller setValue:pageView forKey:@"view"];
         NSString *installedFamily = [NSFont fontWithName:@"Menlo" size:18].familyName;
         assert(installedFamily);

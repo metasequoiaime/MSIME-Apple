@@ -221,6 +221,17 @@ int main(int argc, const char **argv) {
         assert([familyControl.stringValue isEqual:installedFamily]);
         preferences.fontFamily = @"Segoe UI";
         TestFallbackFonts(preferences, defaults);
+        preferences.fontFamily = @"Helvetica";
+        preferences.fontSize = 32;
+        NSFont *fallbackFont = [preferences candidateFontOfSize:32];
+        CGFloat actualHeight = ceil([@"水杉(Ss)" sizeWithAttributes:@{NSFontAttributeName:fallbackFont}].height);
+        assert(actualHeight > ceil(fallbackFont.ascender - fallbackFont.descender + fallbackFont.leading));
+        NSFont *headerFont = [preferences candidateFontOfSize:preferences.preeditFontSize];
+        CGFloat headerHeight = MAX(22.0, MAX(ceil([@"nihao" sizeWithAttributes:@{NSFontAttributeName:headerFont}].height), ceil(headerFont.ascender - headerFont.descender + headerFont.leading)) + 6);
+        CGFloat fallbackPreviewHeight = 10 + 16 + 4 + 6 + headerHeight + 5 * (actualHeight + 8) + 18 + 6 + 14;
+        assert(std::abs(preview.previewContentHeight - fallbackPreviewHeight) < .01);
+        Draw(preview);
+        preferences.fontFamily = @"Segoe UI";
         // Shared updates do not persist or notify; native controls own explicit edits.
         NSUInteger beforeShared = notifications;
         [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": @32, @"candidate_preedit_style": @"empty"}];

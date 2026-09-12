@@ -1,6 +1,7 @@
 // Adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 #import "CandidateSkinPreviewView.h"
 #import "AppearancePreferences.h"
+#import "CandidateTextMetrics.h"
 
 static NSColor *PreviewColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
@@ -8,11 +9,17 @@ static NSColor *PreviewColor(msime::mac::Rgba color) {
 
 namespace
 {
+NSArray<NSString *> *PreviewSamples();
+CGFloat PreviewCandidateHeight(NSFont *font) {
+    CGFloat height = MSIMECandidateTextHeight(@"", font);
+    for (NSString *sample in PreviewSamples()) height = MAX(height, MSIMECandidateTextHeight(sample, font));
+    return height + 8.0;
+}
 CGFloat PreviewPreeditHeight(CGFloat preeditFontSize, MSIMEAppearancePreferences *preferences)
 {
     if (preeditFontSize <= 0) return 0;
     NSFont *font = [preferences candidateFontOfSize:preeditFontSize] ?: [NSFont systemFontOfSize:preeditFontSize];
-    return MAX(22.0, ceil(font.ascender - font.descender + font.leading) + 6.0);
+    return MAX(22.0, MSIMECandidateTextHeight(@"nihao", font) + 6.0);
 }
 
 void DrawSkinChrome(NSRect rect, const msime::mac::SkinTokens &tokens)
@@ -57,7 +64,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
     metrics.top = 10.0;
     metrics.bottom = 14.0;
     metrics.preeditHeight = PreviewPreeditHeight(MAX(11.0, metrics.fontSize - 3.0), preferences);
-    metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
+    metrics.rowHeight = PreviewCandidateHeight(font);
     metrics.decorationHeight = MAX(0.0, decorationTop);
     metrics.horizontalHeight = 6.0 + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + 6.0;
     metrics.verticalHeight = 6.0 + metrics.decorationHeight + metrics.preeditHeight + 4.0 * metrics.rowHeight + 6.0;
@@ -82,7 +89,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     metrics.top = 10.0;
     metrics.bottom = 14.0;
     metrics.preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
-    metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
+    metrics.rowHeight = PreviewCandidateHeight(font);
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const NSInteger visibleRows = panelStyle == 1 ? MIN(MAX(pageSize, (NSInteger)1), (NSInteger)5) : 1;
     const CGFloat footer = (panelStyle == 1 && pageSize > 5) ? 18.0 : 0.0;
@@ -160,7 +167,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     };
     const CGFloat pad = 6.0;
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
-    const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
+    const CGFloat rowHeight = PreviewCandidateHeight(font);
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
     if (preeditFontSize > 0) {
