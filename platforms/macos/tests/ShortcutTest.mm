@@ -29,7 +29,7 @@ static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL
 
 static void CheckMenu(NSMenu *menu, id controller) {
     NSArray<NSString *> *actions = @[
-        @"selectChineseMode:", @"selectEnglishMode:", @"",
+        @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
@@ -58,6 +58,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger selectedIndex;
 @property(nonatomic) NSUInteger maintenanceCalls;
 @property(nonatomic) NSInteger maintenanceAction;
+@property(nonatomic) NSUInteger englishCandidateCalls;
+@property(nonatomic) BOOL dedicatedEnglish;
 @property(nonatomic, copy) NSDictionary *nextTransition;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
@@ -70,6 +72,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
+    (void)error; ++self.englishCandidateCalls; self.dedicatedEnglish = enabled;
+    return @{@"focused":@YES, @"editing_text":@"", @"preedit":@"", @"candidates":@[], @"dedicated_english":@(enabled)};
+}
 - (NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     (void)error; ++self.maintenanceCalls; self.maintenanceAction = 0; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
 }
@@ -634,6 +640,40 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     assert(appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
 }
 
+static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"test", @"candidates":@[]} forKey:@"view"];
+    NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    session.failFinish = YES;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.englishCandidateCalls == 0);
+    session.failFinish = NO;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish && session.englishCandidateCalls == 1 && !appearance.englishMode);
+    assert([client.committed isEqual:@"测试"]);
+    assert([[[controller menu] itemAtIndex:2] state] == NSControlStateValueOn);
+    assert([[[controller menu] itemAtIndex:0] state] == NSControlStateValueOff);
+    assert([controller handleEvent:ModeKey(14, flags, YES) client:client]);
+    assert(session.englishCandidateCalls == 1);
+    [controller selectChineseMode:nil];
+    assert(!session.dedicatedEnglish && !appearance.englishMode);
+    appearance.englishMode = YES;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish && !appearance.englishMode);
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(!session.dedicatedEnglish && !appearance.englishMode);
+    NSUInteger calls = session.englishCandidateCalls;
+    for (NSNumber *extra in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagOption)]) {
+        [controller handleEvent:ModeKey(14, flags | extra.unsignedIntegerValue, NO) client:client];
+        assert(session.englishCandidateCalls == calls);
+    }
+}
+
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.fullWidthInput);
     NSButton *control = (id)PreferenceControl(appearance, @selector(fullWidthChanged:));
@@ -728,7 +768,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert([[menu itemAtIndex:6].title isEqual:@"表情与符号…"]);
+    assert([[menu itemAtIndex:7].title isEqual:@"表情与符号…"]);
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
@@ -1549,7 +1589,7 @@ int main() {
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
         [controller selectTraditionalOutput:nil];
         [controller appearanceChanged:nil];
-        assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
+        assert([controller.menu itemAtIndex:5].state == NSControlStateValueOn);
         assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] traditionalOutput]);
         MSIMECandidateButton *scriptButton = PageButton(layoutPanel.contentView, 0);
         assert([scriptButton.toolTip isEqual:@"漢語"] && [scriptButton.title containsString:@"漢語"]);
@@ -1594,12 +1634,13 @@ int main() {
                             @"view": @{@"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"candidates": @[]}}];
         assert([client.committed isEqual:@"日本国"]);
         [controller selectSimplifiedOutput:nil];
-        assert([controller.menu itemAtIndex:3].state == NSControlStateValueOn);
+        assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
+        TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
         assert(fontMethod);
