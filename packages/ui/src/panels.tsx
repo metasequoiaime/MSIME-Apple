@@ -1178,14 +1178,32 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const clipboardMutation = useRef(false);
   const clipboardGeneration = useRef(0);
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(null);
-  const [notice, setNotice] = useState("点击项目即可复制");
+  const [notice, setNoticeText] = useState("");
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+
+  function setNotice(message: string, temporary = false) {
+    if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+    setNoticeText(message);
+    if (temporary) {
+      noticeTimer.current = setTimeout(() => {
+        noticeTimer.current = null;
+        setNoticeText("");
+      }, 1600);
+    }
+  }
 
   useEffect(() => {
     clipboardMutation.current = false;
     deletedRowFocus.current = null;
     setClipboardBusy(false);
-    return () => { operationRevision.current++; };
+    setNotice("");
+    return () => {
+      operationRevision.current++;
+      if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
+      noticeTimer.current = null;
+    };
   }, [client]);
 
   async function runOperation(action: (revision: number) => Promise<void>, failure: string) {
@@ -1339,7 +1357,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     return runOperation(async revision => {
       await action(text);
       if (revision !== operationRevision.current) return;
-      setNotice(input ? "已输入到原应用" : "已复制到剪贴板");
+      setNotice(input ? "已输入到原应用" : "已复制到剪贴板", true);
       if (!isClipboardItem) setRecent(current => [{ text, keywords }, ...current.filter(item => item.text !== text)].slice(0, 28));
     }, input ? "输入失败，可切换复制后手动粘贴" : "无法访问剪贴板");
   }
@@ -1361,7 +1379,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
           setClipboardEnabled(enabled);
           setClipboardLoadFailed(false);
         }
-        setNotice(message);
+        setNotice(message, true);
       } catch {
         if (revision === operationRevision.current) setNotice(`${message}，但列表刷新失败，请重新打开剪贴板页`);
       }
@@ -1381,7 +1399,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     if (!paste) return;
     return runOperation(async revision => {
       await paste(text);
-      if (revision === operationRevision.current) setNotice("已粘贴到原应用");
+      if (revision === operationRevision.current) setNotice("已粘贴到原应用", true);
     }, "无法粘贴，请使用复制后手动粘贴");
   }
 
@@ -1421,7 +1439,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
-    setNotice("最近使用已清除");
+    setNotice("最近使用已清除", true);
   }
   function closeEmoji() {
     return runOperation(async () => { await client.close(); }, "无法关闭面板，请重试");
@@ -1455,7 +1473,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [clipboard, clipboardBusy, page, query]);
   return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" disabled={clipboardBusy} onClick={() => void closeEmoji()}>×</button></header>
-    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : page === "emoji" ? "Search emojis" : page === "kaomoji" ? "Search kaomoji" : page === "symbols" ? "Search symbols" : page === "home" ? "Search emoji, kaomoji, and symbols" : "Search"} /></div>
+    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => { setQuery(event.target.value); setNotice(""); }} placeholder={page === "clipboard" ? "搜索剪贴板" : page === "emoji" ? "Search emojis" : page === "kaomoji" ? "Search kaomoji" : page === "symbols" ? "Search symbols" : page === "home" ? "Search emoji, kaomoji, and symbols" : "Search"} /></div>
     <nav className="emoji-panel-tabs" aria-label="面板分类">
       {emojiPages.map(item => <button type="button" key={item.id} className={page === item.id ? "active" : ""} aria-label={item.label} aria-pressed={page === item.id} onClick={() => selectPage(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}
     </nav>
@@ -1476,6 +1494,6 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       {displayGroups.map(group => <div className="emoji-panel-group" key={JSON.stringify([group.parent, group.title])}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{group.moreTarget && <button type="button" onClick={() => { setCategories(current => ({ ...current, emoji: "all", symbols: "all" })); selectPage(group.moreTarget!); }}>更多</button>}</div><div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>{group.items.map((item, index) => <button type="button" className="emoji-panel-item" data-emoji-navigation-item disabled={clipboardBusy} key={`${index}-${item.text}`} title={item.keywords} onClick={() => void copy(item.text, false, item.keywords)}>{item.text}</button>)}</div></div>)}
       {!displayGroups.length && <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>}
     </section>}
-    <p className="emoji-panel-notice" role="status">{notice}</p>
+    <p className="emoji-panel-notice" role="status">{notice || (page === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用")}</p>
   </main>;
 }
