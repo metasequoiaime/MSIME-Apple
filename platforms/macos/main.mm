@@ -3,6 +3,7 @@
 #import "InputSourceRegistration.h"
 #import "PreferencesWindowController.h"
 #import "RuntimeOptions.h"
+#import "AppearancePreferences.h"
 #include <cstring>
 #include <dlfcn.h>
 
@@ -36,6 +37,12 @@ int main(int argc, const char *argv[]) {
         }
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:@"MSIMEClientPreviewConnection" bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
+        __attribute__((objc_precise_lifetime)) MSIMEInputSourceMonitor *sourceMonitor =
+            [[MSIMEInputSourceMonitor alloc] initWithCenter:NSDistributedNotificationCenter.defaultCenter
+                bundleIdentifier:NSBundle.mainBundle.bundleIdentifier copySource:TISCopyCurrentKeyboardInputSource
+                propertyGetter:[](TISInputSourceRef source, CFStringRef key) -> void * {
+                    return (void *)TISGetInputSourceProperty(source, key);
+                } switchedAway:^{ [[MSIMEAppearancePreferences sharedPreferences] resetGlobalInputMode]; }];
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
         if ([shared respondsToSelector:@selector(startClipboardCaptureWithOptions:)]) {
@@ -43,6 +50,7 @@ int main(int argc, const char *argv[]) {
         }
         [NSApp run];
         if ([shared respondsToSelector:@selector(stopClipboardCapture)]) [shared performSelector:@selector(stopClipboardCapture)];
+        [sourceMonitor stop];
         (void)server;
     }
     return 0;

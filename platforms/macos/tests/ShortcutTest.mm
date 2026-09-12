@@ -1106,6 +1106,87 @@ static void TestModifierTaps() {
 @implementation ApplicationShortcutClient
 @end
 
+static NSDictionary *monitoredSource;
+static NSUInteger monitoredSourceReads;
+static TISInputSourceRef CopyMonitoredSource() {
+    ++monitoredSourceReads;
+    return monitoredSource ? (TISInputSourceRef)CFBridgingRetain(monitoredSource) : nullptr;
+}
+static void *MonitoredSourceProperty(TISInputSourceRef source, CFStringRef key) {
+    return (__bridge void *)((__bridge NSDictionary *)source)[(__bridge NSString *)key];
+}
+
+static void TestInputSourceModeReset() {
+    NSString *suite = [@"msime.source-reset." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    prefs.englishMode = YES; // Keep an independent per-app choice.
+    prefs.imeModeScope = @"global";
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    prefs.englishMode = YES;
+    NSNotificationCenter *center = [NSNotificationCenter new];
+    NSString *bundleKey = (__bridge NSString *)kTISPropertyBundleID;
+    NSString *sourceKey = (__bridge NSString *)kTISPropertyInputSourceID;
+    NSString *notification = (__bridge NSString *)kTISNotifySelectedKeyboardInputSourceChanged;
+    NSString *own = @"org.example.input-method";
+    __block NSUInteger resets = 0, saves = 0;
+    id saveObserver = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    MSIMEInputSourceMonitor *monitor = [[MSIMEInputSourceMonitor alloc] initWithCenter:center bundleIdentifier:own
+        copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetGlobalInputMode]; }];
+    assert(monitor);
+    for (NSDictionary *source in @[@{}, @{sourceKey:@42}, @{bundleKey:own}, @{sourceKey:own},
+                                   @{sourceKey:[own stringByAppendingString:@".mode"]}]) {
+        monitoredSource = source;
+        [center postNotificationName:notification object:nil];
+        assert(resets == 0 && prefs.englishMode && saves == 0);
+    }
+    monitoredSource = nil;
+    [center postNotificationName:notification object:nil];
+    assert(resets == 0 && prefs.englishMode);
+    for (NSDictionary *source in @[@{bundleKey:@"org.example.other-input"},
+                                   @{sourceKey:@"com.apple.keylayout.US"},
+                                   @{sourceKey:[own stringByAppendingString:@"-other"]}]) {
+        prefs.englishMode = YES;
+        NSUInteger beforeSaves = saves, beforeResets = resets;
+        monitoredSource = source;
+        [center postNotificationName:notification object:nil];
+        assert(resets == beforeResets + 1 && !prefs.englishMode && saves == beforeSaves);
+    }
+    prefs.defaultImeMode = @"english";
+    prefs.englishMode = NO;
+    [center postNotificationName:notification object:nil];
+    assert(prefs.englishMode); // Reset follows the configured default, not hardcoded Chinese.
+    prefs.imeModeScope = @"app";
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    assert(prefs.englishMode); // A source change did not erase the separate app choice.
+    NSUInteger before = resets;
+    // A delayed background notification must re-read the selected source on
+    // the main thread, not reset from an obsolete source captured at receipt.
+    dispatch_semaphore_t posted = dispatch_semaphore_create(0);
+    NSUInteger reads = monitoredSourceReads;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        [center postNotificationName:notification object:nil];
+        dispatch_semaphore_signal(posted);
+    });
+    assert(dispatch_semaphore_wait(posted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    monitoredSource = @{bundleKey:own};
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1];
+    while (monitoredSourceReads == reads && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(monitoredSourceReads > reads && resets == before);
+    monitoredSource = @{sourceKey:@"com.apple.keylayout.US"};
+    [monitor stop];
+    [center postNotificationName:notification object:nil];
+    assert(resets == before);
+    __weak MSIMEInputSourceMonitor *weakMonitor = monitor;
+    monitor = nil;
+    assert(weakMonitor == nil);
+    [NSNotificationCenter.defaultCenter removeObserver:saveObserver];
+    [defaults removePersistentDomainForName:suite];
+    monitoredSource = nil;
+}
+
 static void TestInputModePolicy() {
     NSString *suite = [@"msime.mode-policy." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -2155,6 +2236,7 @@ int main() {
         TestInputMode(defaults, appearance);
         TestControlOptionSpace();
         TestInputModePolicy();
+        TestInputSourceModeReset();
         TestModifierTaps();
         TestStaleClientDeactivation();
         TestFullWidth(defaults, appearance);

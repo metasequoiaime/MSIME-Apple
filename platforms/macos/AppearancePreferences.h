@@ -38,6 +38,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic, copy) NSString *imeModeScope;
 - (void)activateInputModeForApplication:(NSString *)identifier;
 - (void)lockActiveInputMode;
+- (void)resetGlobalInputMode;
 @property(nonatomic) BOOL inputModeShortcut;
 @property(nonatomic) BOOL shiftTapShortcut;
 @property(nonatomic) BOOL controlTapShortcut;
