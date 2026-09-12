@@ -202,6 +202,9 @@ int wmain(int argc, wchar_t **argv) {
     if (!config.candidate_border_color.empty() && config.candidate_border_color != "auto" &&
         config.candidate_border_color != "none")
       resolved_palette.border = parse_css_color(config.candidate_border_color, resolved_palette.border);
+    if (!config.candidate_selected_color.empty() && config.candidate_selected_color != "auto" &&
+        config.candidate_selected_color != "none")
+      resolved_palette.selected = parse_css_color(config.candidate_selected_color, resolved_palette.selected);
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
