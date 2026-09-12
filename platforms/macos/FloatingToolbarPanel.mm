@@ -2,6 +2,7 @@
 #import "CandidateSkinAppearance.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -52,11 +53,11 @@ NSScreen *ScreenContainingMouse()
 }
 } // namespace
 
-NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
+static NSRect SizedToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame, NSSize size)
 {
     constexpr CGFloat kDefaultMargin = 20.0;
     constexpr CGFloat kRestoredMargin = 12.0;
-    proposedFrame.size = NSMakeSize(kToolbarWidth, kToolbarHeight);
+    proposedFrame.size = size;
     if (!hasSavedFrame)
     {
         proposedFrame.origin.x = NSMaxX(visibleFrame) - proposedFrame.size.width - kDefaultMargin;
@@ -68,9 +69,14 @@ NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame
     CGFloat maximumX = NSMaxX(visibleFrame) - proposedFrame.size.width - kRestoredMargin;
     CGFloat minimumY = NSMinY(visibleFrame) + kRestoredMargin;
     CGFloat maximumY = NSMaxY(visibleFrame) - proposedFrame.size.height - kRestoredMargin;
-    proposedFrame.origin.x = std::clamp(proposedFrame.origin.x, minimumX, maximumX);
-    proposedFrame.origin.y = std::clamp(proposedFrame.origin.y, minimumY, maximumY);
+    proposedFrame.origin.x = std::clamp(proposedFrame.origin.x, minimumX, std::max(minimumX, maximumX));
+    proposedFrame.origin.y = std::clamp(proposedFrame.origin.y, minimumY, std::max(minimumY, maximumY));
     return proposedFrame;
+}
+
+NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame)
+{
+    return SizedToolbarFrame(proposedFrame, visibleFrame, hasSavedFrame, NSMakeSize(kToolbarWidth, kToolbarHeight));
 }
 
 NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
@@ -131,7 +137,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:10.0 yRadius:10.0];
+    const CGFloat radius = self.layer.cornerRadius;
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius];
     [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
     [path fill];
     if (self.strokeColor.alphaComponent > 0.01)
@@ -151,6 +158,12 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
     NSButton *_settingsButton;
+    NSStackView *_actions;
+    NSLayoutConstraint *_leadingInset;
+    NSLayoutConstraint *_trailingInset;
+    NSSize _preferredSize;
+    CGFloat _appliedScale;
+    CGFloat _appliedFontSize;
 }
 
 + (instancetype)sharedPanel
@@ -175,6 +188,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     }
 
     self.level = NSStatusWindowLevel;
+    _preferredSize = NSMakeSize(kToolbarWidth, kToolbarHeight);
     self.opaque = NO;
     self.backgroundColor = [NSColor clearColor];
     self.hasShadow = YES;
@@ -215,11 +229,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     actions.alignment = NSLayoutAttributeCenterY;
     actions.distribution = NSStackViewDistributionEqualSpacing;
     actions.spacing = 8.0;
+    _actions = actions;
     [_chrome addSubview:actions];
 
+    _leadingInset = [actions.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor constant:10.0];
+    _trailingInset = [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0];
     [NSLayoutConstraint activateConstraints:@[
-        [actions.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor constant:10.0],
-        [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0],
+        _leadingInset,
+        _trailingInset,
         [actions.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
     ]];
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -237,6 +254,41 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)applySizingPreferences:(NSDictionary *)preferences
+{
+    id toolbar = preferences[@"floating_toolbar"];
+    if (![toolbar isKindOfClass:NSDictionary.class]) toolbar = @{};
+    id scaleValue = toolbar[@"scale_percent"] ?: @100;
+    id fontValue = toolbar[@"font_size"] ?: @24;
+    const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
+    const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
+    if (scale == _appliedScale && fontSize == _appliedFontSize) return;
+    _appliedScale = scale;
+    _appliedFontSize = fontSize;
+    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _settingsButton]) {
+        for (NSLayoutConstraint *constraint in button.constraints) {
+            if (constraint.firstItem != button || constraint.secondItem != nil) continue;
+            if (constraint.firstAttribute == NSLayoutAttributeWidth) constraint.constant = (fontSize + 18.0) * scale;
+            if (constraint.firstAttribute == NSLayoutAttributeHeight) constraint.constant = (fontSize + 8.0) * scale;
+        }
+        button.font = [NSFont systemFontOfSize:fontSize * scale * 0.833 weight:NSFontWeightMedium];
+    }
+    _settingsButton.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale weight:NSFontWeightRegular];
+    _actions.spacing = 8.0 * scale;
+    _leadingInset.constant = 10.0 * scale;
+    _trailingInset.constant = -10.0 * scale;
+    _chrome.layer.cornerRadius = 10.0 * scale;
+    // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
+    _preferredSize = NSMakeSize(std::ceil((kToolbarWidth + 5.0 * (fontSize - 24.0)) * scale), std::ceil((fontSize + 20.0) * scale));
+    NSRect frame = self.frame;
+    frame.size = _preferredSize;
+    NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
+    if (screen) frame = SizedToolbarFrame(frame, screen.visibleFrame, YES, _preferredSize);
+    [self setFrame:frame display:YES];
+    [_chrome layoutSubtreeIfNeeded];
+    [self applySkin];
 }
 
 - (void)applyThemePreferences:(NSDictionary *)preferences
@@ -341,7 +393,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     }
     if (screen != nil)
     {
-        [self setFrame:MetasequoiaFloatingToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame) display:NO];
+        [self setFrame:SizedToolbarFrame(self.frame, screen.visibleFrame, hasSavedFrame, _preferredSize) display:NO];
     }
     [self orderFrontRegardless];
 }
