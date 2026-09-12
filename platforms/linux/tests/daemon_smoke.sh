@@ -13,6 +13,13 @@ cleanup() {
 }
 trap cleanup EXIT
 export IBUS_ADDRESS="unix:path=$test_root/bus"
+# D-Bus activation otherwise inherits the environment from before this fixture
+# created its private IBus socket (notably in the non-root Wayland session).
+activation_environment=(IBUS_ADDRESS)
+for name in XDG_RUNTIME_DIR XDG_CONFIG_HOME XDG_CACHE_HOME DISPLAY WAYLAND_DISPLAY; do
+  if printenv "$name" >/dev/null; then activation_environment+=("$name"); fi
+done
+dbus-update-activation-environment "${activation_environment[@]}"
 ibus-daemon --single --panel disable --config disable --emoji-extension disable --address "$IBUS_ADDRESS" &
 daemon_pid=$!
 for attempt in $(seq 1 100); do

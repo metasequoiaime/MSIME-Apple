@@ -71,3 +71,5 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smok
 
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland --qt6
+
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh /build/ibus/msime-client-ibus /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/portal_smoke.py
