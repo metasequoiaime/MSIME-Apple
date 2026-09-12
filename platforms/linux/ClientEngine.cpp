@@ -3342,6 +3342,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_CANCEL;
       break;
     case IBUS_space:
+      if (s.fullwidth && !has_composition && !candidate_active) {
+        ibus_engine_commit_text(
+            engine, ibus_text_new_from_static_string("\xe3\x80\x80"));
+        handled = true;
+        return;
+      }
       command = MSIME_COMMIT_CANDIDATE;
       break;
     case IBUS_Left:
