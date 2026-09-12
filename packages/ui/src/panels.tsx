@@ -601,12 +601,16 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
 
   useEffect(() => {
     if (!client.clipboard?.list) return;
-    void client.clipboard.list().then(setClipboard).catch(() => setClipboard([]));
+    let active = true;
+    void client.clipboard.list().then(value => { if (active) setClipboard(value); }).catch(() => { if (active) setClipboard([]); });
+    return () => { active = false; };
   }, [client]);
 
   useEffect(() => {
     if (page !== "clipboard" || !client.clipboard?.list) return;
-    void client.clipboard.list().then(setClipboard).catch(() => setClipboard([]));
+    let active = true;
+    void client.clipboard.list().then(value => { if (active) setClipboard(value); }).catch(() => { if (active) setClipboard([]); });
+    return () => { active = false; };
   }, [client, page]);
 
   const groups = page === "emoji" ? catalog.emoji : page === "kaomoji" ? catalog.kaomoji : catalog.symbols;
