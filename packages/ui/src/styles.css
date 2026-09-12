@@ -379,6 +379,35 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .clipboard-panel-item:hover, .clipboard-panel-item:focus-visible { border-color: #d88bde; background: #303038; }
 .emoji-panel-empty { display: flex; min-height: 220px; align-items: center; justify-content: center; margin: 0; color: #aeb0b7; font-size: 14px; text-align: center; }
 .emoji-panel-notice { flex: 0 0 30px; min-height: 30px; margin: 0; padding: 6px 24px; border-top: 1px solid rgba(255, 255, 255, .09); color: #aeb0b7; font-size: 12px; text-align: center; }
+.emoji-panel[data-panel-theme="light"] { background: #f7f8fa; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .native-panel-header { border-bottom-color: #d9dce3; background: #f7f8fa; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .native-panel-header button { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-search { border-color: #c8ccd5; background: #fff; color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-search:focus-within { border-color: #9a62ad; box-shadow: 0 0 0 1px rgba(154, 98, 173, .28); }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-search input { color: #202124; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-search input::placeholder { color: #7a7e87; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-tabs button { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-tabs button:hover,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-tabs button.active { background: #eceef3; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-tabs button.active { box-shadow: inset 0 -3px #9a62ad; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-back button,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-toolbar button,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-group-title button { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-back button:hover,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-toolbar button:hover,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-group-title button:hover { background: #eceef3; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-group-title h2,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-toolbar h2 { color: #202124; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-item { color: #202124; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-item:hover,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-item:focus-visible { border-color: #c8ccd5; background: #eceef3; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-toolbar { border-bottom-color: #d9dce3; }
+.emoji-panel[data-panel-theme="light"] .clipboard-panel-item { border-color: #c8ccd5; background: #fff; color: #202124; }
+.emoji-panel[data-panel-theme="light"] .clipboard-panel-item:hover,
+.emoji-panel[data-panel-theme="light"] .clipboard-panel-item:focus-visible { border-color: #9a62ad; background: #eceef3; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-empty,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-notice { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-notice { border-top-color: #d9dce3; }
 @media (max-width: 600px) {
   .settings-body { flex-direction: column; }
   .sidebar { width: 100%; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; padding: 8px; overflow: visible; }

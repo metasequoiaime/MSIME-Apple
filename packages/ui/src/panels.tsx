@@ -613,7 +613,7 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
   return groups.flatMap(group => group.items);
 }
 
-export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
+export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClient; theme?: "dark" | "light" }) {
   const [page, setPage] = useState<EmojiPage>("home");
   const [query, setQuery] = useState("");
   const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
@@ -712,7 +712,7 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
     setRecent([]);
     setNotice("最近使用已清除");
   }
-  return <main className="native-panel emoji-panel" aria-label="表情与符号">
+  return <main className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : "Search emoji, kaomoji, and symbols"} /></div>
     <nav className="emoji-panel-tabs" aria-label="面板分类">

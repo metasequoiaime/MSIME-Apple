@@ -101,7 +101,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   } },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
-function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">; surface: "handwriting" | "voice"; children: (theme: "dark" | "light") => ReactNode }) {
+function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">; surface: "handwriting" | "voice" | "emoji"; children: (theme: "dark" | "light") => ReactNode }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   useEffect(() => {
     let active = true;
@@ -125,7 +125,7 @@ function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pi
     void start();
     return () => { active = false; unsubscribe?.(); };
   }, [preferences]);
-  const surfaceTheme = surface === "handwriting" ? snapshot?.preferences.handwriting_theme : snapshot?.preferences.voice_theme;
+  const surfaceTheme = surface === "handwriting" ? snapshot?.preferences.handwriting_theme : surface === "voice" ? snapshot?.preferences.voice_theme : snapshot?.preferences.emoji_theme;
   return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
 }
 function DesktopSettings() {
@@ -145,6 +145,6 @@ const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.key
   : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
   : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
-  : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />
+  : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <EmojiPanel client={panelClients.emoji} theme={theme} />}</DesktopPanelTheme>
   : <DesktopSettings />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);
