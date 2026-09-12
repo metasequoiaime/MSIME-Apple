@@ -95,6 +95,31 @@ with sync_playwright() as playwright:
     }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     page.evaluate("async () => { const {mount} = await import('/settings.js'); window.removeFixture = mount(); }")
     preview = page.get_by_role("region", name="候选窗口预览")
+    page.get_by_role("button", name="屏幕键盘", exact=True).click()
+    keyboard = page.get_by_role("img", name="屏幕键盘完整布局预览")
+    expect(keyboard.locator("[data-keyboard-key]")).to_have_count(61)
+    for theme, background, fill, text in [
+        ("light", "rgb(236, 238, 242)", "rgb(255, 255, 255)", "rgb(32, 33, 36)"),
+        ("dark", "rgb(23, 24, 29)", "rgb(43, 45, 52)", "rgb(241, 241, 243)"),
+    ]:
+        page.get_by_label("屏幕键盘主题", exact=True).select_option(theme)
+        expect(keyboard.locator(".keyboard-preview-background")).to_have_css("fill", background)
+        expect(keyboard.locator(".keyboard-preview-key").first).to_have_css("fill", fill)
+        expect(keyboard.locator(".keyboard-preview-label").first).to_have_css("fill", text)
+        for width in [800, 1000]:
+            page.set_viewport_size({"width": width, "height": 850})
+            assert keyboard.evaluate("""svg => {
+              const bounds = svg.getBoundingClientRect();
+              return [...svg.querySelectorAll('[data-keyboard-row]')].every(row => {
+                let right = bounds.left;
+                return [...row.querySelectorAll('rect')].every(key => {
+                  const rect = key.getBoundingClientRect();
+                  const valid = rect.left >= right - .1 && rect.right <= bounds.right + .1 && rect.bottom <= bounds.bottom + .1;
+                  right = rect.right; return valid;
+                });
+              });
+            }""")
+    page.get_by_role("button", name="外观", exact=True).click()
     page.get_by_label("工具栏主题", exact=True).select_option("light")
     page.get_by_role("button", name="悬浮工具栏", exact=True).click()
     toolbar = page.get_by_label("悬浮工具栏预览", exact=True)
