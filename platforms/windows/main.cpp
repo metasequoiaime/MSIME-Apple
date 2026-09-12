@@ -205,6 +205,9 @@ int wmain(int argc, wchar_t **argv) {
     if (!config.candidate_selected_color.empty() && config.candidate_selected_color != "auto" &&
         config.candidate_selected_color != "none")
       resolved_palette.selected = parse_css_color(config.candidate_selected_color, resolved_palette.selected);
+    if (!config.candidate_hover_color.empty() && config.candidate_hover_color != "auto" &&
+        config.candidate_hover_color != "none")
+      resolved_palette.hover = parse_css_color(config.candidate_hover_color, resolved_palette.hover);
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
