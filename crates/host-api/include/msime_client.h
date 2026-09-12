@@ -143,6 +143,9 @@ enum MsimeCommand {
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
+/* Select any entry copied by msime_client_all_candidates for this exact
+ * generation. Normal select remains restricted to the current View page. */
+char *msime_client_select_any_candidate(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_pin_candidate(uint64_t session, uint64_t generation, size_t index);
 char *msime_client_remove_candidate(uint64_t session, uint64_t generation, size_t index);
 /* Fix a dictionary candidate to slot 1..5 for the current input context. */
@@ -159,6 +162,9 @@ enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
  * identity checks as select. Invalid edge values fail before state changes.
  */
 char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t index, uint8_t edge);
+/* On-demand {session,generation,preedit,candidates:[Candidate...]}. Unlike View,
+ * candidates contains the complete cached Engine generation with global IDs. */
+char *msime_client_all_candidates(uint64_t session);
 /* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic:
  * View.microsoft_shuangpin reports the applied Engine configuration, never a
  * newer deferred preference. Hosts use it with mode, editing text and caret.

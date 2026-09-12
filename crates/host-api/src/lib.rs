@@ -13,13 +13,13 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 #[cfg(unix)]
-use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
-#[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    AiAssistantProviderConfig, Action, CandidateId, CharacterWidth, NineKeySpellingId, OnlineQuery,
+    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId, OnlineQuery,
     Runtime, Transition,
 };
+#[cfg(unix)]
+use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -1080,6 +1080,24 @@ pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize
     )
 }
 
+/// Select any candidate returned by `msime_client_all_candidates` for the exact
+/// session generation. Regular `msime_client_select` remains page-bounded.
+#[no_mangle]
+pub extern "C" fn msime_client_select_any_candidate(
+    handle: u64,
+    generation: u64,
+    index: usize,
+) -> *mut c_char {
+    dispatch(
+        handle,
+        Action::SelectAnyCandidate(CandidateId {
+            session: handle,
+            generation,
+            index,
+        }),
+    )
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_pin_candidate(
     handle: u64,
@@ -1168,6 +1186,16 @@ pub extern "C" fn msime_client_choose_nine_key_spelling(
     )
 }
 
+/// Copy every cached Engine candidate only when a host opens an expanded panel.
+#[no_mangle]
+pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            serde_json::to_value(session.runtime.all_candidates()).map_err(|e| e.to_string())
+        })
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     response(|| {
@@ -1228,13 +1256,13 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let custom_translation = &session.applied.custom_translation;
             let custom_translation = (custom_translation.enabled
                 && !custom_translation.endpoint.is_empty())
-                .then(|| {
-                    json!({
-                        "enabled": true,
-                        "endpoint": &custom_translation.endpoint,
-                        "api_key": &custom_translation.api_key,
-                    })
-                });
+            .then(|| {
+                json!({
+                    "enabled": true,
+                    "endpoint": &custom_translation.endpoint,
+                    "api_key": &custom_translation.api_key,
+                })
+            });
             Ok(json!({
                 "generation": view.generation,
                 "target_language": serde_json::to_value(session.applied.translation_target_language)
@@ -1637,7 +1665,8 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
     socket_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096 {
+        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
+        {
             return Err("invalid voice provider buffer".into());
         }
         #[derive(Deserialize)]
@@ -1681,10 +1710,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream(
     context: *mut c_void,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null()
-            || socket_path.is_null()
-            || query_length > 16_384
-            || socket_length > 4096
+        if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
         {
             return Err("invalid voice provider buffer".into());
         }
@@ -1699,22 +1725,16 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid voice query document")?;
-        let path = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(socket_path, socket_length)
-        })
-        .map_err(|_| "socket path is not UTF-8")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
         if !std::path::Path::new(path).is_absolute() {
             return Err("socket path must be absolute".into());
         }
         let mut update = |text: &str, final_result: bool| {
             if let Some(callback) = callback {
                 unsafe {
-                    callback(
-                        text.as_ptr(),
-                        text.len(),
-                        final_result,
-                        context,
-                    );
+                    callback(text.as_ptr(), text.len(), final_result, context);
                 }
             }
         };
@@ -1725,7 +1745,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream(
             None,
             &mut update,
         );
-        Ok(value.map(|text| json!({"text": text})).unwrap_or(Value::Null))
+        Ok(value
+            .map(|text| json!({"text": text}))
+            .unwrap_or(Value::Null))
     })
 }
 
@@ -1744,10 +1766,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(socket_path, socket_length)
-        })
-        .map_err(|_| "socket path is not UTF-8")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
         if !std::path::Path::new(path).is_absolute() {
             return Err("socket path must be absolute".into());
         }
@@ -1771,10 +1792,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stop(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path = std::str::from_utf8(unsafe {
-            std::slice::from_raw_parts(socket_path, socket_length)
-        })
-        .map_err(|_| "socket path is not UTF-8")?;
+        let path =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
+                .map_err(|_| "socket path is not UTF-8")?;
         if !std::path::Path::new(path).is_absolute() {
             return Err("socket path must be absolute".into());
         }
@@ -2866,6 +2886,59 @@ mod tests {
             .is_empty());
         let last = read(msime_client_command(handle, 105));
         assert_eq!(last["value"]["handled"], false);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+
+    #[test]
+    fn complete_candidate_abi_keeps_view_paged_and_selects_a_later_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'T', true));
+        read(msime_client_character(handle, b'r', false));
+        let transition = read(msime_client_character(handle, b'q', false));
+        let view = &transition["value"]["view"];
+        let generation = view["generation"].as_u64().unwrap();
+        let visible_count = view["candidates"].as_array().unwrap().len();
+        assert!(visible_count > 0);
+
+        let complete = read(msime_client_all_candidates(handle));
+        assert_eq!(complete["ok"], true);
+        assert_eq!(complete["value"]["session"], handle);
+        assert_eq!(complete["value"]["generation"], generation);
+        assert_eq!(complete["value"]["preedit"], "Trq");
+        let complete_count = complete["value"]["candidates"].as_array().unwrap().len();
+        assert!(complete_count > visible_count);
+        let later = complete["value"]["candidates"][visible_count]["id"]["index"]
+            .as_u64()
+            .unwrap() as usize;
+
+        assert_eq!(
+            read(msime_client_select(handle, generation, later))["ok"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_select_any_candidate(
+                handle,
+                generation + 1,
+                later
+            ))["ok"],
+            false
+        );
+        assert_eq!(
+            read(msime_client_select_any_candidate(
+                handle,
+                generation,
+                complete_count
+            ))["ok"],
+            false
+        );
+        let selected = read(msime_client_select_any_candidate(handle, generation, later));
+        assert_eq!(selected["ok"], true);
+        assert_eq!(selected["value"]["handled"], true);
+        assert!(selected["value"]["commit"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
         assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     }
 

@@ -103,6 +103,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_selectRaw(JNIEnv
     }
     return response(env, msime_client_select(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_selectAnyCandidateRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
+    if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");
+        return nullptr;
+    }
+    return response(env, msime_client_select_any_candidate(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_pinCandidateRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
     if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");
@@ -144,6 +151,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_chooseNineKeySpe
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_viewRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_view(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_allCandidatesRaw(JNIEnv *env, jclass, jlong handle) {
+    return response(env, msime_client_all_candidates(static_cast<uint64_t>(handle)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));

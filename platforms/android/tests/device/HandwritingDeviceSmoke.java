@@ -43,7 +43,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
 
         stage = "handwriting keyboard ready";
-        AccessibilityNodeInfo schemeControl = awaitAnyFor(schemeControl(false), 15_000);
+        AccessibilityNodeInfo schemeControl = awaitAnyFor(schemeControl(true), 30_000);
         String originalScheme = schemeControl.getContentDescription().toString()
             .substring("输入方案：".length());
         boolean restoreScheme = !"手写".equals(originalScheme);

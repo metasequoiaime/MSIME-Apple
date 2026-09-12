@@ -436,11 +436,12 @@ impl Session {
         index: usize,
         position: u8,
     ) -> Result<EngineResult, cxx::Exception> {
-        self.inner
-            .pin_mut()
-            .fix_candidate_position(index, position)
+        self.inner.pin_mut().fix_candidate_position(index, position)
     }
-    pub fn clear_candidate_position(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+    pub fn clear_candidate_position(
+        &mut self,
+        index: usize,
+    ) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().clear_candidate_position(index)
     }
     pub fn select_edge(
