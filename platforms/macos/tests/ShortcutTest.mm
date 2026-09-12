@@ -1791,6 +1791,8 @@ static void TestCloudCandidateEngineDelivery() {
     NSDictionary *view = [session viewWithError:&error];
     assert(!error && [view[@"editing_text"] isEqual:@"nihao"]);
     assert([view[@"candidates"][0][@"text"] isEqual:@"云端测试候选"]);
+    assert([view[@"candidates"][0][@"source"] isEqual:@2]);
+    assert([CandidateDisplay(view[@"candidates"][0], NO) isEqual:@"云端测试候选 ☁️"]);
     assert(client.committed == nil && [controller valueForKey:@"cloudTimer"] == nil);
     [controller apply:[session command:MSIME_COMMIT_CANDIDATE error:&error]];
     assert(!error && [client.committed isEqual:@"云端测试候选"] && client.marked.length == 0);
@@ -2542,6 +2544,10 @@ int main() {
         assert([MSIMEChineseOutputString(@"汉语", NO) isEqual:@"汉语"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": @"(aB)"}, YES) isEqual:@"漢語(aB)"]);
         assert([CandidateDisplay(@{@"text": @"汉语", @"annotation": NSNull.null}, NO) isEqual:@"汉语"]);
+        for (id source in @[@0, @1, @4, @255, @(-1), @YES, @2.0, @"2", NSNull.null])
+            assert(([CandidateDisplay(@{@"text":@"汉语", @"source":source}, NO) isEqual:@"汉语"]));
+        assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語(aB) ☁️"]));
+        assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@3}, NO) isEqual:@"汉语(aB) 🤖"]));
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
@@ -2572,6 +2578,19 @@ int main() {
         assert([scriptButton.toolTip isEqual:@"漢語(aB)"]);
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
+        for (NSNumber *source in @[@2, @3]) {
+            word[@"source"] = source;
+            NSDictionary *unchanged = [word copy];
+            for (NSNumber *vertical in @[@NO, @YES]) {
+                appearance.vertical = vertical.boolValue;
+                [controller renderCandidates];
+                scriptButton = PageButton(layoutPanel.contentView, 0);
+                NSString *expected = source.integerValue == 2 ? @"漢語(aB) ☁️" : @"漢語(aB) 🤖";
+                assert([scriptButton.title containsString:expected] && [scriptButton.toolTip isEqual:expected]);
+                assert([scriptButton.candidateID isEqual:word[@"id"]] && [word isEqual:unchanged]);
+                assert(scriptButton.frame.size.width > 0 && scriptButton.frame.size.height > 0);
+            }
+        }
         NSUInteger contextIndex = 0;
         for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{@"scheme": @0, @"local_mode": @"temporary_japanese"}, @{@"scheme": @1, @"local_mode": @"temporary_japanese"}, @{}]) {
             BOOL convert = contextIndex++ < 2;

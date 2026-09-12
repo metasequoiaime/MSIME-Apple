@@ -45,7 +45,16 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
     NSString *text = candidate[@"text"];
     if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
-    return MSIMEChineseOutputString(text, traditional);
+    text = MSIMEChineseOutputString(text, traditional);
+    id source = candidate[@"source"];
+    // Engine CandidateSource: CloudSuggestion=2, AiSuggestion=3. These badges
+    // are presentation-only, matching the Windows candidate-view suffixes.
+    if ([source isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
+        !CFNumberIsFloatType((__bridge CFNumberRef)source)) {
+        if ([source isEqual:@2]) return [text stringByAppendingString:@" ☁️"];
+        if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
+    }
+    return text;
 }
 
 static NSColor *SkinColor(msime::mac::Rgba color) {
