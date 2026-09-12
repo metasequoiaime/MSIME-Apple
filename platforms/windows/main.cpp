@@ -208,6 +208,9 @@ int wmain(int argc, wchar_t **argv) {
     if (!config.candidate_hover_color.empty() && config.candidate_hover_color != "auto" &&
         config.candidate_hover_color != "none")
       resolved_palette.hover = parse_css_color(config.candidate_hover_color, resolved_palette.hover);
+    if (!config.candidate_accent_color.empty() && config.candidate_accent_color != "auto" &&
+        config.candidate_accent_color != "none")
+      resolved_palette.accent = parse_css_color(config.candidate_accent_color, resolved_palette.accent);
     if (config.candidate_selected_bar)
       resolved_palette.show_selected_bar = *config.candidate_selected_bar;
     candidates.set_palette(resolved_palette);
