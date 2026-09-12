@@ -163,6 +163,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.autocorrect_types =
         (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
         (value.autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
+    options.fuzzy_pinyin.rules = value.fuzzy_pinyin_rules & 0x7ffu;
     options.chinese_punctuation = value.chinese_punctuation;
     options.paired_punctuation = value.paired_punctuation;
     options.punctuation_lock = value.punctuation_lock;
@@ -316,6 +317,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     result.learning = false;
     result.autocorrect_transposition = true;
     result.autocorrect_neighbor = true;
+    result.fuzzy_pinyin_rules = 0;
     result.helpcode = true;
     result.helpcode_schema = "ziranma";
     result.chinese_punctuation = true;
