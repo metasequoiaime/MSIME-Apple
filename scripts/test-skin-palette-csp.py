@@ -21,7 +21,7 @@ with sync_playwright() as playwright:
         body='<html><head></head><body><div class="card1"><span class="sample">synthetic</span></div><div class="card2"><span class="sample">synthetic</span></div></body></html>',
         content_type="text/html", headers={"Content-Security-Policy": args.csp}))
     page.goto(args.url + "/fixture")
-    result = page.evaluate("""async () => {
+    result = page.evaluate(r"""async () => {
       const {installSkinPalette} = await import('/skin-palette.js');
       const first = document.querySelector('.card1 .sample');
       const second = document.querySelector('.card2 .sample');
@@ -73,6 +73,16 @@ with sync_playwright() as playwright:
       const decoded = new Image(); decoded.src = imageData; await decoded.decode();
       if (decoded.naturalWidth !== 1) throw Error('image decoding failed under CSP');
       images.remove();
+      const escapeRequests = [];
+      const escapedImages = await prepareToolbarImages('.sample { --escaped: url("images/\\61.svg"); background-image: var(--escaped); &::before { content: "\\e101"; } }', async name => { escapeRequests.push(name); return imageData; });
+      if (escapedImages.partial || escapeRequests.join(',') !== 'images/a.svg') throw Error('escaped image resolution failed');
+      const escapedSheet = installToolbarCss('card1', escapedImages.css);
+      if (escapedSheet.partial || !getComputedStyle(first).backgroundImage.includes('data:image/svg+xml') || !getComputedStyle(first, '::before').content.includes('\ue101')) throw Error('escaped URL or content lost');
+      if (getComputedStyle(second).backgroundImage !== 'none') throw Error('escaped image scope failed');
+      escapedSheet.remove();
+      let unsafeReads = 0;
+      const escapedTraversal = await prepareToolbarImages('.sample { --unsafe: url("\\2e\\2e/a.svg"); background-image: var(--unsafe); }', async () => { unsafeReads++; return imageData; });
+      if (!escapedTraversal.partial || unsafeReads || escapedTraversal.css.includes('--unsafe:')) throw Error('escaped traversal reached reader or survived');
       const failedImages = await prepareToolbarImages('.sample { color: rgb(3, 2, 1); background-image: url(../escape.png); }', async () => { throw Error('must not read'); });
       if (!failedImages.partial || failedImages.css.includes('escape.png') || !failedImages.css.includes('rgb(3, 2, 1)')) throw Error('resource failure lost valid styles');
       let resourceCount = 0;
@@ -91,7 +101,7 @@ with sync_playwright() as playwright:
       if (!directSet.partial || getComputedStyle(first).backgroundImage !== 'none') throw Error('unprepared image-set bypassed validation');
       directSet.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true};
     }""")
     print(result)
     browser.close()
