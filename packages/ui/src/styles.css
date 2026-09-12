@@ -511,3 +511,14 @@ html[data-theme="light"] .window-close:active .window-icon { filter: none; }
 .clipboard-panel-delete:hover, .clipboard-panel-delete:focus-visible { border-color: #d88bde; }
 .emoji-panel[data-panel-theme="light"] .clipboard-panel-delete { border-color: #c8ccd5; background: #fff; color: #202124; }
 .emoji-panel[data-panel-theme="light"] .clipboard-panel-delete:hover, .emoji-panel[data-panel-theme="light"] .clipboard-panel-delete:focus-visible { border-color: #9a62ad; }
+
+.emoji-panel-categories { display: flex; flex-shrink: 0; gap: 6px; overflow-x: auto; padding: 8px 24px; }
+.emoji-panel-categories button { flex-shrink: 0; padding: 6px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #b8b8c0; font: inherit; font-size: 12px; }
+.emoji-panel-categories button:hover, .emoji-panel-categories button:focus-visible { background: #303038; color: #f5f5f7; }
+.emoji-panel-categories button[aria-pressed="true"] { border-color: #d88bde; background: #303038; color: #f5f5f7; }
+.emoji-panel-grid.emoji-panel-flow { display: flex; flex-wrap: wrap; align-items: stretch; }
+.emoji-panel-group:nth-child(n) .emoji-panel-flow .emoji-panel-item { flex: 0 1 auto; max-width: 100%; min-height: 48px; padding: 10px 12px; font-size: 20px; white-space: pre-wrap; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-categories button { color: #656a73; }
+.emoji-panel[data-panel-theme="light"] .emoji-panel-categories button:hover,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-categories button:focus-visible,
+.emoji-panel[data-panel-theme="light"] .emoji-panel-categories button[aria-pressed="true"] { background: #eceef3; color: #202124; }
