@@ -1,6 +1,9 @@
 #define NOMINMAX
+// Windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <Windows.h>
+#include "CandidatePalette.h"
 #include <algorithm>
+#include <msimeui/DeviceResources.h>
 #include <array>
 #include <cwctype>
 #include <string>
@@ -17,6 +20,9 @@ struct Panel {
   std::vector<Key *> flat;
   bool shift = false, caps = false, ctrl = false, alt = false, win = false;
   RECT close{}; size_t hovered = kInvalid, pressed = kInvalid;
+  // Direct2D through the shared UI stack, with the candidate card's tokens.
+  msimeui::DeviceResources device;
+  msime::windows::CandidatePalette palette;
   bool close_hovered = false, close_pressed = false;
   Panel()
       : rows({
@@ -90,9 +96,81 @@ struct Panel {
   }
   void activate(size_t index) { if (index >= flat.size() || !can_send()) return; Key &key = *flat[index]; if (key.modifier) { toggle(key); return; } const bool use_sticky = sticky(key); send(key.vk, shifted(key) && use_sticky, use_sticky); if (shift) shift = false; }
   void paint() {
-    PAINTSTRUCT paint{}; HDC dc = BeginPaint(hwnd, &paint); RECT bounds{}; GetClientRect(hwnd, &bounds); HBRUSH background = CreateSolidBrush(RGB(23, 24, 29)); FillRect(dc, &bounds, background); DeleteObject(background); SetBkMode(dc, TRANSPARENT); HFONT font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI"); HGDIOBJ old_font = SelectObject(dc, font); SetTextColor(dc, RGB(215, 216, 221)); RECT title{10, 0, 210, 28}; DrawTextW(dc, kTitle, -1, &title, DT_SINGLELINE | DT_VCENTER | DT_LEFT); HBRUSH close_brush = CreateSolidBrush(close_hovered || close_pressed ? RGB(65, 67, 77) : RGB(23, 24, 29)); FillRect(dc, &close, close_brush); DeleteObject(close_brush); HPEN close_pen = CreatePen(PS_SOLID, 2, RGB(241, 241, 243)); HGDIOBJ old_pen = SelectObject(dc, close_pen); const int cx = (close.left + close.right) / 2, cy = (close.top + close.bottom) / 2; MoveToEx(dc, cx - 6, cy - 6, nullptr); LineTo(dc, cx + 6, cy + 6); MoveToEx(dc, cx + 6, cy - 6, nullptr); LineTo(dc, cx - 6, cy + 6); SelectObject(dc, old_pen); DeleteObject(close_pen);
-    for (size_t index = 0; index < flat.size(); ++index) { Key &key = *flat[index]; const COLORREF color = index == pressed ? RGB(102, 106, 119) : (active(key) ? RGB(83, 88, 102) : (index == hovered ? RGB(65, 67, 77) : RGB(43, 45, 52))); HBRUSH brush = CreateSolidBrush(color); HPEN pen = CreatePen(PS_SOLID, 1, RGB(59, 61, 69)); HGDIOBJ old_brush = SelectObject(dc, brush); old_pen = SelectObject(dc, pen); RoundRect(dc, key.rect.left, key.rect.top, key.rect.right, key.rect.bottom, 10, 10); SelectObject(dc, old_pen); SelectObject(dc, old_brush); DeleteObject(pen); DeleteObject(brush); std::wstring label = key.normal; if (key.normal.size() == 1 && shifted(key) && !key.shifted.empty()) label = key.shifted; RECT text = key.rect; SetTextColor(dc, key.normal.size() == 1 ? RGB(241, 241, 243) : RGB(198, 199, 207)); DrawTextW(dc, label.c_str(), static_cast<int>(label.size()), &text, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX); }
-    SelectObject(dc, old_font); DeleteObject(font); EndPaint(hwnd, &paint);
+    PAINTSTRUCT paint{};
+    const HDC dc = BeginPaint(hwnd, &paint);
+    struct End {
+      HWND window;
+      PAINTSTRUCT &state;
+      ~End() { EndPaint(window, &state); }
+    } end{hwnd, paint};
+    if (!dc || !device.EnsureForWindow(hwnd))
+      return;
+    auto *target_surface = device.GetRenderTarget();
+    if (!target_surface)
+      return;
+    using msime::windows::CandidateColor;
+    auto brush = [&](const CandidateColor &color) {
+      return device.GetSolidColorBrush(
+          D2D1::ColorF(color.r, color.g, color.b, color.a));
+    };
+    auto *title_format = device.GetTextFormat(
+        L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *key_format = device.GetTextFormat(
+        L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        DWRITE_WORD_WRAPPING_NO_WRAP);
+    auto *surface = brush(palette.surface);
+    auto *border = brush(palette.border);
+    auto *text_brush = brush(palette.text);
+    auto *number_brush = brush(palette.number);
+    auto *hover = brush(palette.hover);
+    auto *selected = brush(palette.selected);
+    if (!title_format || !key_format || !surface || !border || !text_brush ||
+        !number_brush || !hover || !selected)
+      return;
+    auto rect_of = [](const RECT &value) {
+      return D2D1_RECT_F{static_cast<float>(value.left),
+                         static_cast<float>(value.top),
+                         static_cast<float>(value.right),
+                         static_cast<float>(value.bottom)};
+    };
+    target_surface->BeginDraw();
+    target_surface->Clear(D2D1::ColorF(palette.surface.r, palette.surface.g,
+                                       palette.surface.b, palette.surface.a));
+    target_surface->DrawText(kTitle, static_cast<UINT32>(wcslen(kTitle)),
+                             title_format, D2D1_RECT_F{10.0f, 0.0f, 210.0f, 28.0f},
+                             text_brush);
+    if (close_hovered || close_pressed)
+      target_surface->FillRectangle(rect_of(close), hover);
+    const float cx = static_cast<float>(close.left + close.right) / 2.0f;
+    const float cy = static_cast<float>(close.top + close.bottom) / 2.0f;
+    target_surface->DrawLine({cx - 6.0f, cy - 6.0f}, {cx + 6.0f, cy + 6.0f},
+                             text_brush, 2.0f);
+    target_surface->DrawLine({cx + 6.0f, cy - 6.0f}, {cx - 6.0f, cy + 6.0f},
+                             text_brush, 2.0f);
+    for (size_t index = 0; index < flat.size(); ++index) {
+      Key &key = *flat[index];
+      // Pressed and latched keys read as selected; hover only tints.
+      auto *fill = index == pressed || active(key)
+                       ? selected
+                       : (index == hovered ? hover : surface);
+      const D2D1_ROUNDED_RECT rounded{rect_of(key.rect), palette.item_radius,
+                                      palette.item_radius};
+      target_surface->FillRoundedRectangle(rounded, fill);
+      target_surface->DrawRoundedRectangle(rounded, border,
+                                           palette.border_width);
+      std::wstring label = key.normal;
+      if (key.normal.size() == 1 && shifted(key) && !key.shifted.empty())
+        label = key.shifted;
+      target_surface->DrawText(
+          label.c_str(), static_cast<UINT32>(label.size()), key_format,
+          rect_of(key.rect),
+          key.normal.size() == 1 ? text_brush : number_brush);
+    }
+    if (target_surface->EndDraw() == D2DERR_RECREATE_TARGET)
+      device.DiscardTarget();
   }
 };
 Panel *panel_for(HWND hwnd) { return reinterpret_cast<Panel *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)); }
@@ -115,6 +193,15 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
 } // namespace
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_command) {
   if (command_line && std::wstring(command_line) == L"--help") return 0;
+  // Direct2D's imaging factory is a COM server; --help answers before this so
+  // the smoke runner never needs an apartment.
+  const HRESULT entered =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  if (FAILED(entered) && entered != RPC_E_CHANGED_MODE) return 1;
+  struct Apartment {
+    bool owned;
+    ~Apartment() { if (owned) CoUninitialize(); }
+  } apartment{entered != RPC_E_CHANGED_MODE};
   HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\MSIMEClientKeyboardPanel.SingleInstance"); if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) { if (mutex) CloseHandle(mutex); return 0; }
   WNDCLASSEXW window_class{}; window_class.cbSize = sizeof(window_class); window_class.hInstance = instance; window_class.lpfnWndProc = window_proc; window_class.lpszClassName = kClassName; window_class.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); if (!RegisterClassExW(&window_class)) { CloseHandle(mutex); return 1; }
   RECT work_area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0); constexpr LONG width = 1100, height = 400; const LONG x = work_area.left + std::max<LONG>(0, (work_area.right - work_area.left - width) / 2); const LONG y = std::max<LONG>(work_area.top, work_area.bottom - height - 12); Panel state; HWND window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, kClassName, kTitle, WS_POPUP, x, y, width, height, nullptr, nullptr, instance, &state); if (!window) { UnregisterClassW(kClassName, instance); CloseHandle(mutex); return 1; }
