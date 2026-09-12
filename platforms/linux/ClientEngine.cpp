@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1825,7 +1825,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("繁体输出"), "",
       ibus_text_new_from_static_string("将中文候选和上屏文本转换为繁体"),
       s.focused && !s.blocked && s.input_enabled && s.session &&
-          !japanese_scheme,
+          !japanese_scheme && !menu_save_pending,
       TRUE, s.traditional_output ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto english = ibus_property_new(
@@ -3484,6 +3484,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
               configured.at("preferences").value("scheme", "quanpin")) ==
           "japanese")
         return;
+      if (menu_save_pending || s.traditional_output == (value == PROP_STATE_CHECKED)) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::TraditionalOutput, value == PROP_STATE_CHECKED);
+        return;
+      }
       s.traditional_output = value == PROP_STATE_CHECKED;
       s.traditional_output_override = s.traditional_output;
       render(engine, s.view);
@@ -4897,6 +4903,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->number_row_override.reset();
           if (request.preference == MenuPreference::WordCharacter)
             self->state->word_character_override.reset();
+          if (request.preference == MenuPreference::TraditionalOutput)
+            self->state->traditional_output_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4993,6 +5001,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::WordCharacter:
             snapshot["preferences"]["word_character"]["enabled"] = request.value;
+            break;
+          case MenuPreference::TraditionalOutput:
+            snapshot["preferences"]["traditional_chinese_output"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
