@@ -833,7 +833,8 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("启用语音输入"), "",
       ibus_text_new_from_static_string("启用或停用语音快捷键和录音入口"),
-      s.focused && !s.blocked && !menu_save_pending,
+      s.focused && !s.blocked && !menu_save_pending && !directory.empty() &&
+          directory.front() == '/',
       TRUE, s.voice_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   return ibus_property_new(
       "DesktopTools", PROP_TYPE_MENU,
