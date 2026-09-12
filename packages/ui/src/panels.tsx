@@ -197,6 +197,20 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
 }
 
 type Point = InkPoint;
+// Keep captured ink within the Linux provider's 32-stroke and 256 KiB envelope.
+// Two decimal places retain subpixel precision in the 420-unit drawing space.
+const MAX_HANDWRITING_STROKES = 32;
+const MAX_CAPTURED_POINTS = 256;
+function appendInkPoint(points: Point[], point: Point): Point[] {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return points;
+  const next = { x: Math.round(point.x * 100) / 100, y: Math.round(point.y * 100) / 100 };
+  const last = points[points.length - 1];
+  if (last?.x === next.x && last?.y === next.y) return points;
+  if (points.length < MAX_CAPTURED_POINTS) return [...points, next];
+  // Thin older samples while retaining both the original start and latest end.
+  return [...points.filter((_, index) => index % 2 === 0), last, next];
+}
+
 function pointFromEvent(event: PointerEvent<SVGSVGElement>): Point {
   const rect = event.currentTarget.getBoundingClientRect();
   const width = rect.width || 420;
@@ -244,10 +258,15 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   }
   function start(event: PointerEvent<SVGSVGElement>) {
     if (activeStroke.current || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+    if (strokes.length >= MAX_HANDWRITING_STROKES) {
+      setNotice("笔画已达上限，请选择候选、撤销或重写");
+      return;
+    }
     recognitionRevision.current++;
     setCandidates([]);
     setNotice("书写中，松开后自动识别");
-    const points = [pointFromEvent(event)];
+    const points = appendInkPoint([], pointFromEvent(event));
+    if (!points.length) return;
     activeStroke.current = { pointerId: event.pointerId, canvas: event.currentTarget, points };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDrawing(points);
@@ -255,7 +274,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   function move(event: PointerEvent<SVGSVGElement>) {
     const active = activeStroke.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    active.points = [...active.points, pointFromEvent(event)];
+    active.points = appendInkPoint(active.points, pointFromEvent(event));
     setDrawing(active.points);
   }
   function recognizeRemaining(nextStrokes: InkStroke[]) {
@@ -266,9 +285,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   function end(event: PointerEvent<SVGSVGElement>) {
     const active = activeStroke.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    const point = pointFromEvent(event);
-    const last = active.points[active.points.length - 1];
-    if (Number.isFinite(point.x) && Number.isFinite(point.y) && (point.x !== last.x || point.y !== last.y)) active.points = [...active.points, point];
+    active.points = appendInkPoint(active.points, pointFromEvent(event));
     const nextStrokes = active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
     releaseStroke();
     setStrokes(nextStrokes);
