@@ -1147,6 +1147,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)dealloc {
     [_customTimer invalidate];
     [_customBatch cancel];
+    [_aiTimer invalidate];
+    [_aiBatch cancel];
     [_glossQueue cancelAllOperations];
     [_cloudTimer invalidate];
     [_cloudRequest cancel];
