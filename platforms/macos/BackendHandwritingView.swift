@@ -48,10 +48,15 @@ struct MacHandwritingCanvasView: View {
   var onCandidate: (String) -> Void = { text in NotificationCenter.default.post(name: .msimeHandwritingCandidateSelected, object: nil, userInfo: ["text": text]) }
   var body: some View {
     VStack(spacing: 8) {
-      MacInkCanvas(strokes: $strokes).frame(minHeight: 180).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-        ForEach(candidates, id: \.self) { candidate in
-          Button(candidate) { onCandidate(candidate) }.font(.system(size: 24)).frame(maxWidth: .infinity, minHeight: 52)
+      HStack(alignment: .top, spacing: 28) {
+        MacInkCanvas(strokes: $strokes).frame(width: 250, height: 250).background(.background).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+        VStack(alignment: .leading, spacing: 10) {
+          Text("识别结果").font(.title3.weight(.semibold))
+          LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            ForEach(candidates, id: \.self) { candidate in
+              Button(candidate) { onCandidate(candidate) }.font(.system(size: 24)).frame(maxWidth: .infinity, minHeight: 52)
+            }
+          }
         }
       }
       HStack { Button("↶  撤销") { _ = strokes.popLast(); onSubmit(strokes) }.disabled(strokes.isEmpty); Button("×  重写") { strokes.removeAll(); onSubmit([]) }.disabled(strokes.isEmpty); Spacer() }
