@@ -1,3 +1,4 @@
+import { usePanelDrag } from "./use-panel-drag";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
 
@@ -135,14 +136,9 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     setActiveLayout(layout);
   }, [layout]);
   const rows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
-  const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
-  useEffect(() => {
-    const reset = () => { pendingDrag.current = null; };
-    window.addEventListener("blur", reset);
-    return () => { reset(); window.removeEventListener("blur", reset); };
-  }, [client]);
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
+  const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   useEffect(() => {
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
@@ -171,26 +167,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
-    <header className="native-panel-header"
-      onPointerDown={event => {
-        pendingDrag.current = null;
-        if (!client.beginWindowDrag || event.button !== 0 || (event.target as Element).closest("button")) return;
-        pendingDrag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
-      }}
-      onPointerMove={event => {
-        const pending = pendingDrag.current;
-        if (!pending || pending.id !== event.pointerId) return;
-        if (event.buttons !== 1) { pendingDrag.current = null; return; }
-        if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2) return;
-        pendingDrag.current = null;
-        void (async () => {
-          try { await client.beginWindowDrag?.(); }
-          catch { setNotice("无法移动窗口，请重试。"); }
-        })();
-      }}
-      onPointerUp={() => { pendingDrag.current = null; }}
-      onPointerCancel={() => { pendingDrag.current = null; }}
-      onPointerLeave={() => { pendingDrag.current = null; }}>
+    <header className="native-panel-header" {...drag}>
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
@@ -218,6 +195,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const [drawing, setDrawing] = useState<Point[]>([]);
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
+  const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const recognitionRevision = useRef(0);
   const activeStroke = useRef<{ pointerId: number; canvas: SVGSVGElement; points: Point[] } | null>(null);
   function releaseStroke() {
@@ -293,7 +271,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   }
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
   return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
-    <header className="native-panel-header"><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
       <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} onClick={() => chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
@@ -308,6 +286,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   const busyRef = useRef(false);
   const recognitionRevision = useRef(0);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
+  const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
 
   useEffect(() => {
     if (!client.loadVoiceLanguage) return;
@@ -401,7 +380,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   }
 
   return <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
-    <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
+    <header className="native-panel-header" {...drag}><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>

@@ -69,12 +69,14 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     sendKey: request => invoke("send_key", { request }),
   },
   handwriting: {
+    beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "handwriting-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     recognizeHandwriting: request => invoke("recognize_handwriting", { request }),
     submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
   },
   voice: {
+    beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     loadVoiceLanguage: () => invoke<string>("voice_input_language"),
