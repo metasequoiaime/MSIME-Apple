@@ -46,6 +46,15 @@ IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
 void voice_cancel(IBusEngine *engine);
+std::string configured_clipboard_path(const Json &options) {
+  const auto explicit_path = options.value("clipboard_history_path", std::string{});
+  if (!explicit_path.empty())
+    return explicit_path;
+  const auto directory = options.value("preferences_directory", std::string{});
+  if (directory.empty() || directory.front() != '/')
+    return {};
+  return (std::filesystem::path(directory) / "clipboard_history.json").string();
+}
 std::string provider_socket_fallback(const Json &options, const char *option,
                                       const char *environment, const char *filename) {
   auto value = options.value(option, std::string{});
@@ -329,7 +338,7 @@ struct State {
     } else {
       show_helpcode_in_candidate_window = true;
     }
-    configure_clipboard(options.value("clipboard_history_path", std::string{}),
+    configure_clipboard(configured_clipboard_path(options),
                         preferences.value("clipboard_history", true));
     online_provider_socket = provider_socket_fallback(
         options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
@@ -421,7 +430,7 @@ struct State {
       word_character.enabled = *word_character_override;
   }
   void refresh_host_preferences(const Json &preferences) {
-    configure_clipboard(configured.value("clipboard_history_path", std::string{}),
+    configure_clipboard(configured_clipboard_path(configured),
                         preferences.value("clipboard_history", true));
     mode_scope_global = preferences.value("ime_mode_scope", "app") == "global";
     if (mode_scope_global) {
@@ -809,7 +818,7 @@ void clipboard_schedule(IBusEngine *engine);
 void watch_clipboard_history(IBusEngine *engine) {
   auto &s = state(engine);
   const auto previous_path = s.clipboard_history_path;
-  s.configure_clipboard(configured.value("clipboard_history_path", std::string{}),
+  s.configure_clipboard(configured_clipboard_path(configured),
                         s.clipboard_enabled);
   if (previous_path != s.clipboard_history_path && s.focused && !s.blocked)
     publish_mode(engine);

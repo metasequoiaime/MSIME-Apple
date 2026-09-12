@@ -15,7 +15,10 @@ def document(path):
         raw = source.read(16385)
     if len(raw) > 16384:
         raise ValueError()
-    return json.loads(raw)
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError()
+    return value
 
 
 def history_directory(options):
@@ -27,7 +30,7 @@ def history_directory(options):
     if history and Path(history) != directory / "clipboard_history.json":
         raise ValueError()
     preferences = document(directory / "preferences.json")
-    if preferences.get("format_version") != 1:
+    if preferences.get("format_version") != 1 or not isinstance(preferences.get("preferences"), dict):
         raise ValueError()
     return directory if preferences["preferences"].get("clipboard_history") is True else None
 
