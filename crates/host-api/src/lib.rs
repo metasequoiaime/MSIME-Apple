@@ -105,6 +105,30 @@ struct HostSession {
 }
 
 impl HostSession {
+    fn ai_provider_config(&self) -> Option<AiAssistantProviderConfig> {
+        let preferences = self
+            .requested
+            .as_ref()
+            .map(|snapshot| &snapshot.preferences)
+            .unwrap_or(&self.applied);
+        let ai = &preferences.ai_assistant;
+        ai.enabled.then(|| AiAssistantProviderConfig {
+            enabled: true,
+            provider: ai.provider.clone(),
+            model: ai.model.clone(),
+            endpoint: ai.endpoint.clone(),
+            candidate_limit: ai.candidate_limit,
+            prompt_id: ai.prompt_id.clone(),
+            prompt: ai.prompt.clone(),
+            prompt_custom_1: ai.prompt_custom_1.clone(),
+            prompt_custom_2: ai.prompt_custom_2.clone(),
+            prompt_custom_3: ai.prompt_custom_3.clone(),
+        })
+    }
+    fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
+        self.ai_provider_config()
+            .is_some_and(|config| query.ai_assistant.as_ref() == Some(&config))
+    }
     fn cloud_candidates_enabled(&self) -> bool {
         self.applied.cloud_candidates
             && self
@@ -1813,22 +1837,8 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
             };
             let mut value = serde_json::to_value(query).map_err(|e| e.to_string())?;
             value["cloud_candidates"] = Value::Bool(session.cloud_candidates_enabled());
-            let ai = &session.applied.ai_assistant;
-            if ai.enabled {
-                value["ai_assistant"] = serde_json::to_value(AiAssistantProviderConfig {
-                    enabled: true,
-                    provider: ai.provider.clone(),
-                    model: ai.model.clone(),
-                    endpoint: ai.endpoint.clone(),
-                    candidate_limit: ai.candidate_limit,
-                    prompt_id: ai.prompt_id.clone(),
-                    prompt: ai.prompt.clone(),
-                    prompt_custom_1: ai.prompt_custom_1.clone(),
-                    prompt_custom_2: ai.prompt_custom_2.clone(),
-                    prompt_custom_3: ai.prompt_custom_3.clone(),
-                })
-                .map_err(|e| e.to_string())?;
-            }
+            value["ai_assistant"] =
+                serde_json::to_value(session.ai_provider_config()).map_err(|e| e.to_string())?;
             Ok(value)
         })
     })
@@ -2550,6 +2560,9 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(candidate, candidate_length) })
                 .map_err(|_| "candidate is not UTF-8")?;
         with_session(handle, |session| {
+            if source == 1 && !session.ai_query_is_current(&query) {
+                return Ok(json!({"applied":false,"view":session.runtime.view()}));
+            }
             let applied = session
                 .runtime
                 .apply_online_candidate(&query, candidate, source)
@@ -2632,6 +2645,9 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
         })
         .map_err(|_| "invalid online candidates document")?;
         with_session(handle, |session| {
+            if source == 1 && !session.ai_query_is_current(&query) {
+                return Ok(json!({"applied":false,"view":session.runtime.view()}));
+            }
             let applied = session
                 .runtime
                 .apply_online_candidates(&query, &candidates, source)
@@ -4075,6 +4091,105 @@ mod tests {
             "invalid online query document"
         );
         read(msime_client_destroy(other));
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn ai_queries_and_delivery_follow_pending_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preferences = Preferences {
+            scheme: InputScheme::Quanpin,
+            ..Preferences::default()
+        };
+        preferences.ai_assistant.enabled = true;
+        preferences.ai_assistant.model = "synthetic-original".into();
+        preferences.ai_assistant.token = "synthetic-private".into();
+        let handle = test_host_preferences(dir.path(), preferences.clone());
+        read(msime_client_focus(handle, true));
+        for byte in b"nihaoshijie" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let apply = |query: &Value, batch: bool| {
+            let query = query.to_string();
+            if batch {
+                let candidates = serde_json::to_vec(&json!(["合成候选"])).unwrap();
+                read(unsafe {
+                    msime_client_apply_online_candidates(
+                        handle,
+                        query.as_ptr(),
+                        query.len(),
+                        candidates.as_ptr(),
+                        candidates.len(),
+                        1,
+                    )
+                })
+            } else {
+                let candidate = "合成候选".as_bytes();
+                read(unsafe {
+                    msime_client_apply_online_candidate(
+                        handle,
+                        query.as_ptr(),
+                        query.len(),
+                        candidate.as_ptr(),
+                        candidate.len(),
+                        1,
+                    )
+                })
+            }
+        };
+        let original = read(msime_client_online_query(handle))["value"].clone();
+        assert_eq!(original["ai_eligible"], true);
+        assert!(!original.to_string().contains("synthetic-private"));
+        for revision in 1..=5 {
+            let old = read(msime_client_online_query(handle))["value"].clone();
+            match revision {
+                1 => preferences.ai_assistant.enabled = false,
+                2 => {
+                    preferences.ai_assistant.enabled = true;
+                    preferences.ai_assistant.model = "synthetic-new".into();
+                }
+                3 => {
+                    preferences.ai_assistant.endpoint =
+                        "https://synthetic.invalid/v1/chat/completions".into()
+                }
+                4 => preferences.ai_assistant.prompt = "synthetic prompt".into(),
+                _ => preferences.ai_assistant.candidate_limit = 1,
+            }
+            assert_eq!(
+                update(handle, revision, &preferences)["value"]["deferred"],
+                true
+            );
+            let current = read(msime_client_online_query(handle))["value"].clone();
+            assert_eq!(current["generation"], original["generation"]);
+            assert_eq!(current["query_text"], original["query_text"]);
+            assert_eq!(
+                current["ai_assistant"].is_null(),
+                !preferences.ai_assistant.enabled
+            );
+            if preferences.ai_assistant.enabled {
+                assert_eq!(
+                    current["ai_assistant"]["model"],
+                    preferences.ai_assistant.model
+                );
+                assert_eq!(
+                    current["ai_assistant"]["endpoint"],
+                    preferences.ai_assistant.endpoint
+                );
+                assert_eq!(
+                    current["ai_assistant"]["prompt"],
+                    preferences.ai_assistant.prompt
+                );
+                assert_eq!(
+                    current["ai_assistant"]["candidate_limit"],
+                    preferences.ai_assistant.candidate_limit
+                );
+            }
+            for batch in [false, true] {
+                assert_eq!(apply(&old, batch)["value"]["applied"], false);
+            }
+        }
+        let current = read(msime_client_online_query(handle))["value"].clone();
+        assert_eq!(apply(&current, true)["value"]["applied"], true);
         read(msime_client_destroy(handle));
     }
     #[test]
