@@ -1530,22 +1530,34 @@ fn remember_input_target(state: tauri::State<'_, PanelInputState>) -> Result<(),
 #[tauri::command]
 async fn send_key(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
 ) -> Result<(), HostActionError> {
     // Linux routes through the display server, Windows injects directly, so the
     // app handle belongs to only one of them.
-    let _ = &app;
+    let _ = (&app, &window);
     #[cfg(target_os = "linux")]
     {
         request.validate().map_err(|_| HostActionError { code: "invalid_key" })?;
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError { code: "unavailable" })?
-            .clone()
-            .ok_or(HostActionError { code: "unavailable" })?;
+        // The non-focusable keyboard follows the editor the user is typing
+        // into now, like Windows RememberInputTargetWindow on each key press.
+        // Other panels retain their original destination while being edited.
+        let target = if window.label() == "keyboard-panel" {
+            None
+        } else {
+            Some(state
+                .0
+                .lock()
+                .map_err(|_| HostActionError { code: "unavailable" })?
+                .clone()
+                .ok_or(HostActionError { code: "unavailable" })?)
+        };
         return tauri::async_runtime::spawn_blocking(move || {
+            let target = match target {
+                Some(target) => target,
+                None => capture_panel_input_target()?,
+            };
             send_panel_key(&app, target, request)
         })
         .await
