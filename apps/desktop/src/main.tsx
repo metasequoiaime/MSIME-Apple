@@ -1,9 +1,9 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat } from "@msime/ui";
+import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, useCandidatePreviewTheme, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
 import { discoverFontReader } from "./system-font-client";
@@ -101,6 +101,33 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   } },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
+function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">; surface: "handwriting" | "voice"; children: (theme: "dark" | "light") => ReactNode }) {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    let latestRevision = -1;
+    const apply = (value: Snapshot) => {
+      if (!active || value.revision <= latestRevision) return;
+      latestRevision = value.revision;
+      setSnapshot(value);
+    };
+    const start = async () => {
+      try {
+        const stop = await preferences.onPreferencesChanged?.(apply);
+        if (!active) { stop?.(); return; }
+        unsubscribe = stop;
+      } catch { /* Initial loading still works when event subscription is unavailable. */ }
+      if (active) {
+        try { apply(await preferences.load()); } catch { /* Keep the dark panel default. */ }
+      }
+    };
+    void start();
+    return () => { active = false; unsubscribe?.(); };
+  }, [preferences]);
+  const surfaceTheme = surface === "handwriting" ? snapshot?.preferences.handwriting_theme : snapshot?.preferences.voice_theme;
+  return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
+}
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   useEffect(() => {
@@ -114,8 +141,8 @@ function DesktopSettings() {
   return settingsClient ? <SettingsPage client={settingsClient} /> : <p role="status">正在连接设置…</p>;
 }
 const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
-  : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
-  : panel === "voice" ? <VoicePanel client={panelClients.voice} />
+  : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
+  : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
   : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
   : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />

@@ -272,6 +272,15 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .voice-panel-record { background: #d88bde; color: #241c26; }
 .voice-panel-submit { background: #3a3945; color: #f5f5f7; }
 .voice-panel-body textarea { min-height: 100px; resize: vertical; padding: 10px; font: inherit; }
+.voice-panel[data-panel-theme="light"] { background: #f7f8fa; color: #202124; }
+.voice-panel[data-panel-theme="light"] .native-panel-header { border-bottom-color: #d9dce3; background: #f7f8fa; color: #202124; }
+.voice-panel[data-panel-theme="light"] .native-panel-header button { color: #656a73; }
+.voice-panel[data-panel-theme="light"] .voice-panel-description,
+.voice-panel[data-panel-theme="light"] .voice-panel-notice { color: #656a73; }
+.voice-panel[data-panel-theme="light"] .voice-panel-language { color: #3d424b; }
+.voice-panel[data-panel-theme="light"] .voice-panel-language input,
+.voice-panel[data-panel-theme="light"] .voice-panel-body textarea { border-color: #c8ccd5; background: #fff; color: #202124; }
+.voice-panel[data-panel-theme="light"] .voice-panel-submit { background: #e4e7ed; color: #202124; }
 .cloud-clipboard-panel { min-height: 100vh; background: #202027; color: #f5f5f7; }
 .cloud-clipboard-panel .native-panel-header { border-bottom-color: #45454f; background: #202027; color: #f5f5f7; }
 .cloud-clipboard-panel .native-panel-header button { color: #aeb0b7; }
@@ -324,6 +333,16 @@ small { display: block; font-size: 12px; font-weight: 400; color: var(--text-mut
 .handwriting-candidate-grid button { aspect-ratio: 1; border: 1px solid #45454f; border-radius: 6px; background: #292a31; color: #f5f5f7; font-size: 30px; }
 .handwriting-candidate-grid button:hover { border-color: #d88bde; background: #3b3240; }
 .recognition-section p { margin-top: 24px; color: #b8b8c0; font-size: 13px; }
+.handwriting-panel[data-panel-theme="light"] { background: #f7f8fa; color: #202124; }
+.handwriting-panel[data-panel-theme="light"] .native-panel-header { border-bottom-color: #d9dce3; background: #f7f8fa; color: #202124; }
+.handwriting-panel[data-panel-theme="light"] .ink-canvas { border-color: #c8ccd5; background: #fff; }
+.handwriting-panel[data-panel-theme="light"] .ink-canvas polyline { stroke: #202124; }
+.handwriting-panel[data-panel-theme="light"] .ink-canvas text,
+.handwriting-panel[data-panel-theme="light"] .recognition-section p { fill: #6b6f78; color: #6b6f78; }
+.handwriting-panel[data-panel-theme="light"] .handwriting-actions button,
+.handwriting-panel[data-panel-theme="light"] .handwriting-candidate-grid button { border-color: #c8ccd5; background: #fff; color: #202124; }
+.handwriting-panel[data-panel-theme="light"] .handwriting-actions button:hover,
+.handwriting-panel[data-panel-theme="light"] .handwriting-candidate-grid button:hover { background: #edf0f5; }
 .emoji-panel { display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; background: #202027; color: #f5f5f7; }
 .emoji-panel .native-panel-header { flex: 0 0 38px; border-bottom-color: rgba(255, 255, 255, .09); background: #202027; color: #f5f5f7; }
 .emoji-panel .native-panel-header button { color: #aeb0b7; }

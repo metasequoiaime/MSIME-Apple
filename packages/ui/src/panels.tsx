@@ -213,7 +213,7 @@ function pointFromEvent(event: PointerEvent<SVGSVGElement>): Point {
   return { x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)), y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)) };
 }
 
-export function HandwritingPanel({ client }: { client: PanelClient }) {
+export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
   const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [drawing, setDrawing] = useState<Point[]>([]);
   const [candidates, setCandidates] = useState<string[]>([]);
@@ -251,7 +251,7 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
     void client.submitHandwritingCandidate(candidate).then(() => setNotice(`已提交：${candidate}`)).catch(() => setNotice(`提交失败：${candidate}`));
   }
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
-  return <main className="native-panel handwriting-panel" aria-label="手写识别板">
+  return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header"><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
@@ -260,7 +260,7 @@ export function HandwritingPanel({ client }: { client: PanelClient }) {
   </main>;
 }
 
-export function VoicePanel({ client }: { client: VoicePanelClient }) {
+export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -359,7 +359,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
     await client.close();
   }
 
-  return <main className="native-panel voice-panel" aria-label="语音输入">
+  return <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
     <header className="native-panel-header"><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
     <div className="voice-panel-body">
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>

@@ -98,6 +98,10 @@ pub struct Preferences {
     pub toolbar_theme: SettingsTheme,
     #[serde(default)]
     pub screen_keyboard_theme: SettingsTheme,
+    #[serde(default)]
+    pub handwriting_theme: SettingsTheme,
+    #[serde(default)]
+    pub voice_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -661,6 +665,8 @@ impl Default for Preferences {
             candidate_theme: SettingsTheme::default(),
             toolbar_theme: SettingsTheme::default(),
             screen_keyboard_theme: SettingsTheme::default(),
+            handwriting_theme: SettingsTheme::default(),
+            voice_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
