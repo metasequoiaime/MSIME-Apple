@@ -1,6 +1,7 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
 #import "SkinSettingsView.h"
+#import "CloudAppearanceSettings.h"
 #include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
@@ -232,6 +233,21 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _skins = msime::mac::ListSkins(root);
     [self resolveSelectedSkin];
     [self preferencesChanged];
+}
+- (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values {
+    if (!MSIMEApplyCloudAppearance(values, _defaults)) return NO;
+    // Invalidate only fields represented by the legacy platform cloud snapshot.
+    // Newer family, color, preedit-size and per-scheme assistance choices survive.
+    _sharedFontSize = nil;
+    _sharedPageSize = nil;
+    _sharedVertical = nil;
+    _sharedInputScheme = nil;
+    _sharedShuangpinPreeditUsesRaw = nil;
+    _sharedChinesePunctuation = nil;
+    _sharedAutocorrect = nil;
+    _sharedToolbarEnabled = nil;
+    [self reloadSkins]; // Resolve the imported skin and publish one complete update.
+    return YES;
 }
 - (void)resolveSelectedSkin {
     const std::filesystem::path root = _skinsRoot.fileSystemRepresentation ?: "";

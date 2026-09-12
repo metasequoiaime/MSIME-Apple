@@ -1,5 +1,6 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
+#import "CloudAppearanceSettings.h"
 #import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>
@@ -80,6 +81,50 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert([[preferences candidateFontOfSize:18].fontName isEqual:[NSFont systemFontOfSize:18].fontName]);
     preferences.fontFamily = @"Segoe UI";
     [NSNotificationCenter.defaultCenter removeObserver:observer];
+}
+
+static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
+    NSDictionary *original = MSIMECloudAppearanceSnapshot(defaults);
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_size": @12, @"candidate_page_size": @1,
+        @"candidate_layout": @"vertical", @"candidate_font_family": @"Menlo", @"candidate_preedit_font_size": @28}];
+    [preferences applySharedInputPreferences:@{@"scheme": @"wubi", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO, @"chinese_punctuation": @NO}];
+    [preferences applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_neighbor": @NO}}];
+    [preferences applySharedToolbarVisibility:NO];
+    assert(!preferences.chinesePunctuation && !preferences.autocorrect && !preferences.shuangpinPreeditUsesRaw && !preferences.floatingToolbarEnabled);
+    NSMutableDictionary *imported = [original mutableCopy];
+    imported[@"platform.macos.candidate_skin"] = @"wechat";
+    imported[@"platform.macos.candidate_font_size"] = @32;
+    imported[@"platform.macos.candidate_page_size"] = @9;
+    imported[@"platform.macos.candidate_panel_style"] = @0;
+    imported[@"platform.macos.input_scheme"] = @1;
+    imported[@"platform.macos.shuangpin_preedit_uses_raw"] = @YES;
+    imported[@"platform.macos.autocorrect"] = @YES;
+    imported[@"platform.macos.chinese_punctuation"] = @YES;
+    imported[@"platform.macos.floating_toolbar"] = @YES;
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) {
+        (void)note; ++notifications;
+        assert(preferences.fontSize == 32 && preferences.pageSize == 9 && !preferences.vertical);
+        assert([preferences resolvedSkinForDark:NO].id == "wechat");
+    }];
+    NSMutableDictionary *invalid = [imported mutableCopy];
+    invalid[@"platform.macos.candidate_font_size"] = @33;
+    assert(![preferences applyCloudSettingsSnapshot:invalid]);
+    assert(notifications == 0 && preferences.fontSize == 12);
+    assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:original]);
+    assert([preferences applyCloudSettingsSnapshot:imported]);
+    assert(notifications == 1);
+    assert(preferences.shuangpinPreeditUsesRaw && preferences.autocorrect && preferences.chinesePunctuation && preferences.floatingToolbarEnabled);
+    assert([preferences.inputScheme isEqual:@"shuangpin"]);
+    assert([preferences.fontFamily isEqual:@"Menlo"] && preferences.preeditFontSize == 28);
+    assert([preferences.shuangpinProfile isEqual:@"microsoft"] && !preferences.autocorrectNeighbor);
+    NSDictionary *merged = [preferences sharedPreferencesByMerging:@{}];
+    assert([merged[@"candidate_font_size"] isEqual:@32] && [merged[@"candidate_page_size"] isEqual:@9]);
+    assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:imported]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    assert([preferences applyCloudSettingsSnapshot:original]);
+    preferences.fontFamily = @"Segoe UI";
+    preferences.preeditFontSize = 16;
 }
 
 static NSBitmapImageRep *Draw(MSIMECandidatePreviewView *preview) {
@@ -221,6 +266,7 @@ int main(int argc, const char **argv) {
         assert([familyControl.stringValue isEqual:installedFamily]);
         preferences.fontFamily = @"Segoe UI";
         TestFallbackFonts(preferences, defaults);
+        TestCloudImportCache(preferences, defaults);
         NSTextField *colorField = (id)FindControl(preferences.window.contentView, @"候选文字颜色");
         NSColorWell *colorWell = (id)FindControl(preferences.window.contentView, @"选择候选文字颜色");
         assert(colorField && colorWell);
