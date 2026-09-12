@@ -10,22 +10,36 @@ struct MacEmojiView: View {
   }
   @State private var search = ""
   @State private var category = ""
+  private var usesWideCells: Bool { category == "kaomoji" || category == "recent" }
   @State private var group = ""
   @State private var groups: [String] = []
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
   @State private var offset = 0
   @State private var selectedIndex = 0
+  @State private var recent = MacEmojiRecents()
+  @State private var clipboardNotice = ""
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, group, String(offset)] }
+  private var queryID: [String] { [search, category, group, String(offset), String(category == "recent" ? recent.revision : 0)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   @State private var selection = MacEmojiSelectionState()
   var onSelect: (String) -> Bool
+  var copyText: (String) -> Bool = { MacEmojiClipboard.copy($0) }
+
+  private func copyItem(_ item: MacEmojiCatalogItem) {
+    recent.recordSelection(item)
+    if copyText(item.text) {
+      clipboardNotice = "已复制到剪贴板"
+    } else {
+      clipboardNotice = "无法访问剪贴板，请重试"
+    }
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("表情与符号").font(.title2)
       Picker("目录", selection: $category) {
+        Text("最近").tag("recent")
         Text("表情").tag("")
         Text("颜文字").tag("kaomoji")
         Text("符号").tag("symbols")
@@ -41,6 +55,7 @@ struct MacEmojiView: View {
         placeholder: category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
       Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
+      if !clipboardNotice.isEmpty { Text(clipboardNotice).font(.caption) }
       if selection.rejected {
         Text(MacEmojiSelectionState.failureMessage).font(.caption)
           .foregroundStyle(MacEmojiPalette.color(palette.text))
@@ -51,22 +66,22 @@ struct MacEmojiView: View {
         Text("第 \(offset / 255 + 1) 页").font(.caption)
         Spacer()
         Button("下一页") { offset += 255 }
-          .disabled(loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
+          .disabled(category == "recent" || loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
       }
       ScrollViewReader { proxy in
         VStack(spacing: 4) {
           MacEmojiKeyboardEntry(enabled: loadedQuery == queryID && !items.isEmpty) { command in
             guard loadedQuery == queryID,
-                  let index = command.destination(from: selectedIndex, count: items.count, columns: category == "kaomoji" ? 3 : 8) else { return }
+                  let index = command.destination(from: selectedIndex, count: items.count, columns: usesWideCells ? 3 : 8) else { return }
             selectedIndex = index
             proxy.scrollTo(index)
-            if case .activate = command { selection.submit(items[index].text, send: onSelect) }
+            if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: usesWideCells ? 3 : 8), spacing: 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
-                Button(item.text) { selectedIndex = index; selection.submit(item.text, send: onSelect) }
-                  .font(category == "kaomoji" ? .body : .title2)
+                Button(item.text) { selectedIndex = index; copyItem(item) }
+                  .font(usesWideCells ? .body : .title2)
                   .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
                   .id(index)
                   .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
@@ -76,7 +91,11 @@ struct MacEmojiView: View {
           }
         }
       }
-    }.padding(20).frame(minWidth: 380, minHeight: 320)
+      Button("插入所选项") {
+        guard loadedQuery == queryID, items.indices.contains(selectedIndex) else { return }
+        selection.submit(items[selectedIndex].text, send: onSelect)
+      }.disabled(loadedQuery != queryID || !items.indices.contains(selectedIndex))
+    }.padding(20).frame(minWidth: 380, minHeight: 500)
       .background(MacEmojiPalette.color(palette.background))
       .foregroundStyle(MacEmojiPalette.color(palette.text))
       .tint(MacEmojiPalette.color(palette.accent))
@@ -90,6 +109,7 @@ struct MacEmojiView: View {
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
+        if selectedCategory == "recent" { groupsCategory = selectedCategory; return }
         do {
           let result = try await Task.detached {
             try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory)
@@ -107,6 +127,12 @@ struct MacEmojiView: View {
         selectedIndex = 0
         loadedQuery = []
         status = "正在加载…"
+        if category == "recent" {
+          items = Array(recent.matching(search).dropFirst(offset).prefix(255))
+          loadedQuery = queryID
+          status = items.isEmpty ? "最近使用为空或没有匹配项" : "本页 \(items.count) 项"
+          return
+        }
         do {
           try await Task.sleep(nanoseconds: 200_000_000)
           let query = search

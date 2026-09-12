@@ -43,7 +43,7 @@ struct MacEmojiKeyboardEntry: NSViewRepresentable {
     view.bezelStyle = .rounded
     view.target = view
     view.action = #selector(Entry.beginBrowsing)
-    view.toolTip = "方向键选择，Home/End 跳转，回车或空格插入；Tab 离开"
+    view.toolTip = "方向键选择，Home/End 跳转，回车或空格复制；Tab 离开"
     view.setAccessibilityLabel("键盘浏览表情")
     view.setAccessibilityHelp(view.toolTip)
     return view
