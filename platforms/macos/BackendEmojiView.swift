@@ -40,7 +40,6 @@ struct MacEmojiView: View {
   @State private var groups: [String] = []
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
-  @State private var offset = 0
   @State private var selectedIndex = 0
   @State private var recent = MacEmojiRecents()
   @State private var toast = MacEmojiToastState()
@@ -51,7 +50,7 @@ struct MacEmojiView: View {
   @State private var deletingHistory = false
   @State private var deletionNotice = ""
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, parent, group, String(offset), String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0)] }
+  private var queryID: [String] { [search, category, parent, group, String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   @State private var selection = MacEmojiSelectionState()
@@ -155,14 +154,6 @@ struct MacEmojiView: View {
       } else if let page = mediaPage {
         MacEmojiMediaPlaceholder(page: page, palette: palette)
       } else {
-      HStack {
-        Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
-        Spacer()
-        Text("第 \(offset / 255 + 1) 页").font(.caption)
-        Spacer()
-        Button("下一页") { offset += 255 }
-          .disabled(category == "recent" || category == "clipboard" || loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
-      }
       GeometryReader { geometry in
       let flowWidth = max(0, geometry.size.width - 16)
       let flowItems = loadedQuery == queryID && category == "kaomoji" ? items : []
@@ -224,10 +215,8 @@ struct MacEmojiView: View {
         let generation = toast.generation
         await MacEmojiToastState.expire(generation: generation) { toast.dismiss(ifGeneration: $0) }
       }
-      .onChange(of: search) { _ in offset = 0 }
-      .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; toast.dismiss() }
-      .onChange(of: parent) { _ in offset = 0; group = "" }
-      .onChange(of: group) { _ in offset = 0 }
+      .onChange(of: category) { _ in group = ""; parent = ""; toast.dismiss() }
+      .onChange(of: parent) { _ in group = "" }
       .task(id: category) {
         groupsCategory = nil
         groups = []
@@ -279,9 +268,9 @@ struct MacEmojiView: View {
         if MacEmojiMediaPage(rawValue: category) != nil { status = ""; loadedQuery = queryID; return }
         if category == "home" { status = "首页预览 · 更多可进入完整目录"; return }
         if category == "recent" {
-          items = Array(recent.matching(search).dropFirst(offset).prefix(255))
+          items = recent.matching(search)
           loadedQuery = queryID
-          status = items.isEmpty ? "最近使用为空或没有匹配项" : "本页 \(items.count) 项"
+          status = items.isEmpty ? "最近使用为空或没有匹配项" : "共 \(items.count) 项"
           return
         }
         if category == "clipboard" {
@@ -304,7 +293,7 @@ struct MacEmojiView: View {
               status = "剪贴板历史不可用，请检查共享存储配置"
               return
             }
-            status = !history.enabled ? "剪贴板历史已关闭" : items.isEmpty ? "没有已保存的匹配记录" : "本页 \(items.count) 项"
+            status = !history.enabled ? "剪贴板历史已关闭" : items.isEmpty ? "没有已保存的匹配记录" : "共 \(items.count) 项"
           })
           return
         }
@@ -313,19 +302,20 @@ struct MacEmojiView: View {
           let query = search
           let directory = resources
           let selectedCategory = category
-          let selectedOffset = offset
           let filters = selectedCategory == "symbols"
             ? MacEmojiSymbolGroup.queryFilters(search: query, parent: parent, group: group) : (parent: parent, group: group)
           let selectedGroup = filters.group
           let selectedParent = filters.parent
           let requestedID = queryID
-          let result = try await Task.detached {
-            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset, group: selectedGroup, parent: selectedParent)
-          }.value
+          let worker = Task.detached {
+            try MacEmojiCatalog.loadAll(resources: directory, search: query, category: selectedCategory, group: selectedGroup, parent: selectedParent)
+          }
+          let result = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
           try Task.checkCancellation()
+          guard requestedID == queryID else { return }
           items = result
           loadedQuery = requestedID
-          status = result.isEmpty ? (selectedOffset == 0 ? "没有匹配的表情" : "已到目录末尾，可返回上一页") : "本页 \(result.count) 项"
+          status = result.isEmpty ? "没有匹配的表情" : "共 \(result.count) 项"
         } catch {
           guard !Task.isCancelled else { return }
           items = []
