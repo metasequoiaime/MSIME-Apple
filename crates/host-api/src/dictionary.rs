@@ -345,6 +345,7 @@ fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryE
             || !key_alphabet
             || word.is_empty()
             || word.len() > 1024
+            || (matches!(kind, Kind::QuickPhrase) && word.encode_utf16().count() > 199)
             || weight < 0
             || key.chars().any(char::is_control)
             || word.chars().any(char::is_control)
