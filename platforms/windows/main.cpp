@@ -178,7 +178,8 @@ int wmain(int argc, wchar_t **argv) {
       }
     } click_shutdown{server, clicks, mode_clicks};
     std::optional<COLORREF> candidate_text_color;
-    if (!config.candidate_text_color.empty()) {
+    if (!config.candidate_text_color.empty() && config.candidate_text_color != "auto" &&
+        config.candidate_text_color != "none") {
       const auto color = parse_css_color(config.candidate_text_color, {});
       candidate_text_color = RGB(static_cast<BYTE>(color.r * 255.0f),
                                  static_cast<BYTE>(color.g * 255.0f),
