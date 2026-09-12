@@ -233,6 +233,25 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn('@"english.db"', mutable_files)
         self.assertIn('NSURL *englishDatabase = [dataDirectory URLByAppendingPathComponent:@"english.db"', installer)
 
+    def test_vertical_candidates_can_show_bundled_english_glosses(self):
+        cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
+        controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
+        preferences = (MACOS_ROOT / "src/PreferencesWindowController.mm").read_text()
+        panel = (MACOS_ROOT / "src/CandidatePanel.mm").read_text()
+        readme = (PROJECT_ROOT / "README.md").read_text()
+
+        self.assertIn("english.db", cmake)
+        self.assertIn("custom_translations.txt", cmake)
+        self.assertIn("CandidateTranslation.cpp", cmake)
+        self.assertIn("CandidateTranslationTests.cpp", cmake)
+        self.assertIn("pathForResource:@\"english\" ofType:@\"db\"", controller)
+        self.assertIn("LookupCandidateGloss", controller)
+        self.assertIn("storedCandidateTranslationsEnabled", controller)
+        self.assertIn("竖排候选显示英文释义", preferences)
+        self.assertIn("candidateTranslation", panel)
+        self.assertIn("英文释义", readme)
+        self.assertNotIn("set_english_input_options", controller)
+
     def test_macos_session_forwards_windows_frequency_adjustment(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
         preferences = (MACOS_ROOT / "src/FrequencyAdjustmentPreference.h").read_text()
@@ -972,13 +991,15 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertRegex(lock["source_commit"], r"\A[0-9a-f]{40}\Z")
         # The digests are committed rather than taken from the SHA256SUMS.txt that travels with the
         # data, so a retagged release fails the build instead of shipping.
-        for name in ("msime.db", "SHA256SUMS.txt", "dictionary-manifest.json"):
+        for name in ("msime.db", "english.db", "SHA256SUMS.txt", "dictionary-manifest.json"):
             self.assertRegex(lock["assets"][name], r"\A[0-9a-f]{64}\Z")
         self.assertIn("product_lock.verify_assets", source)
         # The probe that would have caught the old build: quick_parases comes from a stage the
         # removed build_dictionary.py never ran, so a database missing it looked perfectly valid.
         self.assertIn("quick_parases", source)
         self.assertIn("PRAGMA integrity_check", source)
+        self.assertIn("zh_en_glosses", source)
+        self.assertIn('"你好"', source)
 
         # Every path that produces a build has to go through it, including the iOS variant, which
         # slices the same database rather than generating its own.

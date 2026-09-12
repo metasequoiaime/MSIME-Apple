@@ -37,6 +37,8 @@ bool MetasequoiaShouldShowPreferences(int argc, const char *argv[]);
 + (void)setCandidatePageSize:(NSInteger)pageSize;
 + (NSInteger)storedCandidateFontSize;
 + (void)setCandidateFontSize:(NSInteger)fontSize;
++ (BOOL)storedCandidateTranslationsEnabled;
++ (void)setCandidateTranslationsEnabled:(BOOL)enabled;
 + (NSInteger)storedCandidatePageShortcut;
 + (void)setCandidatePageShortcut:(NSInteger)shortcut;
 + (BOOL)storedCandidateLearningEnabled;

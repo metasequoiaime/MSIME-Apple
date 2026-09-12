@@ -43,12 +43,33 @@ namespace
 NSAttributedStringKey const kMetasequoiaCandidateIndexAttribute = @"MetasequoiaCandidateIndex";
 }
 
+NSAttributedStringKey const MetasequoiaCandidateTranslationAttributeName = @"MetasequoiaCandidateTranslation";
+
 NSAttributedString *MetasequoiaIndexedCandidateString(NSString *value, NSUInteger index)
 {
     return [[NSAttributedString alloc] initWithString:value
                                            attributes:@{
                                                kMetasequoiaCandidateIndexAttribute : @(index)
                                            }];
+}
+
+NSAttributedString *MetasequoiaCandidateStringByAddingTranslation(NSAttributedString *candidate, NSString *translation)
+{
+    if (candidate == nil || translation.length == 0)
+        return candidate;
+    NSMutableAttributedString *annotated = [candidate mutableCopy];
+    [annotated addAttribute:MetasequoiaCandidateTranslationAttributeName
+                      value:translation
+                      range:NSMakeRange(0, annotated.length)];
+    return [annotated copy];
+}
+
+NSString *MetasequoiaCandidateTranslation(NSAttributedString *candidate)
+{
+    if (candidate.length == 0)
+        return nil;
+    id value = [candidate attribute:MetasequoiaCandidateTranslationAttributeName atIndex:0 effectiveRange:nil];
+    return [value isKindOfClass:[NSString class]] && [value length] > 0 ? value : nil;
 }
 
 NSUInteger MetasequoiaCandidateIndex(NSAttributedString *candidate)

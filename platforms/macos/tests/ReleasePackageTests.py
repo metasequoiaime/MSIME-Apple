@@ -662,6 +662,8 @@ class ReleasePackageTests(unittest.TestCase):
             build_number = bundle_info["CFBundleVersion"]
         self.assertTrue(dictionary.is_file())
         self.assertEqual(dictionary_fingerprint, sha256_file(dictionary))
+        self.assertTrue((bundle / "Contents/Resources/english.db").is_file())
+        self.assertTrue((bundle / "Contents/Resources/custom_translations.txt").is_file())
 
         bundled_uninstaller = bundle / "Contents/Resources/Uninstall.command"
         self.assertTrue(bundled_uninstaller.is_file())

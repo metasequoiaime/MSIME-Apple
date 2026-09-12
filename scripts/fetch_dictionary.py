@@ -3,7 +3,7 @@
 
 This used to be built here, by platforms/macos/scripts/build_dictionary.py, which ran two of the four MSIME-Dict stages that write into msime.db. The bundle therefore shipped a database without the quick-phrase and Japanese lexicon tables that MSIME-Windows and MSIME-Linux ship, from a submodule pin that was five commits behind the released tag, with no digest to catch either. Nothing reported it, because a smaller database is still a valid one.
 
-MSIME-Engine publishes msime.db and SHA256SUMS.txt as release assets and both other platforms already take them from there, so take them here too. That is what makes the claim in MSIME-Linux/scripts/fetch_dictionary.py true: all three platforms ship a byte-identical msime.db.
+MSIME-Engine publishes msime.db, english.db and SHA256SUMS.txt as release assets and both other platforms already take them from there, so take them here too. That is what makes the claim in MSIME-Linux/scripts/fetch_dictionary.py true: all three platforms ship a byte-identical msime.db. english.db is the same published gloss table; this bundle opens it read-only for candidate translations.
 
 The release tag cannot be overridden from the command line. product-lock.json names it and records the SHA256 of every asset, so a retagged release or a replaced database fails the build instead of shipping: rewriting the upstream SHA256SUMS.txt along with the data does not help, because that file is verified against a committed digest too. Move to a new release with `python3 scripts/product_lock.py refresh --dictionary-tag dict-vMAJOR.MINOR.PATCH` and review the resulting diff.
 
@@ -56,16 +56,23 @@ def verify_contents(destination: Path) -> None:
     ):
         raise SystemExit("Downloaded dictionary failed integrity or candidate verification.")
 
-    with sqlite3.connect(destination / "english.db") as database:
+    english_db = destination / "english.db"
+    with sqlite3.connect(english_db) as database:
         if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
             raise SystemExit("英文词库完整性检查失败。")
         if database.execute("SELECT word, display, weight FROM english_words LIMIT 1").fetchone() is None:
             raise SystemExit("英文词库没有有效词条。")
+        english_gloss = database.execute(
+            "SELECT english_gloss FROM zh_en_glosses WHERE chinese = ?", ("你好",)
+        ).fetchone()
+        if english_gloss is None:
+            raise SystemExit("Downloaded english.db failed gloss verification.")
 
     print(
         f"{main_db.name} ({main_db.stat().st_size} bytes), "
         f"ni'hao -> {candidate[0]}, yyds -> {quick_phrase[0]}, aaaa -> {wubi_candidate[0]}"
     )
+    print(f"{english_db.name} ({english_db.stat().st_size} bytes), 你好 -> {english_gloss[0]}")
 
 
 def main() -> None:

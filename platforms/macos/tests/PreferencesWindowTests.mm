@@ -638,7 +638,7 @@ int main()
         NSRect appearanceCardRect = [appearanceDocument convertRect:appearanceCard.bounds fromView:appearanceCard];
         require(NSMaxY(appearanceCardRect) <= NSMaxY(appearanceDocument.bounds),
                 "The appearance controls overflowed the scrollable document.");
-        require([candidatePreview.accessibilityValue isEqualToString:@"纵向列表，5 个候选，16 pt"],
+        require([candidatePreview.accessibilityValue isEqualToString:@"纵向列表，5 个候选，16 pt，英文释义"],
                 "The candidate preview did not reflect the stored appearance settings.");
         const CGFloat verticalPreviewHeight = candidatePreview.frame.size.height;
         [styleButton selectItemAtIndex:0];
@@ -892,6 +892,25 @@ int main()
                 "The candidate font-size control did not store the selected value.");
         require([candidatePreview.accessibilityValue isEqualToString:@"横向排列，7 个候选，20 pt"],
                 "The candidate preview did not update after the appearance controls changed.");
+        NSButton *translationsButton = FindButtonWithTitle(controller.window.contentView, @"竖排候选显示英文释义");
+        require(translationsButton != nil, "The appearance page did not expose the candidate translation toggle.");
+        require([MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
+                    translationsButton.state == NSControlStateValueOn,
+                "Candidate translations were not enabled by default.");
+        translationsButton.state = NSControlStateValueOff;
+        require([NSApp sendAction:translationsButton.action to:translationsButton.target from:translationsButton] &&
+                    ![MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled],
+                "The candidate translation control did not persist the disabled value.");
+        [styleButton selectItemAtIndex:1];
+        require([NSApp sendAction:styleButton.action to:styleButton.target from:styleButton],
+                "The candidate layout control did not dispatch its vertical-layout action.");
+        translationsButton.state = NSControlStateValueOn;
+        require([NSApp sendAction:translationsButton.action to:translationsButton.target from:translationsButton] &&
+                    [candidatePreview.accessibilityValue isEqualToString:@"纵向列表，7 个候选，20 pt，英文释义"],
+                "The candidate preview did not mention English glosses for a vertical list.");
+        [styleButton selectItemAtIndex:0];
+        require([NSApp sendAction:styleButton.action to:styleButton.target from:styleButton],
+                "The candidate layout control did not restore the horizontal layout.");
 
         floatingToolbarButton.state = NSControlStateValueOn;
         require([NSApp sendAction:floatingToolbarButton.action
@@ -1065,6 +1084,7 @@ int main()
         [MetasequoiaPreferencesWindowController setStoredCandidateSkin:@"wechat"];
         [MetasequoiaPreferencesWindowController setCandidatePageSize:5];
         [MetasequoiaPreferencesWindowController setCandidateFontSize:20];
+        [MetasequoiaPreferencesWindowController setCandidateTranslationsEnabled:NO];
         [MetasequoiaPreferencesWindowController setCandidatePageShortcut:2];
         [MetasequoiaPreferencesWindowController setCandidateLearningEnabled:NO];
         [MetasequoiaPreferencesWindowController setFrequencyAdjustmentMode:@"halve"];
@@ -1092,6 +1112,7 @@ int main()
                 [[MetasequoiaPreferencesWindowController storedCandidateSkin] isEqualToString:@"fluent"] &&
                 [MetasequoiaPreferencesWindowController storedCandidatePageSize] == 9 &&
                 [MetasequoiaPreferencesWindowController storedCandidateFontSize] == 18 &&
+                [MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
                 [MetasequoiaPreferencesWindowController storedCandidatePageShortcut] == 0 &&
                 [MetasequoiaPreferencesWindowController storedCandidateLearningEnabled] &&
                 [[MetasequoiaPreferencesWindowController storedFrequencyAdjustmentMode] isEqualToString:@"promote"] &&
@@ -1120,6 +1141,7 @@ int main()
             @"MetasequoiaImeCandidateSkin",
             @"MetasequoiaImeCandidatePageSize",
             @"MetasequoiaImeCandidateFontSize",
+            @"MetasequoiaImeCandidateTranslationsEnabled",
             @"MetasequoiaImeCandidatePageShortcut",
             @"MetasequoiaImeCandidateLearning",
             @"MetasequoiaImeFrequencyAdjustmentMode",
