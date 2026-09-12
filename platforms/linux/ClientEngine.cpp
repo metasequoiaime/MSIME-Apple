@@ -566,13 +566,13 @@ std::vector<std::string> clipboard_items(const std::string &path) {
     for (const auto &entry : value) {
       if (items.size() == 8 || !entry.is_string()) break;
       auto text = entry.get<std::string>();
-      msime_clipboard_truncate(text, 4000);
+      if (text.size() > 4096) continue;
       if (!text.empty()) items.push_back(std::move(text));
     }
   } catch (...) {}
   return items;
 }
-bool clipboard_remove_index(const std::string &path, size_t index) {
+bool clipboard_delete(const std::string &path, const std::optional<std::string> &text) {
   if (path.empty() || path.size() > 4096)
     return false;
   const auto lock_path = path + ".lock";
@@ -584,25 +584,37 @@ bool clipboard_remove_index(const std::string &path, size_t index) {
   }
   bool removed = false;
   try {
-    std::ifstream input{std::filesystem::path(path)};
-    auto value = Json::parse(input);
-    if (value.is_array() && index < value.size() && value.at(index).is_string()) {
-      value.erase(value.begin() + index);
-      const auto temporary = path + ".tmp." + std::to_string(getpid());
-      std::ofstream output{std::filesystem::path(temporary), std::ios::trunc};
-      if (output) {
-        output << value.dump();
-        output.close();
-        std::error_code error;
-        std::filesystem::permissions(
-            temporary, std::filesystem::perms::owner_read |
-                           std::filesystem::perms::owner_write,
-            std::filesystem::perm_options::replace, error);
-        std::filesystem::rename(temporary, path, error);
-        if (!error)
-          removed = true;
-        else
-          std::filesystem::remove(temporary, error);
+    if (!text) {
+      std::error_code error;
+      std::filesystem::remove(path, error);
+      removed = !error;
+    } else {
+      std::ifstream input{std::filesystem::path(path)};
+      auto value = Json::parse(input);
+      if (value.is_array()) {
+        const auto entry = std::find(value.begin(), value.end(), Json(*text));
+        if (entry == value.end()) {
+          flock(lock, LOCK_UN);
+          close(lock);
+          return true;
+        }
+        value.erase(entry);
+        const auto temporary = path + ".tmp." + std::to_string(getpid());
+        std::ofstream output{std::filesystem::path(temporary), std::ios::trunc};
+        if (output) {
+          output << value.dump();
+          output.close();
+          std::error_code error;
+          std::filesystem::permissions(
+              temporary, std::filesystem::perms::owner_read |
+                             std::filesystem::perms::owner_write,
+              std::filesystem::perm_options::replace, error);
+          std::filesystem::rename(temporary, path, error);
+          if (!error)
+            removed = true;
+          else
+            std::filesystem::remove(temporary, error);
+        }
       }
     }
   } catch (...) {
@@ -1167,6 +1179,7 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   }
   if (!items)
     return;
+  ++s.clipboard_generation;
   s.clipboard_items_cache = std::move(*items);
   s.clipboard_loaded = true;
   delete items;
@@ -1501,18 +1514,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto clipboard_menu = ibus_prop_list_new();
   const auto &items = s.clipboard_items_cache;
   for (size_t index = 0; index < items.size(); ++index) {
-    const auto label = std::to_string(index + 1) + ". " + items[index].substr(0, 48);
+    auto preview = items[index];
+    msime_clipboard_truncate(preview, 48);
+    const auto label = std::to_string(index + 1) + ". " + preview;
+    const auto identity = std::to_string(s.clipboard_generation) + "/" + std::to_string(index);
     auto item = ibus_property_new(
-        (std::string("ClipboardHistory/") + std::to_string(index)).c_str(),
+        (std::string("ClipboardHistory/") + identity).c_str(),
         PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()), "",
-        ibus_text_new_from_static_string("提交历史文本"), TRUE, FALSE,
+        ibus_text_new_from_static_string("提交历史文本"), TRUE, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(clipboard_menu, item);
     auto remove = ibus_property_new(
-        (std::string("ClipboardHistory/Remove/") + std::to_string(index)).c_str(),
+        (std::string("ClipboardHistory/Remove/") + identity).c_str(),
         PROP_TYPE_NORMAL,
         ibus_text_new_from_string((std::string("删除 ") + std::to_string(index + 1)).c_str()),
-        "", ibus_text_new_from_static_string("删除这一条历史文本"), TRUE, FALSE,
+        "", ibus_text_new_from_static_string("删除这一条历史文本"), TRUE, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(clipboard_menu, remove);
   }
@@ -1520,7 +1536,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("清空历史"), "",
       ibus_text_new_from_static_string("删除本地剪贴板历史文件"),
-      !items.empty(), FALSE, PROP_STATE_UNCHECKED, nullptr);
+      !items.empty(), TRUE, PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(clipboard_menu, clear_clipboard);
   ibus_property_set_sub_props(clipboard, clipboard_menu);
   auto layout_property = ibus_property_new(
@@ -2718,37 +2734,35 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       return;
     }
-    if (clipboard_remove) {
-      try {
-        const auto index = std::stoul(property_name.substr(24));
-        if (clipboard_remove_index(s.clipboard_history_path, index)) {
-          s.clipboard_items_cache.clear();
-          s.clipboard_loaded = false;
-          ++s.clipboard_generation;
-          publish_mode(engine);
+    if (clipboard_remove || clipboard_item) {
+      for (size_t index = 0; index < s.clipboard_items_cache.size(); ++index) {
+        const auto expected = std::string(clipboard_remove
+            ? "ClipboardHistory/Remove/" : "ClipboardHistory/") +
+            std::to_string(s.clipboard_generation) + "/" + std::to_string(index);
+        if (property_name != expected)
+          continue;
+        const auto text = s.clipboard_items_cache[index];
+        if (clipboard_remove) {
+          if (clipboard_delete(s.clipboard_history_path, text)) {
+            s.clipboard_items_cache.clear();
+            s.clipboard_loaded = false;
+            ++s.clipboard_generation;
+            publish_mode(engine);
+          }
+        } else {
+          commit_text(engine, text);
         }
-      } catch (...) {
+        return;
       }
       return;
     }
     if (property_name == "ClipboardHistory/Clear") {
-      if (s.clipboard_history_path.empty())
+      if (!clipboard_delete(s.clipboard_history_path, std::nullopt))
         return;
-      std::error_code error;
-      std::filesystem::remove(s.clipboard_history_path, error);
       s.clipboard_items_cache.clear();
       s.clipboard_loaded = false;
       ++s.clipboard_generation;
       publish_mode(engine);
-      return;
-    }
-    if (clipboard_item) {
-      try {
-        const auto index = std::stoul(property_name.substr(17));
-        const auto items = clipboard_items(s.clipboard_history_path);
-        if (index < items.size())
-          commit_text(engine, items[index]);
-      } catch (...) {}
       return;
     }
     if (property_name == "PairedPunctuation") {

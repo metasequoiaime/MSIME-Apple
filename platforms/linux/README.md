@@ -251,3 +251,5 @@ IBus 属性菜单中的“桌面工具”可直接打开手写识别板、屏幕
 安装桌面宿主后，支持 Desktop Actions 的应用菜单或任务栏可直接打开手写、屏幕键盘、表情、语音、云词典与云剪贴板。也可把 `msime-client-settings --panel handwriting` 等命令绑定到桌面环境快捷键；`--panel` 支持 `settings`、`handwriting`、`keyboard`、`emoji`、`voice`、`cloud-dictionary`、`cloud-clipboard`，继续使用同一 runtime-options 配置及桌面面板输入目标捕获流程。
 
 剪贴板工具支持 `add-stdin`，例如 `wl-paste --no-newline | msime-client-clipboard "$XDG_STATE_HOME/msime-client/clipboard.json" add-stdin`（需将 `XDG_STATE_HOME` 设为绝对目录，未设置时使用 `$HOME/.local/state`）。X11 可将管道上游换为 `xclip -selection clipboard -o`。文本通过标准输入传递，首次写入自动创建历史目录；最多读取 1 MiB，保存时保留完整 UTF-8 字符并限制为 4000 字节，继续去重并保留最近 50 项。此命令仅执行一次明确采集，不注册后台剪贴板监听。
+
+剪贴板历史菜单的粘贴操作使用展示时缓存的文本；删除在文件锁内按文本内容匹配，后台新增历史不会导致误删另一行。菜单行绑定加载代次，忽略已过期的行操作；清空也使用同一历史文件锁。条目与删除按钮可见，预览按完整 UTF-8 字符截断。
