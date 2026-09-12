@@ -1,3 +1,4 @@
+import { animationVariables, type AnimationMode } from "./skin-animation-variables.js";
 // Names are decoded by the browser using the same grammar as @keyframes.
 // A sticky token scan keeps quoted/escaped commas inside their name.
 export function rewriteAnimationNames(value: string, names: ReadonlyMap<string, string>): { value: string; partial: boolean } {
@@ -33,7 +34,7 @@ export function isolateToolbarAnimations(sheet: CSSStyleSheet): boolean {
   function visit(rules: CSSRuleList, action: (rule: CSSRule) => void) {
     for (const rule of Array.from(rules)) {
       action(rule);
-      if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE) {
+      if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.KEYFRAMES_RULE) {
         const nested = (rule as CSSGroupingRule).cssRules;
         if (nested) visit(nested, action);
       }
@@ -45,16 +46,29 @@ export function isolateToolbarAnimations(sheet: CSSStyleSheet): boolean {
     if (!names.has(frames.name)) names.set(frames.name, prefix + names.size);
     frames.name = names.get(frames.name)!;
   });
-  let partial = false;
+  const styles: CSSStyleDeclaration[] = [];
   visit(sheet.cssRules, rule => {
-    if (rule.type !== CSSRule.STYLE_RULE && rule.constructor.name !== "CSSNestedDeclarations") return;
-    const style = (rule as CSSStyleRule).style;
-    if (!Array.from(style).includes("animation-name")) return;
-    const rewritten = rewriteAnimationNames(style.getPropertyValue("animation-name"), names);
-    partial ||= rewritten.partial;
-    // Setting only the longhand preserves duration, delay, easing and priority.
-    // Unresolved var() shorthand/name is disabled until it can be isolated.
-    style.setProperty("animation-name", rewritten.value, style.getPropertyPriority("animation-name"));
+    if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.KEYFRAME_RULE || rule.constructor.name === "CSSNestedDeclarations")
+      styles.push((rule as CSSStyleRule).style);
   });
-  return partial;
+  const parser = new CSSStyleSheet();
+  parser.insertRule(".animation-parser {}", 0);
+  const parsed = (parser.cssRules[0] as CSSStyleRule).style;
+  const variables = animationVariables(styles, prefix, (value: string, mode: AnimationMode) => {
+    if (mode === "animation-name") return rewriteAnimationNames(value, names);
+    parsed.cssText = "";
+    parsed.setProperty("animation", value);
+    const rewritten = rewriteAnimationNames(parsed.getPropertyValue("animation-name"), names);
+    parsed.setProperty("animation-name", rewritten.value);
+    return { value: parsed.getPropertyValue("animation") || "none", partial: rewritten.partial };
+  });
+  for (const style of styles) {
+    if (!Array.from(style).includes("animation-name")) continue;
+    const name = style.getPropertyValue("animation-name");
+    const mode = name ? "animation-name" : "animation";
+    // Use the shorthand only for pending variable substitution. Static names
+    // still change just the longhand, preserving independent timing overrides.
+    style.setProperty(mode, variables.rewrite(name || style.getPropertyValue("animation"), mode), style.getPropertyPriority(mode));
+  }
+  return variables.install();
 }
