@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -1984,7 +1984,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "CandidatePageSize", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选数量"), "",
       ibus_text_new_from_static_string("选择每页显示的候选数量"),
-      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto page_size_menu = ibus_prop_list_new();
   const auto page_size = s.candidate_page_size_override.value_or(
@@ -1993,7 +1993,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidatePageSize/") + std::to_string(value)).c_str(),
         PROP_TYPE_RADIO, ibus_text_new_from_string(std::to_string(value).c_str()),
-        "", ibus_text_new_from_static_string("设置候选页大小"), TRUE, TRUE,
+        "", ibus_text_new_from_static_string("设置候选页大小"), !menu_save_pending, TRUE,
         page_size == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(page_size_menu, item);
   }
@@ -2002,7 +2002,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "FrequencyMode", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("词频调节"), "",
       ibus_text_new_from_static_string("选择学习词频调节策略"),
-      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto frequency_menu = ibus_prop_list_new();
   const auto frequency = s.frequency_mode_override.value_or(
@@ -2016,7 +2016,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("FrequencyMode/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("设置词频调节模式"), TRUE, TRUE,
+        ibus_text_new_from_static_string("设置词频调节模式"), !menu_save_pending, TRUE,
         frequency == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(frequency_menu, item);
   }
@@ -3277,6 +3277,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name.rfind("FrequencyMode/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED || menu_save_pending) return;
       const auto selected = property_name.substr(std::string("FrequencyMode/").size());
       if (selected != "disabled" && selected != "pin" && selected != "halve" &&
           selected != "linear" && selected != "promote")
@@ -3285,6 +3286,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
               configured.at("preferences").value("frequency", Json::object())
                   .value("mode", "promote")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::FrequencyMode, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -3297,9 +3303,19 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (property_name.rfind("CandidatePageSize/", 0) == 0) {
       try {
-        const auto selected = std::stoul(property_name.substr(18));
-        if (selected < 1 || selected > 9 || !s.session)
+        if (value != PROP_STATE_CHECKED || menu_save_pending) return;
+        const auto suffix = property_name.substr(std::string("CandidatePageSize/").size());
+        if (suffix.size() != 1 || suffix.front() < '1' || suffix.front() > '9') return;
+        const auto selected = static_cast<uint8_t>(suffix.front() - '0');
+        if (s.candidate_page_size_override.value_or(
+                configured.at("preferences").value("candidate_page_size", 5)) == selected)
           return;
+        const auto directory = configured.value("preferences_directory", std::string{});
+        if (!directory.empty() && directory.front() == '/') {
+          save_menu_preference(engine, MenuPreference::CandidatePageSize, selected);
+          return;
+        }
+        if (!s.session) return;
         s.candidate_page_size_override = static_cast<uint8_t>(selected);
         s.view = response(msime_client_set_candidate_page_size(
                          s.session, static_cast<uint8_t>(selected))).at("view");
@@ -4755,6 +4771,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->layout_override.reset();
           if (request.preference == MenuPreference::CandidateSkin)
             self->state->skin_override.reset();
+          if (request.preference == MenuPreference::CandidatePageSize)
+            self->state->candidate_page_size_override.reset();
+          if (request.preference == MenuPreference::FrequencyMode)
+            self->state->frequency_mode_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4784,6 +4804,12 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::CandidateSkin:
             snapshot["preferences"]["candidate_skin"] = request.value;
+            break;
+          case MenuPreference::CandidatePageSize:
+            snapshot["preferences"]["candidate_page_size"] = request.value;
+            break;
+          case MenuPreference::FrequencyMode:
+            snapshot["preferences"]["frequency"]["mode"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
