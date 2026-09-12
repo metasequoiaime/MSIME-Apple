@@ -54,6 +54,14 @@ static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
            !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value compare:@0] != NSOrderedAscending;
 }
+static NSUInteger MSIMECandidateDeletionSlot(NSEvent *event) {
+    const NSEventModifierFlags required = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
+    if ((event.modifierFlags & (required | NSEventModifierFlagCommand)) != required) return NSNotFound;
+    // Main-row physical digits only; Option/Shift characters vary by layout.
+    const unsigned short codes[] = {18, 19, 20, 21, 23, 22, 26, 28};
+    for (NSUInteger slot = 0; slot < 8; ++slot) if (event.keyCode == codes[slot]) return slot;
+    return NSNotFound;
+}
 static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
     for (NSString *key in @[@"session", @"generation", @"index"])
@@ -676,6 +684,21 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_session) return NO;
     if (_focusPending) [self prepareSession];
     [self syncPageSize];
+    NSUInteger deletionSlot = MSIMECandidateDeletionSlot(event);
+    if (_panel.isVisible && deletionSlot != NSNotFound) {
+        if (event.isARepeat) return YES;
+        NSArray *candidates = _view[@"candidates"];
+        if (![candidates isKindOfClass:NSArray.class] || deletionSlot >= candidates.count) return YES;
+        NSDictionary *candidate = candidates[deletionSlot];
+        if (![candidate isKindOfClass:NSDictionary.class]) return YES;
+        NSDictionary *identifier = candidate[@"id"];
+        if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
+        NSError *error = nil;
+        NSDictionary *result = [_session removeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
+        if (result) [self apply:result];
+        else if (error) NSBeep();
+        return YES; // Never finish composition or leak a reserved deletion chord.
+    }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
@@ -1024,8 +1047,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [menu addItem:fixed];
     NSString *text = candidate[@"text"];
     // Windows hides deletion for one Unicode scalar, including supplementary Han.
-    if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1)
-        [menu addItem:item(@"删除", 1)];
+    if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1) {
+        NSMenuItem *remove = item(@"删除", 1);
+        NSArray *candidates = _view[@"candidates"];
+        NSUInteger slot = [candidates isKindOfClass:NSArray.class] ? [candidates indexOfObjectIdenticalTo:candidate] : NSNotFound;
+        if (slot < 8) {
+            remove.keyEquivalent = [NSString stringWithFormat:@"%lu", (unsigned long)slot + 1];
+            remove.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
+        }
+        [menu addItem:remove];
+    }
     return menu;
 }
 

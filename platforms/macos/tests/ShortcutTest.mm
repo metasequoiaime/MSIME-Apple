@@ -1208,6 +1208,40 @@ int main() {
         CGFloat verticalHeight = layoutPanel.frame.size.height;
         MSIMECandidateButton *clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
         assert(clickCandidate);
+        const NSEventModifierFlags deleteModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
+        NSEvent *(^deleteEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short code, NSEventModifierFlags modifiers, BOOL repeat) {
+            return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:modifiers timestamp:0 windowNumber:0 context:nil characters:@"!" charactersIgnoringModifiers:@"!" isARepeat:repeat keyCode:code];
+        };
+        NSArray *digitCodes = @[@18, @19, @20, @21, @23, @22, @26, @28];
+        NSMutableDictionary *deleteView = [pageView mutableCopy];
+        NSMutableArray *deleteCandidates = [NSMutableArray array];
+        for (NSUInteger slot = 0; slot < 8; ++slot)
+            [deleteCandidates addObject:@{@"id":@{@"session":@1, @"generation":@2, @"index":@(40 + slot)}, @"text":@"合成测试"}];
+        deleteView[@"candidates"] = deleteCandidates;
+        [controller setValue:deleteView forKey:@"view"];
+        for (NSUInteger slot = 0; slot < 8; ++slot) {
+            unsigned short code = [digitCodes[slot] unsignedShortValue];
+            NSUInteger calls = session.maintenanceCalls;
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:deleteEvent(code, deleteModifiers, NO) client:client]);
+            assert(session.maintenanceCalls == calls + 1 && session.maintenanceAction == 1);
+            assert(session.selectedGeneration == 2 && session.selectedIndex == 40 + slot && session.lastCommand == UINT32_MAX);
+            assert([controller handleEvent:deleteEvent(code, deleteModifiers, YES) client:client]);
+            assert(session.maintenanceCalls == calls + 1);
+            for (NSNumber *modifiers in @[@(deleteModifiers | NSEventModifierFlagCommand), @(deleteModifiers ^ NSEventModifierFlagControl), @(deleteModifiers ^ NSEventModifierFlagOption), @(deleteModifiers ^ NSEventModifierFlagShift)])
+                assert(MSIMECandidateDeletionSlot(deleteEvent(code, modifiers.unsignedIntegerValue, NO)) == NSNotFound);
+        }
+        for (NSNumber *code in @[@25, @29, @83, @84, @85, @86, @87, @88, @89, @91])
+            assert(MSIMECandidateDeletionSlot(deleteEvent(code.unsignedShortValue, deleteModifiers, NO)) == NSNotFound);
+        NSUInteger deletionCalls = session.maintenanceCalls;
+        for (id invalid in @[NSNull.null, @{}, @{@"id":@{@"session":@1, @"generation":@99, @"index":@0}}]) {
+            deleteView[@"candidates"] = @[invalid];
+            [controller setValue:deleteView forKey:@"view"];
+            assert([controller handleEvent:deleteEvent(18, deleteModifiers, NO) client:client]);
+        }
+        [controller setValue:pageView forKey:@"view"];
+        assert([controller handleEvent:deleteEvent(28, deleteModifiers, NO) client:client]); // Empty slot.
+        assert(session.maintenanceCalls == deletionCalls && session.lastCommand == UINT32_MAX);
         NSMenu *candidateMenu = clickCandidate.menu;
         NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1];
         assert([clickCandidate menuForEvent:rightClick] == candidateMenu);
@@ -1215,6 +1249,8 @@ int main() {
         assert([[candidateMenu itemAtIndex:0].title isEqual:@"置顶"]);
         assert([[candidateMenu itemAtIndex:1].title isEqual:@"固定排位"]);
         assert([[candidateMenu itemAtIndex:2].title isEqual:@"删除"]);
+        assert([[candidateMenu itemAtIndex:2].keyEquivalent isEqual:@"2"]);
+        assert([candidateMenu itemAtIndex:2].keyEquivalentModifierMask == deleteModifiers);
         NSMenu *positionMenu = [candidateMenu itemAtIndex:1].submenu;
         assert(positionMenu.numberOfItems == 7 && [positionMenu itemAtIndex:5].separatorItem);
         NSMutableArray *operations = [NSMutableArray arrayWithObjects:[candidateMenu itemAtIndex:0], [candidateMenu itemAtIndex:2], nil];
