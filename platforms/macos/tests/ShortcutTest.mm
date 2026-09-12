@@ -1800,6 +1800,70 @@ static void TestCloudCandidateEngineDelivery() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
 
+static void TestCloudCandidatePreference() {
+    NSString *suite = [@"msime.cloud.preference." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
+    assert(prefs.cloudCandidates && toggle.state == NSControlStateValueOn);
+    assert([toggle.title containsString:@"Google"]);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"]);
+    assert([[prefs sharedPreferencesByMerging:@{@"cloud_candidates":@NO}][@"cloud_candidates"] isEqual:@NO]);
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    [prefs applySharedInputPreferences:@{@"cloud_candidates":@NO}];
+    assert(!prefs.cloudCandidates && toggle.state == NSControlStateValueOff && saves == 0);
+    for (id invalid in @[NSNull.null, @1, @"true"]) [prefs applySharedInputPreferences:@{@"cloud_candidates":invalid}];
+    assert(!prefs.cloudCandidates && saves == 0);
+    assert([defaults objectForKey:@"MSIMEClientCloudCandidates"] == nil);
+    toggle.state = NSControlStateValueOn;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(prefs.cloudCandidates && saves == 1);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"] isEqual:@YES]);
+    CloudShortcutController *controller = [CloudShortcutController alloc];
+    controller.requests = [NSMutableArray array];
+    CloudShortcutSession *session = [CloudShortcutSession new];
+    session.query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeCloudCandidates];
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 1);
+    ControlledCloudRequest *request = controller.requests.lastObject;
+    toggle.state = NSControlStateValueOff;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    // Guard even before the notification handler runs or shared storage is saved.
+    request.reply([@"synthetic" dataUsingEncoding:NSUTF8StringEncoding]);
+    assert(session.cloudApplications == 0 && !prefs.cloudCandidates && saves == 2);
+    [controller appearanceChanged:nil];
+    assert(request.cancelled && [controller valueForKey:@"cloudTimer"] == nil);
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil);
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] cloudCandidates]);
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSDictionary *merged = [prefs sharedPreferencesByMerging:snapshot[@"preferences"]];
+    assert([merged[@"cloud_candidates"] isEqual:@NO]);
+    assert([merged[@"ai_assistant"] isEqual:snapshot[@"preferences"][@"ai_assistant"]]);
+    assert(([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":merged} error:&error] && !error));
+    NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(loaded && !error && [loaded[@"preferences"][@"cloud_candidates"] isEqual:@NO]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+    MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(fresh.cloudCandidates);
+    [fresh applySharedInputPreferences:loaded[@"preferences"]];
+    assert(!fresh.cloudCandidates);
+    [controller cancelCloudCandidates];
+    [prefs.window close];
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+}
+
 int main() {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
@@ -1808,6 +1872,7 @@ int main() {
         [NSApplication sharedApplication];
         TestCloudCandidateScheduling();
         TestCloudCandidateEngineDelivery();
+        TestCloudCandidatePreference();
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();

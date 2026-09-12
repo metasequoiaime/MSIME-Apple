@@ -48,6 +48,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) BOOL autocorrect;
+@property(nonatomic) BOOL cloudCandidates;
 @property(nonatomic) BOOL autocorrectTransposition;
 @property(nonatomic) BOOL autocorrectNeighbor;
 // Legacy fallback for both schemes; setting it explicitly still sets both.
