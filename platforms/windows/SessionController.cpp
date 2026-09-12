@@ -165,7 +165,8 @@ ModeRequestResult SessionController::request_mode(const FocusLease &lease,
         return;
       attempted = true;
       sent = transport_.send(lease.transport,
-                             FanyImePipeRole::ToTsfWorkerThread, *bytes);
+                             FanyImePipeRole::ToTsfWorkerThread, *bytes) ==
+             KeyEventSendResult::Sent;
     });
   } catch (...) {
     // A throwing transport is also uncertain; never retry the mode command.

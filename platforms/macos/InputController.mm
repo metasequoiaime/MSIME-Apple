@@ -1,16 +1,23 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
+#import "RuntimeOptions.h"
 #import "../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "UpdateController.h"
+#import "ScreenKeyboardPanel.h"
 #import "DictionaryWindowController.h"
-#import "DictionaryRuntime.h"
+#import "ClientDictionaryRuntime.h"
 #import "AppearancePreferences.h"
 #import "PreferencesWindowController.h"
-#import "AccountWindowController.h"
-#import "CloudClipboardWindowController.h"
+#import "BackendAccountEntry.h"
+#import "BackendSelectionObservation.h"
+#include "ToolTextReturn.h"
+#include "ToolApplicationActivation.h"
+#include "PreferenceSaveState.h"
+#include "PreferenceLoadState.h"
+#include "PreferenceSnapshotMerge.h"
 #import "CandidateChrome.h"
 #include "CandidateSkin.h"
 #import "ChineseTextConversion.h"
@@ -20,6 +27,15 @@
 #import "VoiceInputService.h"
 #import "VoiceSettings.h"
 #include "WubiCommitPolicy.h"
+
+static BOOL MSIMEScriptConversionApplies(id value) {
+    if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
+    if ([value[@"scheme"] integerValue] < 0 || [value[@"scheme"] integerValue] > 2) return NO;
+    NSString *mode = value[@"local_mode"];
+    // Temporary Japanese retains the original Chinese scheme in the host snapshot.
+    return ![mode isKindOfClass:NSString.class] ||
+        (![mode isEqualToString:@"unicode"] && ![mode isEqualToString:@"temporary_japanese"]);
+}
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
@@ -47,14 +63,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     MSIMEVoiceInputService *_voiceService;
     uint64_t _voiceGeneration;
     id _activeClient;
+    MSIMEToolTextReturn _emojiReturn;
     NSDictionary *_view;
     NSPanel *_panel;
     MSIMEShuangpinKeymapPanel *_keymapPanel;
     MSIMEFloatingToolbarPanel *_toolbar;
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
-    BOOL _preferencesLoading;
-    BOOL _preferencesSaving;
+    MSIMEPreferenceLoadState _preferenceLoadState;
+    MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
@@ -70,25 +87,30 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
+    _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
     [self syncPunctuation];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
+    if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
     [self persistAppearancePreferences];
 }
 - (void)persistAppearancePreferences {
-    if (_preferencesSaving || !_preferencesDirectory || !_session) return;
-    _preferencesSaving = YES;
+    if (!_preferencesDirectory) return;
+    if (!_preferenceSaveState.request()) return;
     NSString *directory = [_preferencesDirectory copy];
-    MSIMEAppearancePreferences *appearance = _appearance;
+    // Capture all host-owned fields together on the main thread. Both CAS
+    // attempts use this same snapshot; later changes schedule a fresh save.
+    NSDictionary *overrides = [_appearance sharedPreferencesByMerging:@{}];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *loadError = nil;
         NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&loadError];
-        NSDictionary *preferences = snapshot ? [appearance sharedPreferencesByMerging:snapshot[@"preferences"]] : nil;
+        NSDictionary *preferences = snapshot ? MSIMEMergePreferenceSnapshot(snapshot[@"preferences"], overrides) : nil;
         uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
         NSError *saveError = nil;
         NSDictionary *saved = nil;
@@ -98,7 +120,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         if (!saved && snapshot) {
             NSError *retryLoadError = nil;
             NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:&retryLoadError];
-            NSDictionary *latestPreferences = latest ? [appearance sharedPreferencesByMerging:latest[@"preferences"]] : nil;
+            NSDictionary *latestPreferences = latest ? MSIMEMergePreferenceSnapshot(latest[@"preferences"], overrides) : nil;
             if (latestPreferences) {
                 saveError = nil;
                 saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
@@ -107,8 +129,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller) return;
-            controller->_preferencesSaving = NO;
+            const bool again = controller->_preferenceSaveState.finish();
             if (saved && !saveError) [controller reloadPreferences];
+            if (again) [controller persistAppearancePreferences];
         });
     });
 }
@@ -147,6 +170,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
     palette.target = self;
     [menu addItem:palette];
+    NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
+    emoji.target = self;
+    [menu addItem:emoji];
+    NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
+    keyboard.target = self;
+    [menu addItem:keyboard];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     item.target = self;
     [menu addItem:item];
@@ -155,6 +184,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [menu addItem:dictionary];
     NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
     NSMenuItem *clipboard = [[NSMenuItem alloc] initWithTitle:@"云剪贴板…" action:@selector(showCloudClipboard:) keyEquivalent:@""]; clipboard.target = self; [menu addItem:clipboard];
+    NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""]; handwriting.target = self; [menu addItem:handwriting];
     NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
     prepare.target = self;
     [menu addItem:prepare];
@@ -173,8 +203,68 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [menu addItem:voiceSettings];
     return menu;
 }
-- (void)showAccount:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户标识"; NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"查看"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMEAccountWindowController sharedController] showForAccountID:field.stringValue]; }
-- (void)showCloudClipboard:(id)sender { (void)sender; NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = @"账户 access token"; NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,260,24)]; alert.accessoryView = field; [alert addButtonWithTitle:@"打开"]; [alert addButtonWithTitle:@"取消"]; if ([alert runModal] == NSAlertFirstButtonReturn && field.stringValue.length) [[MSIMECloudClipboardWindowController sharedController] showWithToken:field.stringValue]; }
+- (void)showAccount:(id)sender {
+    (void)sender;
+    if (!MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"账户窗口暂不可用";
+        alert.informativeText = @"请重新启动输入法；若仍无法打开，请检查安装是否完整。";
+        [alert runModal];
+    }
+}
+- (void)showCloudClipboard:(id)sender {
+    if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
+        [self showAccount:sender];
+    }
+}
+- (void)showHandwriting:(id)sender {
+    (void)sender;
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if (![shared respondsToSelector:@selector(showHandwriting)]) { [self showAccount:nil]; return; }
+    [shared performSelector:@selector(showHandwriting)];
+}
+- (void)showEmoji:(id)sender {
+    (void)sender;
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    NSDictionary *options = [self runtimeOptions];
+    NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
+        ![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
+    if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
+    const uint64_t token = _emojiReturn.capture(_activeClient);
+    __weak MSIMEInputController *weakSelf = self;
+    BOOL (^selection)(NSString *) = ^BOOL(NSString *text) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || application.terminated ||
+            !controller->_emojiReturn.queue(text, token, NSProcessInfo.processInfo.systemUptime)) return NO;
+        // The Swift bridge closes its window before this activation is executed.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_emojiReturn.generation != token || !current->_emojiReturn.pending) return;
+            if (NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == application.processIdentifier &&
+                current->_activeClient && current->_activeClient == current->_emojiReturn.target) {
+                [current commitPendingEmojiForClient:current->_activeClient];
+                return;
+            }
+            if (!MSIMEActivateToolApplication(NSApp, NSRunningApplication.currentApplication, application)) {
+                if (current->_emojiReturn.fail(token)) [current reportEmojiDeliveryFailure];
+            }
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (current && current->_emojiReturn.fail(token)) [current reportEmojiDeliveryFailure];
+        });
+        return YES;
+    };
+    [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:)
+                 withObject:options withObject:selection];
+}
+- (void)showScreenKeyboard:(id)sender {
+    (void)sender;
+    [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard];
+}
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
@@ -269,24 +359,53 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [super activateServer:sender];
     [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
+    _preferenceLoadState.reset();
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(snapshotSessionReplaced:) name:MSIMEClientSessionDidReplaceSnapshotNotification object:nil];
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), YES);
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
+    else [self startPreferencesMonitoring];
+    [self commitPendingEmojiForClient:sender];
 }
+
+- (void)commitPendingEmojiForClient:(id)client {
+    const BOOL hadPending = _emojiReturn.pending != nil;
+    NSString *toolText = _emojiReturn.take(client, NSProcessInfo.processInfo.systemUptime);
+    if (toolText) [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
+    else if (hadPending) [self reportEmojiDeliveryFailure];
+}
+
+- (void)reportEmojiDeliveryFailure {
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(showEmojiDeliveryFailure)])
+        [shared performSelector:@selector(showEmojiDeliveryFailure)];
+}
+
+- (void)handwritingCandidateSelected:(NSNotification *)notification {
+    NSString *text = notification.userInfo[@"text"];
+    if (![text isKindOfClass:NSString.class] || text.length == 0 || !_activeClient) return;
+    [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+}
+
+- (void)snapshotSessionReplaced:(NSNotification *)notification {
+    if (notification.object != _session) return;
+    _view = @{};
+    [_panel orderOut:nil];
+}
+
+- (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
 - (void)prepareSession {
     if (!_session) {
-        NSString *path = [[NSBundle mainBundle] pathForResource:@"runtime-options" ofType:@"json"];
-        if (!path) {
-            NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
-            path = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
-        }
-        NSData *data = [NSData dataWithContentsOfFile:path];
-        NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if ([options isKindOfClass:NSDictionary.class]) {
+        NSDictionary *options = [self runtimeOptions];
+        if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -298,7 +417,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
     }
-    if (_session && _preferencesDirectory) {
+    [self startPreferencesMonitoring];
+}
+
+- (void)startPreferencesMonitoring {
+    if (!_preferencesDirectory) {
+        id directory = [self runtimeOptions][@"preferences_directory"];
+        if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+    }
+    if (_activeClient && _preferencesDirectory) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
@@ -310,22 +437,60 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)reloadPreferences {
-    if (_preferencesLoading || !_activeClient) return;
-    _preferencesLoading = YES;
+    if (!_activeClient || !_preferencesDirectory || _preferenceSaveState.saving || !_preferenceLoadState.begin()) return;
+    const uint64_t generation = _preferenceLoadState.generation;
+    MSIMEClientSession *session = _session;
+    NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
-    [_session reloadPreferencesDirectory:_preferencesDirectory completion:^(NSDictionary *result, NSError *error) {
-        MSIMEInputController *controller = weakSelf;
-        if (!controller) return;
-        controller->_preferencesLoading = NO;
-        // Failed loads retain the old configuration; never synthesize defaults here.
-        if (result && !error && controller->_activeClient) {
-            controller->_view = result[@"view"];
-            [controller renderCandidates];
-        }
-    }];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *controller = weakSelf;
+            if (!controller) return;
+            if (!controller->_preferenceLoadState.finish(generation)) return;
+            // Never apply a delayed read to a replacement or inactive input session.
+            if (!snapshot || error || !controller->_activeClient || controller->_session != session) return;
+            if (!session) {
+                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
+                return;
+            }
+            NSError *updateError = nil;
+            NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
+            // Failed loads/updates retain the existing window appearance and runtime.
+            if (result && !updateError) {
+                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
+                controller->_view = result[@"view"];
+                [controller renderCandidates];
+            }
+        });
+    });
+}
+
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [_appearance applySharedInputPreferences:preferences];
+    [_appearance applySharedCandidatePreferences:preferences];
+    [_appearance applySharedAssistancePreferences:preferences];
+    [_appearance applySharedLocalModes:preferences[@"local_modes"]];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
+        [shared performSelector:@selector(applyEmojiPreferences:) withObject:preferences];
+    [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
+    [_toolbar applyThemePreferences:preferences];
+    [_toolbar applySizingPreferences:preferences];
+    NSDictionary *toolbar = preferences[@"floating_toolbar"];
+    id enabled = [toolbar isKindOfClass:NSDictionary.class] ? toolbar[@"enabled"] : nil;
+    if ([enabled isKindOfClass:NSNumber.class]) {
+        [_appearance applySharedToolbarVisibility:[enabled boolValue]];
+        [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
+    }
 }
 
 - (void)deactivateServer:(id)sender {
+    MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
+    _preferenceLoadState.reset();
     [_toolbar deactivateForDelegate:self];
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
@@ -352,6 +517,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 - (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.fullWidthInput = !_appearance.fullWidthInput; }
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.traditionalOutput = !_appearance.traditionalOutput; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }
+- (void)floatingToolbarDidRequestOpenEmoji:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showEmoji:nil]; }
+- (void)floatingToolbarDidRequestOpenScreenKeyboard:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showScreenKeyboard:nil]; }
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showAppearance:nil]; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [[MSIMEUpdateController sharedController] checkForUpdates:nil]; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar {
@@ -489,13 +656,17 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)updateKeymapPanel {
-    NSString *preedit = _view[@"preedit"];
+    NSString *editing = MSIMEShuangpinKeymapEditingText(_view);
     NSNumber *scheme = _view[@"scheme"];
     NSString *profile = _view[@"shuangpin_profile"];
+    NSString *mode = _view[@"local_mode"];
+    NSNumber *dedicatedEnglish = _view[@"dedicated_english"];
     if (!_session || !_activeClient || _appearance.englishMode ||
         ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"none"] ||
+        ![dedicatedEnglish isKindOfClass:NSNumber.class] || dedicatedEnglish.boolValue ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
-        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, [preedit isKindOfClass:NSString.class] && preedit.length > 0)) {
+        !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, editing.length > 0)) {
         [_keymapPanel orderOut:nil];
         return;
     }
@@ -504,9 +675,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (!MSIMEValidCaret(cursor)) { [_keymapPanel orderOut:nil]; return; }
     if (!_keymapPanel) _keymapPanel = [[MSIMEShuangpinKeymapPanel alloc] init];
     [_keymapPanel setProfileName:profile];
-    const unichar last = [preedit characterAtIndex:preedit.length - 1];
-    NSString *key = ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') ? [NSString stringWithCharacters:&last length:1] : @"";
-    [_keymapPanel updateHighlightedKey:key];
+    [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     CGFloat clearance = _appearance.fontSize + 42.0;
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];

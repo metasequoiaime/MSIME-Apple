@@ -15,6 +15,15 @@ public final class NativeSmoke {
             Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));
             success(NativeClient.loadPreferences(preferences.toString()));
             Path saved = preferences.resolve("preferences.json");
+            String firstSnapshot = "{\"format_version\":1,\"revision\":0,\"preferences\":{"
+                + "\"scheme\":\"quanpin\",\"candidate_page_size\":5,\"learning\":false,"
+                + "\"chinese_punctuation\":true}}";
+            String firstSave = NativeClient.savePreferences(preferences.toString(), 0, firstSnapshot);
+            success(firstSave);
+            if (!firstSave.contains("\"revision\":1")) throw new AssertionError(firstSave);
+            if (!NativeClient.savePreferences(preferences.toString(), 0, firstSnapshot).contains("\"ok\":false")) {
+                throw new AssertionError("stale preferences save was accepted");
+            }
             Files.writeString(saved, "broken");
             if (!NativeClient.loadPreferences(preferences.toString()).contains("\"ok\":false") || !Files.readString(saved).equals("broken")) {
                 throw new AssertionError("malformed preferences were accepted or overwritten");
@@ -33,6 +42,28 @@ public final class NativeSmoke {
             if (!matcher.find()) throw new AssertionError(created);
             long handle = Long.parseLong(matcher.group(1));
             success(NativeClient.focus(handle, true));
+            success(NativeClient.setEnglishMode(handle, true));
+            String english = NativeClient.character(handle, 'H', true);
+            success(english);
+            if (!english.contains("\"editing_text\":\"H\"")) throw new AssertionError(english);
+            String englishCommit = NativeClient.command(handle, 1);
+            success(englishCommit);
+            if (!englishCommit.contains("\"commit\":\"H\"")) throw new AssertionError(englishCommit);
+            success(NativeClient.setEnglishMode(handle, false));
+            String nineKey = NativeClient.setNineKeyMode(handle, true);
+            success(nineKey);
+            if (!nineKey.contains("\"nine_key\":true")) throw new AssertionError(nineKey);
+            String digit = NativeClient.character(handle, '6', false);
+            success(digit);
+            if (!digit.contains("\"handled\":true") || !digit.contains("\"nine_key_spellings\":[")) {
+                throw new AssertionError(digit);
+            }
+            var nineGeneration = Pattern.compile("\"generation\":(\\d+)").matcher(digit);
+            if (!nineGeneration.find()) throw new AssertionError(digit);
+            success(NativeClient.chooseNineKeySpelling(handle,
+                Long.parseLong(nineGeneration.group(1)), 0));
+            success(NativeClient.command(handle, 3));
+            success(NativeClient.setNineKeyMode(handle, false));
             success(NativeClient.character(handle, 'U', true));
             for (char value : "1f332".toCharArray()) success(NativeClient.character(handle, value, false));
             String snapshot = "{\"format_version\":1,\"revision\":1,\"preferences\":{\"scheme\":\"quanpin\",\"candidate_page_size\":2,\"learning\":false,\"chinese_punctuation\":false}}";
@@ -57,7 +88,7 @@ public final class NativeSmoke {
             if (!punctuation.contains("\"handled\":false")) throw new AssertionError(punctuation);
             success(NativeClient.destroy(handle));
             if (!NativeClient.view(handle).contains("\"ok\":false")) throw new AssertionError("stale handle accepted");
-            System.out.println("JNI consumer: supplementary UTF-8 paths and input commit passed");
+            System.out.println("JNI consumer: English mode, nine-key, UTF-8 paths, preferences CAS and input commit passed");
         } finally {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);

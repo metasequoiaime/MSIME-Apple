@@ -1,0 +1,105 @@
+export type EmojiCatalogItem = { text: string; keywords: string };
+export type EmojiCatalogGroup = { title: string; icon: string; items: EmojiCatalogItem[] };
+
+// The Windows resource catalog is larger and is supplied by the native host
+// when available. This compact catalog keeps the shared panel useful in
+// browser previews and on hosts that have not packaged others.db yet.
+export const fallbackEmojiGroups: EmojiCatalogGroup[] = [
+  {
+    title: "Smileys and emotion",
+    icon: "😀",
+    items: [
+      ["😀", "grinning 笑脸"], ["😃", "smiling 开心"], ["😄", "smile 微笑"], ["😁", "beaming 大笑"],
+      ["😆", "laugh 大笑"], ["😅", "sweat 尴尬"], ["🤣", "rofl 笑哭"], ["😂", "joy 喜悦"],
+      ["🙂", "slightly smiling 微笑"], ["🙃", "upside down 颠倒"], ["😉", "wink 眨眼"], ["😊", "blush 害羞"],
+      ["😍", "heart eyes 爱心眼"], ["🥰", "love 爱"], ["😘", "kiss 亲吻"], ["😎", "cool 酷"],
+      ["🤔", "thinking 思考"], ["😐", "neutral 面无表情"], ["🙄", "roll eyes 翻白眼"], ["😮", "surprised 惊讶"],
+      ["🥺", "pleading 撒娇"], ["😢", "cry 哭"], ["😭", "sob 大哭"], ["😡", "angry 生气"],
+      ["🤯", "exploding head 震惊"], ["🥳", "party 庆祝"], ["😴", "sleeping 睡觉"], ["🤖", "robot 机器人"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "People and body",
+    icon: "👋",
+    items: [
+      ["👋", "wave 挥手"], ["🤚", "raised hand 举手"], ["✋", "stop 停止"], ["👌", "ok 好"],
+      ["✌️", "victory 胜利"], ["🤞", "fingers crossed 祈愿"], ["🤟", "love you 爱你"], ["🤘", "rock 摇滚"],
+      ["👍", "thumbs up 赞"], ["👎", "thumbs down 踩"], ["👏", "clap 鼓掌"], ["🙌", "raised hands 欢呼"],
+      ["🙏", "pray 感谢"], ["💪", "muscle 加油"], ["💅", "nail 美甲"], ["👀", "eyes 眼睛"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "Animals and nature",
+    icon: "🐾",
+    items: [
+      ["🐶", "dog 狗"], ["🐱", "cat 猫"], ["🐭", "mouse 老鼠"], ["🐹", "hamster 仓鼠"], ["🐰", "rabbit 兔子"],
+      ["🦊", "fox 狐狸"], ["🐻", "bear 熊"], ["🐼", "panda 熊猫"], ["🐨", "koala 考拉"], ["🐯", "tiger 老虎"],
+      ["🦁", "lion 狮子"], ["🐮", "cow 牛"], ["🐷", "pig 猪"], ["🐸", "frog 青蛙"], ["🐵", "monkey 猴子"],
+      ["🐔", "chicken 鸡"], ["🐧", "penguin 企鹅"], ["🐦", "bird 鸟"], ["🦄", "unicorn 独角兽"], ["🐝", "bee 蜜蜂"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "Food and drink",
+    icon: "🍎",
+    items: [
+      ["🍎", "apple 苹果"], ["🍐", "pear 梨"], ["🍊", "orange 橙子"], ["🍋", "lemon 柠檬"], ["🍌", "banana 香蕉"],
+      ["🍉", "watermelon 西瓜"], ["🍇", "grapes 葡萄"], ["🍓", "strawberry 草莓"], ["🍒", "cherries 樱桃"],
+      ["🍑", "peach 桃"], ["🍍", "pineapple 菠萝"], ["🍕", "pizza 披萨"], ["🍔", "burger 汉堡"],
+      ["🍜", "ramen 面"], ["🍚", "rice 米饭"], ["🍰", "cake 蛋糕"], ["☕", "coffee 咖啡"], ["🍺", "beer 啤酒"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "Travel and places",
+    icon: "🚗",
+    items: [
+      ["🚗", "car 汽车"], ["🚕", "taxi 出租车"], ["🚌", "bus 公交"], ["🚓", "police 警车"], ["🚑", "ambulance 救护车"],
+      ["🚲", "bike 自行车"], ["✈️", "airplane 飞机"], ["🚀", "rocket 火箭"], ["🏠", "house 房子"], ["🏢", "office 办公楼"],
+      ["🌅", "sunrise 日出"], ["🌈", "rainbow 彩虹"], ["⭐", "star 星星"], ["🌙", "moon 月亮"], ["🌍", "earth 地球"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+];
+
+export const fallbackKaomojiGroups: EmojiCatalogGroup[] = [
+  {
+    title: "All",
+    icon: ";-)",
+    items: [
+      ["ヾ(≧▽≦*)o", "开心 happy"], ["(๑•̀ㅂ•́)و✧", "加油 cheer"], ["(｡・ω・｡)", "可爱 cute"],
+      ["(￣▽￣)", "微笑 smile"], ["(╯°□°）╯︵ ┻━┻", "生气 angry"], ["┬─┬ノ( º _ ºノ)", "放下 table"],
+      ["(。_。)", "无语 speechless"], ["(ಥ﹏ಥ)", "哭 cry"], ["(つД｀)", "悲伤 sad"], ["(¬‿¬)", "得意 smug"],
+      ["(ง •̀_•́)ง", "战斗 fight"], ["(づ｡◕‿‿◕｡)づ", "拥抱 hug"], ["♪(´▽｀)", "音乐 music"], ["(｡•́︿•̀｡)", "委屈 upset"],
+      ["(っ˘ڡ˘ς)", "好吃 delicious"], ["(￣﹃￣)", "流口水 hungry"], ["( ˘ ³˘)♥", "亲吻 kiss"], ["ヾ(￣▽￣)Bye~Bye~", "再见 bye"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+];
+
+export const fallbackSymbolGroups: EmojiCatalogGroup[] = [
+  {
+    title: "Stars and shapes",
+    icon: "★",
+    items: [
+      ["★", "star 星"], ["☆", "star outline 星"], ["✦", "star sparkle"], ["✧", "star sparkle"], ["●", "circle 圆"],
+      ["○", "circle outline 圆"], ["■", "square 方"], ["□", "square outline 方"], ["▲", "triangle 三角"], ["△", "triangle outline 三角"],
+      ["◆", "diamond 菱形"], ["◇", "diamond outline 菱形"], ["♥", "heart 心"], ["♡", "heart outline 心"], ["☀", "sun 太阳"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "Arrows and lines",
+    icon: "➜",
+    items: [
+      ["←", "left arrow 左"], ["→", "right arrow 右"], ["↑", "up arrow 上"], ["↓", "down arrow 下"], ["↔", "left right arrow"],
+      ["↕", "up down arrow"], ["⇐", "double left arrow"], ["⇒", "double right arrow"], ["↩", "return 返回"], ["↪", "forward 前进"],
+      ["⟵", "long left arrow"], ["⟶", "long right arrow"], ["━", "line 线"], ["│", "line 线"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+  {
+    title: "Punctuation and math",
+    icon: "§",
+    items: [
+      ["✓", "check 对"], ["✗", "cross 错"], ["©", "copyright 版权"], ["®", "registered 注册"], ["™", "trademark 商标"],
+      ["§", "section 条"], ["∞", "infinity 无限"], ["≈", "approximately 约等于"], ["≠", "not equal 不等于"], ["≤", "less equal 小于"],
+      ["≥", "greater equal 大于"], ["±", "plus minus 加减"], ["×", "multiply 乘"], ["÷", "divide 除"], ["√", "square root 根号"],
+      ["¥", "yen 人民币"], ["$", "dollar 美元"], ["€", "euro 欧元"], ["₿", "bitcoin 比特币"],
+    ].map(([text, keywords]) => ({ text, keywords })),
+  },
+];

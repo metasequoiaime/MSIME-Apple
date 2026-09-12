@@ -1,0 +1,164 @@
+import SwiftUI
+
+/// The fixed Windows reference exposes these pages without connected media providers.
+enum MacEmojiMediaPage: String, CaseIterable {
+  case sticker, gif
+  var title: String { self == .sticker ? "贴纸" : "GIF" }
+  var message: String {
+    self == .sticker ? "可在此接入贴纸" : "可在此接入 GIF 内容源"
+  }
+}
+
+struct MacEmojiMediaPlaceholder: View {
+  let page: MacEmojiMediaPage
+  let palette: MacEmojiPalette
+  var body: some View {
+    VStack {
+      Text(page.message).font(.system(size: 20 * 2 / 3))
+        .foregroundStyle(MacEmojiPalette.color(palette.muted))
+        .frame(maxWidth: .infinity, minHeight: 64 * 2 / 3)
+        .padding(.top, 50 * 2 / 3)
+      Spacer(minLength: 0)
+    }
+  }
+}
+
+struct MacEmojiHomeSection: Sendable {
+  let title: String
+  let category: String
+  let items: [MacEmojiCatalogItem]
+}
+
+enum MacEmojiHomeCatalog {
+  static func preview(groups: [[MacEmojiCatalogItem]], limit: Int, diverse: Bool) -> [MacEmojiCatalogItem] {
+    guard limit > 0 else { return [] }
+    if !diverse { return Array(groups.joined().prefix(limit)) }
+    var result: [MacEmojiCatalogItem] = []
+    for round in 0..<limit {
+      var added = false
+      for group in groups where round < group.count {
+        result.append(group[round]); added = true
+        if result.count == limit { return result }
+      }
+      if !added { break }
+    }
+    return result
+  }
+
+  static func load(search: String, groups: (String) throws -> [String],
+    page: (String, String, Int) throws -> [MacEmojiCatalogItem]) throws -> [MacEmojiHomeSection] {
+    try [("Emoji", "", 18), ("Kaomoji", "kaomoji", 15), ("Symbols", "symbols", 18)].map { title, category, limit in
+      try Task.checkCancellation()
+      if !search.isEmpty {
+        return MacEmojiHomeSection(title: title, category: category, items: Array(try page(category, "", limit).prefix(limit)))
+      }
+      var collected: [[MacEmojiCatalogItem]] = []
+      var count = 0
+      for group in try groups(category) {
+        try Task.checkCancellation()
+        let items = try page(category, group, limit)
+        if items.isEmpty { continue }
+        collected.append(items)
+        count += items.count
+        if category == "symbols" ? collected.count >= limit : count >= limit { break }
+      }
+      return MacEmojiHomeSection(title: title, category: category,
+        items: preview(groups: collected, limit: limit, diverse: category == "symbols"))
+    }
+  }
+}
+
+struct MacEmojiHomeView: View {
+  let resources: String
+  let search: String
+  let recent: [MacEmojiCatalogItem]
+  var navigationRevision: UInt = 0
+  let palette: MacEmojiPalette
+  let copy: (MacEmojiCatalogItem) -> Void
+  let more: (String) -> Void
+  @State private var sections: [MacEmojiHomeSection] = []
+  @State private var loaded: [String] = []
+  @State private var failed = false
+  @State private var selected: MacEmojiHomeKey?
+  private var effectiveSelection: MacEmojiHomeKey? {
+    MacEmojiHomeNavigation.selection(selected, sections: visibleSections)
+  }
+  private var visibleSections: [MacEmojiHomeSection] {
+    let recentSection = recent.isEmpty ? [] : [MacEmojiHomeSection(title: "最近使用", category: "recent", items: recent)]
+    return recentSection + (loaded == [resources, search] ? sections : [])
+  }
+
+  private func section(_ title: String, category: String, items: [MacEmojiCatalogItem], showMore: Bool,
+    width: CGFloat, flowCells: [MacEmojiFlowCell]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MacEmojiHomeHeading(title: title, palette: palette, more: showMore ? { more(category) } : nil)
+      if category == "kaomoji" {
+        MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
+          selected: { effectiveSelection == MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          identity: { MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          copy: { index in
+            selected = MacEmojiHomeNavigation.key(category: category, items: items, index: index)
+            copy(items[index])
+          })
+      } else {
+        MacEmojiGrid(items: items, palette: palette,
+          selected: { effectiveSelection == MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          identity: { MacEmojiHomeNavigation.key(category: category, items: items, index: $0) },
+          copy: { index in
+            selected = MacEmojiHomeNavigation.key(category: category, items: items, index: index)
+            copy(items[index])
+          })
+      }
+    }.padding(.bottom, MacEmojiHomeHeading.bottomPadding)
+  }
+
+  var body: some View {
+    GeometryReader { geometry in
+    let width = max(0, geometry.size.width - 16)
+    let flowCells = MacEmojiFlow.cells(texts: visibleSections.first { $0.category == "kaomoji" }?.items.map(\.text) ?? [], width: width)
+    ScrollViewReader { proxy in
+      VStack(spacing: 4) {
+        MacEmojiKeyboardEntry(enabled: !visibleSections.allSatisfy { $0.items.isEmpty }) { command in
+          let entries = MacEmojiHomeNavigation.entries(visibleSections, flowCells: flowCells)
+          guard let entry = MacEmojiHomeNavigation.destination(command, selected: effectiveSelection, entries: entries) else { return }
+          selected = entry.key
+          proxy.scrollTo(entry.key)
+          if command == .activate { copy(entry.item) }
+        }.frame(height: 24)
+        MacEmojiScroll(resetID: [resources, search, String(navigationRevision)]) {
+          VStack(alignment: .leading, spacing: 0) {
+            if !recent.isEmpty { section("Recently used", category: "recent", items: recent, showMore: false, width: width, flowCells: []) }
+            if loaded == [resources, search] {
+              ForEach(sections, id: \.category) { section($0.title, category: $0.category, items: $0.items, showMore: true, width: width, flowCells: flowCells) }
+            } else {
+              Text(failed ? "首页目录加载失败，请切换目录重试" : "正在加载首页…").font(.caption)
+            }
+            ForEach(MacEmojiMediaPage.allCases, id: \.rawValue) { page in
+              section(page == .sticker ? "Sticker" : "GIF", category: page.rawValue, items: [], showMore: true, width: width, flowCells: [])
+            }
+          }.frame(width: width, alignment: .leading)
+        }
+      }
+    }
+    }.onChange(of: navigationRevision) { _ in selected = nil }
+    .task(id: [resources, search]) {
+      selected = nil
+      loaded = []; sections = []; failed = false
+      let directory = resources
+      let query = search
+      do {
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let worker = Task.detached {
+          try MacEmojiHomeCatalog.load(search: query, groups: {
+            try MacEmojiCatalog.loadGroups(resources: directory, category: $0)
+          }, page: { category, group, limit in
+            try MacEmojiCatalog.loadPrefix(resources: directory, search: query, category: category, group: group, limit: limit)
+          })
+        }
+        let result = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+        try Task.checkCancellation()
+        sections = result; loaded = [directory, query]
+      } catch { if !Task.isCancelled { failed = true } }
+    }
+  }
+}

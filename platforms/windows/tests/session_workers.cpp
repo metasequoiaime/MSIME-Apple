@@ -58,14 +58,15 @@ public:
     packets_[ticket.client].pop_front();
     return packet;
   }
-  bool send(const PipeTicket &ticket, uint32_t role,
-            const std::vector<uint8_t> &bytes) override {
+  KeyEventSendResult send(const PipeTicket &ticket, uint32_t role,
+                          const std::vector<uint8_t> &bytes) override {
     std::lock_guard lock(mutex_);
-    if (!matches(ticket)) return false;
+    if (!matches(ticket)) return KeyEventSendResult::DefinitelyNotSent;
     writes_.emplace_back(role, bytes);
     if (write_failure == 2)
       throw std::runtime_error("Synthetic write failure");
-    return write_failure == 0;
+    return write_failure == 0 ? KeyEventSendResult::Sent
+                               : KeyEventSendResult::DeliveryAmbiguous;
   }
   void push(FanyImeNamedpipeData packet) {
     std::lock_guard lock(mutex_);
@@ -537,13 +538,13 @@ void session_worker_tests(const std::string &options) {
   require(!workers.submit(c) && !transport.current(c));
   queue.stop();
   for (int mode = 0; mode < 3; ++mode) {
-    IdleTransport transport;
+    IdleTransport mode_transport;
     RegistrationInbox inbox(2);
     std::promise<FocusLease> activated;
     auto activation = activated.get_future();
     SessionController *owner = nullptr;
     SessionController controller(
-        transport, inbox, 1, 8, options,
+        mode_transport, inbox, 1, 8, options,
         [](InputState &, const FocusLease &, const FanyImeNamedpipeData &)
             -> std::optional<PendingReply> { return std::nullopt; },
         [&](const FocusRoute &route, const FanyImeNamedpipeData &packet) {
@@ -560,21 +561,21 @@ void session_worker_tests(const std::string &options) {
           }
           return true;
         },
-        [] { return true; }, [&] { transport.close(a); });
+        [] { return true; }, [&] { mode_transport.close(a); });
     owner = &controller;
     require(controller.request_mode({}, WorkerMode::Fullwidth) ==
             ModeRequestResult::Rejected);
-    transport.add(a);
+    mode_transport.add(a);
     require(inbox.push(a));
     FanyImeNamedpipeData packet{};
     packet.client_id = a.client;
     packet.event_type = FanyImePipeEventType::ClientActivated;
     packet.request_id = 77;
-    transport.push(packet);
+    mode_transport.push(packet);
     require(activation.wait_for(std::chrono::seconds(10)) ==
             std::future_status::ready);
     const auto lease = activation.get();
-    transport.wait_started(2); // Activation transaction has released its lock.
+    mode_transport.wait_started(2); // Activation transaction has released its lock.
     const auto initial_mode = controller.mode_view();
     require(initial_mode && !initial_mode->chinese &&
             !initial_mode->chinese_punctuation && !initial_mode->fullwidth &&
@@ -583,18 +584,18 @@ void session_worker_tests(const std::string &options) {
     packet.keycode = 1;
     packet.modifiers_down = 1;
     packet.pinyin_length = 1;
-    transport.push(packet);
-    transport.wait_started(3);
+    mode_transport.push(packet);
+    mode_transport.wait_started(3);
     const auto known_mode = controller.mode_view();
     require(known_mode && known_mode->chinese == true &&
             known_mode->chinese_punctuation == true &&
             known_mode->fullwidth == true);
     packet.event_type = FanyImePipeEventType::PuncSwitch;
     packet.keycode = 0;
-    transport.push(packet);
+    mode_transport.push(packet);
     packet.event_type = FanyImePipeEventType::DoubleSingleByteSwitch;
-    transport.push(packet);
-    transport.wait_started(5);
+    mode_transport.push(packet);
+    mode_transport.wait_started(5);
     const auto changed_mode = controller.mode_view();
     require(changed_mode && changed_mode->chinese == true &&
             changed_mode->chinese_punctuation == false &&
@@ -609,8 +610,8 @@ void session_worker_tests(const std::string &options) {
             ModeRequestResult::Rejected);
     require(controller.request_mode(lease, static_cast<WorkerMode>(99)) ==
             ModeRequestResult::Rejected);
-    require(transport.writes().size() == 1); // Only the initial focus fence.
-    transport.write_failure = mode;
+    require(mode_transport.writes().size() == 1); // Only the initial focus fence.
+    mode_transport.write_failure = mode;
     if (mode == 0) {
       for (auto command :
            {WorkerMode::English, WorkerMode::Chinese,
@@ -618,18 +619,18 @@ void session_worker_tests(const std::string &options) {
             WorkerMode::Fullwidth, WorkerMode::Halfwidth}) {
         require(controller.request_mode(lease, command) ==
                 ModeRequestResult::Sent);
-        const auto writes = transport.writes();
+        const auto writes = mode_transport.writes();
         require(writes.back().first == FanyImePipeRole::ToTsfWorkerThread &&
                 writes.back().second == *worker_mode_bytes(command));
       }
-      require(transport.writes().size() == 7);
+      require(mode_transport.writes().size() == 7);
       require(controller.mode_view()->chinese == true &&
               controller.mode_view()->fullwidth == false);
       packet.event_type = FanyImePipeEventType::ClientActivated;
       packet.request_id = 78;
       packet.keycode = 0;
-      transport.push(packet);
-      transport.wait_started(6);
+      mode_transport.push(packet);
+      mode_transport.wait_started(6);
       const auto next_mode = controller.mode_view();
       require(next_mode && next_mode->lease.epoch != lease.epoch &&
               !next_mode->chinese && !next_mode->chinese_punctuation &&
@@ -639,10 +640,10 @@ void session_worker_tests(const std::string &options) {
     } else {
       require(controller.request_mode(lease, WorkerMode::Fullwidth) ==
               ModeRequestResult::WriteFailed);
-      require(!transport.current(a));
+      require(!mode_transport.current(a));
       require(controller.request_mode(lease, WorkerMode::Fullwidth) ==
               ModeRequestResult::Rejected);
-      require(transport.writes().size() ==
+      require(mode_transport.writes().size() ==
               2); // No replay after uncertain write.
     }
     controller.stop();

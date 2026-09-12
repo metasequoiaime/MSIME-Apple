@@ -1,21 +1,47 @@
 #include "PreviewConfig.h"
+#include "TrayMenuWindow.h"
+#include "CandidateSkin.h"
 #include "CandidateWindow.h"
-#include "ClipboardHistory.h"
-#include "ClipboardPresentation.h"
-#include "ClipboardWindow.h"
-#include "ClipboardPaste.h"
-#include "ClipboardRemove.h"
-#include "ClipboardClear.h"
 #include "ModeWindow.h"
+#include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
-#include <charconv>
+#include <memory>
 
 namespace {
+// Resolve the configured skin through the shared catalog. Appearance is not
+// worth failing a running Server over, so an unreadable root or an unknown
+// package leaves the built-in theme in place.
+msime::windows::CandidatePalette
+resolve_palette(const msime::windows::PreviewConfig &config) {
+  const bool dark = config.dark_theme;
+  auto builtin = dark ? msime::windows::CandidatePalette{}
+                      : msime::windows::candidate_light_palette();
+  if (config.skin_directory.empty() || config.skin_id.empty())
+    return builtin;
+  try {
+    const auto root = config.skin_directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+        msime_client_skin_catalog(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!owned)
+      return builtin;
+    const auto document = nlohmann::json::parse(owned.get(), nullptr, false);
+    if (document.is_discarded() || !document.value("ok", false))
+      return builtin;
+    // Compatibility is checked against the layout actually being rendered.
+    return msime::windows::candidate_skin_palette(
+        document.at("value"), config.skin_id, dark,
+        config.horizontal_candidates ? "horizontal" : "vertical");
+  } catch (const std::exception &) {
+    return builtin;
+  }
+}
 std::atomic<bool> stopping{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
@@ -92,73 +118,9 @@ int wmain(int argc, wchar_t **argv) {
     options.pipes.names = config.pipe_names();
     options.pipes.capabilities = FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
-    ClipboardHistory clipboard(config.state_root / "clipboard_history.json");
-    clipboard.set_enabled(prepared.at("value").at("preferences").value(
-        "clipboard_history", true));
-    ClipboardMailbox clipboard_mailbox;
-    clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
-    ClipboardMonitor clipboard_monitor(clipboard, [&](std::string) {
-      clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
-    });
-    options.preferences_published = [&](const PreferenceSnapshot &snapshot) {
-      const auto preferences = nlohmann::json::parse(snapshot.serialized()).at("preferences");
-      clipboard.set_enabled(preferences.value("clipboard_history", true));
-      clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
-    };
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
-    if (clipboard.enabled() && !clipboard_monitor.start())
-      throw std::runtime_error("Clipboard monitor unavailable");
-    const bool follow_cursor = prepared.at("value").at("preferences").value(
-        "candidate_follow_cursor", true);
-    const auto candidate_font_size = prepared.at("value").at("preferences").value(
-        "candidate_font_size", 16u);
-    const auto preedit_font_size = prepared.at("value").at("preferences").value(
-        "candidate_preedit_font_size", 16u);
-    const auto candidate_font_family = prepared.at("value").at("preferences").value(
-        "candidate_font_family", std::string("Segoe UI"));
-    std::vector<std::string> fallback_fonts = prepared.at("value").at("preferences")
-        .value("candidate_fallback_fonts", std::vector<std::string>{});
-    std::optional<bool> candidate_dark_theme;
-    const auto candidate_theme = prepared.at("value").at("preferences").value(
-        "candidate_theme", std::string("follow"));
-    if (candidate_theme == "dark") candidate_dark_theme = true;
-    else if (candidate_theme == "light") candidate_dark_theme = false;
-    else if (candidate_theme != "follow") throw std::invalid_argument("Invalid candidate theme");
-    const auto candidate_layout = prepared.at("value").at("preferences").value(
-        "candidate_layout", std::string("vertical"));
-    if (candidate_layout != "vertical" && candidate_layout != "horizontal")
-      throw std::invalid_argument("Invalid candidate layout");
-    const auto candidate_preedit_style = prepared.at("value").at("preferences").value(
-        "candidate_preedit_style", std::string("pinyin"));
-    if (candidate_preedit_style != "pinyin" && candidate_preedit_style != "empty")
-      throw std::invalid_argument("Invalid candidate preedit style");
-    std::optional<COLORREF> candidate_text_color;
-    if (const auto color = prepared.at("value").at("preferences").value(
-            "candidate_text_color", std::string{}); !color.empty()) {
-      unsigned value = 0;
-      auto parsed = std::from_chars(color.data() + 1, color.data() + color.size(), value, 16);
-      if (color.size() != 7 || color.front() != '#' || parsed.ec != std::errc{} ||
-          parsed.ptr != color.data() + color.size())
-        throw std::invalid_argument("Invalid candidate text color");
-      candidate_text_color = RGB((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
-    }
-    std::optional<std::pair<int, int>> fixed_candidate_anchor;
-    auto candidate_reader = [&]() -> std::optional<CandidatePresentation> {
-      auto value = server.candidate_view();
-      if (!value || !value->visible) {
-        fixed_candidate_anchor.reset();
-        return value;
-      }
-      if (follow_cursor)
-        return value;
-      if (!fixed_candidate_anchor)
-        fixed_candidate_anchor = std::make_pair(value->x, value->y);
-      value->x = fixed_candidate_anchor->first;
-      value->y = fixed_candidate_anchor->second;
-      return value;
-    };
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (server.request_selection(click.lease, click.session, click.generation,
                                    click.index) ==
@@ -169,65 +131,55 @@ int wmain(int argc, wchar_t **argv) {
       if (server.request_mode(click.lease, click.mode) == ModeRequestResult::WriteFailed)
         throw std::runtime_error("Mode request failed");
     });
-    ClipboardPasteWorker paste_worker([](const ClipboardPaste &paste) {
-      paste_clipboard_text(paste.text);
-    });
-    ClipboardRemoveWorker remove_worker([&](const ClipboardRemove &remove) {
-      if (clipboard.remove(remove.text))
-        clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
-    });
-    ClipboardClearWorker clear_worker([&](const ClipboardClear &) {
-      if (clipboard.clear()) clipboard_mailbox.publish(clipboard.enabled(), clipboard.load());
-    });
     struct ClickShutdown {
       WindowsServer &server;
       CandidateClickWorker &clicks;
       ModeClickWorker &modes;
-      ClipboardPasteWorker &paste;
-      ClipboardRemoveWorker &remove;
-      ClipboardClearWorker &clear;
       ~ClickShutdown() {
         clicks.request_stop();
         modes.request_stop();
-        paste.request_stop();
-        remove.request_stop();
-        clear.request_stop();
         server.request_stop();
         clicks.stop();
         modes.stop();
-        paste.stop();
-        remove.stop();
-        clear.stop();
       }
-    } click_shutdown{server, clicks, mode_clicks, paste_worker, remove_worker, clear_worker};
+    } click_shutdown{server, clicks, mode_clicks};
     CandidateWindow candidates(
-        candidate_reader,
-        [&](const CandidateClick &click) { (void)clicks.submit(click); },
-        candidate_font_size, preedit_font_size, candidate_text_color,
-        candidate_font_family, fallback_fonts, candidate_dark_theme,
-        candidate_layout == "horizontal", candidate_preedit_style == "pinyin");
+        [&] { return server.candidate_view(); },
+        [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
+        std::nullopt, "Segoe UI", {}, config.dark_theme,
+        config.horizontal_candidates);
+    const auto palette = resolve_palette(config);
+    candidates.set_palette(palette);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    ClipboardWindow clipboard_window(
-        [&] { return clipboard_mailbox.snapshot(); },
-        [&](size_t index) {
-          const auto snapshot = clipboard_mailbox.snapshot();
-          if (snapshot && index < snapshot->items.size())
-            (void)paste_worker.submit(ClipboardPaste{snapshot->items[index]});
+    modes.set_palette(palette);
+    FloatingToolbarWindow toolbar(
+        [&] { return server.mode_view(); },
+        [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
+    toolbar.set_palette(palette);
+    // The Server owns the floating toolbar, so that row works here. The other
+    // entries open shell surfaces this process cannot reach, so they stay
+    // visible and disabled rather than accepting a click that does nothing.
+    bool toolbar_visible = config.floating_toolbar_enabled;
+    TrayMenuCapabilities menu_capabilities;
+    TrayMenuWindow tray(
+        menu_capabilities,
+        [&](TrayMenuCommand command) {
+          if (command != TrayMenuCommand::ToggleFloatingToolbar)
+            return false;
+          toolbar_visible = !toolbar_visible;
+          if (!toolbar_visible)
+            toolbar.hide();
+          return true;
         },
-        [&](size_t index) {
-          const auto snapshot = clipboard_mailbox.snapshot();
-          if (snapshot && index < snapshot->items.size())
-            (void)remove_worker.submit(ClipboardRemove{snapshot->items[index]});
-        },
-        [&] { (void)clear_worker.submit(ClipboardClear{}); });
+        [&] { return toolbar_visible; });
+    tray.set_palette(palette);
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() &&
-           !modes.failed() && !mode_clicks.failed() &&
-           !clipboard_window.failed() && !paste_worker.failed() &&
-           !remove_worker.failed() && !clear_worker.failed()) {
+           !modes.failed() && !mode_clicks.failed() && !toolbar.failed() &&
+           !tray.failed()) {
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -243,14 +195,15 @@ int wmain(int argc, wchar_t **argv) {
         break;
       candidates.refresh();
       modes.refresh();
-      clipboard_window.refresh();
+      toolbar.refresh(toolbar_visible);
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
     }
     candidates.hide();
     modes.hide();
-    clipboard_window.hide();
+    toolbar.hide();
+    tray.hide();
     clicks.request_stop();
     mode_clicks.request_stop();
     server.stop();
@@ -258,9 +211,7 @@ int wmain(int argc, wchar_t **argv) {
     mode_clicks.stop();
     return server.failure() == ControllerFailure::None &&
                    !candidates.failed() && !clicks.failed() &&
-                   !modes.failed() && !mode_clicks.failed() &&
-                   !clipboard_window.failed() && !paste_worker.failed() &&
-                   !remove_worker.failed() && !clear_worker.failed()
+                   !modes.failed() && !mode_clicks.failed()
                ? 0
                : 1;
   } catch (...) {

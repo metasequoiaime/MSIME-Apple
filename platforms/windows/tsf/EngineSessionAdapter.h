@@ -1,0 +1,54 @@
+#pragma once
+#include "msime_client.h"
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+namespace msime::tsf {
+struct EngineCandidate {
+  std::string id;
+  std::string text;
+  bool highlighted = false;
+  std::size_t index = 0;
+};
+struct EngineView {
+  uint64_t session = 0;
+  std::string preedit;
+  std::string editing_text;
+  std::vector<EngineCandidate> candidates;
+  uint64_t generation = 0;
+  std::size_t caret = 0;
+};
+struct EngineResult {
+  bool handled = false;
+  bool has_commit = false;
+  std::string commit;
+  std::string diagnostic;
+  EngineView view;
+};
+class EngineSessionAdapter final {
+public:
+  static bool parse_result(const std::string &, EngineResult *, std::string *);
+  ~EngineSessionAdapter();
+  bool create(const std::string &, std::string *);
+  void destroy() noexcept;
+  bool valid() const noexcept { return session_ != 0; }
+  bool character(uint8_t, bool, std::string *, std::string *);
+  bool command(uint32_t, std::string *, std::string *);
+  bool select(uint64_t, std::size_t, std::string *, std::string *);
+  bool select_edge(uint64_t, std::size_t, uint8_t, std::string *, std::string *);
+  bool view(std::string *, std::string *) const;
+  bool punctuation(uint8_t, std::string *, std::string *);
+  bool focus(bool, std::string *, std::string *);
+  bool chinese_punctuation(bool, std::string *, std::string *);
+  bool character_width(bool, std::string *, std::string *);
+  bool english_mode(bool, std::string *, std::string *);
+  bool dedicated_english(bool, std::string *, std::string *);
+  bool paired_punctuation(bool, std::string *, std::string *);
+  bool punctuation_lock(uint8_t, std::string *, std::string *);
+  bool update_preferences(const std::string &, std::string *, std::string *);
+private:
+  bool response(char *, std::string *, std::string *) const;
+  uint64_t session_ = 0;
+};
+}

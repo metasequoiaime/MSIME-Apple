@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../vendor/MSIME-Engine");
     println!("cargo:rerun-if-env-changed=CMAKE_PREFIX_PATH");
     let mut config = cmake::Config::new("native");
+    let mut android_include = None;
     let android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
     let windows_gnu = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
@@ -42,6 +43,7 @@ fn main() {
             ndk.is_absolute() && prefix.is_absolute(),
             "Android build paths must be absolute"
         );
+        android_include = Some(prefix.join("include"));
         let abi = match std::env::var("TARGET").unwrap().as_str() {
             "aarch64-linux-android" => "arm64-v8a",
             "x86_64-linux-android" => "x86_64",
@@ -66,18 +68,22 @@ fn main() {
     println!("cargo:rerun-if-env-changed=VCPKG_TARGET_TRIPLET");
     let destination = config.build();
     let engine = PathBuf::from("../../vendor/MSIME-Engine");
-    cxx_build::bridge("src/lib.rs")
+    let mut bridge = cxx_build::bridge("src/lib.rs");
+    bridge
         .file("native/bridge.cpp")
         .include("native")
         .include(&engine)
-        .include(engine.join("include"))
-        .std("c++17")
-        .compile("msime-engine-cxx");
+        .include(engine.join("include"));
+    if let Some(include) = android_include {
+        bridge.include(include);
+    }
+    bridge.std("c++17").compile("msime-engine-cxx");
     println!(
         "cargo:rustc-link-search=native={}/lib",
         destination.display()
     );
     println!("cargo:rustc-link-lib=static=MetasequoiaImeEngine");
+    println!("cargo:rustc-link-lib=static=MetasequoiaHandwriting");
     let sqlite = std::fs::read_to_string(destination.join("build/sqlite-path.txt"))
         .expect("CMake SQLite path");
     let sqlite = PathBuf::from(sqlite.trim());

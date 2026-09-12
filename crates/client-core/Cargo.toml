@@ -12,7 +12,11 @@ serde_json.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
+unicode-general-category.workspace = true
+unicode-segmentation.workspace = true
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [dev-dependencies]

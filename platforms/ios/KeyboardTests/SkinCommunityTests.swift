@@ -1,0 +1,156 @@
+import XCTest
+import UIKit
+
+private final class CommunityMemoryCredentials: BackendSessionStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: BackendSavedSession?
+  func load() throws -> BackendSavedSession? { lock.lock(); defer { lock.unlock() }; return value }
+  func save(_ session: BackendSavedSession) throws { lock.lock(); defer { lock.unlock() }; value = session }
+  func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
+}
+
+private final class CommunityFixtureProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    let body: String
+    let status: Int
+    if path == "/v1/auth/challenges" {
+      body = #"{"challenge_id":"fixture-id","nonce":"server-nonce","expires_in":300}"#; status = 200
+    } else if path == "/v1/auth/login" || path == "/v1/auth/refresh" {
+      let token = String(repeating: path.hasSuffix("refresh") ? "b" : "a", count: 64)
+      body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(String(repeating: "f", count: 64))\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
+      status = 200
+    } else if path == "/v1/auth/logout" {
+      body = ""; status = 204
+    } else if path == "/v1/users/me" && request.httpMethod == "PATCH" {
+      body = ""; status = 204
+    } else if path == "/v1/users/me" {
+      body = #"{"user":{"id":"fixture-user","display_name":"新昵称","created_at":"2026-09-08T00:00:00Z"},"identities":[{"provider":"apple","subject":"not-displayed"}]}"#
+      status = 200
+    } else if request.value(forHTTPHeaderField: "Authorization") == "Bearer " + String(repeating: "a", count: 64) {
+      body = #"{"error":{"code":"invalid_credentials"}}"#; status = 401
+    } else if request.url?.query?.contains("offset=20") == true {
+      body = #"{"error":{"code":"rate_limit_exceeded","message":"internal"}}"#; status = 429
+    } else {
+      body = #"{"skins":[{"id":"a1234567-1234-1234-1234-123456789abc","name":"测试","description":"示例","author":"作者","design":{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false},"downloads":2,"rating_count":1,"rating_average":4,"owned":false,"my_rating":0}],"has_more":false}"#
+      status = 200
+    }
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+final class SkinCommunityTests: XCTestCase {
+  func testCommunityWireFormatAndErrors() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: CommunityMemoryCredentials()))
+    let page = try await api.list(search: "纸感 & 星光")
+    XCTAssertEqual(page.skins.first?.downloads, 2)
+    XCTAssertEqual(page.skins.first?.rating_average, 4)
+    XCTAssertNil(page.skins.first?.design.photo)
+    XCTAssertFalse(page.has_more)
+    let challenge = try await api.challenge()
+    XCTAssertEqual(challenge.nonce, "server-nonce")
+    do { _ = try await api.list(offset: 20); XCTFail("expected limit error") }
+    catch { XCTAssertEqual(error.localizedDescription, "操作较频繁，请稍后重试。") }
+  }
+  func testLoginConcurrentRefreshAndEmptyLogoutResponse() async throws {
+    let memory = CommunityMemoryCredentials()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: memory))
+    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    let signedIn = try await api.signedIn()
+    XCTAssertTrue(signedIn)
+    let profile = try await api.currentUser()
+    XCTAssertEqual(profile?.display_name, "测试")
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for _ in 0..<8 { group.addTask { _ = try await api.list() } }
+      try await group.waitForAll()
+    }
+    XCTAssertEqual(try memory.load()?.tokens.access_token, String(repeating: "b", count: 64))
+    try await api.logout()
+    let signedOut = try await api.signedIn()
+    XCTAssertFalse(signedOut)
+    let profileAfterLogout = try await api.currentUser()
+    XCTAssertNil(profileAfterLogout)
+  }
+  func testProfileFetchUpdateAndValidation() async throws {
+    let memory = CommunityMemoryCredentials()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CommunityFixtureProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: memory))
+    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    for invalid in ["  ", String(repeating: "字", count: 65), "名字\n换行"] {
+      do { _ = try await api.updateProfile(name: invalid); XCTFail("invalid name accepted") }
+      catch { XCTAssertTrue(error.localizedDescription.contains("1–64")) }
+    }
+    XCTAssertEqual(try memory.load()?.tokens.user.display_name, "测试")
+    let profile = try await api.updateProfile(name: " 新昵称 ")
+    XCTAssertEqual(profile.user.display_name, "新昵称")
+    XCTAssertEqual(profile.identities.first?.provider, "apple")
+    XCTAssertEqual(profile.user.created_at, "2026-09-08T00:00:00Z")
+    XCTAssertEqual(try memory.load()?.tokens.user.display_name, "新昵称")
+    try await api.logout()
+    do { _ = try await api.profile(); XCTFail("signed-out profile must require authentication") }
+    catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 401) }
+  }
+  @MainActor func testCommunityPreviewDoesNotChangeActiveDesign() throws {
+    let previous = CustomKeyboardSkinStore.current
+    let backdrop = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+    var design = CustomKeyboardSkin.templates[2].1
+    design.pattern = 2
+    backdrop.designOverride = design
+    backdrop.skin = .custom
+    let before = UIGraphicsImageRenderer(bounds: backdrop.bounds).image { backdrop.layer.render(in: $0.cgContext) }.pngData()
+    design.background = 0xEEFFFF
+    design.gradientEnd = nil
+    backdrop.designOverride = design
+    backdrop.skin = .custom
+    let after = UIGraphicsImageRenderer(bounds: backdrop.bounds).image { backdrop.layer.render(in: $0.cgContext) }.pngData()
+    XCTAssertNotEqual(before, after)
+    XCTAssertEqual(CustomKeyboardSkinStore.current, previous)
+    XCTAssertEqual(CustomKeyboardSkin.rgb(try XCTUnwrap(backdrop.backgroundColor)), design.background)
+  }
+}
+
+private final class LargeResourceProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let entries = (0..<128).map { ["kind":"quick", "code":"key\($0)", "word":String(repeating:"🌱", count:99), "weight":10] as [String:Any] }
+    let items = (0..<20).map { index in
+      ["id":String(format:"10000000-0000-0000-0000-%012d",index),"kind":"dictionary","name":"词包","description":"","author":"测试",
+       "content":["entries":entries],"revision":1,"saves":0,"saved":false,"owned":false,"rating_count":0,"rating_average":0,"my_rating":0] as [String:Any]
+    }
+    let data = try! JSONSerialization.data(withJSONObject:["items":items,"has_more":false])
+    let status = request.url!.absoluteString.contains("C%2B%2B") ? 200 : 400
+    client?.urlProtocol(self, didReceive:HTTPURLResponse(url:request.url!,statusCode:status,httpVersion:nil,
+      headerFields:["Content-Type":"application/json","Content-Length":String(data.count)])!, cacheStoragePolicy:.notAllowed)
+    client?.urlProtocol(self,didLoad:data); client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+extension SkinCommunityTests {
+  func testLargeResourcePageKeepsPlusSearchAndOrdinaryLimit() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [LargeResourceProtocol.self]
+    let client = BackendAccountClient(configuration:configuration)
+    let api = SkinCommunityAPI(client:client,account:BackendAccountSession(api:client,storage:CommunityMemoryCredentials()))
+    let page = try await api.resources(.dictionary,search:"C++")
+    XCTAssertEqual(page.items.count,20)
+    XCTAssertEqual(page.items.first?.content.entries?.count,128)
+    do {
+      _ = try await client.request("GET","/v1/community/resources?kind=dictionary&q=C%2B%2B")
+      XCTFail("Ordinary limit was relaxed")
+    } catch is BackendAccountClient.Failure { }
+  }
+}

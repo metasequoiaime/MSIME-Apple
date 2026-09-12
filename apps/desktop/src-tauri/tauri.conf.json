@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [{ "label": "main", "title": "水杉输入法 · 设置", "width": 800, "height": 780, "minWidth": 360, "minHeight": 540 }],
-    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost" }
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost https://msime.app" }
   },
   "bundle": { "active": false }
 }

@@ -14,23 +14,80 @@ public final class NativeClient {
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
+    public static String typingStatistics(String request) {
+        return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
+    }
+    /** May block on the shared file lock. Call on a worker, without a session handle. */
+    public static String savePreferences(String directory, long expectedRevision, String snapshot) {
+        if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
+        return text(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
+            snapshot.getBytes(StandardCharsets.UTF_8)));
+    }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
+    public static String setNineKeyMode(long session, boolean enabled) {
+        return text(setNineKeyModeRaw(session, enabled));
+    }
+    public static String setEnglishMode(long session, boolean enabled) {
+        return text(setEnglishModeRaw(session, enabled));
+    }
     public static String character(long session, int ascii, boolean shift) {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return text(characterRaw(session, ascii, shift));
     }
     public static String command(long session, int command) { return text(commandRaw(session, command)); }
-    public static String select(long session, long generation, long index) { return text(selectRaw(session, generation, index)); }
+    public static String select(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(selectRaw(session, generation, index));
+    }
+    public static String selectAnyCandidate(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(selectAnyCandidateRaw(session, generation, index));
+    }
+    public static String pinCandidate(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(pinCandidateRaw(session, generation, index));
+    }
+    public static String fixCandidatePosition(long session, long generation, long index, int position) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(fixCandidatePositionRaw(session, generation, index,
+            CandidateManagementAction.validatePosition(position)));
+    }
+    public static String clearCandidatePosition(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(clearCandidatePositionRaw(session, generation, index));
+    }
+    public static String removeCandidate(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        return text(removeCandidateRaw(session, generation, index));
+    }
+    public static String chooseNineKeySpelling(long session, long generation, long index) {
+        if (index < 0) throw new IllegalArgumentException("Invalid nine-key spelling index");
+        return text(chooseNineKeySpellingRaw(session, generation, index));
+    }
+    public static String allCandidates(long session) { return text(allCandidatesRaw(session)); }
     public static String view(long session) { return text(viewRaw(session)); }
     public static String updatePreferences(long session, String snapshot) { return text(updatePreferencesRaw(session, snapshot.getBytes(StandardCharsets.UTF_8))); }
     public static String destroy(long session) { return text(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] typingStatisticsRaw(byte[] request);
+    private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
+    private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
+    private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);
+    private static native byte[] selectAnyCandidateRaw(long session, long generation, long index);
+    private static native byte[] pinCandidateRaw(long session, long generation, long index);
+    private static native byte[] fixCandidatePositionRaw(long session, long generation, long index,
+        int position);
+    private static native byte[] clearCandidatePositionRaw(long session, long generation, long index);
+    private static native byte[] removeCandidateRaw(long session, long generation, long index);
+    private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
+    private static native byte[] allCandidatesRaw(long session);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] destroyRaw(long session);

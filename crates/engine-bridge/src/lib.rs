@@ -1,20 +1,51 @@
 //! Owning CXX bridge to the pinned C++ Session. No Tauri or native UI dependency.
 //! Sessions remain thread-confined; no unsafe Send/Sync implementation is provided.
 
+mod dictionary_revision;
+pub use dictionary_revision::dictionary_state_revision;
+use dictionary_revision::DictionaryRevision;
+mod dictionary_stage;
+use dictionary_stage::DictionaryRecordStream;
+pub use dictionary_stage::{stage_dictionary_state, DictionaryStateRecord, SnapshotReadError};
+
 #[cxx::bridge(namespace = "msime")]
 mod ffi {
-    #[derive(Clone)]
-    pub struct DictionaryStateRecord {
-        pub kind: u8,
-        pub context: String,
-        pub key: String,
-        pub value: String,
-        pub weight: i64,
-        pub display: String,
-        pub deleted: bool,
-        pub user_inserted: bool,
-        pub position: i32,
-        pub count: i32,
+    extern "Rust" {
+        type DictionaryRevision;
+        fn text(self: &mut DictionaryRevision, value: &str);
+        fn integer(self: &mut DictionaryRevision, value: u64);
+        type DictionaryRecordStream;
+        fn next(self: &mut DictionaryRecordStream) -> Result<DictionaryStateWire>;
+    }
+    struct DictionaryStateWire {
+        record_type: u8,
+        kind: DictionaryKind,
+        context: String,
+        key: String,
+        value: String,
+        number: i64,
+        display: String,
+        deleted: bool,
+        user_inserted: bool,
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DictionaryKind {
+        Pinyin,
+        Wubi,
+        QuickPhrase,
+        English,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryEntry {
+        kind: DictionaryKind,
+        key: String,
+        value: String,
+        weight: i64,
+    }
+    #[derive(Debug)]
+    struct DictionaryPage {
+        entries: Vec<DictionaryEntry>,
+        has_more: bool,
     }
     #[derive(Clone)]
     pub struct EngineOptions {
@@ -24,11 +55,16 @@ mod ffi {
         pub dictionaries: String,
         pub scheme: u8,
         pub shuangpin_profile: u8,
+        pub shuangpin_preedit_uses_raw: bool,
         pub learning: bool,
-        pub autocorrect: bool,
+        pub autocorrect_transposition: bool,
+        pub autocorrect_neighbor: bool,
+        pub fuzzy_pinyin_rules: u32,
         pub helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
+        pub paired_punctuation: bool,
+        pub punctuation_lock: u8,
         pub frequency_mode: String,
         pub frequency_trigger_count: u8,
         pub frequency_linear_step: u8,
@@ -48,12 +84,21 @@ mod ffi {
     #[derive(Debug)]
     pub struct EngineSnapshot {
         pub local_mode: String,
+        pub dedicated_english: bool,
+        pub nine_key: bool,
+        pub nine_key_spellings: Vec<String>,
         pub microsoft_shuangpin: bool,
         pub shuangpin_profile: String,
         pub preedit: String,
         pub editing_text: String,
         pub caret_position: usize,
         pub candidates: Vec<String>,
+        pub scheme: u8,
+        pub answered_by_pinyin_fallback: bool,
+        pub candidate_annotations: Vec<String>,
+        pub candidate_sources: Vec<u8>,
+        pub candidate_positions: Vec<u8>,
+        pub candidate_corrected: Vec<bool>,
     }
     #[derive(Debug)]
     pub struct EngineResult {
@@ -62,26 +107,143 @@ mod ffi {
         pub commit: String,
         pub diagnostic: String,
     }
+    #[derive(Debug)]
+    pub struct OnlineQuerySnapshot {
+        pub available: bool,
+        pub scheme: u8,
+        pub generation: u64,
+        pub identity: String,
+        pub query_text: String,
+        pub cache_key: String,
+        pub pinyin_segments: Vec<String>,
+        pub cloud_eligible: bool,
+        pub ai_eligible: bool,
+        pub session_id: u64,
+    }
+    #[derive(Debug)]
+    pub struct EmojiCatalogItem {
+        pub text: String,
+        pub annotation: String,
+        pub group: String,
+    }
+    #[derive(Debug)]
+    pub struct EmojiCatalogSlice {
+        pub items: Vec<EmojiCatalogItem>,
+        pub next_offset: usize,
+        pub complete: bool,
+    }
+    #[derive(Debug)]
+    pub struct EmojiSymbolGroup {
+        pub parent: String,
+        pub title: String,
+    }
+    #[derive(Clone, Debug)]
+    pub struct HandwritingPoint {
+        pub stroke: u32,
+        pub x: f32,
+        pub y: f32,
+    }
     unsafe extern "C++" {
         include!("bridge.h");
         type EngineSession;
+        fn stage_dictionary_state(
+            options: &EngineOptions,
+            generation: &str,
+            content_id: &str,
+            maximum_records: usize,
+            stream: &mut DictionaryRecordStream,
+        ) -> Result<EngineOptions>;
+        fn hash_dictionary_state(
+            options: &EngineOptions,
+            sink: &mut DictionaryRevision,
+        ) -> Result<()>;
         fn create_session(options: &EngineOptions) -> Result<UniquePtr<EngineSession>>;
-        fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String;
+        fn dictionary_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_edit(
+            options: &EngineOptions,
+            previous: &[DictionaryEntry],
+            replacement: &[DictionaryEntry],
+            request_id: &str,
+        ) -> Result<()>;
         fn prepare_options(
             resources: &str,
             user_data: &str,
             cache: &str,
             content_id: &str,
         ) -> Result<EngineOptions>;
-        fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
-            records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions>;
+        fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
+        fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
+        fn reset_cache(self: Pin<&mut EngineSession>);
+        fn apply_online_candidate(
+            self: Pin<&mut EngineSession>,
+            query: &OnlineQuerySnapshot,
+            candidate: &str,
+            source: u8,
+        ) -> Result<bool>;
+        fn emoji_catalog(
+            resources: &str,
+            search: &str,
+            category: &str,
+            limit: u8,
+        ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_page(
+            resources: &str,
+            search: &str,
+            category: &str,
+            offset: usize,
+            limit: u16,
+        ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_filtered_page(
+            resources: &str,
+            search: &str,
+            category: &str,
+            group: &str,
+            offset: usize,
+            limit: u16,
+            parent: &str,
+        ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_catalog_slice(
+            resources: &str,
+            search: &str,
+            category: &str,
+            group: &str,
+            offset: usize,
+            limit: u16,
+            parent: &str,
+        ) -> Result<EmojiCatalogSlice>;
+        fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
+        fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
+        fn handwriting_recognize(
+            model_path: &str,
+            points: &[HandwritingPoint],
+            width: f32,
+            height: f32,
+        ) -> Result<Vec<String>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
+        fn set_nine_key_enabled(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
+        fn choose_nine_key_spelling(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+        ) -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
+        fn fix_candidate_position(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+            position: u8,
+        ) -> Result<EngineResult>;
+        fn clear_candidate_position(
+            self: Pin<&mut EngineSession>,
+            index: usize,
+        ) -> Result<EngineResult>;
         fn select_edge(
             self: Pin<&mut EngineSession>,
             index: usize,
@@ -93,14 +255,49 @@ mod ffi {
             self: Pin<&mut EngineSession>,
             enabled: bool,
         ) -> Result<()>;
+        fn set_punctuation_lock(self: Pin<&mut EngineSession>, lock: u8) -> Result<()>;
+        fn set_paired_punctuation_enabled(
+            self: Pin<&mut EngineSession>,
+            enabled: bool,
+        ) -> Result<()>;
+        fn set_dedicated_english(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
     }
 }
 
-pub use ffi::{DictionaryStateRecord, EngineOptions, EngineResult, EngineSnapshot};
+pub use ffi::{
+    DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem, EngineOptions, EngineResult,
+    EngineSnapshot, HandwritingPoint, OnlineQuerySnapshot,
+};
 
-/// Validate a personal dictionary entry using the pinned Engine contract.
-pub fn validate_personal_dictionary(kind: u8, key: &str, value: &str) -> String {
-    ffi::validate_personal_dictionary(kind, key, value)
+/// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
+pub fn dictionary_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the
+/// verified Engine dictionary for native dictionary import tooling.
+pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
+    ffi::hanzi_to_pinyin(options, text)
+}
+
+/// Atomically add, replace, or remove one personal-dictionary entry.
+/// The caller must quiesce sessions sharing these paths before editing.
+pub fn dictionary_edit(
+    options: &EngineOptions,
+    previous: Option<&DictionaryEntry>,
+    replacement: Option<&DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit(
+        options,
+        previous.map_or(&[], std::slice::from_ref),
+        replacement.map_or(&[], std::slice::from_ref),
+        request_id,
+    )
 }
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
@@ -113,9 +310,92 @@ pub fn prepare_options(
 ) -> Result<EngineOptions, cxx::Exception> {
     ffi::prepare_options(resources, user_data, cache, content_id)
 }
-pub fn stage_dictionary_state(resources: &str, generation: &str, content_id: &str,
-                              records: &Vec<DictionaryStateRecord>) -> Result<EngineOptions, cxx::Exception> {
-    ffi::stage_dictionary_state(resources, generation, content_id, records)
+
+pub fn emoji_catalog(
+    resources: &str,
+    search: &str,
+    category: &str,
+    limit: u8,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog(resources, search, category, limit)
+}
+
+pub fn emoji_catalog_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_page(resources, search, category, offset, limit)
+}
+
+pub fn emoji_catalog_filtered_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, "")
+}
+
+pub fn emoji_catalog_parent_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+    parent: &str,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, parent)
+}
+
+pub fn emoji_catalog_slice(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+    parent: &str,
+) -> Result<ffi::EmojiCatalogSlice, cxx::Exception> {
+    ffi::emoji_catalog_slice(resources, search, category, group, offset, limit, parent)
+}
+
+pub fn emoji_symbol_groups(resources: &str) -> Result<Vec<ffi::EmojiSymbolGroup>, cxx::Exception> {
+    ffi::emoji_symbol_groups(resources)
+}
+
+pub fn emoji_catalog_groups(
+    resources: &str,
+    category: &str,
+) -> Result<Vec<String>, cxx::Exception> {
+    ffi::emoji_catalog_groups(resources, category)
+}
+
+/// Run the Engine's optional offline handwriting recognizer on copied strokes.
+/// Points are flattened with their zero-based stroke index for the CXX ABI.
+pub fn handwriting_recognize(
+    model_path: &str,
+    strokes: &[Vec<(f32, f32)>],
+    width: f32,
+    height: f32,
+) -> Result<Vec<String>, cxx::Exception> {
+    let points: Vec<HandwritingPoint> = strokes
+        .iter()
+        .enumerate()
+        .flat_map(|(stroke, points)| {
+            points.iter().map(move |&(x, y)| HandwritingPoint {
+                stroke: stroke as u32,
+                x,
+                y,
+            })
+        })
+        .collect();
+    ffi::handwriting_recognize(model_path, &points, width, height)
 }
 
 #[derive(Clone, Copy)]
@@ -154,8 +434,33 @@ impl Session {
     pub fn snapshot(&self) -> Result<EngineSnapshot, cxx::Exception> {
         self.inner.snapshot()
     }
+    pub fn online_query(&self) -> Result<OnlineQuerySnapshot, cxx::Exception> {
+        self.inner.online_query()
+    }
+    pub fn reset_cache(&mut self) {
+        self.inner.pin_mut().reset_cache()
+    }
+    pub fn apply_online_candidate(
+        &mut self,
+        query: &OnlineQuerySnapshot,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, cxx::Exception> {
+        self.inner
+            .pin_mut()
+            .apply_online_candidate(query, candidate, source)
+    }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
+    }
+    pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_nine_key_enabled(enabled)
+    }
+    pub fn choose_nine_key_spelling(
+        &mut self,
+        index: usize,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().choose_nine_key_spelling(index)
     }
     pub fn command(&mut self, command: Command) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().command(command as u8)
@@ -163,8 +468,25 @@ impl Session {
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
     }
-    pub fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> { self.inner.pin_mut().pin_candidate(index) }
-    pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> { self.inner.pin_mut().remove_candidate(index) }
+    pub fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().pin_candidate(index)
+    }
+    pub fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().remove_candidate(index)
+    }
+    pub fn fix_candidate_position(
+        &mut self,
+        index: usize,
+        position: u8,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().fix_candidate_position(index, position)
+    }
+    pub fn clear_candidate_position(
+        &mut self,
+        index: usize,
+    ) -> Result<EngineResult, cxx::Exception> {
+        self.inner.pin_mut().clear_candidate_position(index)
+    }
     pub fn select_edge(
         &mut self,
         index: usize,
@@ -183,12 +505,22 @@ impl Session {
             .pin_mut()
             .set_chinese_punctuation_enabled(enabled)
     }
+    pub fn set_punctuation_lock(&mut self, lock: u8) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_punctuation_lock(lock)
+    }
+    pub fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_paired_punctuation_enabled(enabled)
+    }
+    pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().set_dedicated_english(enabled)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn options(root: &std::path::Path) -> EngineOptions {
+
+    pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
             std::fs::create_dir_all(&path).unwrap();
@@ -201,11 +533,16 @@ mod tests {
             dictionaries: path("dictionaries"),
             scheme: 0,
             shuangpin_profile: 0,
+            shuangpin_preedit_uses_raw: true,
             learning: false,
-            autocorrect: true,
+            autocorrect_transposition: true,
+            autocorrect_neighbor: true,
+            fuzzy_pinyin_rules: 0,
             helpcode: false,
             helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
+            paired_punctuation: true,
+            punctuation_lock: 0,
             frequency_mode: "promote".into(),
             frequency_trigger_count: 1,
             frequency_linear_step: 1,
@@ -223,6 +560,23 @@ mod tests {
             local_temporary_japanese: true,
         }
     }
+    #[test]
+    fn dictionary_revision_uses_real_journal_and_rejects_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let before = super::dictionary_state_revision(&value).unwrap();
+        assert_eq!(before.len(), 64);
+        assert_eq!(before, super::dictionary_state_revision(&value).unwrap());
+        let journal = std::path::Path::new(&value.user_data).join("msime_user.db");
+        assert!(!journal.exists());
+        std::fs::write(&journal, b"synthetic invalid database").unwrap();
+        assert!(super::dictionary_state_revision(&value).is_err());
+        assert_eq!(
+            std::fs::read(&journal).unwrap(),
+            b"synthetic invalid database"
+        );
+    }
+
     #[test]
     fn helpcode_settings_reach_the_real_engine() {
         let dir = tempfile::tempdir().unwrap();
@@ -289,5 +643,28 @@ mod tests {
         assert_eq!(result.commit, "中");
         assert!(session.snapshot().unwrap().preedit.is_empty());
         assert_eq!(session.snapshot().unwrap().local_mode, "none");
+    }
+
+    #[test]
+    fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::new(&options(dir.path())).unwrap();
+        assert!(!session.snapshot().unwrap().nine_key);
+        assert!(!session.character(b'6', false).unwrap().handled);
+        session.set_nine_key_enabled(true).unwrap();
+        assert!(session.snapshot().unwrap().nine_key);
+        assert!(session.character(b'6', false).unwrap().handled);
+        let snapshot = session.snapshot().unwrap();
+        assert!(!snapshot.nine_key_spellings.is_empty());
+        assert!(
+            !session
+                .choose_nine_key_spelling(snapshot.nine_key_spellings.len())
+                .unwrap()
+                .handled
+        );
+        assert!(session.choose_nine_key_spelling(0).unwrap().handled);
+        session.command(Command::Cancel).unwrap();
+        session.set_nine_key_enabled(false).unwrap();
+        assert!(!session.snapshot().unwrap().nine_key);
     }
 }

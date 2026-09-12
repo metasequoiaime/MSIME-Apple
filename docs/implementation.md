@@ -16,21 +16,9 @@
 
 ## 当前证据
 
-### Linux 导航设置接入
-
-将固定 Windows develop 提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的六组共享导航设置接入 IBus 启动和实时配置发布。按当前布局字符与 IBus 导航键映射，不依赖 Windows 宿主；候选移动仍由共享运行时执行。Shift+Tab 反向翻页，小键盘导航等价处理，Shift 符号及 Unicode `U+` 保持输入。关闭的标点绑定交回 Engine；关闭的 Tab/Page/上下键先完成组合再交还编辑器，避免焦点移动丢失输入。Panel 操作不受键盘绑定限制。按用户要求后续始终使用独立 worktree。
-
-新增真实 IBus D-Bus 回归逐组启用六组配置并在活动组合中验证正反向翻页/高亮、关闭绑定后的原生键透传与组合保留、关闭句号翻页后的标点、Unicode 前缀。改动前宿主运行新增测试在候选移动断言失败，新宿主通过。完整 Linux 迁移仍需以词定字、模式与其他 Windows 功能入口、安装及真实 GTK/Qt、X11/Wayland 验收；CI 继续禁用。
-
-### Linux 设置自动重读
-
-按最新 Linux 迁移目标补齐 IBus 活动会话的共享设置同步。每秒通过 GTask 后台调用共享非阻塞读取 API，完成后回 GLib 主线程核对会话并更新；输入算法和组合期间的延迟应用仍归 Engine/共享运行时。读取失败、写锁占用、旧版本均保留会话；私密输入覆盖 learning=false，关闭会话后的异步结果不发布。未配置 preferences_directory 的启动文件仍按快照工作。
-
-Debian bookworm arm64、IBus 1.5.27 容器内真实共享 Rust/C++ 库、共享 Rust 测试、IBus D-Bus 宿主测试与 daemon/factory 输入上下文测试通过。新增回归覆盖组合期间保留旧候选页、reset 后采用新页大小、损坏文件保留、旧 revision 拒绝、写锁占用及释放恢复；实际选词排序验证私密会话不学习、切回普通会话后恢复配置的置顶学习。将新测试链接改动前的 ClientEngine.cpp，实测在延迟设置应用断言失败。未执行 GTK/Qt 编辑器、X11/Wayland 或安装验收，完整 Linux 迁移继续；CI 保持手动禁用。
-
 CI 已按用户要求暂停，远端 workflow 为手动禁用；后续仅执行本地验证，未经明确要求不恢复运行。
 
-用户最新要求以 MSIME-Windows 完整功能为基线迁移 Linux，并适配 Linux 平台特性；当前优先推进 Linux，保留已合并的平台成果。上游实际默认分支 develop 固定提交为 `0eaa35eed1dd699b28883068f2909afe3a5902da`。下方各条记录是历史成果，不代表后续排期；完整迁移包含共享功能、Linux 系统入口及原生产品验收，不能以容器测试代替桌面验收。
+后续实施优先级由用户最新明确为 **macOS → iOS**；Windows、Android/Linux 暂停新增实施，已合并的功能保留。macOS 先完成 Apple 端功能，再推进 iOS；Windows 继续保留 TSF DLL / Server 的既有进程和协议边界，不以本机验证便利性替代产品优先级。下方各条记录是历史成果，不代表后续排期。
 
 - 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
@@ -576,7 +564,7 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 ### Windows 功能复刻：全拼纠错设置
 
-在 MSIME-Client 共享设置新增 autocorrect，默认开启，对应 Windows 配置的全拼纠错。旧 JSON 缺省字段仍按开启读取且读取不改写原文件。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 传至 Engine SessionOptions.autocorrect；活动组合结束前不应用变更。React 提供可保存的开关。
+在 MSIME-Client 共享设置接入全拼纠错分类开关 `quanpin.autocorrect_transposition` 与 `quanpin.autocorrect_neighbor`，并保留旧 `autocorrect` 快照兼容。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 组合为 Engine 的纠错位掩码；活动组合结束前不应用变更。Linux IBus 与 React 设置页分别提供两个可保存的开关。
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
 
@@ -640,8 +628,102 @@ InputState 在启动或设置发布时更新 word_character，与 navigation 同
 
 37 项 Rust 测试、16 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉链接和导入检查通过。新增 mixed_dictionary 在隔离目录使用固定词库与合成输入，验证全拼/双拼三类独立候选、英文长度阈值、英文→emoji→颜文字优先顺序和选词提交；五笔/日文候选保持不变。调频回归显式关闭英文混排以隔离排名断言，六组调频验证继续通过。未执行 Windows 原生 TSF、安装、逐像素或云候选/AI 组合验收，完整迁移继续，CI 保持禁用。
 
+### Windows UI 复刻：快捷键页
+
+依据 Windows `develop` 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 `shortcut.html`，设置页新增“快捷键”分类，展示候选选择、已启用的翻页/候选移动、输入编辑、提交/取消以及全局维护快捷键。候选快捷键直接读取共享 `navigation` 快照，因此与输入页的开关保持一致，不在 UI 侧复制按键分发状态机；键盘图标和卡片样式沿用设置页现有主题。
+
+本地验证覆盖快捷键分类、默认翻页键、候选移动键和维护快捷键展示；快捷键实际吃键、简繁/中英切换和全局维护命令仍由 Windows TSF/Server 后续切片接入，未据此声称 Windows 原生功能完成。
+
 ### Windows 实用功能本地模式开关
 
-在独立 worktree 按同一 Windows 固定提交的 tools-settings.html/config.toml 新增实用功能分类和 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启，来源图标许可记于 UI UPSTREAM。设置经共享配置与 CXX 传至 Engine LocalModeOptions；活动组合中不立即切换，结束后重建生效。旧配置缺省读取不重写，各开关独立保存，算法和入口判断继续由 Engine 负责。
+依据 Windows `develop` 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 `tools-settings.html` 和 Engine `LocalModeOptions`，设置页新增实用功能分类及 K/T/U/E/M/J/Y/R 八个模式开关，默认全部开启。配置经 PreferencesStore、host-api 和 CXX bridge 传入 Engine；活动组合中的开关变化延迟到组合结束后重建，旧配置缺省读取不改写原文件，各开关独立保存。
 
-39 项 Rust 测试、17 项前端测试、fmt/clippy、TypeScript/Vite、10 项本机 Windows 边界 CTest、x64 交叉构建及导入检查通过。真实固定词库回归覆盖八种模式开启进入、关闭不进入、相邻模式仍可进入；宿主测试覆盖组合期间延迟关闭。仅完成模式配置与入口控制，不代表快捷短语增删改查/导入导出、剪贴板管理或整页视觉复刻完成；未执行 Windows 原生 TSF/安装/逐像素验收，CI 保持禁用。
+本地验证覆盖共享配置旧文件回读、八个开关持久化、组合期间关闭 Unicode 模式的延迟应用及相邻模式不受影响，并新增真实资源回归示例。快捷短语增删改查/导入导出、剪贴板管理和 Windows 原生 TSF/逐像素验收仍待后续切片。
+
+### Linux IBus 配置热重载（增量）
+
+Linux IBus 预览宿主现在监听启动配置 JSON 的普通写入和原子替换事件。配置解析失败时保留当前生效配置并记录不含输入内容的通用警告；新焦点会话使用成功重载的配置，正在组合的会话不被中断。Rust 工作区测试和格式检查通过；Linux 原生 IBus 构建仍需 Debian 容器或安装 `ibus-1.0` 开发包的环境验证。
+
+使用固定 Debian bookworm arm64 容器、IBus 1.5.27 和已校验 Release 词库完成真实验收：Rust workspace 测试、CMake/Ninja 构建、独立 Engine D-Bus smoke、IBus daemon/factory 启动以及 Python InputContext 合成输入全部通过。合成 fixture 通过显式环境标记隔离属性信号；生产宿主仍注册并更新 IBus 属性。GTK/Qt 真编辑器、X11/Wayland 选区定位、安装打包和其他发行版仍待验证。
+
+### macOS 全角输入路由
+
+按固定 Apple `FullWidthInput.h` 迁移 macOS 控制器的全角输入行为。Option + Shift + H 切换并保存 `MSIMEClientFullWidthInput`，重复按键只消费；普通 ASCII 先由 Engine 处理，未处理且组合为空时才将空格或可打印 ASCII 转为全角字符。Command、Control、Option、非 ASCII、Engine 已处理和组合完成失败均排除在回退之外，平台不复制输入算法。
+
+macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖切换持久化、重复事件、Engine 优先、组合完成和修饰键边界。未执行系统输入源安装、真实编辑器或逐像素验收。
+
+### macOS 候选分页按钮与横排测量
+
+候选面板补齐 Apple 风格的 `‹` / `›` 鼠标翻页按钮：多页时显示，首页和末页禁用越界方向，按钮命令复用共享运行时分页状态。横排候选改为按字体实际测量各项宽度，并在屏幕可用宽度不足时按比例压缩，避免按字符数估算造成重叠；竖排保留屏宽约束和候选截断。
+
+macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖上一页/下一页边界按钮、横排项不重叠、完整 tooltip 和失效光标隐藏。Home/End 页内导航、可配置翻页快捷键、候选皮肤和字号设置仍待迁移；未执行系统输入源安装后的真实编辑器验收。
+
+### macOS 中英输入模式
+
+按固定 Apple `InputModeRouting.h` / `InputMenu.h` 接入 Shift + Space 中英切换。快捷键默认开启，重复事件只消费，Command、Control、Option 竞争修饰键不触发；当前模式保存于 `MSIMEClientEnglishMode`，英文模式旁路普通按键，切回中文时恢复共享会话焦点。菜单以中文/英文单选项反映当前状态，`MSIMEClientInputModeShortcut` 可关闭快捷键。
+
+macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，ShortcutTest 覆盖无会话切换、英文旁路、菜单状态和切回后的 Engine 通路。仍未执行系统输入源安装后的真实编辑器验收；完整设置窗口及其他 Apple 功能继续迁移。
+
+### macOS 候选显示偏好
+
+共享 Preferences 新增候选字号（16/18/20）和横/竖布局，旧配置缺失时分别使用 18 点和竖排默认值；设置页与 macOS 候选面板消费同一份快照，每页数量继续由共享运行时控制。仅展示字段变化不会重建 Engine；需要重建的输入配置仍在组合期间延迟，读取失败保留旧显示和输入配置。
+
+client-core、host-api、设置页测试以及 macOS 原生 CMake/CTest、全 workspace fmt/clippy 均通过。未执行系统输入源安装后的真实编辑器或逐像素验收，候选皮肤、完整设置窗口和其他 Apple 功能仍待迁移。
+
+### macOS 内置候选皮肤
+
+新增 Fluent、微信绿、Graphite、柳绿四种内置候选皮肤。共享偏好只保存受限皮肤 ID，旧配置默认为 Fluent；macOS 原生候选面板将皮肤 token 应用于面板背景、边框、候选文字、数字、选中背景和选中条，设置页保存后由后台快照驱动刷新。皮肤策略和颜色选择不进入 Engine，也不改变组合状态。
+
+CandidateSkin 纯 C++ 测试、macOS ShortcutTest/原生构建、Rust workspace 测试与 clippy、设置页测试和构建通过。外部皮肤包、皮肤预览卡片及正式输入源安装后的视觉验收仍待后续切片。
+
+### Windows 剪贴板历史基础能力
+
+依据 Windows `PRIVACY.md`、`tools-settings.html` 和 `clipboard_history` 配置语义，新增共享有界剪贴板历史存储：最多 50 条、单条最多 4096 字节、去重置顶、临时文件发布及关闭后清空；控制字符和超长文本不会落盘。PreferencesStore 新增默认关闭的 `clipboard_history`，Host 不把它误当作 Engine 配置，避免只切换剪贴板设置就重建输入会话。
+
+桌面 Tauri 宿主加载同一状态目录的历史，提供读取、清空、从系统剪贴板同步和重新复制命令；macOS 使用 `pbpaste`/`pbcopy`，Windows 使用 PowerShell，Linux 使用 `xclip`。设置页在“实用功能”中展示开关和历史列表，关闭开关立即清空，系统同步按钮仅在已启用时可用。20 项 client-core、20 项 host-api、desktop Rust 测试、fmt/clippy、20 项前端测试、TypeScript/Vite 构建通过。
+
+本增量尚未实现 Windows Server 的持续剪贴板监听、表情面板分页及跨进程事件同步，也没有把快捷短语 CRUD/导入/导出伪装成已完成；Windows 原生运行和安装后的系统验收仍待后续切片，CI 保持禁用。
+
+### Windows 屏幕键盘与手写板平台契约
+
+依据 Windows 固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da` 的 `KeyboardPanel` 与 `HandwritingPanel`，共享层新增可注入的平台能力边界：屏幕键盘在面板抢焦点前捕获原前台目标，并传递虚拟键、Shift、Ctrl/Alt/Win 修饰键及提交键是否继承粘滞修饰键；手写板传递有界笔迹坐标，由宿主调用原生识别器并提交候选。核心不依赖 Tauri、React、Windows API 或 Engine。
+
+React 面板补齐与上游一致的完整键盘布局、Shift/Caps 显示、笔迹坐标归一化、撤销/重写及候选提交调用。未提供平台注入能力时只显示明确的宿主能力提示，不伪造输入或识别结果。host-api 对请求、坐标、笔迹数量、候选数量和候选文本做边界校验，并暴露捕获目标、发送按键、识别和提交的注入 trait。
+
+本地验证：client-core 27 项、host-api 25 项测试通过，Rust fmt/clippy、桌面 UI 26 项测试、TypeScript 类型检查和 Vite production build 通过。尚未实现或验证 Windows 原生 `SendInput`、Windows Ink、TSF 候选提交、焦点不抢占、安装器及逐像素系统验收；不能据此声称 Windows 面板系统接入完成，CI 保持禁用。
+
+### Windows 原生键盘与手写面板
+
+新增独立 Win32 `msime-client-keyboard-panel.exe` 和 `msime-client-handwriting-panel.exe`。键盘面板提供完整五行布局、修饰键状态、非激活置顶窗口、前台目标记录、单实例互斥和有界 `SendInput`；手写面板提供多笔迹画布、撤销、重写、最多 12 个候选及 Unicode 剪贴板复制。具备 Windows SDK、C++/WinRT 与 MSVC 时，手写面板松笔后选择中文 Windows Ink 识别器并优先展示中文候选；MinGW 交叉构建显示明确的识别运行库不可用提示，不伪造结果。Tauri Windows 命令、运行时 staging、CMake、smoke help 和 x86/x64 交叉检查均已接入。
+
+本地验证：Rust workspace 测试、fmt、clippy，桌面 UI 测试、TypeScript/Vite 构建，Windows x64/i686 交叉检查，以及键盘/手写面板的全新 MinGW GUI 构建通过；PE 子系统为 Windows GUI，导入检查包含 USER32/GDI32。未执行 Windows 原生桌面、真实 Windows Ink、焦点/DPI/多显示器、TSF 候选提交、安装器或签名验收，不能据此声称 Windows 系统接入完成，CI 保持禁用。
+
+### Windows 表情与符号面板共享 UI
+
+依据参考仓库 `server/src/emoji-panel` 的七个入口，新增可注入的 `EmojiPanelClient` 契约和共享 React 面板。面板提供最近使用、Emoji、贴纸占位、GIF 占位、颜文字、符号和剪贴板入口，支持搜索、分组网格、复制反馈、剪贴板读取/同步以及宿主能力缺失时的明确降级。Tauri 增加独立 `emoji-panel` 窗口和关闭路由；复制及剪贴板访问继续由桌面宿主注入，未把输入算法或平台 API 放进共享 UI。
+
+本地验证：桌面 UI 28 项测试、TypeScript 类型检查、Vite production build、Rust fmt 和 `cargo check --locked -p msime-desktop` 通过。当前共享层使用精简内置目录作为浏览器/未打包资源的回退；Windows 原生 `others.db` 全量目录读取、持续剪贴板监听、跨进程同步、TSF 提交、贴纸/GIF 数据源和系统级验收仍待后续切片，不能据此声称 Emoji 面板完整 Windows 接入完成，CI 保持禁用。
+
+### Windows 原生 Emoji、颜文字与符号面板
+
+新增独立 Win32 `msime-client-emoji-panel.exe`，按参考仓库 `server/src/emoji-panel` 的数据边界从受信资源目录读取 `others.db` 的 `emoji`、`kaomoji_catalog` 和 `symbol_catalog`，提供首页预览、分类切换、搜索、滚动、复制反馈、最近使用、贴纸/GIF 占位和单实例互斥。窗口使用非激活置顶工具窗口，避免面板打开时改变编辑器焦点；Tauri Windows 启动命令只传递已准备 HostOptions 中的绝对 resources 路径，并支持 `MSIME_CLIENT_EMOJI_PANEL` 测试覆盖路径。CMake、运行时 staging、smoke help 和 x86/i686 严格编译检查均已接入，SQLite 依赖沿用 Windows 固定 vcpkg 清单。
+
+本地验证：x64/i686 MinGW `-Wall -Wextra -Werror` 编译通过，x64 CMake 完整链接通过，PE 为 Windows GUI x86-64，导入图包含 USER32/GDI32/SHELL32，`check-cross.sh` 和 `stage-runtime.sh x64` 通过。没有 Wine/Windows 主机，因此尚未执行真实窗口交互、资源目录加载、DPI/多显示器、持续剪贴板监听、跨进程同步、TSF 提交、贴纸/GIF 数据源或安装签名验收；不能据此声称 Windows Emoji 功能完整接入，CI 保持禁用。
+
+### macOS 语音输入服务
+
+迁移 Apple VoiceSettings 与 VoiceInputService：设置窗口支持云端/本地提供方、模型、端点、Keychain token 与文本润色；VoiceInputService 可选接入 Engine VoiceCapture、Cloud STT、Whisper 和文本润色。macOS 宿主支持 Control + Option + V，重复按键抑制，Esc/鼠标/窗口和选区变化取消，识别结果按繁体输出偏好提交，并声明麦克风用途。`MSIME_MACOS_VOICE_SERVICE=ON` 构建及 CTest 9/9 通过。真实权限、网络识别和安装后编辑器验收仍待执行。
+
+### macOS 悬浮输入工具栏
+
+新增原生非激活、可拖动并记忆位置的 macOS 悬浮工具栏，提供中英模式、中文/西文标点、全/半角、简/繁输出切换，以及设置、表情与符号、更新、官网和隐藏入口。工具栏显示由共享 `presentation.floating_toolbar.enabled` 控制，按钮状态由 `MSIMEClientSession` 的运行时接口同步；皮肤跟随 `MSIMEAppearanceDidChangeNotification` 更新。平台只维护宿主编排与展示状态，输入算法仍由 Engine 负责。
+
+macOS 原生完整构建及 CTest 24/24 通过，新增测试覆盖默认/恢复几何、非激活窗口、按钮状态、委托动作、工具菜单和代理生命周期；此前发现的 AppKit 外观通知初始化重入已由初始化保护修复。未执行系统输入源安装、真实编辑器、逐像素、多显示器拖动和无障碍实机验收；缩放、组件细分、屏幕键盘等 Windows 工具栏细节尚未接入 macOS，CI 保持禁用。
+
+### Linux IBus 固定候选位置菜单状态
+
+Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据：已固定到 1–5 的候选对应菜单项显示选中状态，“取消固定”只在候选确实有位置时可用。固定、取消固定、置顶和删除仍携带当前候选的会话、代次与全局索引，并拒绝不可持久化的动态或日文候选；不修改 Engine 的排序和组合状态。
+
+### Linux 整句候选学习
+
+同步固定 Engine 的整句 fallback 修复：全拼和双拼的 Google/词库整句候选现在携带完整规范拼音。Linux IBus 通过共享 Engine 完成造词时，选中带规范读音的 `Generated` 或 `Fallback` 整句作为最后一段也能写入用户词库，保留原有候选顺序、代次校验和平台输入边界；候选没有规范读音时仍按 Engine 原有规则只上屏而不落库。

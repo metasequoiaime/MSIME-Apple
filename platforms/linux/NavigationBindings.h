@@ -5,6 +5,20 @@
 #include <optional>
 
 namespace msime::linux_host {
+// Windows' touch keyboard sends these private-use keyvals for candidate page
+// navigation. Keep the values at the host boundary; ordinary IBus navigation
+// bindings remain configurable below.
+inline constexpr guint kTouchKeyboardNextPage = 0xf003;
+inline constexpr guint kTouchKeyboardPreviousPage = 0xf004;
+
+inline std::optional<uint32_t> touch_keyboard_command(guint key) {
+  if (key == kTouchKeyboardNextPage)
+    return MSIME_NEXT_PAGE;
+  if (key == kTouchKeyboardPreviousPage)
+    return MSIME_PREVIOUS_PAGE;
+  return std::nullopt;
+}
+
 // Host key bindings only. Candidate movement and paging belong to the shared
 // runtime. IBus key values describe the active keyboard layout, not Windows
 // VKs.
@@ -75,6 +89,8 @@ inline bool navigation_key(guint key) {
   case IBUS_KP_Up:
   case IBUS_Down:
   case IBUS_KP_Down:
+  case kTouchKeyboardNextPage:
+  case kTouchKeyboardPreviousPage:
     return true;
   default:
     return false;

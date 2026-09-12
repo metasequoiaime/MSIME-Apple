@@ -1,0 +1,223 @@
+//! Host-independent contracts for the optional keyboard and handwriting panels.
+//!
+//! The panel UI owns presentation state. A platform host injects the operations
+//! that can observe the previous foreground window, inject key events, perform
+//! handwriting recognition, and submit a selected candidate.
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+const MAX_LANGUAGE_BYTES: usize = 32;
+const MAX_STROKES: usize = 64;
+const MAX_POINTS_PER_STROKE: usize = 4096;
+const MAX_CANDIDATES: usize = 12;
+const MAX_CANDIDATE_BYTES: usize = 256;
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum PanelContractError {
+    #[error("virtual key is invalid")]
+    InvalidVirtualKey,
+    #[error("keyboard input contains an unsupported modifier")]
+    InvalidKeyboardInput,
+    #[error("handwriting language is invalid")]
+    InvalidLanguage,
+    #[error("handwriting stroke data is invalid")]
+    InvalidStroke,
+    #[error("too many handwriting strokes")]
+    TooManyStrokes,
+    #[error("handwriting stroke is too long")]
+    StrokeTooLong,
+    #[error("candidate list is too long")]
+    TooManyCandidates,
+    #[error("handwriting candidate is invalid")]
+    InvalidCandidate,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct KeyboardModifiers {
+    pub ctrl: bool,
+    pub alt: bool,
+    pub win: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct KeyboardInputRequest {
+    /// Windows virtual-key value. Other hosts may map this value to their own
+    /// native key event while keeping the panel contract stable.
+    pub virtual_key: u16,
+    pub shift: bool,
+    pub modifiers: KeyboardModifiers,
+    /// Commit/navigation keys must not inherit sticky Ctrl/Alt/Win state.
+    pub include_sticky_modifiers: bool,
+}
+
+impl KeyboardInputRequest {
+    pub fn validate(&self) -> Result<(), PanelContractError> {
+        if self.virtual_key == 0 || self.virtual_key > 0xff {
+            return Err(PanelContractError::InvalidVirtualKey);
+        }
+        Ok(())
+    }
+}
+
+pub trait KeyboardInputSink {
+    type Error;
+
+    /// Record the foreground input window before the panel receives focus.
+    fn remember_input_target(&mut self) -> Result<(), Self::Error>;
+
+    /// Inject one complete key stroke into the remembered target.
+    fn send_key(&mut self, request: &KeyboardInputRequest) -> Result<(), Self::Error>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InkPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl InkPoint {
+    fn validate(&self) -> Result<(), PanelContractError> {
+        if self.x.is_finite()
+            && self.y.is_finite()
+            && self.x.abs() <= 4096.0
+            && self.y.abs() <= 4096.0
+        {
+            Ok(())
+        } else {
+            Err(PanelContractError::InvalidStroke)
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InkStroke {
+    pub points: Vec<InkPoint>,
+}
+
+impl InkStroke {
+    fn validate(&self) -> Result<(), PanelContractError> {
+        if self.points.is_empty() {
+            return Err(PanelContractError::InvalidStroke);
+        }
+        if self.points.len() > MAX_POINTS_PER_STROKE {
+            return Err(PanelContractError::StrokeTooLong);
+        }
+        self.points.iter().try_for_each(InkPoint::validate)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HandwritingRecognitionRequest {
+    #[serde(default = "default_language")]
+    pub language: String,
+    pub strokes: Vec<InkStroke>,
+}
+
+fn default_language() -> String {
+    "zh-CN".to_owned()
+}
+
+impl HandwritingRecognitionRequest {
+    pub fn validate(&self) -> Result<(), PanelContractError> {
+        if self.language.is_empty() || self.language.len() > MAX_LANGUAGE_BYTES {
+            return Err(PanelContractError::InvalidLanguage);
+        }
+        if self.strokes.is_empty() {
+            return Err(PanelContractError::InvalidStroke);
+        }
+        if self.strokes.len() > MAX_STROKES {
+            return Err(PanelContractError::TooManyStrokes);
+        }
+        self.strokes.iter().try_for_each(InkStroke::validate)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HandwritingRecognitionResult {
+    pub candidates: Vec<String>,
+}
+
+impl HandwritingRecognitionResult {
+    pub fn validate(&self) -> Result<(), PanelContractError> {
+        if self.candidates.len() > MAX_CANDIDATES {
+            return Err(PanelContractError::TooManyCandidates);
+        }
+        for candidate in &self.candidates {
+            validate_candidate(candidate)?;
+        }
+        Ok(())
+    }
+}
+
+pub trait HandwritingPlatform {
+    type Error;
+
+    fn recognize(
+        &mut self,
+        request: &HandwritingRecognitionRequest,
+    ) -> Result<HandwritingRecognitionResult, Self::Error>;
+
+    fn submit_candidate(&mut self, candidate: &str) -> Result<(), Self::Error>;
+}
+
+pub fn validate_candidate(candidate: &str) -> Result<(), PanelContractError> {
+    if candidate.is_empty()
+        || candidate.len() > MAX_CANDIDATE_BYTES
+        || candidate.chars().any(char::is_control)
+    {
+        Err(PanelContractError::InvalidCandidate)
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stroke() -> InkStroke {
+        InkStroke {
+            points: vec![InkPoint { x: 1.0, y: 2.0 }, InkPoint { x: 3.0, y: 4.0 }],
+        }
+    }
+
+    #[test]
+    fn keyboard_request_rejects_invalid_keys_and_sticky_modifier_mismatch() {
+        let mut request = KeyboardInputRequest {
+            virtual_key: 0,
+            shift: false,
+            modifiers: KeyboardModifiers::default(),
+            include_sticky_modifiers: true,
+        };
+        assert_eq!(
+            request.validate(),
+            Err(PanelContractError::InvalidVirtualKey)
+        );
+        request.virtual_key = 0x20;
+        request.modifiers.ctrl = true;
+        request.include_sticky_modifiers = false;
+        assert!(request.validate().is_ok());
+    }
+
+    #[test]
+    fn handwriting_request_and_result_are_bounded() {
+        let request = HandwritingRecognitionRequest {
+            language: "zh-CN".into(),
+            strokes: vec![stroke()],
+        };
+        assert!(request.validate().is_ok());
+        let result = HandwritingRecognitionResult {
+            candidates: vec!["水".into(), "永".into()],
+        };
+        assert!(result.validate().is_ok());
+
+        let mut invalid = request;
+        invalid.strokes[0].points[0].x = f32::NAN;
+        assert_eq!(invalid.validate(), Err(PanelContractError::InvalidStroke));
+        assert_eq!(
+            validate_candidate("line\nfeed"),
+            Err(PanelContractError::InvalidCandidate)
+        );
+    }
+}

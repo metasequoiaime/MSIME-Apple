@@ -2,7 +2,7 @@
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,12 +17,91 @@ pub enum InputScheme {
     Japanese,
 }
 
+/// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyboardLayout {
+    #[default]
+    TwentySixKey,
+    NineKey,
+    Handwriting,
+}
+
+/// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyboardScheme {
+    Quanpin,
+    NineKey,
+    Xiaohe,
+    Ziranma,
+    Microsoft,
+    Shoudao,
+    Wubi,
+    JapaneseNineKey,
+    Japanese,
+    Handwriting,
+    ThoughtfulReply,
+}
+
+impl TouchKeyboardScheme {
+    pub const ALL: [Self; 11] = [
+        Self::Quanpin,
+        Self::NineKey,
+        Self::Xiaohe,
+        Self::Ziranma,
+        Self::Microsoft,
+        Self::Shoudao,
+        Self::Wubi,
+        Self::JapaneseNineKey,
+        Self::Japanese,
+        Self::Handwriting,
+        Self::ThoughtfulReply,
+    ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchKeyboardSchemePreferences {
+    #[serde(default = "default_touch_keyboard_schemes")]
+    pub enabled: BTreeSet<TouchKeyboardScheme>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<TouchKeyboardScheme>,
+}
+
+fn default_touch_keyboard_schemes() -> BTreeSet<TouchKeyboardScheme> {
+    TouchKeyboardScheme::ALL.into_iter().collect()
+}
+
+impl Default for TouchKeyboardSchemePreferences {
+    fn default() -> Self {
+        Self {
+            enabled: default_touch_keyboard_schemes(),
+            selected: None,
+        }
+    }
+}
+
+impl TouchKeyboardSchemePreferences {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
     #[default]
     Chinese,
     English,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ImeModeScope {
+    #[default]
+    App,
+    Global,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +140,8 @@ pub struct Preferences {
     #[serde(default)]
     pub default_ime_mode: DefaultImeMode,
     #[serde(default)]
+    pub ime_mode_scope: ImeModeScope,
+    #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
     pub ai_assistant: AiAssistantPreferences,
@@ -74,6 +155,16 @@ pub struct Preferences {
     pub settings_theme: SettingsTheme,
     #[serde(default)]
     pub candidate_theme: SettingsTheme,
+    #[serde(default)]
+    pub toolbar_theme: SettingsTheme,
+    #[serde(default)]
+    pub screen_keyboard_theme: SettingsTheme,
+    #[serde(default)]
+    pub handwriting_theme: SettingsTheme,
+    #[serde(default)]
+    pub voice_theme: SettingsTheme,
+    #[serde(default)]
+    pub emoji_theme: SettingsTheme,
     #[serde(default = "default_candidate_skin")]
     pub candidate_skin: String,
     #[serde(default)]
@@ -83,15 +174,36 @@ pub struct Preferences {
     #[serde(default)]
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
+    pub diagnostic_log: DiagnosticLogPreferences,
+    #[serde(default)]
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
     pub scheme: InputScheme,
+    #[serde(default)]
+    pub touch_keyboard_layout: TouchKeyboardLayout,
+    /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
+    #[serde(
+        default,
+        skip_serializing_if = "TouchKeyboardSchemePreferences::is_default"
+    )]
+    pub touch_keyboard_schemes: TouchKeyboardSchemePreferences,
+    /// Horizontal key gap in tenths of a density-independent pixel.
+    #[serde(default = "default_touch_key_spacing_tenths")]
+    pub touch_key_spacing_tenths: u8,
+    /// Vertical row gap in tenths of a density-independent pixel.
+    #[serde(default = "default_touch_row_spacing_tenths")]
+    pub touch_row_spacing_tenths: u8,
+    /// Show a direct voice-result entry in touch-keyboard toolbars.
+    #[serde(default)]
+    pub touch_voice_shortcut: bool,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
+    #[serde(default = "enabled_by_default")]
+    pub shuangpin_preedit_uses_raw: bool,
     pub candidate_page_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
@@ -105,11 +217,20 @@ pub struct Preferences {
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
     #[serde(default = "enabled_by_default")]
+    /// Legacy all-types switch retained for older snapshots. New callers should
+    /// use `quanpin.autocorrect_transposition` and `quanpin.autocorrect_neighbor`.
     pub autocorrect: bool,
+    #[serde(default, skip_serializing_if = "QuanpinPreferences::is_empty")]
+    pub quanpin: QuanpinPreferences,
+    #[serde(default)]
+    pub fuzzy_pinyin: FuzzyPinyinPreferences,
     #[serde(default)]
     pub quanpin_helpcode: HelpcodePreferences,
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
+    /// Render and commit Chinese Engine output in Traditional Chinese at the host boundary.
+    #[serde(default)]
+    pub traditional_chinese_output: bool,
     pub chinese_punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub smart_punctuation: bool,
@@ -121,6 +242,8 @@ pub struct Preferences {
     pub punctuation_lock: PunctuationLock,
     #[serde(default)]
     pub navigation: NavigationPreferences,
+    #[serde(default)]
+    pub keybindings: KeybindingPreferences,
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
     #[serde(default)]
@@ -167,7 +290,11 @@ pub struct VoiceInputPreferences {
     #[serde(default)]
     pub asr_model: String,
     #[serde(default)]
+    pub asr_resource_id: String,
+    #[serde(default)]
     pub polish_enabled: bool,
+    #[serde(default)]
+    pub polish_text: bool,
     #[serde(default)]
     pub polish_provider: String,
     #[serde(default)]
@@ -180,6 +307,15 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_id: String,
     #[serde(default)]
     pub polish_prompt: String,
+    /// Show streaming ASR updates in the host preedit while recording.
+    #[serde(default = "enabled_by_default")]
+    pub stream_inline_preedit: bool,
+    #[serde(default)]
+    pub polish_prompt_custom_1: String,
+    #[serde(default)]
+    pub polish_prompt_custom_2: String,
+    #[serde(default)]
+    pub polish_prompt_custom_3: String,
     #[serde(default = "enabled_by_default")]
     pub hotkey_ralt: bool,
     #[serde(default)]
@@ -215,13 +351,19 @@ impl Default for VoiceInputPreferences {
             asr_token: String::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
+            asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
+            polish_text: false,
             polish_provider: "siliconflow".into(),
             polish_token: String::new(),
             polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
+            stream_inline_preedit: true,
+            polish_prompt_custom_1: String::new(),
+            polish_prompt_custom_2: String::new(),
+            polish_prompt_custom_3: String::new(),
             hotkey_ralt: true,
             hotkey_ctrl_win: false,
             hotkey_rctrl_ralt: false,
@@ -296,10 +438,25 @@ impl Default for AiAssistantPreferences {
     }
 }
 
+/// Diagnostic logging, off unless a user turns it on while reproducing a
+/// problem. The two hosts log separately because they are separate processes.
+/// Neither records keystrokes, input text or candidates.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DiagnosticLogPreferences {
+    /// Server-side timing and window state: slow request stages, candidate
+    /// window, floating toolbar, menus, focus sessions and transport status.
+    pub server: bool,
+    /// In-process TSF preedit and input latency, buffered and batched out.
+    pub tsf: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FloatingToolbarPreferences {
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub english_mode: bool,
     #[serde(default = "default_toolbar_scale")]
     pub scale_percent: u16,
     #[serde(default = "default_toolbar_font_size")]
@@ -329,6 +486,7 @@ impl Default for FloatingToolbarPreferences {
     fn default() -> Self {
         Self {
             enabled: true,
+            english_mode: true,
             scale_percent: 100,
             font_size: 24,
             fullwidth: true,
@@ -520,11 +678,43 @@ impl Default for NavigationPreferences {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeybindingPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub switch_language_shift: bool,
+    #[serde(default)]
+    pub switch_language_ctrl: bool,
+    #[serde(default = "enabled_by_default")]
+    pub switch_language_ctrl_alt_space: bool,
+    #[serde(default = "enabled_by_default")]
+    pub toggle_character_set_ctrl_shift_f: bool,
+}
+
+impl Default for KeybindingPreferences {
+    fn default() -> Self {
+        Self {
+            switch_language_shift: true,
+            switch_language_ctrl: false,
+            switch_language_ctrl_alt_space: true,
+            toggle_character_set_ctrl_shift_f: true,
+        }
+    }
+}
+
 fn enabled_by_default() -> bool {
     true
 }
 fn default_candidate_font_size() -> u8 {
     16
+}
+
+fn default_touch_key_spacing_tenths() -> u8 {
+    60
+}
+
+fn default_touch_row_spacing_tenths() -> u8 {
+    70
 }
 
 fn default_candidate_skin() -> String {
@@ -538,6 +728,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             default_ime_mode: DefaultImeMode::default(),
+            ime_mode_scope: ImeModeScope::default(),
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
@@ -545,15 +736,27 @@ impl Default for Preferences {
             theme: ThemeMode::default(),
             settings_theme: SettingsTheme::default(),
             candidate_theme: SettingsTheme::default(),
+            toolbar_theme: SettingsTheme::default(),
+            screen_keyboard_theme: SettingsTheme::default(),
+            handwriting_theme: SettingsTheme::default(),
+            voice_theme: SettingsTheme::default(),
+            emoji_theme: SettingsTheme::default(),
             candidate_skin: default_candidate_skin(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),
+            diagnostic_log: DiagnosticLogPreferences::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
+            touch_keyboard_layout: TouchKeyboardLayout::default(),
+            touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+            touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
+            touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
+            touch_voice_shortcut: false,
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
+            shuangpin_preedit_uses_raw: true,
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_font_size(),
@@ -562,14 +765,18 @@ impl Default for Preferences {
             candidate_fallback_fonts: Vec::new(),
             learning: true,
             autocorrect: true,
+            quanpin: QuanpinPreferences::default(),
+            fuzzy_pinyin: FuzzyPinyinPreferences::default(),
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
+            traditional_chinese_output: false,
             chinese_punctuation: true,
             smart_punctuation: true,
             smart_punctuation_repeat: true,
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
+            keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
@@ -579,6 +786,86 @@ impl Default for Preferences {
             candidate_translations: true,
             translation_target_language: TranslationTargetLanguage::default(),
         }
+    }
+}
+
+/// Stable fuzzy-pinyin rule identifiers and bit assignments shared with the Engine and Apple host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum FuzzyPinyinRule {
+    #[serde(rename = "z-zh")]
+    ZZh,
+    #[serde(rename = "c-ch")]
+    CCh,
+    #[serde(rename = "s-sh")]
+    SSh,
+    #[serde(rename = "n-l")]
+    NL,
+    #[serde(rename = "f-h")]
+    FH,
+    #[serde(rename = "r-l")]
+    RL,
+    #[serde(rename = "an-ang")]
+    AnAng,
+    #[serde(rename = "en-eng")]
+    EnEng,
+    #[serde(rename = "in-ing")]
+    InIng,
+    #[serde(rename = "ian-iang")]
+    IanIang,
+    #[serde(rename = "uan-uang")]
+    UanUang,
+}
+
+impl FuzzyPinyinRule {
+    fn mask(self) -> u32 {
+        match self {
+            Self::ZZh => 1 << 0,
+            Self::CCh => 1 << 1,
+            Self::SSh => 1 << 2,
+            Self::NL => 1 << 3,
+            Self::FH => 1 << 4,
+            Self::RL => 1 << 5,
+            Self::AnAng => 1 << 6,
+            Self::EnEng => 1 << 7,
+            Self::InIng => 1 << 8,
+            Self::IanIang => 1 << 9,
+            Self::UanUang => 1 << 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FuzzyPinyinPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: BTreeSet<FuzzyPinyinRule>,
+}
+
+impl FuzzyPinyinPreferences {
+    /// Disabled fuzzy pinyin preserves the selected rules while presenting exact matching to Engine.
+    pub fn active_rules(&self) -> u32 {
+        if !self.enabled {
+            return 0;
+        }
+        self.rules.iter().fold(0, |mask, rule| mask | rule.mask())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct QuanpinPreferences {
+    /// Optional keeps legacy snapshots distinguishable from an explicit value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autocorrect_transposition: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autocorrect_neighbor: Option<bool>,
+}
+
+impl QuanpinPreferences {
+    fn is_empty(&self) -> bool {
+        self.autocorrect_transposition.is_none() && self.autocorrect_neighbor.is_none()
     }
 }
 
@@ -619,8 +906,11 @@ impl HelpcodeSchema {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HelpcodePreferences {
+    #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,
+    #[serde(default = "enabled_by_default")]
+    pub show_in_candidate_window: bool,
 }
 
 impl Default for HelpcodePreferences {
@@ -628,11 +918,24 @@ impl Default for HelpcodePreferences {
         Self {
             enabled: true,
             schema: HelpcodeSchema::default(),
+            show_in_candidate_window: true,
         }
     }
 }
 
 impl Preferences {
+    pub fn quanpin_autocorrect_transposition(&self) -> bool {
+        self.quanpin
+            .autocorrect_transposition
+            .unwrap_or(self.autocorrect)
+    }
+
+    pub fn quanpin_autocorrect_neighbor(&self) -> bool {
+        self.quanpin
+            .autocorrect_neighbor
+            .unwrap_or(self.autocorrect)
+    }
+
     pub fn active_helpcode(&self) -> HelpcodePreferences {
         match self.scheme {
             InputScheme::Shuangpin => self.shuangpin_helpcode,
@@ -678,6 +981,19 @@ impl Preferences {
         if !(1..=9).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !(30..=60).contains(&self.touch_key_spacing_tenths)
+            || !(40..=100).contains(&self.touch_row_spacing_tenths)
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSpacing);
+        }
+        if self.touch_keyboard_schemes.enabled.is_empty()
+            || self
+                .touch_keyboard_schemes
+                .selected
+                .is_some_and(|selected| !self.touch_keyboard_schemes.enabled.contains(&selected))
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSchemes);
+        }
         if !(12..=32).contains(&self.candidate_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
@@ -692,10 +1008,9 @@ impl Preferences {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
-        if self.candidate_font_family.is_empty()
-            || self.candidate_font_family.len() > 128
-            || !self.candidate_font_family.is_ascii()
-        {
+        // Font family names are Unicode display names, not paths or identifiers.
+        // Keep the existing UTF-8 byte budget while allowing localized families.
+        if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()
@@ -712,11 +1027,12 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
-        if self.candidate_fallback_fonts.len() > 8
+        // Match the 32 ordered supplementary families in Windows appearance.ts.
+        if self.candidate_fallback_fonts.len() > 32
             || self
                 .candidate_fallback_fonts
                 .iter()
-                .any(|font| font.is_empty() || font.len() > 128 || !font.is_ascii())
+                .any(|font| font.is_empty() || font.len() > 128)
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
@@ -759,6 +1075,12 @@ pub enum PreferencesError {
     InvalidCustomTranslation,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
+    #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
+    InvalidTouchKeyboardSpacing,
+    #[error(
+        "at least one touch keyboard scheme must be enabled and the selection must be visible"
+    )]
+    InvalidTouchKeyboardSchemes,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
@@ -848,6 +1170,19 @@ impl PreferencesStore {
         self.read_locked().map(Some)
     }
 
+    /// Capture under the preferences lock so disabling cannot race a later write.
+    /// Lock order is preferences, then clipboard history; never reverse it.
+    pub fn capture_clipboard_text(&self, text: String) -> Result<bool, PreferencesError> {
+        let _lock = self.lock()?;
+        if !self.read_locked()?.preferences.clipboard_history {
+            return Ok(false);
+        }
+        let mut history = crate::clipboard::ClipboardHistoryStore::open(
+            self.directory.join("clipboard_history.json"),
+        );
+        Ok(history.push(text)?)
+    }
+
     /// Compare-and-swap prevents stale settings windows or IME hosts losing updates.
     /// Corrupt or future-format files are never silently replaced with defaults.
     pub fn save(
@@ -889,6 +1224,119 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {
+        let defaults = Preferences::default();
+        assert!(!defaults.diagnostic_log.server && !defaults.diagnostic_log.tsf);
+
+        // A configuration written before the field existed keeps logging off
+        // rather than starting to write a file the user never asked for.
+        let mut document = serde_json::to_value(&defaults).unwrap();
+        document.as_object_mut().unwrap().remove("diagnostic_log");
+        let legacy: Preferences = serde_json::from_value(document).unwrap();
+        assert_eq!(legacy.diagnostic_log, DiagnosticLogPreferences::default());
+
+        // The two hosts are separate processes and are enabled separately.
+        let preferences = Preferences {
+            diagnostic_log: DiagnosticLogPreferences {
+                server: true,
+                tsf: false,
+            },
+            ..Preferences::default()
+        };
+        let restored: Preferences =
+            serde_json::from_str(&serde_json::to_string(&preferences).unwrap()).unwrap();
+        assert!(restored.diagnostic_log.server && !restored.diagnostic_log.tsf);
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, preferences).unwrap();
+        assert!(saved.preferences.diagnostic_log.server);
+        assert_eq!(
+            store.load().unwrap().preferences.diagnostic_log,
+            saved.preferences.diagnostic_log
+        );
+    }
+
+    #[test]
+    fn fuzzy_pinyin_preserves_disabled_rules_and_rejects_unknown_ids() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let rules = [FuzzyPinyinRule::ZZh, FuzzyPinyinRule::FH]
+            .into_iter()
+            .collect();
+        let fuzzy_pinyin = FuzzyPinyinPreferences {
+            enabled: false,
+            rules,
+        };
+        assert_eq!(fuzzy_pinyin.active_rules(), 0);
+        let disabled = store
+            .save(
+                0,
+                Preferences {
+                    fuzzy_pinyin,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            disabled.preferences.fuzzy_pinyin.rules,
+            [FuzzyPinyinRule::ZZh, FuzzyPinyinRule::FH]
+                .into_iter()
+                .collect()
+        );
+        let mut enabled = disabled.preferences;
+        enabled.fuzzy_pinyin.enabled = true;
+        assert_eq!(enabled.fuzzy_pinyin.active_rules(), (1 << 0) | (1 << 4));
+        let enabled = store.save(disabled.revision, enabled).unwrap();
+        assert_eq!(store.load().unwrap(), enabled);
+
+        let mut invalid = serde_json::to_value(enabled.preferences).unwrap();
+        invalid["fuzzy_pinyin"]["rules"] = serde_json::json!(["z-zh", "unsupported"]);
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn capture_obeys_shared_enablement_and_preserves_corrupt_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let file = directory.path().join("clipboard_history.json");
+        let preferences = Preferences {
+            clipboard_history: false,
+            ..Preferences::default()
+        };
+        let disabled = store.save(0, preferences).unwrap();
+        assert!(!store
+            .capture_clipboard_text("synthetic disabled".into())
+            .unwrap());
+        assert!(!file.exists());
+        let mut preferences = disabled.preferences;
+        preferences.clipboard_history = true;
+        let enabled = store.save(disabled.revision, preferences).unwrap();
+        assert!(store
+            .capture_clipboard_text("synthetic first".into())
+            .unwrap());
+        assert!(!store
+            .capture_clipboard_text("synthetic\0invalid".into())
+            .unwrap());
+        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        let mut preferences = enabled.preferences;
+        preferences.clipboard_history = false;
+        let disabled = store.save(enabled.revision, preferences).unwrap();
+        assert!(!store
+            .capture_clipboard_text("synthetic stopped".into())
+            .unwrap());
+        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        fs::write(&file, b"broken synthetic document").unwrap();
+        let mut preferences = disabled.preferences;
+        preferences.clipboard_history = true;
+        store.save(disabled.revision, preferences).unwrap();
+        assert!(store
+            .capture_clipboard_text("synthetic rejected".into())
+            .is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"broken synthetic document");
+    }
 
     #[test]
     fn default_ime_mode_legacy_defaults_and_roundtrips() {
@@ -963,6 +1411,8 @@ mod tests {
         for key in [
             "theme",
             "settings_theme",
+            "toolbar_theme",
+            "screen_keyboard_theme",
             "ui_backend",
             "candidate_follow_cursor",
         ] {
@@ -975,12 +1425,66 @@ mod tests {
         let preferences = Preferences {
             theme: ThemeMode::Light,
             settings_theme: SettingsTheme::Dark,
+            toolbar_theme: SettingsTheme::Light,
             ui_backend: UiBackend::Webview2,
             candidate_follow_cursor: false,
             ..Preferences::default()
         };
         let saved = store.save(0, preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
+    }
+
+    #[test]
+    fn toolbar_theme_roundtrips_independently_and_rejects_unknown_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        for (revision, toolbar_theme) in [
+            SettingsTheme::Dark,
+            SettingsTheme::Light,
+            SettingsTheme::Follow,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                theme: ThemeMode::System,
+                settings_theme: SettingsTheme::Light,
+                candidate_theme: SettingsTheme::Dark,
+                toolbar_theme,
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["toolbar_theme"] = "system".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn screen_keyboard_theme_roundtrips_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        for (revision, screen_keyboard_theme) in [
+            SettingsTheme::Dark,
+            SettingsTheme::Light,
+            SettingsTheme::Follow,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                theme: ThemeMode::System,
+                toolbar_theme: SettingsTheme::Dark,
+                screen_keyboard_theme,
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["screen_keyboard_theme"] = "system".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 
     #[test]
@@ -1200,6 +1704,167 @@ mod tests {
     }
 
     #[test]
+    fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("touch_keyboard_layout");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        store
+            .save(
+                0,
+                Preferences {
+                    touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::NineKey
+        );
+        let saved = store
+            .save(
+                1,
+                Preferences {
+                    touch_keyboard_layout: TouchKeyboardLayout::Handwriting,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().preferences.touch_keyboard_layout,
+            TouchKeyboardLayout::Handwriting
+        );
+        let mut invalid = serde_json::to_value(saved).unwrap();
+        invalid["preferences"]["touch_keyboard_layout"] = "future_layout".into();
+        let bytes = serde_json::to_vec(&invalid).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+        fs::write(store.path(), &legacy).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(
+            loaded.preferences.touch_keyboard_schemes.enabled,
+            TouchKeyboardScheme::ALL.into_iter().collect()
+        );
+        assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
+        assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+        let visible = [
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Handwriting,
+        ]
+        .into_iter()
+        .collect();
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    touch_keyboard_schemes: TouchKeyboardSchemePreferences {
+                        enabled: visible,
+                        selected: Some(TouchKeyboardScheme::Handwriting),
+                    },
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+
+        for value in [
+            serde_json::json!({"enabled": [], "selected": null}),
+            serde_json::json!({"enabled": ["nine_key"], "selected": "handwriting"}),
+        ] {
+            let mut invalid = serde_json::to_value(&saved).unwrap();
+            invalid["preferences"]["touch_keyboard_schemes"] = value;
+            let bytes = serde_json::to_vec(&invalid).unwrap();
+            fs::write(store.path(), &bytes).unwrap();
+            assert!(matches!(
+                store.save(1, Preferences::default()),
+                Err(PreferencesError::InvalidTouchKeyboardSchemes)
+            ));
+            assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        }
+
+        let mut unknown = serde_json::to_value(&saved).unwrap();
+        unknown["preferences"]["touch_keyboard_schemes"]["enabled"] =
+            serde_json::json!(["nine_key", "future_scheme"]);
+        let bytes = serde_json::to_vec(&unknown).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
+    fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        for key in [
+            "touch_key_spacing_tenths",
+            "touch_row_spacing_tenths",
+            "touch_voice_shortcut",
+        ] {
+            legacy["preferences"].as_object_mut().unwrap().remove(key);
+        }
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.preferences.touch_key_spacing_tenths, 60);
+        assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
+        assert!(!loaded.preferences.touch_voice_shortcut);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    touch_key_spacing_tenths: 35,
+                    touch_row_spacing_tenths: 95,
+                    touch_voice_shortcut: true,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
+        assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
+        assert!(saved.preferences.touch_voice_shortcut);
+
+        for (key, value) in [
+            ("touch_key_spacing_tenths", 29),
+            ("touch_key_spacing_tenths", 61),
+            ("touch_row_spacing_tenths", 39),
+            ("touch_row_spacing_tenths", 101),
+        ] {
+            let mut invalid = saved.preferences.clone();
+            match key {
+                "touch_key_spacing_tenths" => invalid.touch_key_spacing_tenths = value,
+                _ => invalid.touch_row_spacing_tenths = value,
+            }
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSpacing)
+            ));
+        }
+    }
+
+    #[test]
     fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
@@ -1225,6 +1890,7 @@ mod tests {
                 quanpin_helpcode: HelpcodePreferences {
                     enabled: false,
                     schema,
+                    show_in_candidate_window: true,
                 },
                 ..Preferences::default()
             };
@@ -1262,6 +1928,27 @@ mod tests {
         };
         store.save(0, preferences).unwrap();
         assert!(!store.load().unwrap().preferences.autocorrect);
+    }
+
+    #[test]
+    fn traditional_chinese_output_legacy_default_and_enabled_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("traditional_chinese_output");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(!store.load().unwrap().preferences.traditional_chinese_output);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let preferences = Preferences {
+            traditional_chinese_output: true,
+            ..Preferences::default()
+        };
+        store.save(0, preferences).unwrap();
+        assert!(store.load().unwrap().preferences.traditional_chinese_output);
     }
 
     #[test]
@@ -1440,14 +2127,32 @@ mod tests {
     }
 
     #[test]
+    fn unicode_font_families_and_ordered_fallbacks_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let fallback_fonts: Vec<String> = (0..32).map(|index| format!("示例字体{index}")).collect();
+        let preferences = Preferences {
+            candidate_font_family: "示例主字体".to_owned(),
+            candidate_fallback_fonts: fallback_fonts.clone(),
+            ..Preferences::default()
+        };
+        let saved = store.save(0, preferences).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.preferences.candidate_font_family, "示例主字体");
+        assert_eq!(loaded.preferences.candidate_fallback_fonts, fallback_fonts);
+        assert_eq!(loaded.revision, saved.revision);
+    }
+
+    #[test]
     fn candidate_fallback_fonts_reject_invalid_lists() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
         let initial = store.save(0, Preferences::default()).unwrap();
         for fonts in [
             vec!["".to_owned()],
-            vec!["字体".to_owned()],
-            (0..9).map(|index| format!("Font{index}")).collect(),
+            vec!["a".repeat(129)],
+            vec!["字".repeat(43)],
+            (0..33).map(|index| format!("Font{index}")).collect(),
         ] {
             assert!(matches!(
                 store.save(
@@ -1460,7 +2165,7 @@ mod tests {
                 Err(PreferencesError::InvalidCandidateFontFamily)
             ));
         }
-        let valid = vec!["Noto Sans CJK SC".to_owned(); 8];
+        let valid = vec!["Noto Sans CJK SC".to_owned(); 32];
         let saved = store
             .save(
                 1,
@@ -1473,6 +2178,25 @@ mod tests {
         assert_eq!(saved.preferences.candidate_fallback_fonts, valid);
         assert_eq!(store.load().unwrap().revision, 2);
         assert_eq!(initial.revision, 1);
+    }
+
+    #[test]
+    fn unicode_font_names_retain_utf8_byte_budget() {
+        let exact_limit = format!("{}ab", "字".repeat(42));
+        assert_eq!(exact_limit.len(), 128);
+        let mut preferences = Preferences {
+            candidate_font_family: exact_limit.clone(),
+            candidate_fallback_fonts: vec![exact_limit.clone()],
+            ..Preferences::default()
+        };
+        assert!(preferences.validate().is_ok());
+        for invalid in [String::new(), format!("{exact_limit}c"), "字".repeat(43)] {
+            preferences.candidate_font_family = invalid;
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+        }
     }
 
     #[test]
@@ -1515,7 +2239,9 @@ mod tests {
     #[test]
     fn floating_toolbar_component_defaults_and_roundtrip() {
         let defaults = Preferences::default().floating_toolbar;
-        assert!(defaults.enabled && defaults.fullwidth && defaults.punctuation);
+        assert!(
+            defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation
+        );
         assert!(defaults.character_set && defaults.emoji && defaults.settings);
         assert!(!defaults.screen_keyboard);
         let json = serde_json::to_string(&Preferences::default()).unwrap();
@@ -1532,6 +2258,7 @@ mod tests {
             .remove("floating_toolbar");
         let restored: PreferencesSnapshot = serde_json::from_value(value).unwrap();
         assert!(restored.preferences.floating_toolbar.enabled);
+        assert!(restored.preferences.floating_toolbar.english_mode);
         assert!(restored.preferences.floating_toolbar.fullwidth);
         assert!(!restored.preferences.floating_toolbar.screen_keyboard);
     }

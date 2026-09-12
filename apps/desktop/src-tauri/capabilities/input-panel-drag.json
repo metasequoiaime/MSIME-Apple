@@ -1,0 +1,1 @@
+{ "identifier": "input-panel-drag", "description": "Move the handwriting and voice input panels", "windows": ["handwriting-panel", "voice-panel"], "permissions": ["core:window:allow-start-dragging"] }

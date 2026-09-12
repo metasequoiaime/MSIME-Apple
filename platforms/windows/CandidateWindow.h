@@ -1,8 +1,14 @@
 #pragma once
-#include "CandidatePresentation.h"
+#include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
+#include "CandidateLayout.h"
+#include "CandidatePalette.h"
+#include "CandidatePresentation.h"
 #include <functional>
+// windows.h first: its DrawText macro has to reach the Direct2D declarations,
+// which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
+#include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
 // Main/UI thread owns construction, polling, painting and destruction. Reader
@@ -23,12 +29,17 @@ public:
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
   void refresh();
+  // Adopt resolved skin tokens. The next refresh repaints with them; the
+  // built-in theme stays in place until a package is actually resolved.
+  void set_palette(CandidatePalette palette);
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
+  CandidateBounds card_bounds(const CandidatePresentation &value,
+                              const RECT &work, unsigned dpi);
   void paint();
   std::optional<CandidateClick> hit(int x, int y);
   Reader reader_;
@@ -43,6 +54,18 @@ private:
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
   std::optional<COLORREF> text_color_;
+  // Direct2D's imaging factory is a COM server, and this thread is the Server's
+  // own UI thread, which otherwise never enters an apartment.
+  struct Apartment {
+    Apartment();
+    ~Apartment();
+    Apartment(const Apartment &) = delete;
+    Apartment &operator=(const Apartment &) = delete;
+    bool owned = false;
+  } apartment_;
+  // Direct2D through the shared UI stack; no second renderer in this tree.
+  msimeui::DeviceResources device_;
+  CandidatePalette palette_;
   std::wstring font_family_;
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;

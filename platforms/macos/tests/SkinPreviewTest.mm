@@ -24,8 +24,18 @@ int main(int argc, const char **argv) {
         assert(mkdtemp(temporary));
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        NSDictionary *input = @{@"shuangpin_preedit_uses_raw": @NO, @"synthetic_unowned": @42};
+        assert(preferences.shuangpinPreeditUsesRaw);
+        assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@YES]);
+        preferences.shuangpinPreeditUsesRaw = NO;
+        NSDictionary *merged = [preferences sharedPreferencesByMerging:input];
+        assert([merged[@"shuangpin_preedit_uses_raw"] isEqual:@NO]);
+        assert([merged[@"synthetic_unowned"] isEqual:@42]);
+        assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] shuangpinPreeditUsesRaw]);
+        preferences.shuangpinPreeditUsesRaw = YES;
         NSWindow *window = preferences.window;
-        NSGridView *grid = (id)window.contentView.subviews[0];
+        NSScrollView *settingsScroll = (id)window.contentView.subviews[0];
+        NSGridView *grid = (id)settingsScroll.documentView;
         NSScrollView *scroll = (id)window.contentView.subviews[1];
         MSIMECandidatePreviewView *preview = (id)scroll.documentView;
         NSButton *theme = (id)window.contentView.subviews[2];
@@ -34,6 +44,23 @@ int main(int argc, const char **argv) {
         [window.contentView layoutSubtreeIfNeeded];
         assert(!grid.hasAmbiguousLayout && !scroll.hasAmbiguousLayout && !preview.hasAmbiguousLayout);
         assert(scroll.frame.size.height > 200 && preview.frame.size.width > 500);
+        assert(grid.frame.size.height > settingsScroll.contentView.bounds.size.height);
+        NSView *lastControl = [grid cellAtColumnIndex:1 rowIndex:grid.numberOfRows - 1].contentView;
+        [lastControl scrollRectToVisible:lastControl.bounds];
+        assert(NSContainsRect(grid.visibleRect, lastControl.frame));
+        // Restore the initial input settings after checking that the form can scroll.
+        NSView *firstControl = [grid cellAtColumnIndex:1 rowIndex:0].contentView;
+        [firstControl scrollRectToVisible:firstControl.bounds];
+        assert(NSContainsRect(grid.visibleRect, firstControl.frame));
+        NSPopUpButton *preedit = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+        assert(preedit.indexOfSelectedItem == 1);
+        [preedit selectItemAtIndex:0];
+        [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+        assert(!preferences.shuangpinPreeditUsesRaw);
+        assert([[preferences sharedPreferencesByMerging:input][@"shuangpin_preedit_uses_raw"] isEqual:@NO]);
+        [preedit selectItemAtIndex:1];
+        [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+        assert(preferences.shuangpinPreeditUsesRaw);
         assert([preview.accessibilityLabel isEqual:@"候选窗口预览"]);
         __block NSUInteger notifications = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
@@ -41,10 +68,18 @@ int main(int argc, const char **argv) {
             preferences.skinID = skin;
             for (NSNumber *vertical in @[@NO, @YES]) {
                 preferences.vertical = vertical.boolValue;
-                for (NSNumber *size in @[@5, @7, @9]) {
+                for (NSNumber *size in @[@1, @2, @5, @7, @9]) {
                     preferences.pageSize = size.unsignedIntegerValue;
-                    for (NSNumber *font in @[@16, @18, @20]) {
+                    for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;
+                        NSFont *candidateFont = [NSFont systemFontOfSize:font.doubleValue];
+                        NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, font.doubleValue - 3.0)];
+                        CGFloat preeditHeight = MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
+                        CGFloat rowHeight = ceil(candidateFont.ascender - candidateFont.descender + candidateFont.leading) + 8.0;
+                        NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
+                        CGFloat footerHeight = vertical.boolValue && size.integerValue > 5 ? 18.0 : 0.0;
+                        CGFloat expectedHeight = 10 + 16 + 4 + 6 + preeditHeight + rows * rowHeight + footerHeight + 6 + 14;
+                        assert(std::abs(preview.previewContentHeight - expectedHeight) < .01);
                         assert(preview.previewSkin.id == skin.UTF8String);
                         NSString *expected = [NSString stringWithFormat:@"%@，%@ 个候选，%@ pt", vertical.boolValue ? @"纵向列表" : @"横向排列", size, font];
                         assert([preview.accessibilityValue isEqual:expected]);
@@ -62,7 +97,14 @@ int main(int argc, const char **argv) {
             }
         }
         // Real layout control updates the preview, without a separate preview-specific setting.
-        NSPopUpButton *layout = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
+        NSPopUpButton *layout = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
+        }
+        assert(layout);
+        // Showcase uses compact fonts; compare the layouts at the standard size.
+        preferences.fontSize = 18;
         [layout selectItemAtIndex:0];
         [NSApp sendAction:layout.action to:layout.target from:layout];
         CGFloat horizontal = preview.previewContentHeight;

@@ -10,6 +10,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 #include <vector>
+#include "voice_provider_fixture.h"
 
 namespace {
 void require(bool condition, const char *message) {
@@ -28,12 +29,17 @@ struct Observation {
   guint cursor = 0;
   bool mode_registered = false;
   bool input_enabled = false;
+  bool english_mode = false;
   bool mode_sensitive = false;
   bool punctuation_enabled = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
   auto &seen = *static_cast<Observation *>(data);
+  if (std::string(name) == "HidePreeditText") {
+    seen.preedit_visible = false;
+    return;
+  }
   if (std::string(name) == "HideLookupTable") {
     seen.lookup_visible = false;
     return;
@@ -63,6 +69,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
     }
+    if (std::string(ibus_property_get_key(property)) == "EnglishMode")
+      seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -91,11 +99,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     auto table = IBUS_LOOKUP_TABLE(object);
     seen.cursor = ibus_lookup_table_get_cursor_pos(table);
     for (guint i = 0; i < ibus_lookup_table_get_number_of_candidates(table);
-         ++i)
+         ++i) {
       seen.candidates.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_candidate(table, i)));
       seen.labels.emplace_back(
           ibus_text_get_text(ibus_lookup_table_get_label(table, i)));
+    }
     if (ibus_lookup_table_get_number_of_candidates(table) != 0) {
       auto text = ibus_lookup_table_get_candidate(table, 0);
       auto attributes = ibus_text_get_attributes(text);
@@ -147,7 +156,8 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   try {
-    g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
+    // This fixture asserts RegisterProperties and must exercise the real menu path.
+    g_unsetenv("MSIME_DISABLE_IBUS_PROPERTIES");
     // Synthetic fixture only; the production host does not invoke this
     // bootstrap.
     gchar *temporary = g_dir_make_tmp("msime-ibus-test-XXXXXX", nullptr);
@@ -173,7 +183,13 @@ int main(int argc, char **argv) {
     auto result = nlohmann::json::parse(prepared.get());
     require(result.at("ok").get<bool>(), "Locked dictionary bootstrap failed");
     auto options = result.at("value");
+    const auto voice_socket = (root / "voice.sock").string();
+    VoiceProviderFixture voice_provider(voice_socket);
+    options["voice_provider_socket"] = voice_socket;
     options["preferences"]["learning"] = false;
+    options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
+    options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
+    options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
@@ -239,22 +255,224 @@ int main(int argc, char **argv) {
     };
     require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+E was not consumed");
-    require(!seen.input_enabled, "Ctrl+Shift+E did not enter English mode");
+    require(seen.english_mode && seen.input_enabled, "Ctrl+Shift+E did not enter dedicated English mode");
     require(key(IBUS_e, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+E could not restore the input mode");
-    require(seen.input_enabled, "Ctrl+Shift+E did not restore input mode");
+    require(!seen.english_mode && seen.input_enabled, "Ctrl+Shift+E did not restore Chinese mode");
     require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
             "Ctrl+Alt+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Alt+Space did not enter English mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Alt+Space release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
             "Ctrl+Alt+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Alt+Space did not restore input mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Alt+Space restore release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK), "Ctrl+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Space did not enter English mode");
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    // Modifier chords must never be mistaken for a bare Ctrl/Shift release.
+    for (bool ctrl_first : {true, false}) {
+      for (bool ctrl_release_first : {true, false}) {
+        const guint first = ctrl_first ? IBUS_Control_L : IBUS_Shift_L;
+        const guint second = ctrl_first ? IBUS_Shift_L : IBUS_Control_L;
+        const guint first_mask = ctrl_first ? IBUS_CONTROL_MASK : IBUS_SHIFT_MASK;
+        require(!key(first, first_mask), "Modifier press was intercepted");
+        require(!key(second, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+                "Modifier chord press was intercepted");
+        const guint released = ctrl_release_first ? IBUS_Control_L : IBUS_Shift_L;
+        const guint remaining = ctrl_release_first ? IBUS_Shift_L : IBUS_Control_L;
+        const guint remaining_mask = ctrl_release_first ? IBUS_SHIFT_MASK : IBUS_CONTROL_MASK;
+        require(!key(released, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+                "Modifier chord release toggled input");
+        require(!key(remaining, IBUS_RELEASE_MASK | remaining_mask) && seen.input_enabled,
+                "Modifier chord tail toggled input");
+      }
+    }
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      require(!key(modifier_key), "Bare modifier press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Bare modifier no longer disabled input");
+      require(!key(modifier_key), "Bare modifier restore press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Bare modifier no longer restored input");
+    }
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      require(!key(modifier_key), "Held modifier press was intercepted");
+      g_usleep(350000);
+      require(!key(modifier_key), "Repeated modifier press was intercepted");
+      g_usleep(250000);
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Long modifier hold or repeat extended the mode-toggle deadline");
+      require(!key(modifier_key), "Focus fixture modifier press was intercepted");
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Modifier release crossed a focus boundary");
+    }
+    require(seen.committed.empty(), "Mode setup unexpectedly committed text");
+    auto wait_voice = [&](auto ready) {
+      const auto deadline = g_get_monotonic_time() + 2000000;
+      while (!ready() && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      return ready();
+    };
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == 1; }),
+            "Synthetic voice capture did not start");
+    mode(PROP_STATE_UNCHECKED);
+    require(wait_voice([&] { return voice_provider.cancelled.load() == 1; }),
+            "Disabling input through the menu did not cancel voice capture");
+    mode(PROP_STATE_CHECKED);
+    voice_provider.release_final = true;
+    require(wait_voice([&] { return voice_provider.finished.load() == 1; }),
+            "Synthetic late voice result did not finish");
+    const auto voice_settle = g_get_monotonic_time() + 100000;
+    while (g_get_monotonic_time() < voice_settle) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
+    require(seen.committed.empty() && seen.input_enabled,
+            "Cancelled voice result committed after input was re-enabled");
+    invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+    require(wait_voice([&] { return voice_provider.started.load() == 2; }),
+            "Voice capture could not restart after mode cancellation");
+    voice_provider.release_final = true;
+    const bool fresh_committed = wait_voice([&] { return seen.committed == "synthetic voice"; });
+    require(fresh_committed,
+            "Fresh voice result did not commit after mode cancellation");
+    seen.committed.clear();
+    for (guint released_modifiers : {guint(0), guint(IBUS_MOD1_MASK)}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Right Alt did not start hold recording");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Hold recording did not reach the provider");
+      require(key(IBUS_Alt_R, IBUS_RELEASE_MASK | released_modifiers),
+              "Hold recording release was not consumed");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Hold recording release did not stop capture");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Stopping hold recording discarded final recognition");
+      seen.committed.clear();
+    }
+    const auto before_wrong_ctrl = voice_provider.started.load();
+    require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
+                !key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Left Ctrl incorrectly activated the right-Ctrl voice shortcut");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+    key(IBUS_Control_L, IBUS_RELEASE_MASK);
+    require(voice_provider.started.load() == before_wrong_ctrl && seen.input_enabled,
+            "Left Ctrl voice chord changed capture or input mode");
+    require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Right Ctrl fixture press was intercepted");
+    invoke("FocusOut");
+    invoke("FocusIn");
+    require(!key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Right Ctrl voice state crossed a focus boundary");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+    key(IBUS_Control_R, IBUS_RELEASE_MASK);
+    for (auto chord : {std::pair<guint, guint>{IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK},
+                       {IBUS_Super_L, IBUS_CONTROL_MASK | IBUS_MOD4_MASK},
+                       {IBUS_Super_R, IBUS_CONTROL_MASK | IBUS_MOD4_MASK}}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Voice chord Ctrl press was intercepted");
+      require(key(chord.first, chord.second), "Modifier voice chord was filtered out");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Modifier voice chord did not reach provider");
+      require(key(chord.first, IBUS_RELEASE_MASK), "Modifier voice chord release was not consumed");
+      require(!key(IBUS_Control_R, IBUS_RELEASE_MASK), "Voice chord Ctrl release toggled input");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Modifier voice chord release did not stop capture");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Modifier voice chord lost final recognition");
+      seen.committed.clear();
+    }
+    require(!key(IBUS_Alt_R, IBUS_CONTROL_MASK | IBUS_MOD1_MASK),
+            "Released right Ctrl remained eligible for voice capture");
+    key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+    for (auto chord : {std::pair<guint, guint>{IBUS_Alt_R, IBUS_MOD1_MASK},
+                       {IBUS_Super_L, IBUS_MOD4_MASK}, {IBUS_Super_R, IBUS_MOD4_MASK}}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const guint control = chord.first == IBUS_Alt_R ? IBUS_Control_R : IBUS_Control_L;
+      require(!key(control, IBUS_CONTROL_MASK) && key(chord.first, IBUS_CONTROL_MASK | chord.second),
+              "Ctrl-first release fixture did not start recording");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Ctrl-first release fixture did not reach provider");
+      require(!key(control, IBUS_RELEASE_MASK | chord.second),
+              "Voice chord intercepted the Ctrl release delivered to the editor");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Releasing Ctrl before the voice key did not stop recording");
+      require(key(chord.first, IBUS_RELEASE_MASK), "Voice chord tail release was not consumed");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Ctrl-first release discarded final recognition");
+      require(voice_provider.stop_requests.load() == stops + 1,
+              "Voice chord tail sent a duplicate stop request");
+      seen.committed.clear();
+    }
+    for (guint held_control : {guint(0), guint(IBUS_CONTROL_MASK)}) {
+      const auto locked_starts = voice_provider.started.load();
+      const auto locked_stops = voice_provider.stop_requests.load();
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Locked Ctrl press was intercepted");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control), "Locked recording did not start");
+      require(wait_voice([&] { return voice_provider.started.load() == locked_starts + 1; }),
+              "Locked recording did not reach provider");
+      require(key(IBUS_space, IBUS_MOD1_MASK | held_control) &&
+                  key(IBUS_space, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK),
+              "Space did not lock recording while Alt was held");
+      if (held_control) require(!key(IBUS_Control_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK), "Locked Ctrl release was intercepted");
+      require(key(IBUS_Alt_R, IBUS_RELEASE_MASK), "Locked Alt release was not consumed");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop locked recording");
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == locked_stops + 1; }),
+              "Locked recording stopped on release or did not stop on Ctrl+F9");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Locked recording lost final recognition");
+      require(voice_provider.stop_requests.load() == locked_stops + 1,
+              "Locked recording sent duplicate stop requests");
+      seen.committed.clear();
+    }
+
+
+
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      phrase();
+      require(!key(modifier_key), "Composing modifier press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled &&
+                  seen.committed == "nihao" && !seen.preedit_visible && !seen.lookup_visible,
+              "Bare modifier did not switch mode and commit original spelling");
+      require(!key('a'), "Direct mode intercepted text after modifier toggle");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.committed == "nihao",
+              "Repeated modifier release committed twice");
+      require(!key(modifier_key) && key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Modifier did not restore mode after composition");
+      seen.committed.clear();
+    }
+
+    for (guint toggle_mask : {guint(IBUS_CONTROL_MASK),
+                              guint(IBUS_CONTROL_MASK | IBUS_MOD1_MASK)}) {
+      phrase();
+      require(key(IBUS_space, toggle_mask) && !seen.input_enabled &&
+                  seen.committed == "nihao" && !seen.preedit_visible && !seen.lookup_visible,
+              "Space shortcut did not switch mode and commit original spelling");
+      key(IBUS_space, toggle_mask | IBUS_RELEASE_MASK);
+      require(key(IBUS_space, toggle_mask) && seen.input_enabled && seen.committed == "nihao",
+              "Space shortcut restore committed twice");
+      key(IBUS_space, toggle_mask | IBUS_RELEASE_MASK);
+      seen.committed.clear();
+    }
     phrase();
+    require(seen.committed.empty(), "Phrase unexpectedly committed before selection");
     require(key(IBUS_period, IBUS_CONTROL_MASK),
             "Ctrl+. punctuation toggle was not consumed");
     require(!seen.punctuation_enabled,
@@ -263,12 +481,15 @@ int main(int argc, char **argv) {
             "Ctrl+. punctuation restore was not consumed");
     require(seen.punctuation_enabled,
             "Ctrl+. did not restore punctuation state");
+    require(seen.committed.empty(), "Punctuation toggle unexpectedly committed text");
     invoke("CursorDown");
-    auto mode_commit = seen.candidates.at(seen.cursor);
+    require(seen.committed.empty(), "CursorDown unexpectedly committed text");
+    const std::string mode_commit = "nihao";
     mode(PROP_STATE_UNCHECKED);
-    require(!seen.input_enabled && seen.committed == mode_commit &&
-                !seen.preedit_visible && !seen.lookup_visible,
-            "Direct mode lost highlighted composition or left stale UI");
+    require(!seen.input_enabled, "Direct mode remained enabled");
+    require(seen.committed == mode_commit, "Direct mode did not commit original spelling");
+    require(!seen.preedit_visible, "Direct mode left preedit visible");
+    require(!seen.lookup_visible, "Direct mode left candidates visible");
     mode(PROP_STATE_UNCHECKED);
     require(seen.committed == mode_commit,
             "Repeated mode request committed twice");
@@ -292,6 +513,31 @@ int main(int argc, char **argv) {
     mode(PROP_STATE_CHECKED);
     require(seen.input_enabled, "Input mode did not recover");
     seen.committed.clear();
+    // A visible incremental candidate list must not turn editing into cancel
+    // or make Enter select a candidate instead of committing raw spelling.
+    phrase();
+    require(key(IBUS_BackSpace) && seen.preedit == "niha" &&
+                seen.preedit_visible && seen.committed.empty(),
+            "Backspace cancelled incremental composition instead of deleting one key");
+    invoke("Reset");
+    for (guint delete_key : {IBUS_Delete, IBUS_KP_Delete}) {
+      phrase();
+      require(key(IBUS_Left) && key(delete_key) && seen.preedit == "niha" &&
+                  seen.preedit_visible && seen.committed.empty(),
+              "Forward delete cancelled incremental composition instead of editing at caret");
+      invoke("Reset");
+    }
+    for (guint enter_key : {IBUS_Return, IBUS_KP_Enter}) {
+      phrase();
+      require(key(enter_key) && seen.committed == "nihao" &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Enter selected an incremental candidate instead of raw spelling");
+      seen.committed.clear();
+    }
+    for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
+                           IBUS_Return, IBUS_KP_Enter})
+      require(!key(idle_key) && seen.committed.empty(),
+              "Idle composition edit key was intercepted");
     phrase();
     require(seen.preedit_visible && seen.preedit == "nihao",
             "Preedit signal missing");
@@ -306,6 +552,8 @@ int main(int argc, char **argv) {
             "Modifier/release was consumed");
     require(seen.preedit == "nihao", "Modifier/release canceled composition");
     require(key(IBUS_space), "Space not handled");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+            "Shift chord tail toggled input after Space");
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
@@ -446,11 +694,11 @@ int main(int argc, char **argv) {
     invoke("FocusOut");
     invoke("FocusIn");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 1));
-    require(key('a'), "Fullwidth ASCII was not handled");
-    require(seen.committed == committed + "你好ａ", "Fullwidth ASCII commit mismatch");
+    require(key('1'), "Fullwidth idle digit was not handled");
+    require(seen.committed == committed + "你好１", "Fullwidth ASCII commit mismatch");
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterWidth", 0));
-    require(key('b'), "Halfwidth ASCII was not handled");
-    require(seen.committed == committed + "你好ａb", "Halfwidth ASCII commit mismatch");
+    require(!key('2'), "Halfwidth idle digit was intercepted");
+    require(seen.committed == committed + "你好１", "Halfwidth ASCII commit mismatch");
     auto settle = [&] {
       const auto deadline = g_get_monotonic_time() + 2200000;
       while (g_get_monotonic_time() < deadline) {

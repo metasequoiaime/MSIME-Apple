@@ -1,10 +1,25 @@
 #import "PreferencesWindowController.h"
 #import "AppearancePreferences.h"
+#import "CandidateSkinAppearance.h"
+#import "CloudAppearanceSettings.h"
+
+static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
+static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
 
 static NSString *const MSIMESchemeKey = @"MetasequoiaImeScheme";
 static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema";
 
 @implementation MSIMEPreferencesWindowController
++ (NSDictionary *)cloudSettingsSnapshot { return MSIMECloudAppearanceSnapshot(NSUserDefaults.standardUserDefaults); }
++ (NSNumber *)validateCloudSettingsSnapshot:(NSDictionary *)values { return @(MSIMEValidateCloudAppearance(values)); }
++ (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary *)values {
+    if (!MSIMEApplyCloudAppearance(values, NSUserDefaults.standardUserDefaults)) return @NO;
+    [[MSIMEAppearancePreferences sharedPreferences] reloadSkins];
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:nil];
+    return @YES;
+}
++ (NSString *)storedCandidateSkin { return MetasequoiaStoredCandidateSkin(); }
++ (void)setStoredCandidateSkin:(NSString *)skinId { MetasequoiaSetStoredCandidateSkin(skinId); }
 + (instancetype)sharedController {
     static MSIMEPreferencesWindowController *controller;
     static dispatch_once_t once;
@@ -15,7 +30,7 @@ static NSString *const MSIMEShuangpinSchemaKey = @"MetasequoiaImeShuangpinSchema
     [[MSIMEAppearancePreferences sharedPreferences] showWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
-- (NSDictionary<NSString *, id> *)cloudSettingsSnapshot { return @{ @"candidate_skin": [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientCandidateSkin"] ?: @"default", @"candidate_layout": [[NSUserDefaults standardUserDefaults] objectForKey:@"MSIMEClientCandidatePanelStyle"] ?: @"vertical", @"candidate_font_size": @([[NSUserDefaults standardUserDefaults] integerForKey:@"MSIMEClientCandidateFontSize"] ?: 18), @"candidate_page_size": @([[NSUserDefaults standardUserDefaults] integerForKey:@"MSIMEClientCandidatePageSize"] ?: 5) }; }
-- (BOOL)validateCloudSettingsSnapshot:(NSDictionary<NSString *,id> *)values { return [values isKindOfClass:NSDictionary.class] && [values[@"candidate_layout"] isKindOfClass:NSString.class] && [values[@"candidate_font_size"] integerValue] >= 8 && [values[@"candidate_font_size"] integerValue] <= 72 && [values[@"candidate_page_size"] integerValue] >= 1 && [values[@"candidate_page_size"] integerValue] <= 20; }
-- (BOOL)applyCloudSettingsSnapshot:(NSDictionary<NSString *,id> *)values { if (![self validateCloudSettingsSnapshot:values]) return NO; NSUserDefaults *d = NSUserDefaults.standardUserDefaults; [d setObject:values[@"candidate_layout"] forKey:@"MSIMEClientCandidatePanelStyle"]; [d setInteger:[values[@"candidate_font_size"] integerValue] forKey:@"MSIMEClientCandidateFontSize"]; [d setInteger:[values[@"candidate_page_size"] integerValue] forKey:@"MSIMEClientCandidatePageSize"]; [d synchronize]; [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:nil]; return YES; }
+- (NSDictionary *)cloudSettingsSnapshot { return [self.class cloudSettingsSnapshot]; }
+- (BOOL)validateCloudSettingsSnapshot:(NSDictionary *)values { return [[self.class validateCloudSettingsSnapshot:values] boolValue]; }
+- (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values { return [[self.class applyCloudSettingsSnapshot:values] boolValue]; }
 @end

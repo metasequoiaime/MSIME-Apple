@@ -17,6 +17,15 @@ $cases = @($tests | ForEach-Object {
 $cases += [PSCustomObject]@{
     Name = 'msime-client-server.exe'; Label = 'preview-help'; Arguments = '--help'
 }
+$cases += [PSCustomObject]@{
+    Name = 'msime-client-keyboard-panel.exe'; Label = 'keyboard-panel-help'; Arguments = '--help'
+}
+$cases += [PSCustomObject]@{
+    Name = 'msime-client-handwriting-panel.exe'; Label = 'handwriting-panel-help'; Arguments = '--help'
+}
+$cases += [PSCustomObject]@{
+    Name = 'msime-client-emoji-panel.exe'; Label = 'emoji-panel-help'; Arguments = '--help'
+}
 if ($PSBoundParameters.ContainsKey('ResourcesDirectory')) {
     if ([string]::IsNullOrWhiteSpace($ResourcesDirectory)) {
         throw 'Resource directory must not be empty'

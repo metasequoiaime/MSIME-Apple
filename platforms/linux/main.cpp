@@ -28,6 +28,13 @@ int main(int argc, char **argv) {
     std::cerr << "usage: msime-client-ibus /absolute/runtime-options.json\n";
     return 2;
   }
+  // Panel actions launched from the IBus property menu inherit this process's
+  // environment. Keep the direct binary invocation equivalent to the
+  // packaged launcher, which already exports the HostOptions path.
+  if (!g_setenv("MSIME_CLIENT_HOST_OPTIONS", argv[1], FALSE)) {
+    std::cerr << "Cannot export runtime options path\n";
+    return 1;
+  }
   try {
     std::ifstream file(argv[1]);
     if (!file)

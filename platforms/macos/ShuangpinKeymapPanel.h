@@ -9,6 +9,10 @@ FOUNDATION_EXPORT NSString *MSIMEShuangpinZeroInitialText(NSString *profileName)
 
 FOUNDATION_EXPORT BOOL MSIMEShouldShowShuangpinKeymap(BOOL isShuangpin, BOOL enabled, BOOL hasComposition);
 
+// Raw Engine input, independent of the selected preedit display format.
+FOUNDATION_EXPORT NSString *MSIMEShuangpinKeymapEditingText(NSDictionary *view);
+FOUNDATION_EXPORT NSString *MSIMEShuangpinKeymapHighlightedKey(NSDictionary *view);
+
 FOUNDATION_EXPORT NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize,
                                                               CGFloat candidateClearance, NSRect visibleFrame);
 

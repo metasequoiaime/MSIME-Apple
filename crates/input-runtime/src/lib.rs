@@ -34,14 +34,24 @@ pub mod character_width {
     }
 }
 
-use msime_engine_bridge::{CandidateEdge, Command, EngineResult, EngineSnapshot, Session};
+use msime_client_core::preferences::TouchKeyboardLayout;
+use msime_engine_bridge::{
+    CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
-use std::io::BufReader;
-use std::path::PathBuf;
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
+// The Unix socket providers below are the only consumers of these imports.
+#[cfg(unix)]
+use serde_json::{json, Value};
+#[cfg(unix)]
+use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -56,10 +66,14 @@ pub enum RuntimeError {
     InvalidPageSize,
     #[error("candidate belongs to an expired view or another session")]
     StaleCandidate,
+    #[error("nine-key spelling belongs to an expired view or another session")]
+    StaleNineKeySpelling,
     #[error("session identity exhausted")]
     IdentityExhausted,
     #[error("cannot replace an engine while composition is active")]
     CompositionActive,
+    #[error("nine-key mode requires the quanpin scheme")]
+    InvalidNineKeyScheme,
     #[error("punctuation action requires an ASCII punctuation character")]
     InvalidPunctuation,
     #[error("engine action failed: {0}")]
@@ -67,6 +81,11 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Engine cache reset is unsupported".into(),
+        ))
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -76,15 +95,41 @@ pub trait InputEngine {
     fn set_dedicated_english(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
+    fn set_nine_key_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine("Nine-key mode is unsupported".into()))
+    }
+    fn choose_nine_key_spelling(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Nine-key spelling selection is unsupported".into(),
+        ))
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
-        Err(RuntimeError::Engine("Candidate pinning is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Candidate pinning is unsupported".into(),
+        ))
     }
     fn remove_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
-        Err(RuntimeError::Engine("Candidate removal is unsupported".into()))
+        Err(RuntimeError::Engine(
+            "Candidate removal is unsupported".into(),
+        ))
+    }
+    fn fix_candidate_position(
+        &mut self,
+        _index: usize,
+        _position: u8,
+    ) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Candidate position fixing is unsupported".into(),
+        ))
+    }
+    fn clear_candidate_position(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Candidate position clearing is unsupported".into(),
+        ))
     }
     fn select_edge(
         &mut self,
@@ -96,6 +141,10 @@ pub trait InputEngine {
 }
 
 impl InputEngine for Session {
+    fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+        Session::reset_cache(self);
+        Ok(())
+    }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
@@ -105,6 +154,14 @@ impl InputEngine for Session {
     }
     fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_dedicated_english(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        Session::set_nine_key_enabled(self, enabled)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
@@ -123,8 +180,24 @@ impl InputEngine for Session {
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::select(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
-    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::pin_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
-    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> { Session::remove_candidate(self,index).map_err(|e| RuntimeError::Engine(e.to_string())) }
+    fn pin_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::pin_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn remove_candidate(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::remove_candidate(self, index).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn fix_candidate_position(
+        &mut self,
+        index: usize,
+        position: u8,
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::fix_candidate_position(self, index, position)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn clear_candidate_position(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        Session::clear_candidate_position(self, index)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::finish(self, index).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -145,15 +218,41 @@ pub struct CandidateId {
     pub index: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct NineKeySpellingId {
+    pub session: u64,
+    pub generation: u64,
+    pub index: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Candidate {
     pub id: CandidateId,
     pub text: String,
     /// Engine-derived display suffix, never part of selection or committed text.
     pub annotation: String,
+    /// Engine candidate source, stable for the lifetime of this view.
+    pub source: u8,
+    /// True when Engine corrected the typed spelling for this candidate.
+    /// Presentation layers may mark it without changing committed text.
+    pub corrected: bool,
+    /// Engine fixed-position slot, or zero when dynamically ranked.
+    pub fixed_position: u8,
     pub highlighted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
+}
+
+/// On-demand copy of every candidate owned by one Engine generation.
+///
+/// Regular [`View`] values remain page-bounded so hosts do not pay to serialize
+/// the complete candidate list after every input action.
+#[derive(Clone, Debug, Serialize)]
+pub struct CandidateSnapshot {
+    pub session: u64,
+    pub generation: u64,
+    pub preedit: String,
+    pub candidates: Vec<Candidate>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -165,6 +264,11 @@ pub enum CharacterWidth {
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
     pub scheme: u8,
+    /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
+    pub nine_key: bool,
+    pub nine_key_spellings: Vec<String>,
+    /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
+    pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
     pub microsoft_shuangpin: bool,
@@ -172,6 +276,8 @@ pub struct View {
     pub answered_by_pinyin_fallback: bool,
     /// Authoritative Engine mode, never inferred from displayed text.
     pub local_mode: String,
+    /// Authoritative Engine English mode, independent of temporary local modes.
+    pub dedicated_english: bool,
     pub session: u64,
     pub generation: u64,
     pub focused: bool,
@@ -202,7 +308,38 @@ pub struct Transition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AiAssistantProviderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default = "default_ai_candidate_limit")]
+    pub candidate_limit: u8,
+    #[serde(default)]
+    pub prompt_id: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub prompt_custom_1: String,
+    #[serde(default)]
+    pub prompt_custom_2: String,
+    #[serde(default)]
+    pub prompt_custom_3: String,
+}
+
+fn default_ai_candidate_limit() -> u8 {
+    3
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
+    /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ai_context: String,
     pub scheme: u8,
     pub generation: u64,
     pub identity: String,
@@ -211,7 +348,26 @@ pub struct OnlineQuery {
     pub pinyin_segments: Vec<String>,
     pub cloud_eligible: bool,
     pub ai_eligible: bool,
+    /// Host preference controlling whether a provider may return cloud suggestions.
+    #[serde(default = "default_cloud_candidates")]
+    pub cloud_candidates: bool,
     pub session_id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_assistant: Option<AiAssistantProviderConfig>,
+}
+
+fn default_cloud_candidates() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TranslationProviderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -220,6 +376,8 @@ pub struct TranslationQuery {
     #[serde(default = "default_translation_target_language")]
     pub target_language: String,
     pub candidates: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_translation: Option<TranslationProviderConfig>,
 }
 
 fn default_translation_target_language() -> String {
@@ -230,6 +388,45 @@ fn default_translation_target_language() -> String {
 pub struct TranslationResult {
     pub text: String,
     pub translation: String,
+}
+
+/// A bounded stroke payload sent by a Linux handwriting panel to its
+/// user-owned recognizer service. Coordinates are normalized panel pixels;
+/// the recognizer decides how to map them to a platform model.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct HandwritingQuery {
+    #[serde(default)]
+    pub language: String,
+    pub strokes: Vec<Vec<HandwritingPoint>>,
+}
+
+/// Search request for a standalone Linux emoji panel. The panel owns its
+/// category/search UI while the provider supplies the catalog and annotations.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelQuery {
+    #[serde(default)]
+    pub search: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default = "default_emoji_panel_limit")]
+    pub limit: u8,
+}
+
+fn default_emoji_panel_limit() -> u8 {
+    48
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EmojiPanelItem {
+    pub text: String,
+    #[serde(default)]
+    pub annotation: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -244,7 +441,7 @@ pub struct OnlineCandidate {
 /// the actual network I/O through their injected transport and then submit the
 /// result to `Runtime::apply_online_candidate`.
 pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
-    if !query.cloud_eligible {
+    if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
     msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
@@ -255,7 +452,7 @@ pub fn cloud_candidate_from_response(
     query: OnlineQuery,
     response: &[u8],
 ) -> Option<OnlineCandidate> {
-    if !query.cloud_eligible {
+    if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
     let text = msime_client_core::cloud::parse_google_response(response)?;
@@ -275,6 +472,49 @@ pub struct UnixSocketProvider {
     path: PathBuf,
 }
 
+// Retain incomplete UTF-8/JSON lines across polling timeouts. Bound the
+// buffer while reading, rather than after read_line has allocated the payload.
+#[cfg(unix)]
+fn read_voice_provider_line(
+    stream: &mut UnixStream,
+    pending: &mut Vec<u8>,
+    deadline: std::time::Instant,
+    cancelled: Option<&AtomicBool>,
+) -> Option<String> {
+    loop {
+        if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+            return None;
+        }
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        if let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+            if end >= 16_384 {
+                return None;
+            }
+            return String::from_utf8(pending.drain(..=end).collect()).ok();
+        }
+        if pending.len() >= 16_384 {
+            return None;
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(std::time::Duration::from_millis(100))))
+            .ok()?;
+        let mut chunk = [0_u8; 1024];
+        match stream.read(&mut chunk) {
+            Ok(0) => return None,
+            Ok(count) => pending.extend_from_slice(&chunk[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return None,
+        }
+    }
+}
+
 #[cfg(unix)]
 impl UnixSocketProvider {
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -282,32 +522,100 @@ impl UnixSocketProvider {
     }
 
     pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+        self.query_candidates(query)?.into_iter().next()
+    }
+
+    /// Accept one cloud and one AI suggestion from the same provider response.
+    pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
+        if query.ai_context.len() > 1024 {
+            return None;
+        }
+        if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+            query.ai_context.clear();
+        }
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
+        let timeout =
+            if query.ai_eligible && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+                // Windows ai_assistant.cpp permits eight seconds for model inference.
+                std::time::Duration::from_secs(8)
+            } else {
+                std::time::Duration::from_millis(500)
+            };
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
-        let request = json!({"version": 1, "query": query}).to_string();
+        let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
         if request.len() > 16384
             || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()
         {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        // One response deadline: partial writes by the provider must not
+        // restart the inference timeout or grow an unbounded line buffer.
+        let deadline = std::time::Instant::now() + timeout;
+        let mut bytes = Vec::new();
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_read_timeout(Some(remaining)).ok()?;
+            let mut chunk = [0_u8; 1024];
+            let count = stream.read(&mut chunk).ok()?;
+            if count == 0 {
+                return None;
+            }
+            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
+            if bytes.len() > 16384 {
+                return None;
+            }
+            if end.is_some() {
+                break;
+            }
+        }
+        let line = String::from_utf8(bytes).ok()?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
             source: u8,
         }
-        let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Response {
+            Batch { candidates: Vec<Reply> },
+            Single(Reply),
+        }
+        let replies = match serde_json::from_str::<Response>(&line).ok()? {
+            Response::Batch { candidates } => candidates,
+            Response::Single(reply) => vec![reply],
+        };
+        if replies.len() > 2 {
             return None;
         }
-        Some((reply.text, reply.source))
+        let mut seen_sources = [false; 2];
+        let mut candidates = Vec::new();
+        for reply in replies {
+            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+                return None;
+            }
+            if (reply.source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+                || (reply.source == 1 && !query.ai_eligible)
+            {
+                continue;
+            }
+            let source = usize::from(reply.source);
+            if seen_sources[source] {
+                return None;
+            }
+            seen_sources[source] = true;
+            candidates.push((reply.text, reply.source));
+        }
+        Some(candidates)
     }
 
     pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
@@ -319,10 +627,78 @@ impl UnixSocketProvider {
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
         if request.len() > 16384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        // Leave room for the provider's six-second translation batch budget.
+        // A partial response cannot renew this deadline or grow without bound.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let mut bytes = Vec::new();
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_read_timeout(Some(remaining)).ok()?;
+            let mut chunk = [0_u8; 1024];
+            let count = stream.read(&mut chunk).ok()?;
+            if count == 0 {
+                return None;
+            }
+            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
+            if bytes.len() > 131_072 {
+                return None;
+            }
+            if end.is_some() {
+                break;
+            }
+        }
+        let line = String::from_utf8(bytes).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            translations: Vec<TranslationResult>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.translations.len() > 9
+            || reply.translations.iter().any(|item| {
+                item.text.len() > 4096
+                    || item.translation.is_empty()
+                    || item.translation.len() > 4096
+                    || !query.candidates.contains(&item.text)
+            })
+        {
+            return None;
+        }
+        Some(reply.translations)
+    }
+
+    /// Ask the user-owned handwriting recognizer for up to twelve candidates.
+    /// The Linux panel owns ink capture and presentation; this service owns
+    /// model selection and any platform-specific recognizer integration.
+    pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
+        if query.language.len() > 64
+            || query.strokes.is_empty()
+            || query.strokes.len() > 32
+            || query
+                .strokes
+                .iter()
+                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "handwriting", "query": query}).to_string();
+        if request.len() > 262_144
             || stream.write_all(request.as_bytes()).is_err()
             || stream.write_all(b"\n").is_err()
         {
@@ -332,18 +708,278 @@ impl UnixSocketProvider {
         BufReader::new(stream).read_line(&mut line).ok()?;
         #[derive(Deserialize)]
         struct Reply {
-            translations: Vec<TranslationResult>,
+            candidates: Vec<String>,
         }
         let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.translations.len() > 9
+        if reply.candidates.len() > 12
             || reply
-                .translations
+                .candidates
                 .iter()
-                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+                .any(|candidate| candidate.is_empty() || candidate.len() > 4096)
         {
             return None;
         }
-        Some(reply.translations)
+        Some(reply.candidates)
+    }
+
+    /// Search the user-owned emoji catalog. Results stay outside the IBus
+    /// session and can be rendered by any desktop panel toolkit.
+    pub fn emoji(&self, query: EmojiPanelQuery) -> Option<Vec<EmojiPanelItem>> {
+        if query.search.len() > 256
+            || query.category.len() > 128
+            || !(1..=96).contains(&query.limit)
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let request = json!({"version": 1, "kind": "emoji", "query": query}).to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        #[derive(Deserialize)]
+        struct Reply {
+            items: Vec<EmojiPanelItem>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        if reply.items.len() > 96
+            || reply.items.iter().any(|item| {
+                item.text.is_empty() || item.text.len() > 64 || item.annotation.len() > 256
+            })
+        {
+            return None;
+        }
+        Some(reply.items)
+    }
+
+    /// Run one bounded voice capture/ASR request through the user-owned
+    /// service. The service owns PipeWire/ALSA access, credentials and the
+    /// recognizer; the input host only receives bounded UTF-8 text.
+    pub fn voice(&self, language: &str, generation: u64) -> Option<String> {
+        self.voice_with_options(language, generation, &Value::Null)
+    }
+
+    /// Run a voice request with non-sensitive behavior options. Credentials
+    /// are deliberately not accepted here; the provider owns authentication
+    /// and may ignore options it does not understand.
+    pub fn voice_with_options(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+    ) -> Option<String> {
+        self.voice_with_options_cancelled(language, generation, options, None)
+    }
+
+    /// Cancellable variant used by the IBus worker. The provider may still
+    /// take up to the socket read timeout to answer, but cancellation never
+    /// waits for recording or ASR completion.
+    pub fn voice_with_options_cancelled(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+    ) -> Option<String> {
+        self.voice_stream_with_options_cancelled(
+            language,
+            generation,
+            options,
+            cancelled,
+            &mut |_, _| {},
+        )
+        .filter(|text| !text.is_empty())
+    }
+
+    /// Run a newline-delimited voice provider stream. Provider updates use
+    /// `{text, type:"partial"}` (or `interim`) and the terminal update uses
+    /// `{text, type:"final"}`. A legacy single `{text}` response is treated
+    /// as final. Only bounded UTF-8 text crosses the host boundary.
+    #[cfg(unix)]
+    pub fn voice_stream_with_options_cancelled(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
+    ) -> Option<String> {
+        if language.len() > 64 || cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
+            .ok()?;
+        let mut request = json!({
+            "version": 1,
+            "kind": "voice",
+            "query": {"language": language, "generation": generation, "stream": true}
+        });
+        if let Some(query) = request.get_mut("query").and_then(Value::as_object_mut) {
+            if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
+                query.insert("options".to_owned(), options.clone());
+            }
+        }
+        let request = request.to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        // Up to ten minutes of capture, two sixty-second ASR attempts and
+        // optional polishing. Cancellation is checked at least every 100ms.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(730);
+        let mut pending = Vec::new();
+        loop {
+            let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
+            let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
+            if let Some(event_generation) = value.get("generation").and_then(Value::as_u64) {
+                if event_generation != generation {
+                    return None;
+                }
+            }
+            if value.get("ok").and_then(Value::as_bool) == Some(false) {
+                return None;
+            }
+            let text = value.get("text").and_then(Value::as_str).unwrap_or("");
+            if text.len() > 4096 {
+                return None;
+            }
+            let kind = value
+                .get("type")
+                .or_else(|| value.get("event"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let is_final = match kind {
+                "partial" | "interim" | "update" => false,
+                "final" | "done" | "commit" => true,
+                _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
+            };
+            if text.is_empty() && !is_final {
+                continue;
+            }
+            update(text, is_final);
+            if is_final {
+                return Some(text.to_owned());
+            }
+        }
+    }
+
+    /// Ask a user-owned voice provider to stop the active capture session.
+    /// The generation is included so a provider cannot cancel a newer session.
+    #[cfg(unix)]
+    pub fn voice_cancel(&self, generation: u64) -> bool {
+        let mut stream = match UnixStream::connect(&self.path) {
+            Ok(stream) => stream,
+            Err(_) => return false,
+        };
+        if stream
+            .set_write_timeout(Some(std::time::Duration::from_millis(250)))
+            .is_err()
+        {
+            return false;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "voice_cancel",
+            "query": {"generation": generation}
+        })
+        .to_string();
+        request.len() <= 4096
+            && stream.write_all(request.as_bytes()).is_ok()
+            && stream.write_all(b"\n").is_ok()
+    }
+
+    /// Ask a user-owned voice provider to finish the active capture session.
+    /// Unlike cancellation, a stop lets the streaming connection deliver its
+    /// final transcription back to the caller.
+    #[cfg(unix)]
+    pub fn voice_stop(&self, generation: u64) -> bool {
+        let mut stream = match UnixStream::connect(&self.path) {
+            Ok(stream) => stream,
+            Err(_) => return false,
+        };
+        if stream
+            .set_write_timeout(Some(std::time::Duration::from_millis(250)))
+            .is_err()
+        {
+            return false;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "voice_stop",
+            "query": {"generation": generation}
+        })
+        .to_string();
+        request.len() <= 4096
+            && stream.write_all(request.as_bytes()).is_ok()
+            && stream.write_all(b"\n").is_ok()
+    }
+
+    /// Forward one validated account-backed dictionary operation to the
+    /// user-owned service. The provider owns authentication, synchronization,
+    /// and network policy; this adapter only carries bounded JSON.
+    pub fn cloud_dictionary(&self, request: Value) -> Option<Value> {
+        let encoded = json!({
+            "version": 1,
+            "kind": "cloud_dictionary",
+            "request": request,
+        })
+        .to_string();
+        if encoded.len() > 65_536 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        if line.len() > 65_536 {
+            return None;
+        }
+        let response = serde_json::from_str::<Value>(&line).ok()?;
+        response.is_object().then_some(response)
+    }
+
+    /// Forward one account-backed cloud clipboard operation to the
+    /// user-owned service. The provider owns authentication and retention.
+    pub fn cloud_clipboard(&self, request: Value) -> Option<Value> {
+        let encoded = json!({
+            "version": 1,
+            "kind": "cloud_clipboard",
+            "request": request,
+        })
+        .to_string();
+        if encoded.len() > 65_536 {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+            .ok()?;
+        if stream.write_all(encoded.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
+            return None;
+        }
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        if line.len() > 65_536 {
+            return None;
+        }
+        let response = serde_json::from_str::<Value>(&line).ok()?;
+        response.is_object().then_some(response)
     }
 }
 
@@ -446,13 +1082,28 @@ impl OnlineProviderWorker {
 }
 
 pub enum Action {
-    Character { value: u8, shift: bool },
+    ResetCache,
+    Character {
+        value: u8,
+        shift: bool,
+    },
     Punctuation(u8),
+    /// Finish the highlighted composition and append the literal ASCII mark.
+    /// Linux uses this when IBus surrounding text says smart punctuation
+    /// should stay ASCII; the Engine's normal punctuation table remains
+    /// authoritative for every other punctuation action.
+    PunctuationAscii(u8),
     Command(Command),
     Select(CandidateId),
+    /// Select any candidate in the current Engine generation. This is reserved
+    /// for hosts that explicitly requested [`Runtime::all_candidates`].
+    SelectAnyCandidate(CandidateId),
     SelectEdge(CandidateId, CandidateEdge),
     PinCandidate(CandidateId),
     RemoveCandidate(CandidateId),
+    FixCandidatePosition(CandidateId, u8),
+    ClearCandidatePosition(CandidateId),
+    ChooseNineKeySpelling(NineKeySpellingId),
     SelectHighlighted,
     Finish,
     NextPage,
@@ -474,6 +1125,7 @@ pub struct Runtime<E: InputEngine = Session> {
     cached: EngineSnapshot,
     snapshot_valid: bool,
     character_width: CharacterWidth,
+    touch_keyboard_layout: TouchKeyboardLayout,
 }
 
 impl Runtime<Session> {
@@ -501,7 +1153,10 @@ impl Runtime<Session> {
             pinyin_segments: query.pinyin_segments,
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
+            cloud_candidates: true,
             session_id: query.session_id,
+            ai_context: String::new(),
+            ai_assistant: None,
         }))
     }
 
@@ -519,7 +1174,10 @@ impl Runtime<Session> {
         candidate: &str,
         source: u8,
     ) -> Result<bool, RuntimeError> {
-        if source > 1 {
+        if source > 1
+            || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+            || (source == 1 && !query.ai_eligible)
+        {
             return Ok(false);
         }
         let query = OnlineQuerySnapshot {
@@ -556,10 +1214,20 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
-        self.engine.set_dedicated_english(enabled)
+        self.advance()?;
+        self.engine.set_dedicated_english(enabled)?;
+        self.refresh()
     }
 
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
+        Self::new_with_touch_layout(engine, page_size, TouchKeyboardLayout::default())
+    }
+
+    pub fn new_with_touch_layout(
+        engine: E,
+        page_size: u8,
+        touch_keyboard_layout: TouchKeyboardLayout,
+    ) -> Result<Self, RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
@@ -578,6 +1246,7 @@ impl<E: InputEngine> Runtime<E> {
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
+            touch_keyboard_layout,
         })
     }
 
@@ -585,15 +1254,36 @@ impl<E: InputEngine> Runtime<E> {
         self.character_width = width;
     }
 
+    /// Switch the Engine's digit interpretation only after the host finishes composition.
+    pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        if enabled && self.cached.scheme != 0 {
+            return Err(RuntimeError::InvalidNineKeyScheme);
+        }
+        if !self.is_idle() {
+            return Err(RuntimeError::CompositionActive);
+        }
+        if self.cached.nine_key == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_nine_key_enabled(enabled)?;
+        self.refresh()
+    }
+
     pub fn view(&self) -> View {
         let page = self.highlighted / self.page_size;
         let start = page * self.page_size;
         View {
+            scheme: self.cached.scheme,
+            nine_key: self.cached.nine_key,
+            nine_key_spellings: self.cached.nine_key_spellings.clone(),
+            touch_keyboard_layout: self.touch_keyboard_layout,
             character_width: self.character_width,
             microsoft_shuangpin: self.cached.microsoft_shuangpin,
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
             answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
             local_mode: self.cached.local_mode.clone(),
+            dedicated_english: self.cached.dedicated_english,
             session: self.session,
             generation: self.generation,
             focused: self.focused,
@@ -610,23 +1300,61 @@ impl<E: InputEngine> Runtime<E> {
                 .enumerate()
                 .skip(start)
                 .take(self.page_size)
-                .map(|(index, text)| Candidate {
-                    id: CandidateId {
-                        session: self.session,
-                        generation: self.generation,
-                        index,
-                    },
-                    text: text.clone(),
-                    annotation: self
-                        .cached
-                        .candidate_annotations
-                        .get(index)
-                        .cloned()
-                        .unwrap_or_default(),
-                    highlighted: index == self.highlighted,
-                    translation: self.translations.get(text).cloned(),
-                })
+                .map(|(index, text)| self.candidate(index, text))
                 .collect(),
+        }
+    }
+
+    /// Copy the complete candidate generation for an explicitly opened panel.
+    pub fn all_candidates(&self) -> CandidateSnapshot {
+        CandidateSnapshot {
+            session: self.session,
+            generation: self.generation,
+            preedit: self.cached.preedit.clone(),
+            candidates: self
+                .cached
+                .candidates
+                .iter()
+                .enumerate()
+                .map(|(index, text)| self.candidate(index, text))
+                .collect(),
+        }
+    }
+
+    fn candidate(&self, index: usize, text: &str) -> Candidate {
+        Candidate {
+            id: CandidateId {
+                session: self.session,
+                generation: self.generation,
+                index,
+            },
+            text: text.to_owned(),
+            annotation: self
+                .cached
+                .candidate_annotations
+                .get(index)
+                .cloned()
+                .unwrap_or_default(),
+            source: self
+                .cached
+                .candidate_sources
+                .get(index)
+                .copied()
+                .unwrap_or_default(),
+            corrected: self
+                .cached
+                .candidate_corrected
+                .get(index)
+                .copied()
+                .unwrap_or(false),
+            fixed_position: self
+                .cached
+                .candidate_positions
+                .get(index)
+                .copied()
+                .unwrap_or_default(),
+            highlighted: index == self.highlighted,
+            translation: self.translations.get(text).cloned(),
         }
     }
 
@@ -670,6 +1398,15 @@ impl<E: InputEngine> Runtime<E> {
     /// Preserve the host handle/focus while invalidating every old candidate ID.
     /// Validate the replacement before changing any live state.
     pub fn replace_engine(&mut self, engine: E, page_size: u8) -> Result<(), RuntimeError> {
+        self.replace_engine_with_touch_layout(engine, page_size, self.touch_keyboard_layout)
+    }
+
+    pub fn replace_engine_with_touch_layout(
+        &mut self,
+        engine: E,
+        page_size: u8,
+        touch_keyboard_layout: TouchKeyboardLayout,
+    ) -> Result<(), RuntimeError> {
         if !(1..=9).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
@@ -683,6 +1420,7 @@ impl<E: InputEngine> Runtime<E> {
         self.snapshot_valid = true;
         self.page_size = page_size.into();
         self.highlighted = 0;
+        self.touch_keyboard_layout = touch_keyboard_layout;
         Ok(())
     }
 
@@ -715,11 +1453,17 @@ impl<E: InputEngine> Runtime<E> {
             &mut self.cached,
             EngineSnapshot {
                 scheme: 255,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
                 candidate_annotations: Vec::new(),
+                candidate_sources: Vec::new(),
+                candidate_positions: Vec::new(),
+                candidate_corrected: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
                 local_mode: "unknown".into(),
+                dedicated_english: false,
                 preedit: String::new(),
                 editing_text: String::new(),
                 caret_position: 0,
@@ -733,8 +1477,12 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
+            && self.cached.dedicated_english == previous.dedicated_english
             && self.cached.candidates == previous.candidates
             && self.cached.candidate_annotations == previous.candidate_annotations
+            && self.cached.candidate_sources == previous.candidate_sources
+            && self.cached.candidate_positions == previous.candidate_positions
+            && self.cached.candidate_corrected == previous.candidate_corrected
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -789,14 +1537,42 @@ impl<E: InputEngine> Runtime<E> {
         Ok(finished)
     }
 
+    fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+        // Keep the same highlighted-candidate completion semantics as normal
+        // punctuation, but do not ask Engine to translate the trailing mark.
+        // The Linux host has already applied its surrounding-text policy.
+        let mut finished = self.engine.finish(self.highlighted)?;
+        if !finished.has_commit {
+            return Ok(finished);
+        }
+        finished.handled = true;
+        finished.commit.push(char::from(value));
+        Ok(finished)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
-        if matches!(&action, Action::Punctuation(value) if !value.is_ascii_punctuation()) {
+        if matches!(&action, Action::Punctuation(value) | Action::PunctuationAscii(value) if !value.is_ascii_punctuation())
+        {
             return Err(RuntimeError::InvalidPunctuation);
         }
         if !self.focused {
             return Ok(self.transition(empty_result(false)));
         }
-        if let Action::Select(id) | Action::SelectEdge(id, _) | Action::PinCandidate(id) | Action::RemoveCandidate(id) = &action {
+        if let Action::SelectAnyCandidate(id) = &action {
+            if id.session != self.session
+                || id.generation != self.generation
+                || id.index >= self.cached.candidates.len()
+            {
+                return Err(RuntimeError::StaleCandidate);
+            }
+        }
+        if let Action::Select(id)
+        | Action::SelectEdge(id, _)
+        | Action::PinCandidate(id)
+        | Action::RemoveCandidate(id)
+        | Action::FixCandidatePosition(id, _)
+        | Action::ClearCandidatePosition(id) = &action
+        {
             let start = (self.highlighted / self.page_size) * self.page_size;
             if id.session != self.session
                 || id.generation != self.generation
@@ -804,6 +1580,15 @@ impl<E: InputEngine> Runtime<E> {
                 || id.index >= (start + self.page_size).min(self.cached.candidates.len())
             {
                 return Err(RuntimeError::StaleCandidate);
+            }
+        }
+        if let Action::ChooseNineKeySpelling(id) = &action {
+            if id.session != self.session
+                || id.generation != self.generation
+                || !self.cached.nine_key
+                || id.index >= self.cached.nine_key_spellings.len()
+            {
+                return Err(RuntimeError::StaleNineKeySpelling);
             }
         }
         self.advance()?;
@@ -837,15 +1622,33 @@ impl<E: InputEngine> Runtime<E> {
             local_mode: self.cached.local_mode.clone(),
         };
         let result = match action {
+            Action::ResetCache => {
+                self.engine.reset_cache()?;
+                Ok(EngineResult {
+                    handled: true,
+                    has_commit: false,
+                    commit: String::new(),
+                    diagnostic: String::new(),
+                })
+            }
             Action::Punctuation(value) => self.punctuation(value),
+            Action::PunctuationAscii(value) => self.punctuation_ascii(value),
             Action::Finish => self.engine.finish(self.highlighted),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
+                    // The nine-key separator is a layout action, not Chinese quote punctuation.
+                    if !result.handled && self.cached.nine_key && value == b'\'' {
+                        return Ok(result);
+                    }
                     if !result.handled && value.is_ascii_punctuation() {
                         return self.punctuation(value);
                     }
                     // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first.
-                    if result.handled || !(b'1'..=b'9').contains(&value) || len == 0 {
+                    if result.handled
+                        || self.cached.nine_key
+                        || !(b'1'..=b'9').contains(&value)
+                        || len == 0
+                    {
                         return Ok(result);
                     }
                     let page_start = (self.highlighted / self.page_size) * self.page_size;
@@ -858,9 +1661,20 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Command(command) => self.engine.command(command),
             Action::Select(id) => self.engine.select(id.index),
+            Action::SelectAnyCandidate(id) => self.engine.select(id.index),
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
             Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
             Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
+            Action::FixCandidatePosition(id, position) => {
+                if !(1..=5).contains(&position) {
+                    return Err(RuntimeError::Engine(
+                        "Candidate position must be between 1 and 5".into(),
+                    ));
+                }
+                self.engine.fix_candidate_position(id.index, position)
+            }
+            Action::ClearCandidatePosition(id) => self.engine.clear_candidate_position(id.index),
+            Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
             Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
@@ -891,14 +1705,60 @@ fn empty_result(handled: bool) -> EngineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::net::UnixListener;
     use std::time::Duration;
     struct Fixture {
+        scheme: u8,
+        dedicated_english: bool,
+        nine_key: bool,
+        nine_key_spellings: Vec<String>,
         local_mode: String,
         words: Vec<String>,
         text: String,
         snapshot_fails: bool,
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_dictionary_provider_forwards_bounded_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("cloud-dictionary.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut reader, &mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["version"], 1);
+            assert_eq!(request["kind"], "cloud_dictionary");
+            assert_eq!(request["request"]["operation"], "changes");
+            let mut stream = stream;
+            std::io::Write::write_all(&mut stream, br#"{"changes":[],"next":0}"#).unwrap();
+            std::io::Write::write_all(&mut stream, b"\n").unwrap();
+        });
+        let request = json!({"operation":"changes","after":0,"limit":1});
+        let response = UnixSocketProvider::new(socket)
+            .cloud_dictionary(request)
+            .unwrap();
+        assert_eq!(response["next"], 0);
+        server.join().unwrap();
+    }
     impl InputEngine for Fixture {
+        fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+            self.nine_key = enabled;
+            self.nine_key_spellings.clear();
+            Ok(())
+        }
+        fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+            if !self.nine_key || index >= self.nine_key_spellings.len() {
+                return Ok(empty_result(false));
+            }
+            self.text = self.nine_key_spellings[index].clone();
+            self.nine_key_spellings = vec![self.text.clone()];
+            Ok(empty_result(true))
+        }
         fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
             if value == b'!' {
                 return Err(RuntimeError::Engine("injected punctuation failure".into()));
@@ -926,17 +1786,23 @@ mod tests {
                 return Err(RuntimeError::Engine("injected snapshot failure".into()));
             }
             Ok(EngineSnapshot {
-                scheme: 0,
+                scheme: self.scheme,
+                nine_key: self.nine_key,
+                nine_key_spellings: self.nine_key_spellings.clone(),
                 candidate_annotations: self
                     .words
                     .iter()
                     .enumerate()
                     .map(|(index, _)| format!("({index})"))
                     .collect(),
+                candidate_sources: vec![0; self.words.len()],
+                candidate_positions: vec![0; self.words.len()],
+                candidate_corrected: vec![false; self.words.len()],
                 microsoft_shuangpin: false,
                 shuangpin_profile: "xiaohe".into(),
                 answered_by_pinyin_fallback: false,
                 local_mode: self.local_mode.clone(),
+                dedicated_english: self.dedicated_english,
                 preedit: self.text.clone(),
                 editing_text: self.text.clone(),
                 caret_position: self.text.len(),
@@ -948,6 +1814,11 @@ mod tests {
             })
         }
         fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
+            if self.nine_key && (b'2'..=b'9').contains(&value) {
+                self.text.push(value as char);
+                self.nine_key_spellings = vec!["ni".into(), "mi".into()];
+                return Ok(empty_result(true));
+            }
             if value.is_ascii_digit() || value.is_ascii_punctuation() {
                 return Ok(empty_result(false));
             }
@@ -956,10 +1827,12 @@ mod tests {
         }
         fn command(&mut self, _command: Command) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.nine_key_spellings.clear();
             Ok(empty_result(true))
         }
         fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
             self.text.clear();
+            self.nine_key_spellings.clear();
             self.local_mode = "none".into();
             Ok(EngineResult {
                 handled: true,
@@ -984,6 +1857,10 @@ mod tests {
     fn runtime() -> Runtime<Fixture> {
         Runtime::new(
             Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
                 local_mode: "none".into(),
                 words: (0..12).map(|n| format!("candidate-{n}")).collect(),
                 text: String::new(),
@@ -1013,7 +1890,10 @@ mod tests {
             pinyin_segments: vec!["ni".into(), "hao".into()],
             cloud_eligible: true,
             ai_eligible: true,
+            cloud_candidates: true,
             session_id: 9,
+            ai_context: String::new(),
+            ai_assistant: None,
         };
         let worker = OnlineProviderWorker::spawn(1, |query| {
             if query.query_text == "nihao" {
@@ -1054,7 +1934,10 @@ mod tests {
             pinyin_segments: vec![],
             cloud_eligible: false,
             ai_eligible: false,
+            cloud_candidates: true,
             session_id: 1,
+            ai_context: String::new(),
+            ai_assistant: None,
         };
         assert!(cloud_request_url(&query).is_none());
         query.cloud_eligible = true;
@@ -1107,6 +1990,44 @@ mod tests {
     }
 
     #[test]
+    fn touch_layout_changes_atomically_with_engine_replacement() {
+        let mut active = runtime();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        active.focus(true).unwrap();
+        type_key(&mut active);
+        assert!(matches!(
+            active.replace_engine_with_touch_layout(
+                runtime().engine,
+                2,
+                TouchKeyboardLayout::NineKey
+            ),
+            Err(RuntimeError::CompositionActive)
+        ));
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::TwentySixKey
+        );
+        active.dispatch(Action::Command(Command::Cancel)).unwrap();
+        active
+            .replace_engine_with_touch_layout(runtime().engine, 2, TouchKeyboardLayout::NineKey)
+            .unwrap();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::NineKey
+        );
+        active
+            .replace_engine_with_touch_layout(runtime().engine, 2, TouchKeyboardLayout::Handwriting)
+            .unwrap();
+        assert_eq!(
+            active.view().touch_keyboard_layout,
+            TouchKeyboardLayout::Handwriting
+        );
+    }
+
+    #[test]
     fn translations_are_generation_scoped_and_exposed_on_candidates() {
         let mut runtime = runtime();
         runtime.focus(true).unwrap();
@@ -1156,6 +2077,73 @@ mod tests {
             .unwrap();
         assert_eq!(result.commit.as_deref(), Some("candidate-7"));
         assert!(result.view.candidates.is_empty());
+    }
+
+    #[test]
+    fn complete_candidate_snapshot_is_on_demand_and_preserves_global_identity() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view;
+        assert_eq!(page.candidates.len(), 5);
+        assert!(runtime.apply_translations(
+            page.generation,
+            [("candidate-10".into(), "translated".into())]
+        ));
+
+        let snapshot = runtime.all_candidates();
+        assert_eq!(snapshot.session, page.session);
+        assert_eq!(snapshot.generation, page.generation);
+        assert_eq!(snapshot.preedit, "a");
+        assert_eq!(snapshot.candidates.len(), 12);
+        assert_eq!(snapshot.candidates[10].id.index, 10);
+        assert_eq!(snapshot.candidates[10].annotation, "(10)");
+        assert_eq!(snapshot.candidates[10].source, 0);
+        assert_eq!(snapshot.candidates[10].fixed_position, 0);
+        assert_eq!(
+            snapshot.candidates[10].translation.as_deref(),
+            Some("translated")
+        );
+        assert!(snapshot.candidates[0].highlighted);
+    }
+
+    #[test]
+    fn expanded_panel_selection_accepts_only_any_candidate_from_current_generation() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view;
+        let outside_page = runtime.all_candidates().candidates[10].id;
+        let generation = page.generation;
+
+        assert!(matches!(
+            runtime.dispatch(Action::Select(outside_page)),
+            Err(RuntimeError::StaleCandidate)
+        ));
+        for invalid in [
+            CandidateId {
+                session: outside_page.session + 1,
+                ..outside_page
+            },
+            CandidateId {
+                generation: outside_page.generation + 1,
+                ..outside_page
+            },
+            CandidateId {
+                index: 12,
+                ..outside_page
+            },
+        ] {
+            assert!(matches!(
+                runtime.dispatch(Action::SelectAnyCandidate(invalid)),
+                Err(RuntimeError::StaleCandidate)
+            ));
+            assert_eq!(runtime.view().generation, generation);
+        }
+
+        let selected = runtime
+            .dispatch(Action::SelectAnyCandidate(outside_page))
+            .unwrap();
+        assert_eq!(selected.commit.as_deref(), Some("candidate-10"));
+        assert!(selected.view.candidates.is_empty());
     }
 
     #[test]
@@ -1327,6 +2315,80 @@ mod tests {
     }
 
     #[test]
+    fn nine_key_mode_owns_digits_and_spelling_choices_are_generation_scoped() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        let original_generation = runtime.view().generation;
+        runtime.set_nine_key_enabled(true).unwrap();
+        assert!(runtime.view().nine_key && runtime.view().generation > original_generation);
+        let typed = runtime
+            .dispatch(Action::Character {
+                value: b'6',
+                shift: false,
+            })
+            .unwrap();
+        assert!(typed.handled && typed.commit.is_none());
+        assert_eq!(
+            typed.view.nine_key_spellings,
+            vec!["ni".to_owned(), "mi".to_owned()]
+        );
+        let invalid_digit = runtime
+            .dispatch(Action::Character {
+                value: b'1',
+                shift: false,
+            })
+            .unwrap();
+        assert!(!invalid_digit.handled && invalid_digit.commit.is_none());
+        let separator = runtime
+            .dispatch(Action::Character {
+                value: b'\'',
+                shift: false,
+            })
+            .unwrap();
+        assert!(!separator.handled && separator.commit.is_none());
+        let generation = separator.view.generation;
+        let stale = NineKeySpellingId {
+            session: separator.view.session,
+            generation: generation - 1,
+            index: 0,
+        };
+        assert!(matches!(
+            runtime.dispatch(Action::ChooseNineKeySpelling(stale)),
+            Err(RuntimeError::StaleNineKeySpelling)
+        ));
+        let invalid = NineKeySpellingId {
+            session: separator.view.session,
+            generation,
+            index: 2,
+        };
+        assert!(matches!(
+            runtime.dispatch(Action::ChooseNineKeySpelling(invalid)),
+            Err(RuntimeError::StaleNineKeySpelling)
+        ));
+        let selected = runtime
+            .dispatch(Action::ChooseNineKeySpelling(NineKeySpellingId {
+                session: separator.view.session,
+                generation,
+                index: 1,
+            }))
+            .unwrap();
+        assert!(selected.handled && selected.view.editing_text == "mi");
+        assert!(matches!(
+            runtime.set_nine_key_enabled(false),
+            Err(RuntimeError::CompositionActive)
+        ));
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        runtime.set_nine_key_enabled(false).unwrap();
+        assert!(!runtime.view().nine_key);
+        runtime.engine.scheme = 1;
+        runtime.refresh().unwrap();
+        assert!(matches!(
+            runtime.set_nine_key_enabled(true),
+            Err(RuntimeError::InvalidNineKeyScheme)
+        ));
+    }
+
+    #[test]
     fn unavailable_numeric_slot_does_not_jump_back_to_first_page() {
         let mut runtime = runtime();
         runtime.focus(true).unwrap();
@@ -1359,6 +2421,26 @@ mod tests {
         assert_eq!(result.view.local_mode, "unicode");
         assert_eq!(result.view.page, 0);
         assert!(!result.view.editing_text.starts_with('U'));
+    }
+
+    #[test]
+    fn dedicated_english_state_resets_highlight_without_guessing_from_text() {
+        let mut runtime = runtime();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime.dispatch(Action::NextPage).unwrap();
+        let text = runtime.view().editing_text;
+        assert!(!runtime.view().dedicated_english);
+        assert_eq!(runtime.view().page, 1);
+        runtime.engine.dedicated_english = true;
+        runtime.refresh().unwrap();
+        assert!(runtime.view().dedicated_english);
+        assert_eq!(runtime.view().page, 0);
+        assert_eq!(runtime.view().editing_text, text);
+        assert_eq!(runtime.view().local_mode, "none");
+        runtime.engine.dedicated_english = false;
+        runtime.refresh().unwrap();
+        assert!(!runtime.view().dedicated_english);
     }
 
     #[test]

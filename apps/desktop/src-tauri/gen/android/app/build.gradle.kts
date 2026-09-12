@@ -59,7 +59,8 @@ android {
         java.srcDir(clientRoot.resolve("platforms/android/java"))
         res.setSrcDirs(listOf("src/main/res-msime", clientRoot.resolve("platforms/android/res"), clientRoot.resolve("apps/desktop/src-tauri/icons/android")))
         assets.srcDir(clientRoot.resolve("target/android/tauri-assets"))
-        jniLibs.srcDir(clientRoot.resolve("target/android/jniLibs"))
+        // Tauri supplies libc++_shared from the pinned NDK; this directory contains only MSIME libs.
+        jniLibs.srcDir(clientRoot.resolve("target/android/tauri-jniLibs"))
     }
     buildFeatures {
         buildConfig = true
@@ -75,6 +76,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")

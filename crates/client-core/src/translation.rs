@@ -1,12 +1,247 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
 
+use hmac::{Hmac, Mac};
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 use std::io::Read;
 use std::time::{Duration, Instant};
 
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
 const BATCH_BUDGET: Duration = Duration::from_secs(6);
+const MAX_SOURCE_CHARS: usize = 40;
+const MAX_PERSIST_GLOSS_CHARS: usize = 32;
+
+/// Tencent TC3 signing primitive. The caller owns credential lifetime.
+pub fn tencent_tc3_derive(secret_key: &str, date: &str, service: &str, message: &str) -> String {
+    type HmacSha256 = Hmac<Sha256>;
+    let sign = |key: &[u8], data: &str| -> Vec<u8> {
+        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts arbitrary keys");
+        mac.update(data.as_bytes());
+        mac.finalize().into_bytes().to_vec()
+    };
+    let date_key = sign(format!("TC3{secret_key}").as_bytes(), date);
+    let service_key = sign(&date_key, service);
+    let signing_key = sign(&service_key, "tc3_request");
+    hex::encode(sign(&signing_key, message))
+}
+
+pub fn tencent_tc3_canonical_request(payload_sha256: &str) -> String {
+    format!("POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\n{payload_sha256}")
+}
+
+pub fn tencent_tc3_sha256_hex(data: &[u8]) -> String {
+    hex::encode(Sha256::digest(data))
+}
+
+pub fn tencent_tc3_authorization(
+    secret_id: &str,
+    secret_key: &str,
+    timestamp: i64,
+    date: &str,
+    payload: &[u8],
+) -> String {
+    if secret_id.is_empty() || secret_key.is_empty() || date.is_empty() {
+        return String::new();
+    }
+    let canonical = tencent_tc3_canonical_request(&tencent_tc3_sha256_hex(payload));
+    let scope = format!("{date}/tmt/tc3_request");
+    let string_to_sign = format!(
+        "TC3-HMAC-SHA256\n{timestamp}\n{scope}\n{}",
+        tencent_tc3_sha256_hex(canonical.as_bytes())
+    );
+    let signature = tencent_tc3_derive(secret_key, date, "tmt", &string_to_sign);
+    format!("TC3-HMAC-SHA256 Credential={secret_id}/{scope}, SignedHeaders=content-type;host;x-tc-action, Signature={signature}")
+}
+
+pub fn tencent_tmt_headers(
+    region: &str,
+    timestamp: i64,
+    authorization: &str,
+) -> Vec<(String, String)> {
+    vec![
+        (
+            "Content-Type".into(),
+            "application/json; charset=utf-8".into(),
+        ),
+        ("Host".into(), "tmt.tencentcloudapi.com".into()),
+        ("X-TC-Action".into(), "TextTranslateBatch".into()),
+        ("X-TC-Timestamp".into(), timestamp.to_string()),
+        ("X-TC-Version".into(), "2018-03-21".into()),
+        (
+            "X-TC-Region".into(),
+            if region.is_empty() {
+                "ap-guangzhou"
+            } else {
+                region
+            }
+            .into(),
+        ),
+        ("Authorization".into(), authorization.into()),
+    ]
+}
+
+/// One signed Tencent TMT call: the credentials, the region they are scoped to
+/// and the moment the signature covers.
+pub struct TencentTmtRequest<'a> {
+    pub secret_id: &'a str,
+    pub secret_key: &'a str,
+    pub region: &'a str,
+    pub timestamp: i64,
+    pub date: &'a str,
+    pub source: &'a str,
+    pub target: &'a str,
+}
+
+pub fn translate_tencent_batch(
+    request_info: &TencentTmtRequest<'_>,
+    texts: &[String],
+) -> Vec<Option<String>> {
+    let TencentTmtRequest {
+        secret_id,
+        secret_key,
+        region,
+        timestamp,
+        date,
+        source,
+        target,
+    } = *request_info;
+    let results = vec![None; texts.len()];
+    let Some(payload) = tencent_tmt_payload(source, target, texts) else {
+        return results;
+    };
+    let authorization =
+        tencent_tc3_authorization(secret_id, secret_key, timestamp, date, payload.as_bytes());
+    if authorization.is_empty() {
+        return results;
+    }
+    let client = match reqwest::blocking::Client::builder()
+        .connect_timeout(REQUEST_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return results,
+    };
+    let mut request = client.post("https://tmt.tencentcloudapi.com").body(payload);
+    for (name, value) in tencent_tmt_headers(region, timestamp, &authorization) {
+        request = request.header(name, value);
+    }
+    let response = match request.send() {
+        Ok(response) if response.status().is_success() => response,
+        _ => return results,
+    };
+    let body = match response.text() {
+        Ok(body) => body,
+        Err(_) => return results,
+    };
+    parse_tencent_tmt_response(&body, texts.len())
+        .into_iter()
+        .flatten()
+        .map(Some)
+        .collect()
+}
+
+pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
+    if source.is_empty()
+        || target.is_empty()
+        || texts.is_empty()
+        || texts.len() > 50
+        || texts
+            .iter()
+            .any(|text| text.chars().count() > MAX_SOURCE_CHARS)
+    {
+        return None;
+    }
+    Some(
+        serde_json::json!({
+            "Source": source,
+            "Target": target,
+            "ProjectId": 0,
+            "SourceTextList": texts,
+        })
+        .to_string(),
+    )
+}
+
+pub fn parse_tencent_tmt_response(response: &str, expected: usize) -> Option<Vec<String>> {
+    let root: Value = serde_json::from_str(response).ok()?;
+    let values = root.get("Response")?.get("TargetTextList")?.as_array()?;
+    if values.len() != expected || values.iter().any(|value| value.as_str().is_none()) {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect(),
+    )
+}
+
+pub fn format_translation_gloss(text: &str) -> Option<String> {
+    let mut output = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for ch in text.chars() {
+        if matches!(ch, ' ' | '\t' | '\r' | '\n') {
+            pending_space = !output.is_empty();
+            continue;
+        }
+        if pending_space {
+            output.push(' ');
+            pending_space = false;
+        }
+        if ch.is_control() {
+            return None;
+        }
+        output.push(ch);
+    }
+    (!output.is_empty()).then_some(output)
+}
+
+pub fn should_persist_translation(key: &str, gloss: &str) -> bool {
+    !key.is_empty()
+        && !gloss.is_empty()
+        && gloss.chars().count() <= MAX_PERSIST_GLOSS_CHARS
+        && !gloss.eq_ignore_ascii_case(key)
+}
+
+pub fn usable_tencent_secret(value: &str) -> bool {
+    let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
+    !trimmed.is_empty()
+        && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
+        && !trimmed.starts_with("FAKESECRET_")
+}
+
+pub fn is_cloud_translatable_english(text: &str) -> bool {
+    let mut has_letter = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphabetic() {
+            has_letter = true;
+        } else if !matches!(ch, ' ' | '-' | '\'') {
+            return false;
+        }
+    }
+    has_letter
+}
+
+pub fn is_cloud_translatable_chinese(text: &str) -> bool {
+    let mut has_han = false;
+    for ch in text.chars() {
+        if ('\u{3400}'..='\u{4DBF}').contains(&ch)
+            || ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+            || ch == '\u{3007}'
+        {
+            has_han = true;
+        } else if ch.is_ascii_punctuation() || ch.is_ascii_whitespace() {
+            continue;
+        } else if ch.is_ascii() || ('\u{1F000}'..='\u{1FAFF}').contains(&ch) {
+            return false;
+        }
+    }
+    has_han
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationConfig {
@@ -19,6 +254,17 @@ pub fn translate_batch(
     texts: &[String],
     source: &str,
     target: &str,
+) -> Vec<Option<String>> {
+    let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(480));
+    translate_batch_cached(config, texts, source, target, &mut cache)
+}
+
+pub fn translate_batch_cached(
+    config: &TranslationConfig,
+    texts: &[String],
+    source: &str,
+    target: &str,
+    cache: &mut crate::cloud::TranslationCache,
 ) -> Vec<Option<String>> {
     let mut results = vec![None; texts.len()];
     if texts.is_empty()
@@ -38,7 +284,20 @@ pub fn translate_batch(
         Err(_) => return results,
     };
     let started = Instant::now();
+    let scope = format!("{}\0{}\0", source, target);
+    let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
+        if text.chars().count() > MAX_SOURCE_CHARS {
+            continue;
+        }
+        let cache_key = format!("{scope}{text}");
+        if let Some(value) = cache.get(&cache_key) {
+            results[index] = value;
+        } else {
+            pending.push((index, text));
+        }
+    }
+    for (index, text) in pending {
         let timeout = request_timeout(started.elapsed());
         if timeout.is_zero() {
             break;
@@ -58,7 +317,9 @@ pub fn translate_batch(
             Ok(response) if response.status().is_success() => response,
             _ => continue,
         };
-        results[index] = read_translation_response(response);
+        let value = read_translation_response(response);
+        cache.remember(format!("{scope}{text}"), value.clone());
+        results[index] = value;
     }
     results
 }
@@ -236,5 +497,98 @@ mod tests {
         let result = translate_batch(&config, &["hello".into()], "en", "zh");
         server.join().unwrap();
         assert_eq!(result, vec![Some("你好".into())]);
+    }
+
+    #[test]
+    fn tencent_tc3_signature_is_deterministic_and_message_bound() {
+        let first = tencent_tc3_derive("secret", "20240101", "tmt", "request");
+        assert_eq!(
+            first,
+            tencent_tc3_derive("secret", "20240101", "tmt", "request")
+        );
+        assert_eq!(first.len(), 64);
+        assert_ne!(
+            first,
+            tencent_tc3_derive("secret", "20240101", "tmt", "other")
+        );
+        assert_ne!(
+            first,
+            tencent_tc3_derive("different", "20240101", "tmt", "request")
+        );
+    }
+
+    #[test]
+    fn tencent_tc3_canonical_request_matches_protocol_layout() {
+        assert_eq!(
+            tencent_tc3_canonical_request("payload-hash"),
+            "POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\ncontent-type;host;x-tc-action\npayload-hash"
+        );
+    }
+
+    #[test]
+    fn translation_inputs_over_source_limit_are_not_requested() {
+        let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(1));
+        let config = TranslationConfig {
+            endpoint: "ftp://invalid".into(),
+            api_key: String::new(),
+        };
+        assert_eq!(
+            translate_batch_cached(&config, &["字".repeat(41)], "zh", "en", &mut cache),
+            vec![None]
+        );
+    }
+
+    #[test]
+    fn tencent_tmt_payload_matches_batch_contract() {
+        let payload = tencent_tmt_payload("zh", "en", &["你好".into()]).unwrap();
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(value["Source"], "zh");
+        assert_eq!(value["Target"], "en");
+        assert_eq!(value["ProjectId"], 0);
+        assert_eq!(value["SourceTextList"][0], "你好");
+        assert!(tencent_tmt_payload("zh", "en", &["字".repeat(41)]).is_none());
+    }
+
+    #[test]
+    fn parses_tencent_tmt_response_with_exact_batch_size() {
+        assert_eq!(
+            parse_tencent_tmt_response(r#"{"Response":{"TargetTextList":["a","b"]}}"#, 2),
+            Some(vec!["a".into(), "b".into()])
+        );
+        assert!(
+            parse_tencent_tmt_response(r#"{"Response":{"TargetTextList":["a"]}}"#, 2).is_none()
+        );
+    }
+
+    #[test]
+    fn formats_translation_gloss_like_windows_provider() {
+        assert_eq!(
+            format_translation_gloss("  hello\tworld\n"),
+            Some("hello world".into())
+        );
+        assert_eq!(format_translation_gloss("\u{0000}"), None);
+    }
+
+    #[test]
+    fn persistence_requires_short_changed_gloss() {
+        assert!(should_persist_translation("hello", "你好"));
+        assert!(!should_persist_translation("hello", "hello"));
+        assert!(!should_persist_translation("hello", &"字".repeat(33)));
+    }
+
+    #[test]
+    fn rejects_placeholder_tencent_secrets() {
+        assert!(usable_tencent_secret(" real-secret "));
+        assert!(!usable_tencent_secret("<YOUR_TENCENT_SECRET_ID>"));
+        assert!(!usable_tencent_secret("FAKESECRET_test"));
+        assert!(!usable_tencent_secret(" \n\t"));
+    }
+
+    #[test]
+    fn filters_cloud_translation_candidates_by_script() {
+        assert!(is_cloud_translatable_english("hello-world"));
+        assert!(!is_cloud_translatable_english("123"));
+        assert!(is_cloud_translatable_chinese("你好"));
+        assert!(!is_cloud_translatable_chinese("你好😀"));
     }
 }

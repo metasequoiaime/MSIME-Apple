@@ -16,6 +16,7 @@ int main() {
                             {"preedit_style", "pinyin"}};
     const auto good = PreviewConfig::parse(document.dump());
     require(good.style == TsfPreeditStyle::Pinyin);
+    require(good.floating_toolbar_enabled);
     require(!good.navigation.minus_equal && !good.navigation.comma_period &&
             !good.navigation.brackets && !good.navigation.tab &&
             !good.navigation.page_up_down && !good.navigation.arrows &&
@@ -68,6 +69,11 @@ int main() {
     document["preedit_style"] = "local";
     require(PreviewConfig::parse(document.dump()).style ==
             TsfPreeditStyle::Local);
+    document["floating_toolbar_enabled"] = false;
+    require(!PreviewConfig::parse(document.dump()).floating_toolbar_enabled);
+    document["floating_toolbar_enabled"] = 1;
+    reject(document);
+    document["floating_toolbar_enabled"] = true;
     const nlohmann::json bindings{
         {"minus_equal", false},        {"comma_period", false},
         {"brackets", false},           {"tab", false},
@@ -109,6 +115,50 @@ int main() {
     reject(document);
     document["key_bindings"] = nullptr;
     reject(document);
+    document.erase("key_bindings");
+    // Appearance is optional; without it the presenters keep their built-ins.
+    require(good.skin_directory.empty() && good.skin_id.empty() &&
+            good.dark_theme);
+    const auto skins = (root / "skins").u8string();
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", "wechat"},
+                              {"dark_theme", false}};
+    const auto themed = PreviewConfig::parse(document.dump());
+    require(themed.skin_directory == std::filesystem::u8path(skins) &&
+            themed.skin_id == "wechat" && !themed.dark_theme);
+    require(themed.horizontal_candidates); // The shipped default is one row.
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "vertical"}};
+    require(!PreviewConfig::parse(document.dump()).horizontal_candidates);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "horizontal"}};
+    require(PreviewConfig::parse(document.dump()).horizontal_candidates);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "grid"}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", 1}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}};
+    const auto rooted = PreviewConfig::parse(document.dump());
+    require(rooted.skin_id.empty() && rooted.dark_theme);
+    // A skin root has to be absolute and named, like every other preview path.
+    document["appearance"] = {{"skin_directory", "skins"}};
+    reject(document);
+    document["appearance"] = nlohmann::json::object();
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"skin", 7}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", std::string(65, 'a')}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"dark_theme", "no"}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", "wechat"},
+                              {"dark_theme", true},
+                              {"layout", "vertical"},
+                              {"extra", 1}};
+    reject(document);
+    document["appearance"] = skins;
+    reject(document);
+    document.erase("appearance");
     std::cout
         << "Preview configuration: isolated names and strict fields passed\n";
   } catch (...) {

@@ -1,5 +1,9 @@
 # macOS InputMethodKit 预览宿主
 
+SwiftUI 设置同步现覆盖 16 个当前宿主偏好：候选皮肤、布局、字号、页大小、输入方案、翻页快捷键，以及纠错、辅助码、中文标点、中英文模式、切换快捷键、全角、浮动工具栏、繁体输出、五笔自动上屏、双拼提示。云端字段来自 Apple 固定提交 `2b0250f4dd7012520392b310dfcc0288c3208a75`，本地键与默认值以共享客户端实际宿主为准。布尔字段只接收 JSON 布尔值，输入方案只接收当前支持的 0/1/2。旧云端快照缺少新增字段时不会部分应用，可先上传本机完整快照；其他平台云端字段由既有合并逻辑保留。双拼配置、辅助码方案、学习策略等其余设置仍需迁移；本地测试不是实际云端和已安装输入源验收。
+
+“账户状态…”菜单直接打开随 bundle 加载的 SwiftUI 账户窗口，不再要求手填账户 ID。登录、设置同步、云词典、剪贴板、快照及社区资源由该窗口的共享账户会话管理。独立“云剪贴板…”菜单同样使用共享会话：已登录时打开该账户的 SwiftUI 剪贴板，未登录或读取会话失败时打开登录窗口，不再要求手填 access token。登录后可从账户窗口打开剪贴板。本入口不迁移旧 Keychain 条目。`backend-account-entry` 测试验证原生到窗口的分派及接口缺失处理，`backend-library-load` 验证实际 dylib 的账户类与选择器；这些不替代已安装输入源的真实登录验收。
+
 输入源菜单迁移固定 Apple `InputMenu.h` / `InputModeRouting.h` 的中文、英文和“表情与符号…”入口。默认中文；英文模式不准备 Engine 会话，按键直接放行。切到英文先用共享 Engine finish 完成当前组合并隐藏候选；失败时保留原模式。Shift+空格默认切换中英文，设置中可关闭；竞争 Command/Control/Option 修饰键不触发切换，重复事件消费但不反复更改偏好。英文模式激活后切回中文会恢复保留会话焦点与设置轮询。英文模式与快捷键偏好保存在新宿主域，不复用混合输入选项或算法状态。
 
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。更新及语音菜单尚待对应功能迁移，未添加不可用占位项；候选设置仍是渐进迁移入口，不是完整上游偏好窗口。
@@ -48,14 +52,76 @@
 
 并行开发时使用独立产物目录，避免其他平台构建覆盖最低系统版本设置：
 
+原生更新控制器依赖固定的 [Sparkle 2.9.6](https://github.com/sparkle-project/Sparkle/releases/tag/2.9.6)，不可省略。下载该发布的 `Sparkle-2.9.6.tar.xz`，用 `shasum -a 256` 校验为 `52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192` 后解压到独立依赖目录。下列 `MSIME_SPARKLE_ROOT` 必须指向包含 `Sparkle.framework` 的目录，不是框架内部；请替换示例绝对路径。CMake 校验框架版本，并将其复制到应用的 `Contents/Frameworks`。构建不会自动下载框架，也不应从其他已安装应用复制依赖。
+
 ```sh
 MACOSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked
-cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a"
+cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a" -DMSIME_SPARKLE_ROOT="/absolute/path/to/Sparkle-2.9.6"
 cmake --build target/macos-isolated --parallel
 ctest --test-dir target/macos-isolated --output-on-failure
 ```
 
 原生测试使用不显示窗口的面板子类验证布局、完整 tooltip 和无效光标隐藏，以及纯几何边界和焦点方法；它不是系统安装后编辑器验收或逐像素外观验收。
+
+剪贴板新增回归已注册到本地 CTest，不依赖 GitHub CI。完成上述配置后，可单独构建并运行：
+
+```sh
+cmake --build target/macos-isolated --target macos-clipboard-tests --parallel
+ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
+```
+
+该标签涵盖历史适配与观察、采样过滤、监听重试与取消、单服务生命周期、行/提示像素、窗口释放、复制与最近记录、开启设置的保留语义。测试仅使用合成回调和独立命名的剪贴板，不启动输入法、不访问系统通用剪贴板或真实历史。Swift 测试以当前构建主机架构和配置的最低 macOS 版本编译，显式保持断言开启；每项有 30 秒超时。这不替代安装后的输入法与真实桌面交互验证。
+
+贴纸和 GIF 按固定 Windows 版本提供首页“更多”入口、主导航页及内容源未接入提示；该版本自身没有媒体内容源，本实现不新增第三方服务。进入这些页面保留搜索文字，使用通用搜索占位提示，不读取目录数据库，不显示分类、分页、键盘选项或插入按钮。首页入口在目录加载中或失败时仍可使用。首页测试覆盖页面标识、提示文字与浅色／深色原生提示渲染；实际安装后的导航和焦点仍需原生宿主验证。
+
+复制及开启剪贴板反馈采用固定 Windows 版本的底部胶囊提示：持续 1.6 秒，新操作重新计时，切换页面立即关闭，不占内容布局也不拦截点击。复制成功提示去除 CR/LF 后显示最多 24 个 UTF-16 单位的预览和省略号，截断时避免破坏代理对；失败提示不包含复制内容。字体、内边距、高度、底部距离及两种主题透明度按原版 2/3 比例绘制。提示测试使用合成文本及注入的等待函数，覆盖过期计时器隔离、取消、文本边界和原生渲染像素；不访问真实剪贴板，不代替安装后交互验证。
+
+表情主导航只在首页显示，顺序按固定 Windows 的 Page 枚举与图标表校正为首页、表情、贴纸、GIF、颜文字、符号、剪贴板。最近使用属于表情页二级分类：从首页入口或“更多”进入表情时，有最近记录则优先显示最近，无记录则在分类元数据载入后选择第一个分类；从最近切换具体分类保留明确选择。详情页显示返回首页及对应分类／标题，切换保留搜索文字。测试覆盖入口顺序、默认路由及异步分类解析规则，不替代安装后的导航和焦点验证。
+
+主标签按 `emoji_panel_icons.cpp` 的码位依次解析已安装的 Segoe Fluent Icons / Segoe MDL2 Assets，逐字检查是否存在字形；不下载、捆绑或安装字体。两者都不可用时使用原版中文回退文字，其中首页的可见回退为“最近”，但辅助功能标签及路由仍为首页。标签相对宽度、间距、高度、悬停颜色、选中下划线及字号采用原版 2/3 比例；本地测试强制覆盖缺字回退，检查两种主题的七种选中位置像素。Windows 字体图形在缺少相应字体的主机上不宣称已渲染验证；完整面板位置仍需继续对齐。
+
+表情二级分类使用原版区分大小写的分类名称映射，最近使用显示秒表图标，未知名称使用微笑回退。符号大类按元数据顺序取各大类第一个符号作为图标，默认选择首个有效大类；元数据和图标一并加载，取消页面任务会取消后续图标读取。分类标签宽度不超过原版 52 单位的 2/3，并随可用宽度均分收窄；标题通过辅助功能标签与悬停帮助提供。符号搜索忽略当前大类和子分类，匹配原版全局搜索行为。测试使用合成目录回调验证映射、顺序、缺失／失败、搜索过滤及两种主题的选中下划线像素；不代表跨平台字体图形或安装后导航已验证。
+
+符号内容按目录中连续的子分类分段展示标题及独立六列网格，移除额外的子分类下拉过滤。标题高度、半粗字号、相对缩进和分组尾部留白采用固定 Windows 版本的 2/3 比例；相同标题的非连续分组不合并、不重排。分组内按钮保留完整结果的全局索引，复制和键盘步长不因独立起行而指向其他条目。批次拼接后统一分组，读取批次边界不再拆分标题。合成测试覆盖重复标题、分组边界、全局索引、部分行之间的导航及两种主题的原生尺寸／选中像素。
+
+连续目录读取的宿主接口提供可选 `cursor:true`：`msime_client_emoji_catalog_request` 返回 `items`、`next_offset` 和 `complete`。详情 UI 已移除手动分页，按 `next_offset` 连续读取，仅在 `complete:true` 后一次性显示完整结果，不用返回条数或空数组判断结束。游标按实际扫描的匹配行前进，跳过空文本／无效分类行但不提前终止，保留有效重复条目；恰好满批时再读一批确认结束。切换查询取消后续批次，失败不展示部分结果。读取前后检查数据库及 WAL 的设备、inode、大小和修改时间，普通替换或写入会使本次读取失败；此防护不是跨请求 SQLite 快照，无法保证检测元数据不变的原地修改。未提供该选项的旧分页接口继续逐页去重，响应格式不变。首页预览仍保留各分类数量限制。合成游标测试覆盖空批次继续、重复项、协议错误、取消、失败和文件变化；安装后的完整宿主链路及大目录渲染性能尚未验证。
+
+首页预览也使用游标接口，按有效条目数读取到预览上限或明确 EOF；空扫描批次继续前进，保留重复项，不再使用旧分页去重结果。批次大小不超过剩余预览配额，达到配额前仍检查取消和文件变化。完整详情仍读取到 EOF，不受预览配额影响。重复条目的 UI 标识增加同文本／同分组的出现序号，绘制、选择及键盘导航共用该标识。合成测试覆盖空批次、重复项、短目录、非法配额、达到配额时文件变化以及重复项导航；文件检查仍非跨请求数据库快照，真实宿主链路尚未验证。
+
+首页标题对齐原版 `Recently used`、`Emoji`、`Kaomoji`、`Symbols`、`Sticker`、`GIF`，采用 32 点标题行、12 点半粗字及 12 点组尾留白，移除额外组间距及空组提示。除最近记录外，整个标题行与右侧箭头均可进入对应分类；箭头按原版几何绘制，24 点点击图形区域使用原版悬停／按下颜色。首页测试覆盖两种主题下六个标题的渲染尺寸；完整窗口坐标和实际指针交互尚未验证。
+
+普通表情详情显示当前分类标题，最近记录标题为 `Recent`，颜文字标题为固定原版目录的 `All`，与符号页共用 32 点标题高度、12 点半粗字及 12 点组尾留白。颜文字移除原版没有的分类下拉框，搜索无匹配时不显示其分组标题。内容仍使用原网格／流式布局及索引，标题不参与键盘条目计数。分组测试覆盖两种主题下三个标题的空／单项／跨行尺寸，并继续检查符号分组顺序、导航和选中像素；整页安装后的视觉对齐仍未验证。
+
+搜索框占位文字对齐固定 Windows 提交的 `UpdateSearchPlaceholder`：首页为 `Search emoji, kaomoji, and symbols`，表情／最近为 `Search emojis`，颜文字为 `Search kaomoji`，符号为 `Search symbols`，贴纸／GIF 为 `Search`，剪贴板为“搜索剪贴板”。普通页输入／占位字号为 14／12 点，剪贴板均为 16 点；搜索修改立即清除复制提示。搜索测试覆盖页面映射、字号配置以及两种主题、两种焦点状态的边框像素；不代表实际输入源焦点或跨平台字体逐像素验证。
+
+首页和详情的滚动容器在搜索、页面／分类切换时重建视口，回到顶部；重复点击当前主标签或二级标签也触发重置。只重建滚动内容，不重建搜索框和键盘入口。普通最近记录／剪贴板刷新不改变滚动身份，内容尺寸变化仍可能由系统钳制位置。原生合成测试实际滚动 SwiftUI 内的 NSScrollView，验证查询及重复导航重置到顶部，并验证普通刷新保留滚动位置；不替代安装后的输入源交互。
+
+首页重置后的有效选择为首个可见条目，选中样式和键盘导航共用此选择。空分组自动跳过，最近记录优先，异步目录到达后无需先按方向键即可激活首项；第一次右键／下键从首项按原步长移动。显式选择仍按条目标识保持，条目被移除后激活不回退复制其他条目。合成测试覆盖空目录、分组顺序、最近记录、目录到达、初始激活及步长、显式选择和过期选择；整页安装后视觉效果尚未验证。
+
+原生宿主游标集成测试 `emoji-host-cursor-test` 直接链接 `apple-client` 与当前构建的 Rust host 静态库，经真实 `MSIMEClientSession.emojiCatalogRequest` 读取临时合成 SQLite 数据库。覆盖表情／颜文字／符号的空扫描批次、重复项、短尾批次、显式 EOF、旧接口去重及响应格式、相对路径拒绝。此测试验证 Objective-C → Rust → SQLite 链路，不使用模拟宿主，不读取真实输入；仍不等于 Swift 页面到安装后 IMK 的完整交互验证。运行前需从当前提交重新 `cargo build -p msime-host-api`，并将产物传给 `MSIME_HOST_LIBRARY`。
+
+```sh
+cmake --build target/macos-isolated --target emoji-host-cursor-test --parallel
+ctest --test-dir target/macos-isolated -R '^emoji-host-cursor$' --output-on-failure
+```
+
+`emoji-swift-host-test-build` 进一步使用实际 Swift `MacEmojiCatalog`，通过动态类／selector 查找调用真实 Objective-C → Rust → SQLite 链路。临时合成数据库包含首批 255 个无效行、260 个相同有效条目及一个尾项，验证完整读取跨批次推进、18 项预览、搜索无匹配、分类元数据与符号父分类过滤。静态宿主显式 force-load，未定义模拟 `MSIMEClientSession`。这覆盖 Swift 读取器与宿主协议兼容性，不覆盖 SwiftUI 页面生命周期、安装后的 IMK 或真实资源性能。
+
+```sh
+cmake --build target/macos-isolated --target emoji-swift-host-test-build --parallel
+ctest --test-dir target/macos-isolated -R '^emoji-swift-host$' --output-on-failure
+```
+
+表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，滚动使用 `emoji-scroll-test-build`，同属 `emoji-local`）：
+
+```sh
+cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build emoji-symbol-sections-test-build emoji-catalog-cursor-test-build --parallel
+ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
+```
+
+首页预览和完整颜文字目录共用文本测量、按宽度换行和长文本缩字逻辑，键盘上下移动使用同一布局的行号及横向中心。间距、留白、最小宽度、字号边界和换行容差以 Windows 固定提交 `04a8df56f86312474a069f4335a1b58da7afaa9e` 为准，应用其 2/3 面板比例；字体测量使用 macOS 系统字体，不声称与 Windows 字体逐像素一致。测试覆盖合成文本的换行、缩字、窄宽度边界、不同宽度下首页导航与流式导航一致性，以及 SwiftUI 原生渲染的尺寸与选中背景像素；不读取真实输入或剪贴板，也不代表安装后的 IMK 交互验证。
+
+普通表情、符号及最近记录使用与该固定 Windows 版本一致的六列网格：原始 84 单位步长及 8% 单元留白应用 2/3 比例，原生点数为 56 步长、51.52 单元尺寸。文本按 UTF-16 长度大于 4 判定为长文本，并按原版字号上下界缩字。选择圆角及边框也应用相同比例。首页和详情页共用网格；剪贴板仍为独立单列列表。网格测试覆盖两种主题的选择填色、边框、间隙和末行留白像素，以及 1/6/7/18/28 项排布与最多 255 项导航边界。原生窗口最小内容宽度包含完整六列和滚动条留白，不强行压缩单元格；字体测量仍为 macOS 平台适配，非 Windows 字体逐像素复现。
 
 Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键提供减号/等号（默认）、方括号、Page Up/Page Down 三种设置。字符键仅在候选可见且无 Shift/Command/Control/Option 时按所选键组翻页；未匹配或有 Shift 时将实际字符交给 Engine。Page Up/Page Down 在三种设置下均有效，与 Apple 路由一致。设置保存在新宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
 

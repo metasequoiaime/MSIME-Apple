@@ -33,6 +33,12 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
+        NSDictionary *activeOptions = [MSIMEClientSession activeHostOptions];
+        assert([activeOptions[@"api_version"] isEqual:@1]);
+        error = nil;
+        assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:[@"0" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0] error:&error]);
+        assert(error);
+        error = nil;
         NSDictionary *initialPreferences = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(initialPreferences && !error && [initialPreferences[@"revision"] isEqual:@0]);
         error = nil;
@@ -50,6 +56,13 @@ int main() {
         assert(![MSIMEClientSession savePreferencesInDirectory:root expectedRevision:1 snapshot:unsupported error:&error] && error);
         NSDictionary *invalidDictionary = [MSIMEClientSession dictionaryRequest:@{@"options": options, @"action": @{@"operation": @"unknown"}} error:&error];
         assert(!invalidDictionary && error);
+        error = nil;
+        NSDictionary *invalidHandwriting = [MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": @"relative/provider", @"strokes": @[]} error:&error];
+        assert(!invalidHandwriting && error);
+        error = nil;
+        NSString *oversizedPath = [@"/tmp/" stringByPaddingToLength:4100 withString:@"x" startingAtIndex:0];
+        NSDictionary *oversizedHandwriting = [MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": oversizedPath, @"strokes": @[]} error:&error];
+        assert((!oversizedHandwriting && error));
         error = nil;
         NSMutableDictionary *oversized = [@{} mutableCopy];
         oversized[@"padding"] = [@"x" stringByPaddingToLength:70000 withString:@"x" startingAtIndex:0];

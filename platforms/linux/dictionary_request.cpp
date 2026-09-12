@@ -5,7 +5,11 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-int main(int argc, char **) {
+int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-dictionary < request.json\n";
+    return 0;
+  }
   if (argc != 1)
     return 2;
   std::array<char, 65537> buffer;

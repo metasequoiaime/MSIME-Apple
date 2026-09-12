@@ -141,8 +141,10 @@ NSColor *KeymapAccentColor()
     NSColor *primaryColor = self.highlighted ? [NSColor whiteColor] : [NSColor labelColor];
     NSColor *secondaryColor =
         self.highlighted ? [[NSColor whiteColor] colorWithAlphaComponent:0.86] : [NSColor secondaryLabelColor];
+    NSFont *keyFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold]
+        ?: [NSFont systemFontOfSize:11.0 weight:NSFontWeightBold];
     NSDictionary<NSAttributedStringKey, id> *keyAttributes = @{
-        NSFontAttributeName : [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold],
+        NSFontAttributeName : keyFont,
         NSForegroundColorAttributeName : primaryColor,
     };
     NSDictionary<NSAttributedStringKey, id> *codeAttributes = @{
@@ -242,6 +244,23 @@ NSString *MSIMEShuangpinZeroInitialText(NSString *profileName)
 BOOL MSIMEShouldShowShuangpinKeymap(BOOL isShuangpin, BOOL enabled, BOOL hasComposition)
 {
     return isShuangpin && enabled && hasComposition;
+}
+
+NSString *MSIMEShuangpinKeymapEditingText(NSDictionary *view)
+{
+    id editing = view[@"editing_text"];
+    return [editing isKindOfClass:NSString.class] ? editing : @"";
+}
+
+NSString *MSIMEShuangpinKeymapHighlightedKey(NSDictionary *view)
+{
+    NSString *editing = MSIMEShuangpinKeymapEditingText(view);
+    if (editing.length == 0) return @"";
+    const unichar last = [editing characterAtIndex:editing.length - 1];
+    if ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || last == ';') {
+        return [NSString stringWithCharacters:&last length:1];
+    }
+    return @"";
 }
 
 NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloat candidateClearance,

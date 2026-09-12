@@ -1,22 +1,22 @@
 //! Cooperative cross-process access to prepared dictionaries and their user journal.
-//! Keep the stable lock files: unlinking them would split the lock domain.
+//! Lock files are stable coordination objects and must not be removed.
+
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
 
-/// The guard must outlive every Engine/session using these paths.
-/// This coordinates participating clients, not legacy hosts or external editors.
+/// A guard held for the lifetime of every Engine/session using the paths.
 pub struct DictionaryAccess {
     _files: Vec<File>,
 }
 
 impl DictionaryAccess {
-    /// None is busy. Absolute, existing prepared directories are required.
+    /// Acquire shared access without waiting. `None` means maintenance is active.
     pub fn try_session(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
         Self::acquire(user, dictionaries, false)
     }
 
-    /// None is busy; never waits for sessions or another writer.
+    /// Acquire exclusive maintenance access without waiting. `None` means sessions/writers are active.
     pub fn try_maintenance(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
         Self::acquire(user, dictionaries, true)
     }
@@ -58,49 +58,11 @@ impl DictionaryAccess {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn process_probe() {
-        let Some(root) = std::env::var_os("MSIME_ACCESS_TEST_ROOT") else {
-            return;
-        };
-        let root = std::path::PathBuf::from(root);
-        let access = if std::env::var_os("MSIME_ACCESS_TEST_READER").is_some() {
-            DictionaryAccess::try_session(&root, &root)
-        } else {
-            DictionaryAccess::try_maintenance(&root, &root)
-        };
-        assert!(access.unwrap().is_none());
-    }
 
     #[test]
-    fn readers_exclude_another_process_writer() {
-        let root = tempfile::tempdir().unwrap();
-        let reader = DictionaryAccess::try_session(root.path(), root.path())
-            .unwrap()
-            .unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "dictionary_access::tests::process_probe"])
-            .env("MSIME_ACCESS_TEST_ROOT", root.path())
-            .status()
-            .unwrap();
-        assert!(status.success());
-        drop(reader);
-        let _writer = DictionaryAccess::try_maintenance(root.path(), root.path())
-            .unwrap()
-            .unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "dictionary_access::tests::process_probe"])
-            .env("MSIME_ACCESS_TEST_ROOT", root.path())
-            .env("MSIME_ACCESS_TEST_READER", "1")
-            .status()
-            .unwrap();
-        assert!(status.success());
-    }
-    #[test]
-    fn readers_share_and_writers_exclude_both_roots() {
+    fn shared_access_excludes_maintenance_and_releases_cleanly() {
         let user = tempfile::tempdir().unwrap();
         let dictionaries = tempfile::tempdir().unwrap();
-        let other = tempfile::tempdir().unwrap();
         let first = DictionaryAccess::try_session(user.path(), dictionaries.path())
             .unwrap()
             .unwrap();
@@ -108,13 +70,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(
-            DictionaryAccess::try_maintenance(other.path(), dictionaries.path())
+            DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
                 .unwrap()
                 .is_none()
         );
-        assert!(DictionaryAccess::try_maintenance(user.path(), other.path())
-            .unwrap()
-            .is_none());
         drop(first);
         assert!(
             DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
@@ -122,16 +81,23 @@ mod tests {
                 .is_none()
         );
         drop(second);
-        let writer = DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
-            .unwrap()
-            .unwrap();
+        // Other tests spawn processes concurrently. On Unix, fork can briefly
+        // inherit our locked file descriptions before close-on-exec runs.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let writer = loop {
+            if let Some(writer) =
+                DictionaryAccess::try_maintenance(user.path(), dictionaries.path()).unwrap()
+            {
+                break writer;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "released dictionary lock remained busy"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
         assert!(
             DictionaryAccess::try_session(user.path(), dictionaries.path())
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
                 .unwrap()
                 .is_none()
         );

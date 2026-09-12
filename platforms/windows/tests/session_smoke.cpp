@@ -777,9 +777,12 @@ int main(int argc, char **argv) {
                 "Basic dispatcher consumed priority punctuation");
         digit.keycode = '1';
         digit.wch = '&'; // An unshifted digit VK on a non-US layout.
-        const auto selected = basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin);
-        require(selected && selected->source.transition.at("commit") == "你好" &&
-                    selected->encoded->packet.msg_type == FanyImeReplyType::Normal,
+        const auto layout_selected =
+            basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin);
+        require(layout_selected &&
+                    layout_selected->source.transition.at("commit") == "你好" &&
+                    layout_selected->encoded->packet.msg_type ==
+                        FanyImeReplyType::Normal,
                 "Layout-produced punctuation replaced digit selection");
         basic.confirm_delivery(42, epoch, digit.request_id);
       }
@@ -859,9 +862,10 @@ int main(int argc, char **argv) {
                   [&] { composer.navigate(session, packet, epoch, bindings); });
               composer.confirm_delivery(42, epoch, packet.request_id);
               packet.request_id = request++;
-              auto shortcut = packet;
-              shortcut.modifiers_down |= 2;
-              require(!composer.navigate(session, shortcut, epoch, bindings),
+              auto control_shortcut = packet;
+              control_shortcut.modifiers_down |= 2;
+              require(!composer.navigate(session, control_shortcut, epoch,
+                                         bindings),
                       "Control shortcut was consumed as navigation");
               auto result = composer.navigate(session, packet, epoch, bindings);
               const auto expected_type =
