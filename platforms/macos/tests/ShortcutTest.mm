@@ -914,6 +914,73 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(client.committed == nil && control.state == NSControlStateValueOff);
 }
 
+static void TestControlOptionSpace() {
+    NSString *suite = [@"msime.control-option-space." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(prefs.controlOptionSpaceShortcut);
+    NSDictionary *keys = @{@"switch_language_ctrl_alt_space":@NO, @"switch_language_ctrl":@YES, @"toggle_character_set_ctrl_shift_f":@NO};
+    assert([[prefs sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"keybindings"]);
+    [prefs applySharedInputPreferences:@{@"keybindings":keys}];
+    assert(!prefs.controlOptionSpaceShortcut && !prefs.characterSetShortcut);
+    for (id invalid in @[NSNull.null, @1, @"true"])
+        [prefs applySharedInputPreferences:@{@"keybindings":@{@"switch_language_ctrl_alt_space":invalid}}];
+    assert(!prefs.controlOptionSpaceShortcut);
+    NSButton *button = (id)PreferenceControl(prefs, NSSelectorFromString(@"controlOptionSpaceShortcutChanged:"));
+    assert(button.state == NSControlStateValueOff);
+    button.state = NSControlStateValueOn;
+    assert([NSApp sendAction:button.action to:button.target from:button]);
+    assert(prefs.controlOptionSpaceShortcut && !prefs.characterSetShortcut);
+    NSMutableDictionary *expected = [keys mutableCopy];
+    expected[@"switch_language_ctrl_alt_space"] = @YES;
+    assert([[prefs sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:expected]);
+    NSDictionary *patch = [prefs sharedPreferencesByMerging:@{}];
+    assert([patch[@"keybindings"] isEqual:@{@"switch_language_ctrl_alt_space":@YES}]);
+    assert([MSIMEMergePreferenceSnapshot(@{@"keybindings":keys}, patch)[@"keybindings"] isEqual:expected]);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] controlOptionSpaceShortcut]);
+
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:panel forKey:@"panel"];
+    prefs.inputModeShortcut = NO; // Independent from the legacy Shift+Space switch.
+    NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagOption;
+    session.failFinish = YES;
+    panel.visible = YES;
+    client.marked = @"test";
+    assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
+    assert(!prefs.englishMode && panel.visible && [client.marked isEqual:@"test"]);
+    session.failFinish = NO;
+    assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
+    assert(prefs.englishMode && !panel.visible && client.marked.length == 0);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION && [client.committed isEqual:@"测试"]);
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, flags, YES) client:client]);
+    assert(prefs.englishMode && session.lastCommand == UINT32_MAX);
+    assert([controller handleEvent:ModeKey(49, flags | NSEventModifierFlagCapsLock, NO) client:client]);
+    assert(!prefs.englishMode && session.lastCommand == UINT32_MAX);
+    for (NSUInteger mask = 0; mask < 16; ++mask) {
+        prefs.englishMode = YES;
+        NSEventModifierFlags mods = (mask & 1 ? NSEventModifierFlagControl : 0) |
+            (mask & 2 ? NSEventModifierFlagOption : 0) | (mask & 4 ? NSEventModifierFlagShift : 0) |
+            (mask & 8 ? NSEventModifierFlagCommand : 0);
+        assert([controller handleEvent:ModeKey(49, mods, NO) client:client] == (mask == 3 || mask == 5));
+        assert(prefs.englishMode == (mask != 3));
+    }
+    assert(![controller handleEvent:ModeKey(0, flags, NO) client:client]);
+    [prefs applySharedInputPreferences:@{@"keybindings":keys}];
+    assert(![controller handleEvent:ModeKey(49, flags, NO) client:client]);
+    assert(prefs.englishMode && button.state == NSControlStateValueOff);
+    prefs.controlOptionSpaceShortcut = NO;
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] controlOptionSpaceShortcut]);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.englishMode && appearance.inputModeShortcut);
     NSButton *shortcut = (id)PreferenceControl(appearance, @selector(inputModeShortcutChanged:));
@@ -1815,6 +1882,7 @@ int main() {
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
         assert([client.committed isEqual:@"汉语"]);
         TestInputMode(defaults, appearance);
+        TestControlOptionSpace();
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestCharacterSetShortcut(defaults, appearance);
