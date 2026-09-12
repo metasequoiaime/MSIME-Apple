@@ -26,7 +26,7 @@ struct SettingsView: View {
               quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("按键", subtitle: "间距与语音", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
+              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("keyboardLayoutLink")
           }.buttonStyle(.plain)
           Button {

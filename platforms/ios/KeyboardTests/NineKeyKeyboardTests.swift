@@ -823,6 +823,57 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(key.layer.animationKeys()?.isEmpty ?? true)
   }
 
+  func testEmojiShortcutOpensABrowsableCatalogAndInsertsWhatIsTapped() throws {
+    let saved = EmojiRecents.stored
+    defer { KeyboardFeedbackPreference.defaults.set(saved, forKey: EmojiRecents.key) }
+    KeyboardFeedbackPreference.defaults.removeObject(forKey: EmojiRecents.key)
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+
+    let grid = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    // Every Unicode group reaches the panel. Ordering the groups by their rows' sort_order would
+    // drop or interleave them -- Symbols spans 1420-1935 and Flags 1644-1913 -- so the catalog
+    // names them in order instead, and this is what notices if that list and the data diverge.
+    XCTAssertEqual(EmojiCatalog.sections.count, 9)
+    XCTAssertTrue(EmojiCatalog.sections.allSatisfy { !$0.emoji.isEmpty })
+    XCTAssertEqual(grid.numberOfSections, EmojiCatalog.sections.count)
+
+    let first = try XCTUnwrap(EmojiCatalog.sections.first?.emoji.first)
+    grid.delegate?.collectionView?(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+    XCTAssertEqual(EmojiRecents.stored.first, first)
+
+    // Reopening leads with what was just used, so the common case is not a scroll away.
+    try button("closeEmojiPicker", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    let reopened = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    XCTAssertEqual(reopened.numberOfSections, EmojiCatalog.sections.count + 1)
+    XCTAssertEqual(reopened.numberOfItems(inSection: 0), 1)
+  }
+
+  func testShortcutBarKeepsEveryToolTappableOnANarrowKeyboard() throws {
+    // The emoji tool made this bar six wide. The buttons divide the width equally, so a seventh
+    // would be the one that stops clearing the 44pt target rather than anything visibly breaking.
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 320, height: 292)
+    controller.view.layoutIfNeeded()
+    let bar = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "keyboardShortcutBar"
+    } as? UIStackView)
+    let tools = bar.arrangedSubviews.filter { !$0.isHidden }
+    XCTAssertTrue(tools.contains { $0.accessibilityIdentifier == "emojiShortcut" })
+    for tool in tools {
+      XCTAssertGreaterThanOrEqual(tool.bounds.width, 40, "\(tool.accessibilityIdentifier ?? "?") 太窄")
+    }
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

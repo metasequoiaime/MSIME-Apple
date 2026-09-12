@@ -44,6 +44,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateContent: UIStackView?
   private let scriptShortcut = UIButton()
   private let skinShortcut = UIButton()
+  private let emojiShortcut = UIButton()
   private let layoutShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
@@ -54,6 +55,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
+  private var emojiPicker: KeyboardEmojiPickerView?
   private var nineKeyHoldPopup: UIView?
   // 九键网格的按键。按 123 时同一批键改显数字,而不是换成 26 键那排符号。
   private struct NineKeyGridKey {
@@ -734,7 +736,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [schemeButton, scriptShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
+    for button in [schemeButton, scriptShortcut, emojiShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
       shortcutBar.addArrangedSubview(button)
       if button !== schemeButton {
         button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
@@ -759,6 +761,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       renderCandidateStrip()
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
+    emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() }, for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
@@ -792,6 +795,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       scriptShortcut.isEnabled = true
       scriptShortcut.accessibilityValue = nil
     }
+    configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
@@ -800,6 +804,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     moreMenu = UIMenu(children: [
       UIAction(title: "剪贴板历史", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
         self?.showClipboardHistory()
+      },
+      UIAction(title: "表情", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
+        self?.closeKeyboardPicker()
+        self?.showEmojiPicker()
       },
       UIAction(title: "AI 润色", image: UIImage(systemName: "sparkles")) { [weak self] _ in
         self?.closeKeyboardPicker()
@@ -2356,6 +2364,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .screenChanged, argument: panel)
   }
 
+  private func showEmojiPicker() {
+    closeKeyboardService()
+    closeKeyboardPicker()
+    // The composition is finished rather than carried: an emoji is not a candidate for the pinyin
+    // already typed, so leaving it open would commit the two in the wrong order.
+    render(session.finishComposition())
+    let picker = KeyboardEmojiPickerView(onInsert: { [weak self] emoji in
+      self?.insertOwnText(emoji, source: .local)
+    }, onDelete: { [weak self] in
+      self?.deleteOwnBackward()
+    }, onClose: { [weak self] in self?.closeKeyboardPicker() })
+    picker.accessibilityViewIsModal = true
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    emojiPicker = picker
+    UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
   private func showLayoutPicker() {
     closeKeyboardService()
     closeKeyboardPicker()
@@ -2497,6 +2529,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let picker = morePicker {
       picker.removeFromSuperview()
       morePicker = nil
+      UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+    }
+    if let picker = emojiPicker {
+      picker.removeFromSuperview()
+      emojiPicker = nil
       UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
     }
     if let picker = schemePicker {
