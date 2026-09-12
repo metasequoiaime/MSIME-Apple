@@ -654,6 +654,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)deactivateServer:(id)sender {
+    // A delayed callback from the previous client must not tear down the
+    // active client's composition, panels, monitoring or pending modifier tap.
+    if (!sender || sender != _activeClient) return;
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();

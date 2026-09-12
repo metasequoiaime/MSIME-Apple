@@ -918,6 +918,71 @@ static NSEvent *TapEvent(NSEventType type, unsigned short key, NSEventModifierFl
     return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:time windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key];
 }
 
+static NSUInteger baseDeactivationCalls;
+static void RecordBaseDeactivation(id object, SEL selector, id sender) {
+    (void)object; (void)selector; (void)sender; ++baseDeactivationCalls;
+}
+
+@interface DeactivationToolbar : NSObject
+@property(nonatomic) NSUInteger calls;
+@end
+@implementation DeactivationToolbar
+- (void)deactivateForDelegate:(id)delegate { (void)delegate; ++self.calls; }
+@end
+
+static void TestStaleClientDeactivation() {
+    NSString *suite = [@"msime.deactivation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *oldClient = [ShortcutClient new], *current = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    TestCandidatePanel *panel = [TestCandidatePanel new], *keymap = [TestCandidatePanel new];
+    DeactivationToolbar *toolbar = [DeactivationToolbar new];
+    NSTimer *timer = [NSTimer timerWithTimeInterval:1 repeats:YES block:^(NSTimer *unused) { (void)unused; }];
+    NSDictionary *view = @{@"focused":@YES, @"editing_text":@"test", @"candidates":@[]};
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:current forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:panel forKey:@"panel"];
+    [controller setValue:keymap forKey:@"keymapPanel"];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    [controller setValue:timer forKey:@"preferencesTimer"];
+    [controller setValue:view forKey:@"view"];
+    panel.visible = keymap.visible = YES;
+    current.marked = @"test";
+    // Isolate superclass IPC in this controller test, while recording whether
+    // stale callbacks reach it. Actual installed IMK delivery is a separate gate.
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    assert(base);
+    baseDeactivationCalls = 0;
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+    auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0);
+    auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1.1);
+    assert(![controller handleEvent:down client:current]);
+    for (id stale in @[oldClient, NSNull.null]) {
+        [controller deactivateServer:stale == NSNull.null ? nil : stale];
+        assert([controller valueForKey:@"activeClient"] == current);
+        assert([[controller valueForKey:@"view"] isEqual:view]);
+        assert([current.marked isEqual:@"test"] && current.committed == nil);
+        assert(panel.visible && keymap.visible && timer.valid);
+        assert(session.focusCalls == 0 && toolbar.calls == 0 && baseDeactivationCalls == 0);
+    }
+    // The current client's pending tap must survive an unrelated deactivation.
+    assert([controller handleEvent:up client:current] && prefs.englishMode);
+    assert([current.committed isEqual:@"测试"]);
+    panel.visible = keymap.visible = YES;
+    [controller deactivateServer:current];
+    assert([controller valueForKey:@"activeClient"] == nil);
+    assert([controller valueForKey:@"preferencesTimer"] == nil && !timer.valid);
+    assert(!panel.visible && !keymap.visible && current.marked.length == 0);
+    assert(session.focusCalls == 1 && toolbar.calls == 1 && baseDeactivationCalls == 1);
+    [controller deactivateServer:current];
+    assert(session.focusCalls == 1 && toolbar.calls == 1 && baseDeactivationCalls == 1);
+    method_setImplementation(base, original);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -2005,6 +2070,7 @@ int main() {
         TestInputMode(defaults, appearance);
         TestControlOptionSpace();
         TestModifierTaps();
+        TestStaleClientDeactivation();
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestCharacterSetShortcut(defaults, appearance);
