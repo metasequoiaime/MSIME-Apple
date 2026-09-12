@@ -433,6 +433,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void reloadPreferences(String response) {
         if (session == 0) return;
+        boolean previousPreferencesReady = preferencesSnapshot != null;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
         String previousSkin = skin.id();
@@ -450,7 +451,8 @@ public final class MSIMEInputService extends InputMethodService {
             // Never replace the working session or log preferences/native responses.
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
-        if (!previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
+        if (previousPreferencesReady != (preferencesSnapshot != null)
+                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
                 || (previousAi == null ? aiPolishConfiguration != null
@@ -3419,8 +3421,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (schemeButton != null) {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
-            schemeButton.setEnabled(session != 0 && preferencesSnapshot != null
-                && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
+            boolean schemeReady = session != 0 && preferencesSnapshot != null
+                && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving;
+            schemeButton.setEnabled(schemeReady);
+            if (Build.VERSION.SDK_INT >= 30) {
+                String schemeState = session == 0 ? "输入会话未就绪"
+                    : preferencesSnapshot == null ? "设置加载中"
+                    : schemeSaving ? "正在切换输入方案"
+                    : touchGeometrySaving || traditionalOutputSaving ? "正在保存其他设置"
+                    : "可用";
+                schemeButton.setStateDescription(schemeState);
+            }
         }
         if (skinButton != null) {
             skinButton.setEnabled(canSaveKeyboardSkin());
