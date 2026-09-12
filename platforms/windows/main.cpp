@@ -193,6 +193,7 @@ int wmain(int argc, wchar_t **argv) {
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     toolbar.set_palette(palette);
     toolbar.set_scale(config.floating_toolbar_scale);
+    toolbar.set_font_size(config.floating_toolbar_font_size);
     // The Server owns the floating toolbar. Every other row opens a surface in
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather

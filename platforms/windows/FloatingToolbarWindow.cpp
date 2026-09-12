@@ -104,7 +104,7 @@ void FloatingToolbarWindow::paint() {
   };
   const float unit = static_cast<float>(dpi_scale(window_, 1)) * static_cast<float>(scale_);
   auto *format = device_.GetTextFormat(
-      L"Segoe UI", 18.0f * unit, DWRITE_FONT_WEIGHT_NORMAL,
+      L"Segoe UI", static_cast<float>(font_size_) * unit, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
       DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)

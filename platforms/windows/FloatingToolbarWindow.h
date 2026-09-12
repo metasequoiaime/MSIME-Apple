@@ -16,6 +16,7 @@ public:
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
   void set_scale(double scale) { scale_ = scale; }
+  void set_font_size(int size) { font_size_ = size; }
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
   void set_handwriting_action(Action action) { handwriting_action_ = std::move(action); }
@@ -55,5 +56,6 @@ private:
   std::optional<ModePresentation> shown_;
   bool failed_ = false;
   double scale_ = 1.0;
+  int font_size_ = 24;
 };
 } // namespace msime::windows

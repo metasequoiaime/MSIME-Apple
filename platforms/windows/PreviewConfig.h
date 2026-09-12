@@ -16,6 +16,7 @@ struct PreviewConfig {
   bool explicit_key_bindings = false;
   bool floating_toolbar_enabled = true;
   double floating_toolbar_scale = 1.0;
+  int floating_toolbar_font_size = 24;
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   // Optional appearance. Without it the presenters keep their built-in theme.
   std::filesystem::path skin_directory;
@@ -31,6 +32,7 @@ struct PreviewConfig {
         value.size() != ((value.contains("key_bindings") ? 6u : 5u) +
                          (value.contains("floating_toolbar_enabled") ? 1u : 0u) +
                          (value.contains("floating_toolbar_scale") ? 1u : 0u) +
+                         (value.contains("floating_toolbar_font_size") ? 1u : 0u) +
                          (value.contains("appearance") ? 1u : 0u)) ||
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
@@ -39,7 +41,7 @@ struct PreviewConfig {
         std::filesystem::u8path(value.at("resources").get<std::string>()),
         std::filesystem::u8path(value.at("state_root").get<std::string>()),
         value.at("pipe_namespace").get<std::string>(), TsfPreeditStyle::Local,
-        NavigationBindings{}, false, true, 1.0, WordCharacterBinding::Disabled,
+        NavigationBindings{}, false, true, 1.0, 24, WordCharacterBinding::Disabled,
         std::filesystem::path{}, std::string{}, true, true};
     if (!result.resources.is_absolute() || !result.state_root.is_absolute() ||
         result.resources.u8string().find('\0') != std::string::npos ||
@@ -117,6 +119,11 @@ struct PreviewConfig {
       result.floating_toolbar_scale = value.at("floating_toolbar_scale").get<double>();
       if (result.floating_toolbar_scale < 0.75 || result.floating_toolbar_scale > 1.5)
         throw std::invalid_argument("Invalid floating toolbar scale");
+    }
+    if (value.contains("floating_toolbar_font_size")) {
+      result.floating_toolbar_font_size = value.at("floating_toolbar_font_size").get<int>();
+      if (result.floating_toolbar_font_size < 16 || result.floating_toolbar_font_size > 28)
+        throw std::invalid_argument("Invalid floating toolbar font size");
     }
     return result;
   }
