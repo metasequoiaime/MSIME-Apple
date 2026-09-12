@@ -296,6 +296,66 @@ static void TestSharedPunctuation() {
     [defaults removePersistentDomainForName:suite];
 }
 
+static void TestSharedTraditionalOutput() {
+    NSString *suite = [@"msime.traditional." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    MSIMEFloatingToolbarPanel *toolbar = [[MSIMEFloatingToolbarPanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    NSButton *toggle = [toolbar valueForKey:@"traditionalOutputButton"];
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    assert(!prefs.traditionalOutput);
+    assert(![prefs sharedPreferencesByMerging:@{}][@"traditional_chinese_output"]);
+    assert([[prefs sharedPreferencesByMerging:@{@"traditional_chinese_output":@YES}][@"traditional_chinese_output"] isEqual:@YES]);
+    for (NSNumber *enabled in @[@YES, @NO, @YES]) {
+        [controller applySharedToolbarPreferences:@{@"traditional_chinese_output":enabled}];
+        assert(prefs.traditionalOutput == enabled.boolValue && saves == 0);
+        assert([toggle.title isEqual:enabled.boolValue ? @"繁" : @"简"]);
+        assert([controller.menu itemAtIndex:enabled.boolValue ? 5 : 4].state == NSControlStateValueOn);
+        assert([[prefs cloudSettingsSnapshot][@"platform.macos.traditional_chinese_output"] isEqual:enabled]);
+    }
+    assert([defaults objectForKey:@"MSIMEClientTraditionalOutput"] == nil);
+    for (id invalid in @[NSNull.null, @1, @"true"]) {
+        [controller applySharedToolbarPreferences:@{@"traditional_chinese_output":invalid}];
+        assert(prefs.traditionalOutput && saves == 0);
+    }
+    [controller selectSimplifiedOutput:nil];
+    assert(!prefs.traditionalOutput && saves == 1);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"traditional_chinese_output"] isEqual:@NO]);
+    [controller applySharedToolbarPreferences:@{@"traditional_chinese_output":@YES}];
+    assert(prefs.traditionalOutput && saves == 1);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"traditional_chinese_output"] isEqual:@YES]);
+    NSMutableDictionary *cloud = [[prefs cloudSettingsSnapshot] mutableCopy];
+    cloud[@"platform.macos.traditional_chinese_output"] = @NO;
+    assert([prefs applyCloudSettingsSnapshot:cloud]);
+    assert(!prefs.traditionalOutput && saves == 2);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"traditional_chinese_output"] isEqual:@NO]);
+    [controller selectTraditionalOutput:nil];
+    assert(prefs.traditionalOutput && saves == 3);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] traditionalOutput]);
+
+    // Persist through the actual shared store, then consume it with fresh local defaults.
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":[prefs sharedPreferencesByMerging:snapshot[@"preferences"]]} error:&error];
+    assert(saved && !error);
+    NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(loaded && !error && [loaded[@"preferences"][@"traditional_chinese_output"] isEqual:@YES]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+    MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!fresh.traditionalOutput);
+    [fresh applySharedInputPreferences:loaded[@"preferences"]];
+    assert(fresh.traditionalOutput);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+}
+
 static void TestIndependentAssistancePreferences() {
     NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -1058,6 +1118,7 @@ int main() {
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();
+        TestSharedTraditionalOutput();
         TestPageSizeCache();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -1703,6 +1764,14 @@ int main() {
         assert([scriptButton.toolTip isEqual:@"漢語"] && [scriptButton.title containsString:@"漢語"]);
         assert([scriptButton.candidateID isEqual:scriptView[@"candidates"][0][@"id"]]);
         assert([[controller valueForKey:@"view"] isEqual:preserved]);
+        for (NSNumber *traditional in @[@NO, @YES]) {
+            [controller applySharedToolbarPreferences:@{@"traditional_chinese_output":traditional}];
+            [controller renderCandidates];
+            scriptButton = PageButton(layoutPanel.contentView, 0);
+            assert([scriptButton.toolTip isEqual:traditional.boolValue ? @"漢語" : @"汉语"]);
+            assert([scriptButton.candidateID isEqual:scriptView[@"candidates"][0][@"id"]]);
+            assert([[controller valueForKey:@"view"] isEqual:preserved]);
+        }
         NSMutableDictionary *annotated = [scriptView mutableCopy];
         NSMutableDictionary *word = [scriptView[@"candidates"][0] mutableCopy];
         word[@"annotation"] = @"(aB)";

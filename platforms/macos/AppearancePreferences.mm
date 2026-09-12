@@ -83,6 +83,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
     NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
     NSNumber *_sharedChinesePunctuation;
+    NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedAutocorrect;
     id _sharedTransposition;
     id _sharedNeighbor;
@@ -163,6 +164,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
+    if ([_defaults objectForKey:TraditionalKey] != nil)
+        merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
     if ([_defaults objectForKey:CharacterSetShortcutKey] != nil) {
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -278,6 +281,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
     _sharedChinesePunctuation = nil;
+    _sharedTraditionalOutput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
     [self reloadSkins]; // Resolve the imported skin and publish one complete update.
@@ -293,6 +297,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     snapshot[@"platform.macos.input_scheme"] = @([@[@"quanpin", @"shuangpin", @"wubi"] indexOfObject:self.inputScheme]);
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
+    snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.autocorrect"] = @(self.autocorrect);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
     return [snapshot copy];
@@ -398,6 +403,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
+    id traditional = preferences[@"traditional_chinese_output"];
+    if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
@@ -407,7 +414,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self refreshControls];
 }
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
-- (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
+- (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
@@ -430,6 +437,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)setTraditionalOutput:(BOOL)value {
+    _sharedTraditionalOutput = nil;
     [_defaults setBool:value forKey:TraditionalKey];
     [self preferencesChanged];
 }
