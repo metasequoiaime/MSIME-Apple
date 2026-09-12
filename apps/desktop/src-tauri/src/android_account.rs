@@ -2,6 +2,9 @@ use msime_client_core::account::{
     AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountUser,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
+use msime_client_core::community_skin::{
+    BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -57,18 +60,28 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
 }
 
 type Session = BackendAccountSession<BackendAccountClient, AndroidAccountStorage<Wry>>;
+type CommunityService =
+    BackendCommunitySkinService<BackendAccountClient, AndroidAccountStorage<Wry>>;
 
-pub struct AccountState(Arc<Session>);
+pub struct AccountState {
+    session: Arc<Session>,
+    community: Arc<CommunityService>,
+}
 
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
             let handle = api.register_android_plugin("app.msime.client", "AccountPlugin")?;
             let client = BackendAccountClient::new()?;
-            app.manage(AccountState(Arc::new(BackendAccountSession::new(
-                client,
+            let session = Arc::new(BackendAccountSession::new(
+                client.clone(),
                 AndroidAccountStorage(handle),
-            ))));
+            ));
+            let community = Arc::new(BackendCommunitySkinService::new(
+                client,
+                Arc::clone(&session),
+            ));
+            app.manage(AccountState { session, community });
             Ok(())
         })
         .build()
@@ -147,13 +160,64 @@ where
     T: Send + 'static,
     F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
 {
-    let session = Arc::clone(&state.0);
+    let session = Arc::clone(&state.session);
     tauri::async_runtime::spawn_blocking(move || operation(&session))
         .await
         .map_err(|_| super::CommandError {
             code: "account_unavailable",
         })?
         .map_err(|error| super::CommandError { code: error.code() })
+}
+
+fn community_error(error: AccountError) -> super::CommandError {
+    super::CommandError {
+        code: match error {
+            AccountError::Invalid => "community_invalid",
+            AccountError::Unauthorized | AccountError::Forbidden => "community_unauthorized",
+            AccountError::NotFound => "community_not_found",
+            AccountError::RateLimited => "community_rate_limited",
+            AccountError::Cancelled => "community_cancelled",
+            AccountError::Storage => "community_storage",
+            AccountError::Conflict | AccountError::Unavailable => "community_unavailable",
+        },
+    }
+}
+
+async fn community_call<T, F>(
+    state: State<'_, AccountState>,
+    operation: F,
+) -> Result<T, super::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&CommunityService) -> Result<T, AccountError> + Send + 'static,
+{
+    let service = Arc::clone(&state.community);
+    tauri::async_runtime::spawn_blocking(move || operation(&service))
+        .await
+        .map_err(|_| super::CommandError {
+            code: "community_unavailable",
+        })?
+        .map_err(community_error)
+}
+
+#[tauri::command]
+pub async fn community_skin_list(
+    state: State<'_, AccountState>,
+    offset: usize,
+    search: String,
+) -> Result<CommunitySkinPage, super::CommandError> {
+    community_call(state, move |service| service.list(offset, &search)).await
+}
+
+#[tauri::command]
+pub async fn community_skin_detail(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<CommunitySkin, super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.detail(id)).await
 }
 
 #[tauri::command]

@@ -74,6 +74,8 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 Android“我的”页通过 Rust account session 访问固定的 https://api.msime.app 账号服务。邮箱和手机号验证码、刷新、资料更新、退出及注销请求都在原生宿主内完成，WebView 只接收不含凭据的用户和 provider DTO。会话 JSON 由包私有 Android Keystore AES-GCM 密钥加密后写入 SharedPreferences，密钥和密文不跨应用包共享；请求不跟随重定向，普通 JSON 请求和响应均限制为 1 MiB。日常输入不需要登录，账号登录不会上传本地输入或统计。
 
+Android“社区”页以 Apple 远端默认分支 `develop` 的固定来源 `MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0` 为浏览基线，提供公开皮肤双列列表、原样 UTF-8 搜索、分页去重和只读详情预览。匿名用户可直接浏览；已有账号会话时请求携带同一 Bearer token，使服务返回“我的作品”和个人评分状态，401 只刷新一次，账号在请求期间变化会废弃结果。Rust transport 对 offset、查询、页长、UUID、文本、评分和完整设计做边界校验，WebView 只接收稳定脱敏错误码；浏览不会修改 Preferences 或本地命名图库。此切片不访问生产社区做设备验收，也尚未提供下载试用、评分、发布、我发布的作品和下架，这些写操作留到后续独立切片。
+
 应用首次启动、缺少运行配置时进入已有 SetupActivity，准备成功后点击“打开共享设置”；不会自动启用或选择输入法。系统输入法设置入口也可打开共享设置页。Tauri 使用主进程，InputMethodService 使用同 UID 的独立 :ime 进程，通过文件锁和 revision 协作，不依赖设置窗口存活。这样 Tauri 退出最后一个窗口不会结束输入服务；不是通过让隐藏设置窗口常驻来维持输入。
 
 此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。原 build-apk.sh 保留为不含管理 UI 的原生宿主测试包入口。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。

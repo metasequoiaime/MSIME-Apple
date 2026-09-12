@@ -19,8 +19,10 @@ export type { CustomSkinLibraryAction, CustomSkinLibraryClient, SavedTouchKeyboa
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
 import { AccountPage, type AccountClient } from "./account-page";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export { AccountPage, type AccountChallenge, type AccountClient, type AccountProfile, type AccountProviders, type AccountUser } from "./account-page";
+export { CommunitySkinsPage, type CommunitySkin, type CommunitySkinClient, type CommunitySkinPage } from "./community-skins";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
@@ -108,6 +110,7 @@ function selectTouchKeyboardScheme(preferences: Preferences, selected: TouchKeyb
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
+  { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
   { id: "typing-statistics", title: "打字统计", icon: new URL("./assets/statistics.svg", import.meta.url).href },
@@ -363,6 +366,8 @@ const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [16,
 export interface SettingsClient {
   /** Android account commands expose user/profile DTOs but never session tokens. */
   account?: AccountClient;
+  /** Android community commands expose bounded public skin metadata and designs. */
+  communitySkins?: CommunitySkinClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
   listFontFamilies?: FontCatalogReader;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
@@ -735,7 +740,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   const availablePages = pages.filter(item =>
     (item.id !== "typing-statistics" || Boolean(client.typingStatistics))
-    && (item.id !== "account" || Boolean(client.account)));
+    && (item.id !== "account" || Boolean(client.account))
+    && (item.id !== "community" || Boolean(client.communitySkins)));
   useEffect(() => {
     if (!availablePages.some(item => item.id === page)) setPage("appearance");
   }, [availablePages, page]);
@@ -834,8 +840,9 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {client.account && page === "account" && <AccountPage client={client.account} />}
+    {client.communitySkins && page === "community" && <CommunitySkinsPage client={client.communitySkins} theme={keyboardPreviewTheme} />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
-    {draft && page !== "typing-statistics" && page !== "account" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
+    {draft && page !== "typing-statistics" && page !== "account" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1309,7 +1316,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
       {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
-    {page !== "typing-statistics" && page !== "account" && <button className="secondary" disabled={busy} onClick={() => {
+    {page !== "typing-statistics" && page !== "account" && page !== "community" && <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();
     }}>重新读取</button>}
   </div></main></div></div>;

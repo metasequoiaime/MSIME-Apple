@@ -51,7 +51,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         + "tab.textContent?.trim() === '我的')";
     private WebView web;
     @Override protected String successDescription() {
-        return "React save, named custom skin CRUD, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+        return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
@@ -82,6 +82,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             if (web == null) throw new AssertionError("Tauri WebView not created");
             awaitJs("!!Array.from(document.querySelectorAll('button')).find(button => "
                 + "button.textContent?.trim() === '我的')");
+            awaitJs("!!Array.from(document.querySelectorAll('button')).find(button => "
+                + "button.textContent?.trim() === '社区')");
             awaitJs("!!(" + PUNCTUATION_CHECKBOX + ")");
             boolean before = "true".equals(js("(" + PUNCTUATION_CHECKBOX + ").checked"));
             stage = "React touch scheme settings";

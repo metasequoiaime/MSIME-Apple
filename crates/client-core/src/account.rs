@@ -70,6 +70,8 @@ pub enum AccountError {
     Forbidden,
     #[error("account data changed")]
     Conflict,
+    #[error("account resource was not found")]
+    NotFound,
     #[error("account request was rate limited")]
     RateLimited,
     #[error("account service is unavailable")]
@@ -88,7 +90,7 @@ impl AccountError {
             Self::RateLimited => "account_rate_limited",
             Self::Storage => "account_storage",
             Self::Cancelled => "account_cancelled",
-            Self::Conflict | Self::Unavailable => "account_unavailable",
+            Self::Conflict | Self::NotFound | Self::Unavailable => "account_unavailable",
         }
     }
 
@@ -97,6 +99,7 @@ impl AccountError {
             400 => Self::Invalid,
             401 => Self::Unauthorized,
             403 => Self::Forbidden,
+            404 => Self::NotFound,
             409 => Self::Conflict,
             429 => Self::RateLimited,
             503 => Self::Unavailable,
@@ -158,7 +161,7 @@ impl BackendAccountClient {
     }
 
     #[cfg(test)]
-    fn loopback(origin: &str) -> Result<Self, AccountError> {
+    pub(crate) fn loopback(origin: &str) -> Result<Self, AccountError> {
         Self::with_origin(origin, true)
     }
 
@@ -205,7 +208,7 @@ impl BackendAccountClient {
         read_bounded_response(response)
     }
 
-    fn json<T: DeserializeOwned, B: Serialize>(
+    pub(crate) fn json<T: DeserializeOwned, B: Serialize>(
         &self,
         method: Method,
         path: &str,

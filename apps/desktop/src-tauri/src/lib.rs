@@ -3366,7 +3366,11 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_delete,
             #[cfg(target_os = "android")]
-            android_account::account_forget
+            android_account::account_forget,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_list,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_detail,
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");
