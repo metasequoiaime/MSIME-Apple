@@ -85,8 +85,8 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations };
-void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool enabled);
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage };
+void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
   const auto explicit_path = options.value("clipboard_history_path", std::string{});
@@ -1749,7 +1749,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("翻译目标语言"), "",
       ibus_text_new_from_static_string("选择候选翻译的目标语言"),
       s.focused && !s.blocked && s.input_enabled && s.session &&
-          !s.translation_provider_socket.empty(),
+          !s.translation_provider_socket.empty() && !menu_save_pending,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto translation_language_menu = ibus_prop_list_new();
   for (const auto &[value, label] : {std::pair{"en", "英语"},
@@ -1762,7 +1762,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("TranslationLanguage/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("切换候选翻译目标语言"), TRUE, TRUE,
+        ibus_text_new_from_static_string("切换候选翻译目标语言"), !menu_save_pending, TRUE,
         s.translation_target_language == value ? PROP_STATE_CHECKED
                                                 : PROP_STATE_UNCHECKED,
         nullptr);
@@ -3163,6 +3163,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name.rfind("TranslationLanguage/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED || menu_save_pending)
+        return;
       const auto selected = property_name.substr(
           std::string("TranslationLanguage/").size());
       if (selected != "en" && selected != "fr" && selected != "ja" &&
@@ -3171,6 +3173,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         return;
       if (selected == s.translation_target_language)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::TranslationLanguage, selected);
+        return;
+      }
       s.translation_target_language_override = selected;
       s.translation_target_language = selected;
       s.invalidate_providers();
@@ -4657,9 +4664,9 @@ struct MenuPreferenceSave {
   std::string directory;
   uint64_t configuration;
   MenuPreference preference;
-  bool enabled;
+  Json value;
 };
-void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool enabled) {
+void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value) {
   const auto directory = configured.value("preferences_directory", std::string{});
   if (menu_save_pending || directory.empty() || directory.front() != '/')
     return;
@@ -4692,6 +4699,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool en
             self->state->cloud_candidates_override.reset();
           if (request.preference == MenuPreference::CandidateTranslations)
             self->state->candidate_translations_override.reset();
+          if (request.preference == MenuPreference::TranslationLanguage)
+            self->state->translation_target_language_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4699,7 +4708,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool en
           publish_mode(IBUS_ENGINE(source));
         });
       }, nullptr);
-  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, enabled},
+  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, std::move(value)},
       +[](gpointer value) { delete static_cast<MenuPreferenceSave *>(value); });
   g_task_run_in_thread(task,
       +[](GTask *task, gpointer, gpointer data, GCancellable *) {
@@ -4711,13 +4720,16 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, bool en
           const auto revision = snapshot.at("revision").get<uint64_t>();
           switch (request.preference) {
           case MenuPreference::Toolbar:
-            snapshot["preferences"]["floating_toolbar"]["enabled"] = request.enabled;
+            snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
             break;
           case MenuPreference::CloudCandidates:
-            snapshot["preferences"]["cloud_candidates"] = request.enabled;
+            snapshot["preferences"]["cloud_candidates"] = request.value;
             break;
           case MenuPreference::CandidateTranslations:
-            snapshot["preferences"]["candidate_translations"] = request.enabled;
+            snapshot["preferences"]["candidate_translations"] = request.value;
+            break;
+          case MenuPreference::TranslationLanguage:
+            snapshot["preferences"]["translation_target_language"] = request.value;
             break;
           }
           const auto encoded = snapshot.dump();
