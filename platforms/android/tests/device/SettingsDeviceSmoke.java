@@ -7,6 +7,7 @@ import android.os.SystemClock;
 import android.util.AtomicFile;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebView;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -35,9 +36,11 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 9 键\"]')";
     private static final String KEYBOARD_HEIGHT =
         "document.querySelector('[aria-label=\"键盘高度\"]')";
+    private static final String MIDNIGHT_SKIN =
+        "document.querySelector('[aria-label=\"屏幕键盘皮肤 霓虹夜航\"]')";
     private WebView web;
     @Override protected String successDescription() {
-        return "React save, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+        return "React save, Apple keyboard skin, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
@@ -79,6 +82,9 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "React keyboard height setting";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '屏幕键盘').click(); true");
             awaitJs("!!(" + KEYBOARD_HEIGHT + ")");
+            awaitJs("!!(" + MIDNIGHT_SKIN + ")");
+            js("(" + MIDNIGHT_SKIN + ").click(); true");
+            awaitJs("(" + MIDNIGHT_SKIN + ").getAttribute('aria-checked') === 'true'");
             js("const slider=" + KEYBOARD_HEIGHT + ";"
                 + "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'24');"
                 + "slider.dispatchEvent(new Event('input',{bubbles:true}));true");
@@ -93,6 +99,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             JSONObject savedPreferences = saved.getJSONObject("preferences");
             if (savedPreferences.getInt("touch_keyboard_height_adjustment") != 24)
                 throw new AssertionError("Keyboard height did not reach shared storage");
+            if (!"midnight".equals(savedPreferences.getString("touch_keyboard_skin")))
+                throw new AssertionError("Keyboard skin did not reach shared storage");
             JSONObject touchSchemes = savedPreferences.getJSONObject("touch_keyboard_schemes");
             if (!"quanpin".equals(touchSchemes.getString("selected")))
                 throw new AssertionError("Shared selected scheme did not use the fallback");
@@ -115,6 +123,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
             tap(field("msime-test-plain"));
+            stage = "cross-process keyboard uses saved skin";
+            awaitAnyNode(node -> equalsText("app.msime.client.preview", node.getPackageName())
+                && equalsText("切换键盘皮肤；当前霓虹夜航", node.getContentDescription()));
+            stage = "cross-process punctuation uses saved preferences";
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
             tapSymbol(",");
             String expected = before ? "你好," : "你好，";
@@ -154,6 +166,27 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         stage = prefix + ": return to keyboard";
         tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
             && equalsText("返回键盘", node.getContentDescription()));
+    }
+    private AccessibilityNodeInfo awaitAnyNode(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            for (var window : automation.getWindows()) {
+                AccessibilityNodeInfo found = findAnyNode(window.getRoot(), match);
+                if (found != null) return found;
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Expected synthetic control was not observed");
+    }
+    private AccessibilityNodeInfo findAnyNode(AccessibilityNodeInfo node,
+                                               java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        if (node == null) return null;
+        if (match.test(node)) return node;
+        for (int index = 0; index < node.getChildCount(); index++) {
+            AccessibilityNodeInfo found = findAnyNode(node.getChild(index), match);
+            if (found != null) return found;
+        }
+        return null;
     }
     private WebView findWebView(View view) {
         if (view instanceof WebView) return (WebView) view;

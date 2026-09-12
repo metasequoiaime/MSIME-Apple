@@ -39,7 +39,7 @@ public final class HandwritingCanvas extends View {
         placeholder.setTextAlign(Paint.Align.CENTER);
         placeholder.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 21,
             getResources().getDisplayMetrics()));
-        applySkin(KeyboardSkin.from("fluent"));
+        applySkin(KeyboardSkin.from("forest"));
     }
 
     public void setListener(Listener value) { listener = value; }

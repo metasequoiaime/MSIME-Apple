@@ -793,8 +793,8 @@ test("screen keyboard Shift key faces match punctuation and preserve virtual key
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
 });
 
-test("screen keyboard theme loads, saves independently and reloads", async () => {
-  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark" } };
+test("screen keyboard theme and Apple skin load, save independently and reload", async () => {
+  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark", candidate_skin: "graphite", touch_keyboard_skin: "typewriter" } };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
     snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
   });
@@ -804,6 +804,14 @@ test("screen keyboard theme loads, saves independently and reloads", async () =>
   expect(select.value).toBe("light");
   const preview = screen.getByRole("img", { name: "屏幕键盘完整布局预览" });
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
+  expect(preview.getAttribute("data-preview-skin")).toBe("typewriter");
+  const skins = screen.getAllByRole("switch", { name: /屏幕键盘皮肤/ });
+  expect(skins.map(button => button.getAttribute("aria-label"))).toEqual([
+    "屏幕键盘皮肤 水杉绿", "屏幕键盘皮肤 海盐蓝", "屏幕键盘皮肤 浅蔷薇", "屏幕键盘皮肤 素白瓷",
+    "屏幕键盘皮肤 纸上时光", "屏幕键盘皮肤 奶油桃桃", "屏幕键盘皮肤 霓虹夜航", "屏幕键盘皮肤 工程蓝图",
+  ]);
+  fireEvent.click(screen.getByRole("switch", { name: "屏幕键盘皮肤 霓虹夜航" }));
+  expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
   expect(preview.querySelectorAll("[data-keyboard-key]")).toHaveLength(61);
   expect([...preview.querySelectorAll("[data-keyboard-row]")].map(row => row.children.length)).toEqual([14, 14, 13, 12, 8]);
   expect(preview.querySelectorAll("button, [tabindex], a")).toHaveLength(0);
@@ -824,7 +832,9 @@ test("screen keyboard theme loads, saves independently and reloads", async () =>
   fireEvent.change(select, { target: { value: "dark" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark" })));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark", candidate_skin: "graphite", touch_keyboard_skin: "midnight" })));
+  fireEvent.click(screen.getByRole("switch", { name: "屏幕键盘皮肤 水杉绿" }));
+  expect(preview.getAttribute("data-preview-skin")).toBe("forest");
   fireEvent.change(select, { target: { value: "follow" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
   const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
@@ -832,6 +842,7 @@ test("screen keyboard theme loads, saves independently and reloads", async () =>
   confirm.mockRestore();
   await waitFor(() => expect(select.value).toBe("dark"));
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
+  expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
 });
 
 test("toolbar theme loads, previews independently, saves and reloads", async () => {

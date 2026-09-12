@@ -27,6 +27,21 @@ pub enum TouchKeyboardLayout {
     Handwriting,
 }
 
+/// Apple-compatible built-in visual styles for touch keyboard hosts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyboardSkin {
+    #[default]
+    Forest,
+    Ocean,
+    Rose,
+    Porcelain,
+    Typewriter,
+    Candy,
+    Midnight,
+    Blueprint,
+}
+
 /// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -182,6 +197,9 @@ pub struct Preferences {
     pub scheme: InputScheme,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
+    /// Touch-only keyboard appearance. Candidate-window skins remain independent.
+    #[serde(default)]
+    pub touch_keyboard_skin: TouchKeyboardSkin,
     /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
     #[serde(
         default,
@@ -763,6 +781,7 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
+            touch_keyboard_skin: TouchKeyboardSkin::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
@@ -1467,6 +1486,7 @@ mod tests {
             "settings_theme",
             "toolbar_theme",
             "screen_keyboard_theme",
+            "touch_keyboard_skin",
             "ui_backend",
             "candidate_follow_cursor",
         ] {
@@ -1538,6 +1558,38 @@ mod tests {
         }
         let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
         invalid["screen_keyboard_theme"] = "system".into();
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    }
+
+    #[test]
+    fn touch_keyboard_skin_uses_apple_ordered_ids_and_is_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        for (revision, touch_keyboard_skin) in [
+            TouchKeyboardSkin::Forest,
+            TouchKeyboardSkin::Ocean,
+            TouchKeyboardSkin::Rose,
+            TouchKeyboardSkin::Porcelain,
+            TouchKeyboardSkin::Typewriter,
+            TouchKeyboardSkin::Candy,
+            TouchKeyboardSkin::Midnight,
+            TouchKeyboardSkin::Blueprint,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let preferences = Preferences {
+                candidate_skin: "graphite".to_owned(),
+                touch_keyboard_skin,
+                ..Preferences::default()
+            };
+            let saved = store.save(revision as u64, preferences).unwrap();
+            assert_eq!(saved.preferences.touch_keyboard_skin, touch_keyboard_skin);
+            assert_eq!(saved.preferences.candidate_skin, "graphite");
+            assert_eq!(store.load().unwrap(), saved);
+        }
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["touch_keyboard_skin"] = "fluent".into();
         assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 

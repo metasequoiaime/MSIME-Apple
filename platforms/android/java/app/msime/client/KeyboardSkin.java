@@ -1,60 +1,163 @@
 package app.msime.client;
 
 import java.util.List;
+import java.util.Locale;
 
-/** Android-native colors for the shared candidate_skin preference. */
+/** Android rendering values for Apple's independent touch-keyboard skin preference. */
 public final class KeyboardSkin {
     private final String id;
     private final String title;
+    private final String description;
+    private final boolean dark;
     private final String background;
     private final String keyBackground;
     private final String keyForeground;
     private final String accent;
     private final String actionBackground;
     private final String actionForeground;
-    private final int cornerRadius;
+    private final double cornerRadius;
+    private final double borderWidth;
+    private final String borderColor;
+    private final double shadowOpacity;
+    private final double shadowRadius;
+    private final double shadowOffset;
     private final boolean monospaced;
+    private final int pattern;
 
-    private KeyboardSkin(String id, String title, String background, String keyBackground,
-            String keyForeground, String accent, String actionBackground, String actionForeground,
-            int cornerRadius, boolean monospaced) {
+    private KeyboardSkin(String id, String title, String description, boolean dark,
+            String background, String keyBackground, String keyForeground, String accent,
+            String actionBackground, double cornerRadius, double borderWidth,
+            double shadowOpacity, double shadowRadius, double shadowOffset,
+            boolean monospaced, int pattern) {
         this.id = id;
         this.title = title;
+        this.description = description;
+        this.dark = dark;
         this.background = background;
         this.keyBackground = keyBackground;
         this.keyForeground = keyForeground;
         this.accent = accent;
         this.actionBackground = actionBackground;
-        this.actionForeground = actionForeground;
+        this.actionForeground = "#FFFFFF";
         this.cornerRadius = cornerRadius;
+        this.borderWidth = borderWidth;
+        this.borderColor = alpha(accent, "midnight".equals(id) ? 0.65 : 0.28);
+        this.shadowOpacity = shadowOpacity;
+        this.shadowRadius = shadowRadius;
+        this.shadowOffset = shadowOffset;
         this.monospaced = monospaced;
+        this.pattern = pattern;
     }
 
-    public static KeyboardSkin from(String value) {
-        return switch (value == null ? "" : value) {
-            case "wechat" -> new KeyboardSkin("wechat", "微信绿", "#F0FAF4", "#E8FFF0",
-                "#155B32", "#32B76A", "#D7F5E2", "#155B32", 12, false);
-            case "graphite" -> new KeyboardSkin("graphite", "石墨黑", "#1F2125", "#2B2D31",
-                "#F1F1F1", "#8AB4F8", "#41454D", "#FFFFFF", 3, true);
-            case "willow_green" -> new KeyboardSkin("willow_green", "柳绿", "#EDF5EA", "#F0F8ED",
-                "#244B2B", "#6B9B63", "#D6E9D0", "#244B2B", 18, false);
-            default -> new KeyboardSkin("fluent", "流光白", "#F1F4F8", "#FFFFFF", "#1E293B",
-                "#2563EB", "#E0E7FF", "#1E3A8A", 8, false);
+    public static KeyboardSkin from(String value) { return from(value, false); }
+
+    public static boolean resolveDark(String keyboardTheme, String globalTheme, boolean systemDark) {
+        if ("dark".equals(keyboardTheme)) return true;
+        if ("light".equals(keyboardTheme)) return false;
+        if ("dark".equals(globalTheme)) return true;
+        if ("light".equals(globalTheme)) return false;
+        return systemDark;
+    }
+
+    public static KeyboardSkin from(String value, boolean dark) {
+        String id = value == null ? "" : value;
+        return switch (id) {
+            case "ocean" -> skin(id, "海盐蓝", "海盐浅蓝 · 轻盈平面", dark,
+                adaptive(dark, rgb(.90, .94, .98), rgb(.09, .12, .17)),
+                adaptive(dark, "#FFFFFF", rgb(.18, .22, .29)),
+                label(dark), adaptive(dark, rgb(.12, .36, .64), rgb(.50, .74, .98)),
+                adaptive(dark, rgb(.12, .36, .64), rgb(.16, .36, .62)), 8, 0, 0, 3, 2,
+                false, 0);
+            case "rose" -> skin(id, "浅蔷薇", "柔和蔷薇 · 简洁圆角", dark,
+                adaptive(dark, rgb(.98, .91, .94), rgb(.16, .10, .13)),
+                adaptive(dark, "#FFFFFF", rgb(.27, .19, .23)),
+                label(dark), adaptive(dark, rgb(.63, .25, .39), rgb(.96, .62, .74)),
+                adaptive(dark, rgb(.63, .25, .39), rgb(.56, .23, .36)), 8, 0, 0, 3, 2,
+                false, 0);
+            case "porcelain" -> skin(id, "素白瓷", "细线边框 · 克制直角", dark,
+                adaptive(dark, rgb(.92, .93, .94), rgb(.10, .11, .13)),
+                adaptive(dark, rgb(.99, .99, .99), rgb(.20, .21, .23)),
+                label(dark), adaptive(dark, rgb(.20, .24, .28), rgb(.80, .84, .89)),
+                adaptive(dark, rgb(.20, .24, .28), rgb(.27, .31, .36)), 3, .5, 0, 3, 2,
+                false, 0);
+            case "typewriter" -> skin(id, "纸上时光", "暖纸网点 · 复古键帽", dark,
+                adaptive(dark, rgb(.89, .84, .74), rgb(.15, .13, .10)),
+                adaptive(dark, rgb(.99, .96, .88), rgb(.25, .22, .17)),
+                label(dark), adaptive(dark, rgb(.37, .25, .15), rgb(.87, .72, .51)),
+                adaptive(dark, rgb(.37, .25, .15), rgb(.40, .28, .18)), 5, 1, .30, 0, 3,
+                true, 1);
+            case "candy" -> skin(id, "奶油桃桃", "奶油波纹 · 饱满圆角", dark,
+                adaptive(dark, rgb(.99, .88, .82), rgb(.19, .12, .15)),
+                adaptive(dark, rgb(1, .97, .93), rgb(.30, .20, .24)),
+                label(dark), adaptive(dark, rgb(.58, .22, .32), rgb(1, .66, .73)),
+                adaptive(dark, rgb(.58, .22, .32), rgb(.58, .22, .32)), 18, 0, .16, 3, 2,
+                false, 3);
+            case "midnight" -> skin(id, "霓虹夜航", "紫色星点 · 霓虹描边", dark,
+                rgb(.075, .06, .14), rgb(.16, .12, .25), "#FFFFFF", rgb(.78, .69, 1),
+                rgb(.40, .23, .70), 10, 1, 0, 3, 2, false, 1);
+            case "blueprint" -> skin(id, "工程蓝图", "蓝图网格 · 等宽字形", dark,
+                rgb(.055, .13, .22), rgb(.09, .20, .32), "#FFFFFF", rgb(.54, .84, 1),
+                rgb(.12, .34, .54), 3, 1, 0, 3, 2, true, 2);
+            default -> skin("forest", "水杉绿", "清新留白 · 经典圆角", dark,
+                adaptive(dark, rgb(.91, .94, .92), rgb(.09, .13, .11)),
+                adaptive(dark, "#FFFFFF", rgb(.19, .24, .21)),
+                label(dark), adaptive(dark, rgb(.094, .36, .28), rgb(.45, .80, .65)),
+                adaptive(dark, rgb(.094, .36, .28), rgb(.12, .38, .29)), 8, 0, 0, 3, 2,
+                false, 0);
         };
     }
 
-    public static List<KeyboardSkin> builtIns() {
-        return List.of(from("fluent"), from("wechat"), from("graphite"), from("willow_green"));
+    private static KeyboardSkin skin(String id, String title, String description, boolean dark,
+            String background, String keyBackground, String keyForeground, String accent,
+            String actionBackground, double cornerRadius, double borderWidth,
+            double shadowOpacity, double shadowRadius, double shadowOffset,
+            boolean monospaced, int pattern) {
+        return new KeyboardSkin(id, title, description, dark, background, keyBackground,
+            keyForeground, accent, actionBackground, cornerRadius, borderWidth, shadowOpacity,
+            shadowRadius, shadowOffset, monospaced, pattern);
+    }
+
+    private static String adaptive(boolean dark, String light, String darkValue) {
+        return dark ? darkValue : light;
+    }
+
+    private static String label(boolean dark) { return dark ? "#FFFFFF" : "#000000"; }
+
+    private static String rgb(double red, double green, double blue) {
+        return String.format(Locale.ROOT, "#%02X%02X%02X", channel(red), channel(green), channel(blue));
+    }
+
+    private static int channel(double value) {
+        return (int) Math.round(Math.max(0, Math.min(1, value)) * 255);
+    }
+
+    private static String alpha(String rgb, double value) {
+        return String.format(Locale.ROOT, "#%02X%s", channel(value), rgb.substring(1));
+    }
+
+    public static List<KeyboardSkin> builtIns(boolean dark) {
+        return List.of(from("forest", dark), from("ocean", dark), from("rose", dark),
+            from("porcelain", dark), from("typewriter", dark), from("candy", dark),
+            from("midnight", dark), from("blueprint", dark));
     }
 
     public String id() { return id; }
     public String title() { return title; }
+    public String description() { return description; }
+    public boolean dark() { return dark; }
+    public String key() { return id + ":" + dark; }
     public String background() { return background; }
     public String keyBackground() { return keyBackground; }
     public String keyForeground() { return keyForeground; }
     public String accent() { return accent; }
     public String actionBackground() { return actionBackground; }
     public String actionForeground() { return actionForeground; }
-    public int cornerRadius() { return cornerRadius; }
+    public double cornerRadius() { return cornerRadius; }
+    public double borderWidth() { return borderWidth; }
+    public String borderColor() { return borderColor; }
+    public double shadowOpacity() { return shadowOpacity; }
+    public double shadowRadius() { return shadowRadius; }
+    public double shadowOffset() { return shadowOffset; }
     public boolean monospaced() { return monospaced; }
+    public int pattern() { return pattern; }
 }

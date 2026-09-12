@@ -26,7 +26,7 @@ AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且�
 
 Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不显示入口。页面提供 7 天、30 天和累计范围、最近 7/30 日趋势与单日下钻、字符类型/语言模式/输入方案占比、刷新、即时启停和确认清空；统计页独立于 Preferences 草稿和“保存设置”。主应用与独立 `:ime` 进程共享 `files/bootstrap/state/typing-statistics.json`，由锁文件串行读写；页面会区分从未写入和已清空状态，并明确说明本机只保存聚合计数。完整 arm64 Tauri 合包已在专用 API 35 arm64 AVD 验证实际上屏聚合、文件不含合成输入文本、页面跨进程读取、禁用后不增长、取消/确认清空、清空保留禁用状态和重新启用后累计；真机触控、系统回收和长期统计仍需产品验收。
 
-“高情商回复”是独立 Android 宿主方案，底层固定映射到 Engine 的全拼 26 键，不向共享输入算法增加 AI 状态。选中后显示覆盖整个 IME 区域的专用键盘：顶部提供“帮你回/帮润色”、输入方案、社区模板、四种共享皮肤和收起入口；正文通过用户明确点按读取当前文本剪贴板，限制 10,000 个 Unicode 码点，并提供九种内置风格、删除、清空、取消、生成和同风格“换一句”。回复请求复用 AI 润色的 HTTPS transport、容量 1 队列、取消和 1 MiB 响应边界，但每次使用 Apple 对应风格 prompt；候选去重、最新在前且最多三条，服务结果绝不自动上屏，只有点按候选且 InputConnection、光标上下文、Engine 空闲状态、当前方案和完整 AI 配置仍匹配时才插入。插入后面板让出编辑器，候选栏“回复”入口可重新打开。切换模式、修改源文字、切换方案、编辑器上下文或 AI 配置变化都会取消请求并废弃迟到结果。
+“高情商回复”是独立 Android 宿主方案，底层固定映射到 Engine 的全拼 26 键，不向共享输入算法增加 AI 状态。选中后显示覆盖整个 IME 区域的专用键盘：顶部提供“帮你回/帮润色”、输入方案、社区模板、共享触屏键盘皮肤和收起入口；正文通过用户明确点按读取当前文本剪贴板，限制 10,000 个 Unicode 码点，并提供九种内置风格、删除、清空、取消、生成和同风格“换一句”。回复请求复用 AI 润色的 HTTPS transport、容量 1 队列、取消和 1 MiB 响应边界，但每次使用 Apple 对应风格 prompt；候选去重、最新在前且最多三条，服务结果绝不自动上屏，只有点按候选且 InputConnection、光标上下文、Engine 空闲状态、当前方案和完整 AI 配置仍匹配时才插入。插入后面板让出编辑器，候选栏“回复”入口可重新打开。切换模式、修改源文字、切换方案、编辑器上下文或 AI 配置变化都会取消请求并废弃迟到结果。
 
 社区回复模板只从应用私有 files 目录的 `CommunityLibrary.json` 读取，该文件用于主应用向独立 `:ime` 进程显式共享已收藏资源，不包含凭据或源消息。读取拒绝符号链接、非 UTF-8/非法 JSON、超过 4,000,000 字节、超过 50 项或无效字段，仅展示 `kind == reply` 且含 prompt 的条目；发起请求时重新读取，已移除模板不会复用。高情商回复与其他触屏输入方案统一由共享 `touch_keyboard_schemes` 管理可见性和选择；只有旧快照尚无该字段时，原 IME 私有开关与选择才作为迁移兼容来源。真实 provider、剪贴板系统限制、不同聊天编辑器插入、皮肤菜单和进程重建仍需 Android 原生产品验收。
 
@@ -34,7 +34,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 候选英文释义按固定 Apple 来源 `MSIME-Apple@d117009573a1a619cfb1702645f38c3b4c378a78` 渐进迁移，并通过共享 `candidate_english_gloss` 偏好选择性开启，默认关闭。开启后，Android 只在 IME 主线程复制当前 generation 的完整候选；无 session 的有界 worker 请求由 C++ Engine bridge 只读访问随包 `english.db`，Java 不实现输入算法也不读取 SQLite。完成结果返回主线程后必须同时匹配 session、generation 和生命周期 epoch，才会调用共享 `apply_translations`；停止输入、替换会话、偏好变化与服务销毁都会使旧结果失效。Engine 的五笔等候选提示优先占用次要文本位置，离线释义仅在没有 Engine 提示时显示；候选条与展开面板以较小的皮肤兼容文字和不同无障碍说明展示，候选身份、点击选择和上屏原文不变。查询失败静默保留普通候选，不记录候选文字；关闭偏好会立即隐藏已返回释义，缺失资源不会创建数据库或用户数据。
 
-输入服务现在消费共享 `candidate_skin` 偏好，将 fluent、wechat、graphite 和 willow_green 映射为 Android 键盘、候选区及展开面板的背景、按键色、前景色、边框圆角和等宽字体样式；普通输入方案与高情商回复键盘都可打开相同顺序的四种内置皮肤菜单，选择后通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤。设置热更新后不重建输入会话，只重新应用视觉样式。未知皮肤 ID 回退到 fluent，不把用户设置值当作颜色或资源名直接使用。主键盘操作条另提供平台原生“收起”入口，不改变 Engine 组合状态。
+触屏键盘皮肤以固定 Apple 来源 `MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453` 为基线，按相同顺序提供水杉绿、海盐蓝、浅蔷薇、素白瓷、纸上时光、奶油桃桃、霓虹夜航和工程蓝图。共享 `touch_keyboard_skin` 与桌面候选窗的 `candidate_skin` 完全独立；React 屏幕键盘页、普通输入方案和高情商回复键盘消费同一个选择。Android 适配保留 Apple 的明暗调色、圆角、边框、阴影、等宽字体以及网点、网格和波纹背景，`screen_keyboard_theme` 优先于全局 `theme`，两者都跟随系统时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤；设置热更新只重新应用视觉样式，不重建 Engine 会话。未知 ID 安全回退到水杉绿，不把用户设置值当作颜色或资源名直接使用。自定义编辑器、社区皮肤和 AI 生成皮肤尚未迁移，仍是后续独立切片；不得把八种内置皮肤视为完整皮肤功能迁移。
 
 “更多”入口现在使用与 Apple 同层级的全键盘工具页：顶部返回，剪贴板历史、AI 润色和语音结果为单列 48 dp 卡片，按键反馈为两列，轻/中/强振动为三列，本地输入为两列并可纵向滚动。选中、启用、禁用和不可用状态通过按钮状态与无障碍描述同步暴露，不再依赖锚定底栏的系统弹出菜单。按键、候选、翻页和面板操作共用反馈路径；设置保存在输入法私有的 `keyboard-feedback` 偏好中，默认按键音开启、振动关闭；振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
 
@@ -72,7 +72,7 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。原 build-apk.sh 保留为不含管理 UI 的原生宿主测试包入口。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
-在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
+在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件选择霓虹夜航后检查独立 `touch_keyboard_skin` 落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
 移动入口布局依据 [Tauri 移动应用入口约定](https://v2.tauri.app/start/migrate/from-tauri-1/#preparing-for-mobile)。本地观察到最后一个 Tauri 窗口关闭时主进程正常退出，故使用 :ime 隔离；不依赖在同进程中禁止退出后的未验证窗口重建行为。
 

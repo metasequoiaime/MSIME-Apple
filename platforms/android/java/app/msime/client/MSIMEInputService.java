@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -125,7 +126,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
-    private KeyboardSkin skin = KeyboardSkin.from("fluent");
+    private KeyboardSkin skin = KeyboardSkin.from("forest", false);
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
@@ -429,8 +430,7 @@ public final class MSIMEInputService extends InputMethodService {
                 enabledSchemes = schemeConfiguration.enabled();
                 selectedScheme = schemeConfiguration.selected();
                 sharedSchemePreferences = schemeConfiguration.shared();
-                skin = KeyboardSkin.from(preferences == null ? "fluent"
-                    : preferences.optString("candidate_skin", "fluent"));
+                skin = keyboardSkin(preferences);
                 localModes = preferences == null ? new JSONObject()
                     : preferences.optJSONObject("local_modes");
                 if (localModes == null) localModes = new JSONObject();
@@ -475,6 +475,16 @@ public final class MSIMEInputService extends InputMethodService {
         connection = null;
         currentDocumentIdentifier = 0;
         super.onFinishInput();
+    }
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        JSONObject preferences = preferencesSnapshot == null ? null
+            : preferencesSnapshot.optJSONObject("preferences");
+        KeyboardSkin next = keyboardSkin(preferences);
+        if (skin.key().equals(next.key())) return;
+        skin = next;
+        applySkin();
+        render();
     }
     @Override public void onDestroy() {
         stop(false);
@@ -635,7 +645,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousPreferencesReady = preferencesSnapshot != null;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
-        String previousSkin = skin.id();
+        String previousSkin = skin.key();
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
         AiPolishConfiguration previousAi = aiPolishConfiguration;
@@ -652,7 +662,7 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
         if (previousPreferencesReady != (preferencesSnapshot != null)
-                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.id())
+                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.key())
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
                 || (previousAi == null ? aiPolishConfiguration != null
@@ -667,7 +677,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         JSONObject accepted = new JSONObject(snapshot.toString());
         JSONObject preferences = accepted.getJSONObject("preferences");
-        KeyboardSkin nextSkin = KeyboardSkin.from(preferences.optString("candidate_skin", "fluent"));
+        KeyboardSkin nextSkin = keyboardSkin(preferences);
         JSONObject nextLocalModes = preferences.optJSONObject("local_modes");
         if (nextLocalModes == null) nextLocalModes = new JSONObject();
         String nextLayout = preferences.optString("candidate_layout",
@@ -1126,6 +1136,11 @@ public final class MSIMEInputService extends InputMethodService {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private int pixels(double value) {
+        if (value <= 0) return 0;
+        return Math.max(1, Math.round((float) value * getResources().getDisplayMetrics().density));
+    }
+
     private int halfSpacingPixels(int tenths) {
         return KeyboardGeometry.halfGapPixels(tenths,
             getResources().getDisplayMetrics().density);
@@ -1193,10 +1208,17 @@ public final class MSIMEInputService extends InputMethodService {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.parseColor(background));
         drawable.setCornerRadius(pixels(skin.cornerRadius()));
-        drawable.setStroke(pixels(1), Color.parseColor(skin.accent()));
+        int borderWidth = pixels(skin.borderWidth());
+        if (borderWidth > 0) drawable.setStroke(borderWidth, Color.parseColor(skin.borderColor()));
         button.setBackground(drawable);
         button.setTextColor(Color.parseColor(foreground));
         button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+        int shadowAlpha = (int) Math.round(255 * skin.shadowOpacity());
+        int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
+        button.setOutlineAmbientShadowColor(shadowColor);
+        button.setOutlineSpotShadowColor(shadowColor);
+        button.setElevation(skin.shadowOpacity() > 0
+            ? pixels(Math.max(1, skin.shadowRadius() + skin.shadowOffset())) : 0);
     }
 
     private void applySkinToView(View node) {
@@ -1220,27 +1242,50 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applySkin() {
         if (keyboardRoot == null) return;
-        keyboardRoot.setBackgroundColor(Color.parseColor(skin.background()));
+        applySkinBackground(keyboardRoot);
         if (expandedCandidates != null)
-            expandedCandidates.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(expandedCandidates);
+        if (clipboardPanel != null)
+            applySkinBackground(clipboardPanel);
         if (schemePanel != null)
-            schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(schemePanel);
         if (layoutSettingsPanel != null)
-            layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(layoutSettingsPanel);
         if (moreToolsPanel != null)
-            moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(moreToolsPanel);
         if (emojiPanel != null)
-            emojiPanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(emojiPanel);
         if (voiceResultPanel != null)
-            voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(voiceResultPanel);
         if (aiPolishPanel != null)
-            aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(aiPolishPanel);
         if (aiPolishContainer != null)
-            aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(aiPolishContainer);
         if (replyKeyboard != null)
-            replyKeyboard.setBackgroundColor(Color.parseColor(skin.background()));
+            applySkinBackground(replyKeyboard);
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
+    }
+
+    private void applySkinBackground(View node) {
+        node.setBackground(new KeyboardSkinBackgroundDrawable(
+            skin, getResources().getDisplayMetrics().density));
+    }
+
+    private boolean systemDark() {
+        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private KeyboardSkin keyboardSkin(JSONObject preferences) {
+        String keyboardTheme = preferences == null ? "follow"
+            : preferences.optString("screen_keyboard_theme", "follow");
+        String globalTheme = preferences == null ? "system"
+            : preferences.optString("theme", "system");
+        boolean dark = KeyboardSkin.resolveDark(keyboardTheme, globalTheme, systemDark());
+        String identifier = preferences == null ? "forest"
+            : preferences.optString("touch_keyboard_skin", "forest");
+        return KeyboardSkin.from(identifier, dark);
     }
 
     private void loadFeedbackPreferences() {
@@ -1740,7 +1785,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void showSkinMenu(Button anchor) {
         if (anchor == null || !canSaveKeyboardSkin()) return;
         PopupMenu popup = new PopupMenu(this, anchor);
-        for (KeyboardSkin choice : KeyboardSkin.builtIns()) {
+        for (KeyboardSkin choice : KeyboardSkin.builtIns(skin.dark())) {
             MenuItem item = popup.getMenu().add(choice.title());
             item.setCheckable(true).setChecked(skin.id().equals(choice.id()));
             item.setOnMenuItemClickListener(ignored -> {
@@ -1761,7 +1806,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveKeyboardSkin(String identifier) {
-        KeyboardSkin next = KeyboardSkin.from(identifier);
+        KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark());
         if (skin.id().equals(next.id()) || skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;
@@ -1771,7 +1816,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = pending.getLong("revision");
-            pending.getJSONObject("preferences").put("candidate_skin", next.id());
+            pending.getJSONObject("preferences").put("touch_keyboard_skin", next.id());
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
             return;
@@ -1806,8 +1851,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) {
             JSONObject accepted = preferencesSnapshot == null ? null
                 : preferencesSnapshot.optJSONObject("preferences");
-            skin = KeyboardSkin.from(accepted == null ? "fluent"
-                : accepted.optString("candidate_skin", "fluent"));
+            skin = keyboardSkin(accepted);
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         applySkin();
@@ -1981,6 +2025,8 @@ public final class MSIMEInputService extends InputMethodService {
         styleButton(replyPolishModeButton, true);
         replyTemplateButton.setEnabled(!replyModel.busy());
         replySkinButton.setEnabled(canSaveKeyboardSkin());
+        replySkinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
+        if (Build.VERSION.SDK_INT >= 30) replySkinButton.setStateDescription(skin.title());
         replySourceButton.setText(replyModel.source().isEmpty()
             ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
         if (replyModel.replies().isEmpty()) {

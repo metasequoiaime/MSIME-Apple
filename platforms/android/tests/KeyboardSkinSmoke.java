@@ -1,37 +1,67 @@
 import app.msime.client.KeyboardSkin;
+import java.util.Arrays;
 import java.util.List;
 
 public final class KeyboardSkinSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
-        KeyboardSkin fluent = KeyboardSkin.from("fluent");
-        check(fluent.id().equals("fluent"));
-        check(fluent.title().equals("流光白"));
-        check(fluent.keyBackground().equals("#FFFFFF"));
-        check(fluent.cornerRadius() == 8);
-        check(!fluent.monospaced());
+        List<KeyboardSkin> light = KeyboardSkin.builtIns(false);
+        check(light.stream().map(KeyboardSkin::id).toList().equals(Arrays.asList(
+            "forest", "ocean", "rose", "porcelain", "typewriter", "candy",
+            "midnight", "blueprint")));
+        check(light.stream().map(KeyboardSkin::title).toList().equals(Arrays.asList(
+            "水杉绿", "海盐蓝", "浅蔷薇", "素白瓷", "纸上时光", "奶油桃桃",
+            "霓虹夜航", "工程蓝图")));
 
-        KeyboardSkin wechat = KeyboardSkin.from("wechat");
-        check(wechat.accent().equals("#32B76A"));
-        check(wechat.actionBackground().equals("#D7F5E2"));
+        KeyboardSkin forest = light.get(0);
+        check("#E8F0EB".equals(forest.background()));
+        check("#FFFFFF".equals(forest.keyBackground()));
+        check("#000000".equals(forest.keyForeground()));
+        check("#185C47".equals(forest.accent()));
+        check(forest.cornerRadius() == 8 && forest.borderWidth() == 0);
+        check("forest:false".equals(forest.key()));
 
-        KeyboardSkin graphite = KeyboardSkin.from("graphite");
-        check(graphite.keyForeground().equals("#F1F1F1"));
-        check(graphite.cornerRadius() == 3);
-        check(graphite.monospaced());
+        KeyboardSkin darkForest = KeyboardSkin.from("forest", true);
+        check("#17211C".equals(darkForest.background()));
+        check("#303D36".equals(darkForest.keyBackground()));
+        check("#73CCA6".equals(darkForest.accent()));
+        check("forest:true".equals(darkForest.key()));
 
-        KeyboardSkin willow = KeyboardSkin.from("willow_green");
-        check(willow.cornerRadius() == 18);
-        check(!willow.id().equals(fluent.id()));
+        KeyboardSkin porcelain = KeyboardSkin.from("porcelain", false);
+        check(porcelain.cornerRadius() == 3 && porcelain.borderWidth() == 0.5);
+        check("#47333D47".equals(porcelain.borderColor()));
 
-        KeyboardSkin fallback = KeyboardSkin.from("untrusted-value");
-        check(fallback.id().equals("fluent"));
-        List<KeyboardSkin> choices = KeyboardSkin.builtIns();
-        check(choices.stream().map(KeyboardSkin::id).toList().equals(
-            List.of("fluent", "wechat", "graphite", "willow_green")));
-        check(choices.stream().map(KeyboardSkin::title).toList().equals(
-            List.of("流光白", "微信绿", "石墨黑", "柳绿")));
-        System.out.println("Android keyboard skins: shared IDs, menu order, palette, geometry and fallback passed");
+        KeyboardSkin typewriter = KeyboardSkin.from("typewriter", false);
+        check(typewriter.pattern() == 1 && typewriter.monospaced());
+        check(typewriter.borderWidth() == 1 && typewriter.shadowOpacity() == 0.30);
+        check(typewriter.shadowRadius() == 0 && typewriter.shadowOffset() == 3);
+
+        KeyboardSkin candy = KeyboardSkin.from("candy", true);
+        check("#4D333D".equals(candy.keyBackground()));
+        check(candy.pattern() == 3 && candy.cornerRadius() == 18);
+        check(candy.shadowOpacity() == 0.16);
+
+        KeyboardSkin midnight = KeyboardSkin.from("midnight", false);
+        check("#130F24".equals(midnight.background()));
+        check("#291F40".equals(midnight.keyBackground()));
+        check("#A6C7B0FF".equals(midnight.borderColor()));
+        check(midnight.pattern() == 1 && midnight.borderWidth() == 1);
+        check(KeyboardSkin.from("midnight", true).background().equals(midnight.background()));
+
+        KeyboardSkin blueprint = KeyboardSkin.from("blueprint", false);
+        check("#0E2138".equals(blueprint.background()));
+        check(blueprint.pattern() == 2 && blueprint.monospaced());
+
+        KeyboardSkin fallback = KeyboardSkin.from("untrusted-value", true);
+        check("forest".equals(fallback.id()) && fallback.dark());
+        check(KeyboardSkin.resolveDark("dark", "light", false));
+        check(!KeyboardSkin.resolveDark("light", "dark", true));
+        check(KeyboardSkin.resolveDark("follow", "dark", false));
+        check(!KeyboardSkin.resolveDark("follow", "light", true));
+        check(KeyboardSkin.resolveDark("follow", "system", true));
+        check(!KeyboardSkin.resolveDark("follow", "system", false));
+        System.out.println("Android keyboard skins: Apple order, adaptive palettes, geometry, "
+            + "patterns, typography, theme resolution and fallback passed");
     }
 }
