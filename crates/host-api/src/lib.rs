@@ -1422,8 +1422,16 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
-            .query(query)
-            .map(|(text, source)| json!({"text": text, "source": source}))
+            .query_candidates(query)
+            .map(|candidates| {
+                let rows: Vec<_> = candidates.into_iter()
+                    .map(|(text, source)| json!({"text": text, "source": source}))
+                    .collect();
+                // Preserve the single-result fields for older CLI consumers.
+                let mut value = rows.first().cloned().unwrap_or(json!({}));
+                value["candidates"] = json!(rows);
+                value
+            })
             .unwrap_or(Value::Null))
     })
 }

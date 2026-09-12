@@ -1065,15 +1065,20 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     const auto document = Json::parse(raw.get());
     if (!document.value("ok", false)) return;
     const auto value = document.at("value");
-    const auto candidate = value.value("text", std::string{});
-    if (candidate.empty()) return;
-    const auto source = static_cast<uint8_t>(value.value("source", 0));
-    if (!s.cloud_candidates && source == 0) return;
-    auto applied = response(msime_client_apply_online_candidate(
-        s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
-        reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
-        source));
-    s.view = applied.at("view");
+    if (!value.is_object()) return;
+    const auto candidates = value.value("candidates", Json::array({value}));
+    if (!candidates.is_array() || candidates.size() > 2) return;
+    for (const auto &item : candidates) {
+      const auto candidate = item.value("text", std::string{});
+      const auto source = item.value("source", 255);
+      if (candidate.empty() || source < 0 || source > 1 ||
+          (!s.cloud_candidates && source == 0)) continue;
+      auto applied = response(msime_client_apply_online_candidate(
+          s.session, reinterpret_cast<const uint8_t *>(request->query.data()), request->query.size(),
+          reinterpret_cast<const uint8_t *>(candidate.data()), candidate.size(),
+          static_cast<uint8_t>(source)));
+      s.view = applied.at("view");
+    }
     render(engine, s.view);
     translation_schedule(engine);
   } catch (...) {}

@@ -474,7 +474,12 @@ impl UnixSocketProvider {
         Self { path: path.into() }
     }
 
-    pub fn query(&self, mut query: OnlineQuery) -> Option<(String, u8)> {
+    pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+        self.query_candidates(query)?.into_iter().next()
+    }
+
+    /// Accept one cloud and one AI suggestion from the same provider response.
+    pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
         if query.ai_context.len() > 1024 {
             return None;
         }
@@ -496,21 +501,47 @@ impl UnixSocketProvider {
             return None;
         }
         let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        BufReader::new(stream).take(16385).read_line(&mut line).ok()?;
+        if line.len() > 16384 || !line.ends_with('\n') {
+            return None;
+        }
         #[derive(Deserialize)]
         struct Reply {
             text: String,
             source: u8,
         }
-        let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.text.is_empty()
-            || reply.text.len() > 4096
-            || reply.source > 1
-            || (!query.cloud_candidates && reply.source == 0)
-        {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Response {
+            Batch { candidates: Vec<Reply> },
+            Single(Reply),
+        }
+        let replies = match serde_json::from_str::<Response>(&line).ok()? {
+            Response::Batch { candidates } => candidates,
+            Response::Single(reply) => vec![reply],
+        };
+        if replies.len() > 2 {
             return None;
         }
-        Some((reply.text, reply.source))
+        let mut seen_sources = [false; 2];
+        let mut candidates = Vec::new();
+        for reply in replies {
+            if reply.text.is_empty() || reply.text.len() > 4096 || reply.source > 1 {
+                return None;
+            }
+            if (reply.source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+                || (reply.source == 1 && !query.ai_eligible)
+            {
+                continue;
+            }
+            let source = usize::from(reply.source);
+            if seen_sources[source] {
+                return None;
+            }
+            seen_sources[source] = true;
+            candidates.push((reply.text, reply.source));
+        }
+        Some(candidates)
     }
 
     pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
