@@ -9,3 +9,34 @@ Icon=input-keyboard
 Terminal=false
 Categories=Settings;Utility;
 StartupNotify=true
+Actions=Handwriting;Keyboard;Emoji;Voice;CloudDictionary;CloudClipboard;
+
+[Desktop Action Handwriting]
+Name=Handwriting
+Name[zh_CN]=手写识别板
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel handwriting
+
+[Desktop Action Keyboard]
+Name=Screen Keyboard
+Name[zh_CN]=屏幕键盘
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel keyboard
+
+[Desktop Action Emoji]
+Name=Emoji and Symbols
+Name[zh_CN]=表情与符号
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel emoji
+
+[Desktop Action Voice]
+Name=Voice Input
+Name[zh_CN]=语音输入
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel voice
+
+[Desktop Action CloudDictionary]
+Name=Cloud Dictionary
+Name[zh_CN]=云词典
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel cloud-dictionary
+
+[Desktop Action CloudClipboard]
+Name=Cloud Clipboard
+Name[zh_CN]=云剪贴板
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel cloud-clipboard
