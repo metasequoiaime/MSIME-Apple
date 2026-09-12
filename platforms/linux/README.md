@@ -418,3 +418,8 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 
 
 自定义 `MSIME_HANDWRITING_MODEL` 构建输入可以使用任意源文件名，安装时统一命名为 `handwriting-zh_CN.model`，保证桌面面板和 `msime-client-handwriting --local` 自动找到同一模型。桌面配置或环境变量的模型路径为空时视为未配置并继续查找安装资源；非空但无效的显式路径仍会报错，不切换到其他模型。
+
+
+### Wayland 剪贴板变更通知
+
+启用剪贴板历史时，监视服务优先使用 `wl-paste --watch` 接收复制事件，减少快速连续复制被轮询漏掉的情况。每个事件通过标准输入读取最多 4096 字节并重新读取历史开关；空、清除或标记为敏感的选择不保存。关闭历史或停止服务会结束监听及其子进程。缺少工具、不支持 data-control 或监听退出时回退到原有有界轮询，失败后至少间隔 30 秒再尝试监听。协议依据 [wl-clipboard 官方手册](https://github.com/bugaevc/wl-clipboard/blob/master/data/wl-clipboard.1)。
