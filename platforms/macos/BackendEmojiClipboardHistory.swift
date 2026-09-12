@@ -1,0 +1,35 @@
+import Foundation
+
+struct MacEmojiClipboardHistory: Sendable {
+  let enabled: Bool
+  let entries: [String]
+
+  static func decode(_ response: NSDictionary) throws -> Self {
+    guard response["error"] == nil, let flag = response["enabled"] as? NSNumber,
+          CFGetTypeID(flag) == CFBooleanGetTypeID(),
+          let entries = response["entries"] as? [String], entries.count <= 50,
+          entries.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 4096 }),
+          Set(entries).count == entries.count,
+          flag.boolValue || entries.isEmpty else {
+      throw NSError(domain: "MSIMEClipboardHistory", code: 1)
+    }
+    return Self(enabled: flag.boolValue, entries: entries)
+  }
+
+  func matching(_ search: String) -> [MacEmojiCatalogItem] {
+    guard enabled else { return [] }
+    return entries.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
+      .map { MacEmojiCatalogItem(text: $0, annotation: "", group: "剪贴板") }
+  }
+
+  static func load(directory: String) throws -> Self {
+    let selector = NSSelectorFromString("clipboardHistoryRequest:")
+    guard NSString(string: directory).isAbsolutePath,
+          let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
+          type.responds(to: selector),
+          let response = type.perform(selector, with: directory)?.takeUnretainedValue() as? NSDictionary else {
+      throw NSError(domain: "MSIMEClipboardHistory", code: 2)
+    }
+    return try decode(response)
+  }
+}

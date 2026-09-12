@@ -505,6 +505,44 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
+/// Read saved clipboard history without observing or modifying the system clipboard.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_load_clipboard_history(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid history directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid history directory encoding")?;
+        let path = std::path::Path::new(directory);
+        if !path.is_absolute() {
+            return Err("history directory must be absolute".into());
+        }
+        let enabled = PreferencesStore::new(path)
+            .load()
+            .map_err(|_| "history preferences unavailable")?
+            .preferences
+            .clipboard_history;
+        if !enabled {
+            return Ok(serde_json::json!({"enabled": false, "entries": []}));
+        }
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+            path.join("clipboard_history.json"),
+        );
+        history
+            .load()
+            .map_err(|_| "clipboard history unavailable")?;
+        Ok(serde_json::json!({"enabled": true, "entries": history.entries()}))
+    })
+}
+
 /// Try to read preferences without waiting for the writer lock.
 /// # Safety
 /// `directory` must point to `length` readable bytes. Null is rejected.
@@ -2082,6 +2120,52 @@ mod tests {
             false
         );
     }
+    #[test]
+    fn clipboard_reader_respects_preferences_and_preserves_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap();
+        let load =
+            || read(unsafe { msime_client_load_clipboard_history(path.as_ptr(), path.len()) });
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, Preferences::default()).unwrap();
+        assert_eq!(load()["value"]["entries"], serde_json::json!([]));
+        let file = directory.path().join("clipboard_history.json");
+        let fixture = r#"["synthetic alpha","synthetic beta","synthetic alpha"]"#;
+        std::fs::write(&file, fixture).unwrap();
+        assert_eq!(
+            load()["value"]["entries"],
+            serde_json::json!(["synthetic alpha", "synthetic beta"])
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), fixture);
+        std::fs::write(&file, "broken synthetic fixture").unwrap();
+        assert_eq!(load()["error"], "clipboard history unavailable");
+        let mut preferences = saved.preferences;
+        preferences.clipboard_history = false;
+        store.save(saved.revision, preferences).unwrap();
+        assert_eq!(
+            load()["value"],
+            serde_json::json!({"enabled": false, "entries": []})
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "broken synthetic fixture"
+        );
+        std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
+        assert_eq!(load()["error"], "history preferences unavailable");
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history(b"relative".as_ptr(), 8) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history([255u8].as_ptr(), 1) })["ok"],
+            false
+        );
+    }
+
     fn test_host(root: &std::path::Path) -> u64 {
         test_host_preferences(root, Preferences::default())
     }

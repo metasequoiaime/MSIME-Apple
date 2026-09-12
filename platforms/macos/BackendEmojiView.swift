@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MacEmojiView: View {
   let resources: String
+  let preferencesDirectory: String
   @ObservedObject var appearance = MacEmojiAppearance.shared
   @Environment(\.colorScheme) private var systemColorScheme
   private var palette: MacEmojiPalette {
@@ -10,7 +11,8 @@ struct MacEmojiView: View {
   }
   @State private var search = ""
   @State private var category = ""
-  private var usesWideCells: Bool { category == "kaomoji" || category == "recent" }
+  private var usesWideCells: Bool { category == "kaomoji" || category == "recent" || category == "clipboard" }
+  private var columns: Int { category == "clipboard" ? 1 : usesWideCells ? 3 : 8 }
   @State private var group = ""
   @State private var parent = ""
   @State private var symbolGroups: [MacEmojiSymbolGroup] = []
@@ -24,8 +26,9 @@ struct MacEmojiView: View {
   @State private var selectedIndex = 0
   @State private var recent = MacEmojiRecents()
   @State private var clipboardNotice = ""
+  @State private var historyRevision = 0
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, parent, group, String(offset), String(category == "recent" ? recent.revision : 0)] }
+  private var queryID: [String] { [search, category, parent, group, String(offset), String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   @State private var selection = MacEmojiSelectionState()
@@ -33,7 +36,7 @@ struct MacEmojiView: View {
   var copyText: (String) -> Bool = { MacEmojiClipboard.copy($0) }
 
   private func copyItem(_ item: MacEmojiCatalogItem) {
-    recent.recordSelection(item)
+    if category != "clipboard" { recent.recordSelection(item) }
     if copyText(item.text) {
       clipboardNotice = "已复制到剪贴板"
     } else {
@@ -48,6 +51,7 @@ struct MacEmojiView: View {
         Text("表情").tag("")
         Text("颜文字").tag("kaomoji")
         Text("符号").tag("symbols")
+        Text("剪贴板").tag("clipboard")
       }.pickerStyle(.segmented)
       if category == "symbols" {
         Picker("符号大类", selection: $parent) {
@@ -63,8 +67,15 @@ struct MacEmojiView: View {
       }.disabled(groupsCategory != category || displayedGroups.isEmpty)
       if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
-        placeholder: category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
+        placeholder: category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
+      if category == "clipboard" {
+        HStack {
+          Text("仅显示已保存记录，不采集系统剪贴板").font(.caption)
+          Spacer()
+          Button("刷新") { historyRevision += 1 }
+        }
+      }
       Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
       if !clipboardNotice.isEmpty { Text(clipboardNotice).font(.caption) }
       if selection.rejected {
@@ -77,22 +88,23 @@ struct MacEmojiView: View {
         Text("第 \(offset / 255 + 1) 页").font(.caption)
         Spacer()
         Button("下一页") { offset += 255 }
-          .disabled(category == "recent" || loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
+          .disabled(category == "recent" || category == "clipboard" || loadedQuery != queryID || items.isEmpty || offset > Int.max - 255)
       }
       ScrollViewReader { proxy in
         VStack(spacing: 4) {
           MacEmojiKeyboardEntry(enabled: loadedQuery == queryID && !items.isEmpty) { command in
             guard loadedQuery == queryID,
-                  let index = command.destination(from: selectedIndex, count: items.count, columns: usesWideCells ? 3 : 8) else { return }
+                  let index = command.destination(from: selectedIndex, count: items.count, columns: columns) else { return }
             selectedIndex = index
             proxy.scrollTo(index)
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: usesWideCells ? 3 : 8), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
                 Button(item.text) { selectedIndex = index; copyItem(item) }
                   .font(usesWideCells ? .body : .title2)
+                  .lineLimit(category == "clipboard" ? 3 : nil)
                   .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
                   .id(index)
                   .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
@@ -112,7 +124,7 @@ struct MacEmojiView: View {
       .tint(MacEmojiPalette.color(palette.accent))
       .preferredColorScheme(appearance.colorScheme)
       .onChange(of: search) { _ in offset = 0 }
-      .onChange(of: category) { _ in offset = 0; group = ""; parent = "" }
+      .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; clipboardNotice = "" }
       .onChange(of: parent) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
       .task(id: category) {
@@ -122,7 +134,7 @@ struct MacEmojiView: View {
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
-        if selectedCategory == "recent" { groupsCategory = selectedCategory; return }
+        if selectedCategory == "recent" || selectedCategory == "clipboard" { groupsCategory = selectedCategory; return }
         do {
           if selectedCategory == "symbols" {
             let result = try await Task.detached { try MacEmojiCatalog.loadSymbolGroups(resources: directory) }.value
@@ -155,6 +167,19 @@ struct MacEmojiView: View {
         }
         do {
           try await Task.sleep(nanoseconds: 200_000_000)
+          if category == "clipboard" {
+            let directory = preferencesDirectory
+            let requestedID = queryID
+            let query = search
+            let history = try await Task.detached {
+              try MacEmojiClipboardHistory.load(directory: directory)
+            }.value
+            try Task.checkCancellation()
+            items = history.matching(query)
+            loadedQuery = requestedID
+            status = !history.enabled ? "剪贴板历史已关闭" : items.isEmpty ? "没有已保存的匹配记录" : "本页 \(items.count) 项"
+            return
+          }
           let query = search
           let directory = resources
           let selectedCategory = category
@@ -172,7 +197,7 @@ struct MacEmojiView: View {
         } catch {
           guard !Task.isCancelled else { return }
           items = []
-          status = "表情目录不可用，请检查本地资源配置"
+          status = category == "clipboard" ? "剪贴板历史不可用，请检查共享存储配置" : "表情目录不可用，请检查本地资源配置"
         }
       }
   }

@@ -11,7 +11,7 @@ int main(int argc, const char *argv[]) {
         for (NSString *selector in @[@"showDictionaryForAccountID:", @"showClipboardForAccountID:",
                                     @"showSnapshotForAccountID:", @"showSettingsForAccountID:",
                                     @"showCommunityResourcesForAccountID:", @"showHandwriting",
-                                    @"showEmojiWithResources:selectionAttempt:", @"applyEmojiPreferences:",
+                                    @"showEmojiWithOptions:selectionAttempt:", @"applyEmojiPreferences:",
                                     @"showEmojiDeliveryFailure"]) {
             assert([bridge instancesRespondToSelector:NSSelectorFromString(selector)]);
         }
