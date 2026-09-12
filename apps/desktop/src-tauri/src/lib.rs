@@ -1376,30 +1376,33 @@ fn send_panel_ctrl_v(
 #[cfg(target_os = "linux")]
 fn send_panel_voice_text(
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, PanelInputState>,
+    target: &PanelInputTarget,
     text: &str,
     commit_mode: &str,
 ) -> Result<(), HostActionError> {
-    if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control) {
+    if text.is_empty()
+        || text.len() > 4096
+        || text.chars().any(|character| {
+            character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+        })
+    {
         return Err(HostActionError {
             code: "invalid_text",
         });
     }
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-    if commit_mode == "ctrl_v" && write_linux_clipboard(text) {
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        return send_panel_ctrl_v(app, &target);
+    let multiline = text.chars().any(|character| matches!(character, '\n' | '\r' | '\t'));
+    if commit_mode == "ctrl_v" || multiline {
+        if write_linux_clipboard(text) {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            return send_panel_ctrl_v(app, target);
+        }
+        // Do not turn literal newlines/tabs into Return/Tab key actions when
+        // clipboard transfer fails; leave the transcript available to retry.
+        if multiline {
+            return Err(HostActionError { code: "unavailable" });
+        }
     }
-    send_panel_text_to_target(app, &target, text)
+    send_panel_text_to_target(app, target, text)
 }
 
 // Windows panels are ordinary Tauri windows that never activate, so the host
@@ -2029,7 +2032,7 @@ async fn paste_clipboard_text(
 }
 
 #[tauri::command]
-fn send_voice_text(
+async fn send_voice_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -2037,16 +2040,24 @@ fn send_voice_text(
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
     {
-        let commit_mode = store
-            .inner()
-            .load()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .preferences
-            .voice_input
-            .commit_mode;
-        return send_panel_voice_text(&app, &state, &text, &commit_mode);
+        let target = state
+            .0
+            .lock()
+            .map_err(|_| HostActionError { code: "unavailable" })?
+            .clone()
+            .ok_or(HostActionError { code: "unavailable" })?;
+        let store = store.inner().clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let commit_mode = store
+                .load()
+                .map_err(|_| HostActionError { code: "unavailable" })?
+                .preferences
+                .voice_input
+                .commit_mode;
+            send_panel_voice_text(&app, &target, &text, &commit_mode)
+        })
+        .await
+        .map_err(|_| HostActionError { code: "unavailable" })?;
     }
     #[cfg(not(target_os = "linux"))]
     {
