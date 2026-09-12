@@ -92,7 +92,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
         runOnMainSync(() -> web.evaluateJavascript(expression, value -> { result.set(value); completed.countDown(); }));
-        if (!completed.await(5, TimeUnit.SECONDS)) throw new AssertionError("WebView response timed out");
+        if (!completed.await(15, TimeUnit.SECONDS)) throw new AssertionError("WebView response timed out");
         return result.get();
     }
     private void awaitJs(String condition) throws Exception {

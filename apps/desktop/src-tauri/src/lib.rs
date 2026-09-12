@@ -17,7 +17,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use tauri::Emitter;
 use tauri::Manager;
 #[cfg(all(not(target_os = "windows"), not(mobile)))]
@@ -1362,15 +1362,14 @@ async fn recognize_voice(
     #[cfg(not(unix))]
     {
         let _ = (request, runtime);
-    Err(HostActionError {
-        code: "unavailable",
-    })
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
 }
 
 #[tauri::command]
-fn cancel_voice(
-    options: tauri::State<'_, DictionaryHostOptions>,
-) -> Result<(), HostActionError> {
+fn cancel_voice(options: tauri::State<'_, DictionaryHostOptions>) -> Result<(), HostActionError> {
     #[cfg(unix)]
     {
         let path = serde_json::from_str::<Value>(&options.0)
@@ -1404,7 +1403,6 @@ fn cancel_voice(
             code: "unavailable",
         })
     }
-}
 }
 
 #[tauri::command]

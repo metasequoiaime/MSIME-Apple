@@ -40,7 +40,7 @@ AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且�
 
 日语 9 键复刻 Apple 的 10 组五向假名：轻点输入中间假名，向左、上、右、下滑动选择其余假名，长按显示该键全部选项；“小゛゜”菜单提供小假名、浊音和半浊音，括号、长音和波浪号作为文字直接提交。Android 只把对应罗马字逐字符发送给日语 Engine，不在宿主实现假名组合或转换。
 
-手写迁移提供 Android 原生画布和平台识别器注入边界：画布限制 64 笔、每笔 512 个采样点，支持单笔撤销、清空、坐标夹取和尺寸变化失效；识别请求复制不可变笔画快照，并以 session/revision/generation 拒绝过期结果，候选去重后最多 12 项。Tauri Android 适配器使用 ML Kit Digital Ink Recognition 19.0.0 和 `zh-Hani-CN` 模型，执行模型检查/下载、书写区域与时间戳笔画转换；轻量原生预览不依赖 ML Kit，缺少适配器时显示明确状态。手写方案、键盘内候选确认、无墨迹删除及退出清理已接入，仍需设备上的模型下载与产品验收。
+手写迁移提供 Android 原生画布和平台识别器注入边界：画布限制 64 笔、每笔 512 个采样点，支持单笔撤销、清空、坐标夹取和尺寸变化失效；识别请求复制不可变笔画快照，并以 session/revision/generation 拒绝过期结果，候选去重后最多 12 项。Tauri Android 适配器使用 ML Kit Digital Ink Recognition 19.0.0 和 `zh-Hani-CN` 模型，执行模型检查/下载、书写区域与时间戳笔画转换；轻量原生预览不依赖 ML Kit，缺少适配器时显示明确状态。手写方案、键盘内候选确认、无墨迹删除及退出清理已接入；有墨迹且候选已就绪时，软/硬件空格与回车确认第一候选，硬件退格和底部退格优先撤销最后一笔。专用 API 35 AVD 已验证模型下载或既有模型就绪、真实触摸笔迹识别、第一候选确认、符号层往返和方案恢复，真机触控手感与产品验收仍待完成。
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除操作要求 Android 确认对话框。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
@@ -64,7 +64,7 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。原 build-apk.sh 保留为不含管理 UI 的原生宿主测试包入口。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
-在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。测试中使用合成内容，并恢复原偏好文件；instrumentation 的强制停止与普通设置窗口关闭分开处理。
+在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
 移动入口布局依据 [Tauri 移动应用入口约定](https://v2.tauri.app/start/migrate/from-tauri-1/#preparing-for-mobile)。本地观察到最后一个 Tauri 窗口关闭时主进程正常退出，故使用 :ime 隔离；不依赖在同进程中禁止退出后的未验证窗口重建行为。
 
