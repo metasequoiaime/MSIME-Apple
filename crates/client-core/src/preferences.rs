@@ -262,6 +262,9 @@ pub struct Preferences {
     pub cloud_candidates: bool,
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
+    /// Show bounded offline English glosses from the packaged Engine dictionary.
+    #[serde(default)]
+    pub candidate_english_gloss: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
 }
@@ -788,6 +791,7 @@ impl Default for Preferences {
             clipboard_history: true,
             cloud_candidates: true,
             candidate_translations: true,
+            candidate_english_gloss: false,
             translation_target_language: TranslationTargetLanguage::default(),
         }
     }
@@ -1229,6 +1233,31 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidate_english_gloss_is_opt_in_and_round_trips() {
+        let defaults = Preferences::default();
+        assert!(!defaults.candidate_english_gloss);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("candidate_english_gloss");
+        assert!(
+            !serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .candidate_english_gloss
+        );
+        let enabled = Preferences {
+            candidate_english_gloss: true,
+            ..defaults
+        };
+        assert!(
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+                .unwrap()
+                .candidate_english_gloss
+        );
+    }
 
     #[test]
     fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {

@@ -15,6 +15,10 @@ import android.os.Build;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
@@ -107,6 +111,11 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView keyboardHeightValue;
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
+    private boolean candidateEnglishGloss;
+    private String candidateGlossResources = "";
+    private long candidateGlossEpoch;
+    private long candidateGlossRequestedSession;
+    private long candidateGlossRequestedGeneration = -1;
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
@@ -238,6 +247,9 @@ public final class MSIMEInputService extends InputMethodService {
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
         new ThreadPoolExecutor.AbortPolicy());
     private final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
+        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+        new ThreadPoolExecutor.DiscardOldestPolicy());
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
@@ -428,11 +440,15 @@ public final class MSIMEInputService extends InputMethodService {
                 applyAiPreferences(preferences);
                 applyClipboardPreference(preferences);
                 applyChineseOutputPreference(preferences);
+                applyCandidateGlossPreference(preferences);
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
                 String resources = options.optString("resources", "");
-                if (new File(resources).isAbsolute()) emojiResources = resources;
+                if (new File(resources).isAbsolute()) {
+                    emojiResources = resources;
+                    candidateGlossResources = resources;
+                }
                 apply(NativeClient.focus(session, true));
                 view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
                 message = "MSIME Preview";
@@ -465,6 +481,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesWorker.shutdown();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
+        candidateGlossWorker.shutdownNow();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -473,10 +490,13 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void stop(boolean finish) {
         deactivateHandwriting();
+        invalidateCandidateGlosses();
         preferencesReloader.stop();
         preferenceSaveGeneration++;
         preferencesDirectory = "";
         emojiResources = "";
+        candidateGlossResources = "";
+        candidateEnglishGloss = false;
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
@@ -575,6 +595,19 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean("traditional_chinese_output", false);
     }
 
+    private void applyCandidateGlossPreference(JSONObject preferences) {
+        boolean next = preferences != null
+            && preferences.optBoolean("candidate_english_gloss", false);
+        if (candidateEnglishGloss != next) invalidateCandidateGlosses();
+        candidateEnglishGloss = next;
+    }
+
+    private void invalidateCandidateGlosses() {
+        candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
+        candidateGlossRequestedSession = 0;
+        candidateGlossRequestedGeneration = -1;
+    }
+
     private String chineseOutput(String text, JSONObject context) {
         int scheme = context == null
             ? (view == null ? -1 : view.optInt("scheme", -1))
@@ -608,6 +641,7 @@ public final class MSIMEInputService extends InputMethodService {
         AiPolishConfiguration previousAi = aiPolishConfiguration;
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
+        boolean previousCandidateGloss = candidateEnglishGloss;
         KeyboardScheme previousScheme = selectedScheme;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
@@ -625,6 +659,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : !previousAi.equals(aiPolishConfiguration))
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
+                || previousCandidateGloss != candidateEnglishGloss
                 || previousScheme != selectedScheme
                 || !previousView.equals(view == null ? "" : view.toString())) render();
     }
@@ -654,6 +689,7 @@ public final class MSIMEInputService extends InputMethodService {
             : nextVoice.optString("language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
+        boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", false);
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -680,6 +716,8 @@ public final class MSIMEInputService extends InputMethodService {
         applyAiPreferences(preferences);
         clipboardHistoryEnabled = nextClipboard;
         traditionalChineseOutput = nextTraditional;
+        if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
+        candidateEnglishGloss = nextCandidateGloss;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();
@@ -715,6 +753,75 @@ public final class MSIMEInputService extends InputMethodService {
         if (rebuildLayout) rebuildKeyRows();
         render();
         return result.getBoolean("handled");
+    }
+
+    /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
+    private void scheduleCandidateGlosses() {
+        if (!candidateEnglishGloss || session == 0 || view == null
+                || candidateGlossResources.isEmpty()) return;
+        long generation = view.optLong("generation", -1);
+        if (generation < 0 || (candidateGlossRequestedSession == session
+                && candidateGlossRequestedGeneration == generation)) return;
+        JSONArray visible = view.optJSONArray("candidates");
+        if (visible == null || visible.length() == 0) return;
+        final long targetSession = session;
+        final long targetEpoch = candidateGlossEpoch;
+        final String targetResources = candidateGlossResources;
+        final String request;
+        try {
+            JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
+            if (snapshot.optLong("session") != targetSession
+                    || snapshot.optLong("generation") != generation) return;
+            request = CandidateGlossModel.request(generation,
+                snapshot.getJSONArray("candidates"));
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            candidateGlossRequestedSession = targetSession;
+            candidateGlossRequestedGeneration = generation;
+            return;
+        }
+        CandidateGlossPolicy.Token token =
+            new CandidateGlossPolicy.Token(targetSession, generation, targetEpoch);
+        candidateGlossRequestedSession = targetSession;
+        candidateGlossRequestedGeneration = generation;
+        try {
+            candidateGlossWorker.execute(() -> {
+                try {
+                    CandidateGlossModel.Result result = CandidateGlossModel.decode(
+                        NativeClient.candidateGlosses(request, targetResources));
+                    main.post(() -> applyCandidateGlosses(token, result));
+                } catch (JSONException | RuntimeException | LinkageError error) {
+                    // Display-only lookup failures remain silent and never include candidate text.
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // A stopped or saturated host must not affect input.
+        }
+    }
+
+    private void applyCandidateGlosses(
+            CandidateGlossPolicy.Token token, CandidateGlossModel.Result result) {
+        long currentGeneration = view == null ? -1 : view.optLong("generation", -1);
+        if (!candidateEnglishGloss || result.generation() != token.generation()
+                || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
+        try {
+            JSONObject applied = value(NativeClient.applyTranslations(
+                token.session(), token.generation(), result.translations()));
+            if (!applied.optBoolean("applied", false)) return;
+            JSONObject next = applied.getJSONObject("view");
+            if (next.optLong("session") != token.session()
+                    || next.optLong("generation") != token.generation()) return;
+            view = next;
+            if (candidatePanelOpen) {
+                JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
+                if (snapshot.optLong("session") == token.session()
+                        && snapshot.optLong("generation") == token.generation()) {
+                    candidatePanelSnapshot = snapshot;
+                }
+            }
+            render();
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            // Candidate glosses are optional display state; keep the current Engine view.
+        }
     }
 
     private void fail() { stop(false); message = "输入连接失败：仅直接输入"; render(); }
@@ -2912,21 +3019,53 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
+    private CharSequence candidateLabel(String prefix, String text, String annotation,
+                                        boolean highlighted) {
+        if (annotation.isEmpty()) return prefix + text;
+        String primary = prefix + text;
+        SpannableString label = new SpannableString(primary + "  " + annotation);
+        int annotationStart = primary.length() + 2;
+        label.setSpan(new RelativeSizeSpan(0.72f), annotationStart, label.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int foreground = Color.parseColor(
+            highlighted ? skin.actionForeground() : skin.keyForeground());
+        int secondary = Color.argb(Math.round(Color.alpha(foreground) * 0.58f),
+            Color.red(foreground), Color.green(foreground), Color.blue(foreground));
+        label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return label;
+    }
+
+    private String candidateAnnotation(JSONObject candidate) {
+        return CandidateGlossPolicy.annotation(candidate.optString("annotation", ""),
+            candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+            candidateEnglishGloss);
+    }
+
+    private String candidateAccessibilitySuffix(JSONObject candidate) {
+        return CandidateGlossPolicy.accessibilitySuffix(candidate.optString("annotation", ""),
+            candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+            candidateEnglishGloss);
+    }
+
     private Button candidateButton(JSONObject candidate, int slot) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = new Button(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
+        String annotation = candidateAnnotation(candidate);
         button.setAllCaps(false);
-        button.setText((slot + 1) + ". " + text);
+        button.setText(candidateLabel((slot + 1) + ". ", text, annotation, highlighted));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         styleButton(button, false);
-        button.setContentDescription("候选 " + (slot + 1) + "：" + text);
+        String description = "候选 " + (slot + 1) + "：" + text
+            + candidateAccessibilitySuffix(candidate);
+        button.setContentDescription(description);
         button.setSelected(highlighted);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id != null && candidateManagementEnabled()) {
-            button.setContentDescription("候选 " + (slot + 1) + "：" + text + "；长按管理");
+            button.setContentDescription(description + "；长按管理");
             button.setOnLongClickListener(ignored -> {
                 showCandidateMenu(button, id, text);
                 return true;
@@ -2951,13 +3090,15 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = new Button(this);
         String text = chineseOutput(candidate.optString("text"), view);
         boolean highlighted = candidate.optBoolean("highlighted");
+        String annotation = candidateAnnotation(candidate);
         button.setAllCaps(false);
-        button.setText(text);
+        button.setText(candidateLabel("", text, annotation, highlighted));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         styleButton(button, false);
         button.setSelected(highlighted);
         long index = id == null ? -1 : id.optLong("index", -1);
-        button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "：" + text);
+        button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "："
+            + text + candidateAccessibilitySuffix(candidate));
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {
@@ -4123,6 +4264,7 @@ public final class MSIMEInputService extends InputMethodService {
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         renderNineKeySpellings();
+        scheduleCandidateGlosses();
         if (candidates == null) {
             applySkin();
             return;

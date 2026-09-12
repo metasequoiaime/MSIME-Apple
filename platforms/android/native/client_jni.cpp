@@ -59,6 +59,26 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_emojiCatalogRaw(
     env->ReleaseByteArrayElements(query, query_bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_candidateGlossesRaw(JNIEnv *env, jclass, jbyteArray request, jbyteArray resources) {
+    if (!request || !resources) {
+        return response(env, msime_client_candidate_gloss_request(nullptr, 0, nullptr, 0));
+    }
+    jsize request_length = env->GetArrayLength(request);
+    jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
+    if (!request_bytes) return nullptr;
+    jsize resources_length = env->GetArrayLength(resources);
+    jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
+    if (!resources_bytes) {
+        env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    char *result = msime_client_candidate_gloss_request(
+        reinterpret_cast<const uint8_t *>(request_bytes), static_cast<size_t>(request_length),
+        reinterpret_cast<const uint8_t *>(resources_bytes), static_cast<size_t>(resources_length));
+    env->ReleaseByteArrayElements(resources, resources_bytes, JNI_ABORT);
+    env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
@@ -184,6 +204,20 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_viewRaw(JNIEnv *
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_allCandidatesRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_all_candidates(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_applyTranslationsRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jbyteArray translations) {
+    if (!translations || generation < 0) {
+        return response(env, msime_client_apply_translations(static_cast<uint64_t>(handle),
+            static_cast<uint64_t>(generation), nullptr, 0));
+    }
+    jsize length = env->GetArrayLength(translations);
+    jbyte *bytes = env->GetByteArrayElements(translations, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_apply_translations(static_cast<uint64_t>(handle),
+        static_cast<uint64_t>(generation), reinterpret_cast<const uint8_t *>(bytes),
+        static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(translations, bytes, JNI_ABORT);
+    return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));

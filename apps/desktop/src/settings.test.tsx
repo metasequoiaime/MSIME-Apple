@@ -61,6 +61,26 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
+test("Android offline candidate gloss is hidden elsewhere, defaults off and persists", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    candidate_english_gloss: true,
+  });
+  enabled.unmount();
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.queryByRole("checkbox", { name: "显示英文释义" })).toBeNull();
+});
+
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);

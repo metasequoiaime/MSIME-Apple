@@ -10,6 +10,9 @@ public final class NativeClient {
     private static final int EMOJI_QUERY_LIMIT = 16_384;
     private static final int EMOJI_RESOURCES_LIMIT = 4_096;
     private static final int EMOJI_RESPONSE_LIMIT = 1_048_576;
+    private static final int GLOSS_REQUEST_LIMIT = 262_144;
+    private static final int GLOSS_RESOURCES_LIMIT = 4_096;
+    private static final int GLOSS_RESPONSE_LIMIT = 1_048_576;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -30,6 +33,18 @@ public final class NativeClient {
         byte[] result = emojiCatalogRaw(queryBytes, resourcesBytes);
         if (result == null || result.length > EMOJI_RESPONSE_LIMIT)
             throw new IllegalStateException("Emoji catalog response is too large");
+        return text(result);
+    }
+    /** Resolves copied candidates against the packaged offline dictionary. Call on a worker. */
+    public static String candidateGlosses(String request, String resources) {
+        byte[] requestBytes = request.getBytes(StandardCharsets.UTF_8);
+        byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+        if (requestBytes.length > GLOSS_REQUEST_LIMIT
+                || resourcesBytes.length > GLOSS_RESOURCES_LIMIT)
+            throw new IllegalArgumentException("Candidate gloss request is too large");
+        byte[] result = candidateGlossesRaw(requestBytes, resourcesBytes);
+        if (result == null || result.length > GLOSS_RESPONSE_LIMIT)
+            throw new IllegalStateException("Candidate gloss response is too large");
         return text(result);
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
@@ -80,6 +95,13 @@ public final class NativeClient {
         return text(chooseNineKeySpellingRaw(session, generation, index));
     }
     public static String allCandidates(long session) { return text(allCandidatesRaw(session)); }
+    public static String applyTranslations(long session, long generation, String translations) {
+        if (generation < 0) throw new IllegalArgumentException("Invalid candidate generation");
+        byte[] payload = translations.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > GLOSS_RESPONSE_LIMIT)
+            throw new IllegalArgumentException("Candidate translations are too large");
+        return text(applyTranslationsRaw(session, generation, payload));
+    }
     public static String view(long session) { return text(viewRaw(session)); }
     public static String updatePreferences(long session, String snapshot) { return text(updatePreferencesRaw(session, snapshot.getBytes(StandardCharsets.UTF_8))); }
     public static String destroy(long session) { return text(destroyRaw(session)); }
@@ -88,6 +110,7 @@ public final class NativeClient {
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
+    private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
@@ -103,6 +126,8 @@ public final class NativeClient {
     private static native byte[] removeCandidateRaw(long session, long generation, long index);
     private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
     private static native byte[] allCandidatesRaw(long session);
+    private static native byte[] applyTranslationsRaw(long session, long generation,
+        byte[] translations);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] destroyRaw(long session);

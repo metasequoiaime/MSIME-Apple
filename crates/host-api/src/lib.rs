@@ -1016,6 +1016,95 @@ pub unsafe extern "C" fn msime_client_apply_translations(
     })
 }
 
+/// Resolve copied candidates against the packaged offline English dictionary.
+/// This owns no session state and is safe to call on a host worker thread. The
+/// copied generation is echoed so the host can apply only to the originating view.
+///
+/// # Safety
+/// Both pointers must reference readable buffers for their stated lengths and
+/// remain valid for this call. The buffers are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_candidate_gloss_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        generation: u64,
+        candidates: Vec<GlossCandidate>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct GlossCandidate {
+        text: String,
+        source: u8,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 262_144
+            || resources_length > 4096
+        {
+            return Err("invalid candidate gloss buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid candidate gloss request")?;
+        if request.candidates.len() > 4096
+            || request
+                .candidates
+                .iter()
+                .any(|candidate| candidate.text.is_empty() || candidate.text.len() > 4096)
+        {
+            return Err("candidate gloss entries exceed limits".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        let candidates = request
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.text.clone(), candidate.source))
+            .collect::<Vec<_>>();
+        let glosses = msime_engine_bridge::candidate_glosses(resources, &candidates)
+            .map_err(|_| "candidate gloss dictionary unavailable")?;
+        if glosses.len() != candidates.len() {
+            return Err("candidate gloss response mismatch".into());
+        }
+        candidates
+            .iter()
+            .zip(&glosses)
+            .try_fold(0_usize, |total, ((text, _), gloss)| {
+                if gloss.len() > 4096 {
+                    return None;
+                }
+                total.checked_add(text.len())?.checked_add(gloss.len())
+            })
+            .filter(|total| *total <= 900_000)
+            .ok_or("candidate gloss response exceeds limits")?;
+        let translations = candidates
+            .into_iter()
+            .zip(glosses)
+            .filter_map(|((text, _), translation)| {
+                (!translation.is_empty()).then_some(json!({
+                    "text": text,
+                    "translation": translation,
+                }))
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "generation": request.generation,
+            "translations": translations,
+        }))
+    })
+}
+
 /// Native presentation override; changes wait for the current composition to end.
 #[no_mangle]
 pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
@@ -3539,5 +3628,88 @@ mod tests {
         assert_eq!(request(json!({"parent":"Parent-A"}))["ok"], false);
         db.execute_batch("DROP TABLE emoji").unwrap();
         assert_eq!(request(json!({"list_groups":true}))["ok"], false);
+    }
+
+    #[test]
+    fn candidate_gloss_request_uses_packaged_dictionary_and_bounds_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = rusqlite::Connection::open(directory.path().join("english.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO english_words VALUES ('hello','hello',1);
+             INSERT INTO en_zh_glosses VALUES ('hello',' 你好； 您好 ；喂');
+             INSERT INTO zh_en_glosses VALUES ('你好',' hello ; greeting ; salutation');
+             INSERT INTO zh_en_glosses VALUES ('你好！','hello there');",
+        )
+        .unwrap();
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let call = |request: Value, resources: &[u8]| {
+            let request = serde_json::to_vec(&request).unwrap();
+            read(unsafe {
+                msime_client_candidate_gloss_request(
+                    request.as_ptr(),
+                    request.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+        let result = call(
+            json!({
+                "generation": 42,
+                "candidates": [
+                    {"text":"你好","source":0},
+                    {"text":"Hello","source":4},
+                    {"text":"🙂","source":6},
+                    {"text":"mixed混合","source":0},
+                    {"text":"你好！","source":0}
+                ]
+            }),
+            resources,
+        );
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["value"]["generation"], 42);
+        assert_eq!(
+            result["value"]["translations"],
+            json!([
+                {"text":"你好","translation":"hello; greeting"},
+                {"text":"Hello","translation":"你好; 您好"},
+                {"text":"你好！","translation":"hello there"}
+            ])
+        );
+        assert_eq!(
+            call(json!({"generation":1,"candidates":[]}), b"relative")["ok"],
+            false
+        );
+        assert_eq!(
+            call(
+                json!({"generation":1,"candidates":[{"text":"","source":0}]}),
+                resources
+            )["ok"],
+            false
+        );
+        db.execute(
+            "UPDATE zh_en_glosses SET english_gloss=?1 WHERE chinese='你好'",
+            ["x".repeat(4097)],
+        )
+        .unwrap();
+        assert_eq!(
+            call(
+                json!({"generation":1,"candidates":[{"text":"你好","source":0}]}),
+                resources
+            )["ok"],
+            false
+        );
+        let missing = tempfile::tempdir().unwrap();
+        assert_eq!(
+            call(
+                json!({"generation":1,"candidates":[{"text":"你好","source":0}]}),
+                missing.path().to_str().unwrap().as_bytes()
+            ),
+            json!({"ok":false,"error":"candidate gloss dictionary unavailable"})
+        );
+        assert!(!missing.path().join("english.db").exists());
     }
 }

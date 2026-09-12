@@ -69,6 +69,9 @@ printf '%s\n' "$result"
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.FuzzyPinyinDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Fuzzy pinyin acceptance failed" >&2; exit 1; }
+result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.CandidateGlossDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Candidate gloss acceptance failed" >&2; exit 1; }
 if [[ "$settings" == true ]]; then
   for suite in SettingsDeviceSmoke SettingsLifecycleSmoke; do
     result=$("$adb" -s "$serial" shell am instrument -w "app.msime.client.test/app.msime.client.test.$suite")

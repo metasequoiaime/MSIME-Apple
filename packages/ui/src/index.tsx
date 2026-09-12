@@ -166,6 +166,7 @@ export type Preferences = {
   clipboard_history?: boolean;
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
+  candidate_english_gloss?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
@@ -381,6 +382,8 @@ export interface SettingsClient {
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
   touchKeyboardSchemes?: boolean;
+  /** Android can show packaged offline English glosses without changing candidate identity. */
+  candidateEnglishGloss?: boolean;
 }
 
 function message(error: unknown): string {
@@ -685,6 +688,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
+  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
@@ -1005,6 +1009,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><label className="section-header"><span className="section-title">成对标点<small>自动补全成对引号和括号</small></span><input className="toggle" type="checkbox" checked={pairedPunctuation} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">标点锁定</span><select aria-label="标点锁定" value={punctuationLock} onChange={event => setDraft({ ...draft, punctuation_lock: event.target.value as Preferences["punctuation_lock"] })}><option value="follow">跟随输入模式</option><option value="chinese">固定中文标点</option><option value="english">固定英文标点</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
+        {client.candidateEnglishGloss && <div className="section"><label className="section-header"><span className="section-title">显示英文释义<small>在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。</small></span><input aria-label="显示英文释义" className="toggle" type="checkbox" checked={candidateEnglishGloss} onChange={event => setDraft({ ...draft, candidate_english_gloss: event.target.checked })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>通过已配置的 Linux provider socket 请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
