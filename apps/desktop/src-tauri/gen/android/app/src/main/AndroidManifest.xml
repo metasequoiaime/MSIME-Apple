@@ -27,6 +27,11 @@
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/tauri_method" />
         </service>
+        <provider
+            android:name="app.msime.client.MlKitImeInitProvider"
+            android:authorities="${applicationId}.mlkit-ime-init"
+            android:exported="false"
+            android:process=":ime" />
 
     </application>
 </manifest>
