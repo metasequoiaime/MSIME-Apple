@@ -6,6 +6,7 @@
 - (void)save:(id)sender;
 - (void)reload:(id)sender;
 - (void)revealKey:(id)sender;
+- (void)revealTencentKey:(id)sender;
 - (void)updateControls:(id)sender;
 @end
 static void Wait(MSIMETranslationSettingsWindow *window) {
@@ -30,10 +31,17 @@ int main() {
         NSTextField *endpoint = [window valueForKey:@"endpoint"], *plain = [window valueForKey:@"plainKey"];
         NSSecureTextField *key = [window valueForKey:@"key"];
         NSPopUpButton *target = [window valueForKey:@"target"];
+        NSButton *tencent = [window valueForKey:@"tencent"], *revealTencent = [window valueForKey:@"revealTencent"];
+        NSTextField *secretId = [window valueForKey:@"secretId"], *region = [window valueForKey:@"region"], *plainTencent = [window valueForKey:@"plainTencentKey"];
+        NSSecureTextField *tencentKey = [window valueForKey:@"tencentKey"];
+        assert([tencentKey isKindOfClass:NSSecureTextField.class] && !tencentKey.hidden && plainTencent.hidden);
+        assert(tencent.state == NSControlStateValueOn && secretId.enabled && [region.stringValue isEqual:@"ap-guangzhou"]);
+        secretId.stringValue = @"AKIDsynthetic"; tencentKey.stringValue = @"synthetic-tencent";
         assert([key isKindOfClass:NSSecureTextField.class] && !key.hidden && plain.hidden);
         assert(target.numberOfItems == 7 && custom.state == NSControlStateValueOff && !endpoint.enabled);
         custom.state = NSControlStateValueOn; [window updateControls:nil];
         assert(endpoint.enabled && key.enabled);
+        assert(!tencent.enabled && !secretId.enabled && !tencentKey.enabled && !region.enabled);
         endpoint.stringValue = @"file:///synthetic";
         [window save:nil];
         assert(saves == 0 && ![[window valueForKey:@"busy"] boolValue]);
@@ -51,6 +59,7 @@ int main() {
         assert([stored[@"preferences"][@"translation_target_language"] isEqual:@"fr"]);
         assert([stored[@"preferences"][@"custom_translation"][@"api_key"] isEqual:@"synthetic-edited"]);
         assert([stored[@"preferences"][@"custom_translation"][@"enabled"] isEqual:@YES]);
+        assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent"]);
         assert([stored[@"preferences"][@"cloud_candidates"] isEqual:initial[@"preferences"][@"cloud_candidates"]]);
         // A different writer advances the revision; stale drafts cannot overwrite it.
         NSMutableDictionary *other = [stored mutableCopy], *otherPreferences = [stored[@"preferences"] mutableCopy];
@@ -69,14 +78,51 @@ int main() {
         assert([stored[@"preferences"][@"candidate_translations"] isEqual:@NO]);
         assert([stored[@"preferences"][@"custom_translation"][@"enabled"] isEqual:@NO]);
         assert([stored[@"preferences"][@"custom_translation"][@"api_key"] isEqual:@"synthetic-edited"]);
+        assert(tencent.enabled && secretId.enabled && tencentKey.enabled);
+        revealTencent.state = NSControlStateValueOn; [window revealTencentKey:nil];
+        assert(tencentKey.hidden && !plainTencent.hidden && !tencentKey.stringValue.length);
+        assert([plainTencent.stringValue isEqual:@"synthetic-tencent"]);
+        plainTencent.stringValue = @"synthetic-tencent-edited"; region.stringValue = @"ap-shanghai";
+        [window save:nil]; Wait(window); assert(saves == 3);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent-edited"]);
+        assert([stored[@"preferences"][@"tencent_tmt"][@"region"] isEqual:@"ap-shanghai"]);
+        revealTencent.state = NSControlStateValueOff; [window revealTencentKey:nil];
+        assert(!plainTencent.stringValue.length && [tencentKey.stringValue isEqual:@"synthetic-tencent-edited"]);
+        // Shared validation rejects malformed drafts without changing stored settings.
+        region.stringValue = @"invalid\nregion"; [window save:nil]; Wait(window); assert(saves == 3);
+        assert([[MSIMEClientSession loadPreferencesInDirectory:root error:&error][@"revision"] isEqual:stored[@"revision"]]);
+        [window reload:nil]; Wait(window);
+        assert([region.stringValue isEqual:@"ap-shanghai"] && !tencentKey.hidden && plainTencent.hidden);
+        // A concurrent edit also protects Tencent drafts through the same CAS revision.
+        other = [stored mutableCopy]; otherPreferences = [stored[@"preferences"] mutableCopy];
+        otherPreferences[@"candidate_page_size"] = @8; other[@"preferences"] = otherPreferences;
+        assert([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[stored[@"revision"] unsignedLongLongValue] snapshot:other error:&error]);
+        secretId.stringValue = @"AKIDchanged"; [window save:nil]; Wait(window); assert(saves == 3);
+        [window reload:nil]; Wait(window); assert([secretId.stringValue isEqual:@"AKIDsynthetic"]);
+        tencent.state = NSControlStateValueOff; [window updateControls:nil];
+        assert(!secretId.enabled && !tencentKey.enabled && !region.enabled);
+        [window save:nil]; Wait(window); assert(saves == 4);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert([stored[@"preferences"][@"tencent_tmt"][@"enabled"] isEqual:@NO]);
+        assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent-edited"]);
+        assert([stored[@"preferences"][@"candidate_page_size"] isEqual:@8]);
         [window.window.contentView layoutSubtreeIfNeeded];
         NSView *stack = window.window.contentView.subviews.firstObject;
         assert(NSMinY(stack.frame) >= 0 && NSMaxY(stack.frame) <= NSHeight(window.window.contentView.bounds));
+        assert(NSMinX(stack.frame) >= 0 && NSMaxX(stack.frame) <= NSWidth(window.window.contentView.bounds));
+        for (NSView *field in @[secretId, tencentKey, region, tencent]) {
+            NSRect rect = [field convertRect:field.bounds toView:window.window.contentView];
+            assert(NSMinX(rect) >= 0 && NSMaxX(rect) <= NSWidth(window.window.contentView.bounds));
+            assert(NSMinY(rect) >= 0 && NSMaxY(rect) <= NSHeight(window.window.contentView.bounds));
+        }
         [window close];
         assert(!key.stringValue.length && !plain.stringValue.length && ![window valueForKey:@"snapshot"]);
+        assert(!secretId.stringValue.length && !tencentKey.stringValue.length && !plainTencent.stringValue.length);
         [window showWindow:nil]; [window close];
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         assert(!key.stringValue.length && ![window valueForKey:@"snapshot"]);
+        assert(!secretId.stringValue.length && !tencentKey.stringValue.length && !plainTencent.stringValue.length);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     }
     return 0;

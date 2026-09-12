@@ -11,6 +11,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSPopUpButton *_target;
     NSTextField *_endpoint, *_plainKey, *_status;
     NSSecureTextField *_key;
+    NSButton *_tencent, *_revealTencent;
+    NSTextField *_secretId, *_plainTencentKey, *_region;
+    NSSecureTextField *_tencentKey;
     BOOL _busy, _saving;
     NSUInteger _epoch;
 }
@@ -19,7 +22,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     return self;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 420)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 570, 650)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     window.title = @"候选翻译设置"; window.delegate = self; self.window = window;
     _enabled = [NSButton checkboxWithTitle:@"显示候选释义" target:self action:@selector(updateControls:)];
@@ -33,15 +36,29 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _reveal = [NSButton checkboxWithTitle:@"显示 API Key" target:self action:@selector(revealKey:)];
     NSStackView *keys = [NSStackView stackViewWithViews:@[_key, _plainKey, _reveal]];
     keys.orientation = NSUserInterfaceLayoutOrientationVertical; keys.alignment = NSLayoutAttributeLeading;
+    _tencent = [NSButton checkboxWithTitle:@"启用腾讯云翻译（自定义服务关闭时）" target:self action:@selector(updateControls:)];
+    _secretId = [NSTextField textFieldWithString:@""]; _secretId.placeholderString = @"AKID...";
+    _tencentKey = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _tencentKey.placeholderString = @"SecretKey";
+    _plainTencentKey = [NSTextField textFieldWithString:@""]; _plainTencentKey.hidden = YES;
+    _plainTencentKey.allowsEditingTextAttributes = NO;
+    _revealTencent = [NSButton checkboxWithTitle:@"显示 SecretKey" target:self action:@selector(revealTencentKey:)];
+    _region = [NSTextField textFieldWithString:@""]; _region.placeholderString = @"ap-guangzhou（默认）";
+    NSStackView *tencentKeys = [NSStackView stackViewWithViews:@[_tencentKey, _plainTencentKey, _revealTencent]];
+    tencentKeys.orientation = NSUserInterfaceLayoutOrientationVertical; tencentKeys.alignment = NSLayoutAttributeLeading;
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"候选释义"], _enabled],
         @[[NSTextField labelWithString:@"中文候选目标语言"], _target],
         @[[NSTextField labelWithString:@"翻译服务"], _custom],
         @[[NSTextField labelWithString:@"完整 POST 接口地址"], _endpoint],
-        @[[NSTextField labelWithString:@"Bearer API Key（可选）"], keys]]];
+        @[[NSTextField labelWithString:@"Bearer API Key（可选）"], keys],
+        @[[NSTextField labelWithString:@"腾讯云服务"], _tencent],
+        @[[NSTextField labelWithString:@"SecretId"], _secretId],
+        @[[NSTextField labelWithString:@"SecretKey"], tencentKeys],
+        @[[NSTextField labelWithString:@"腾讯云区域"], _region]]];
     grid.rowSpacing = 14;
-    for (NSTextField *field in @[_endpoint, _key, _plainKey]) [field.widthAnchor constraintEqualToConstant:310].active = YES;
-    NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文。开启自定义服务后，未命中的候选会发送到所填地址；建议使用 HTTPS。密钥仅保存于本机配置文件，不参与云端设置同步。关闭自定义服务仍保留离线释义。"];
+    for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region])
+        [field.widthAnchor constraintEqualToConstant:310].active = YES;
+    NSTextField *notice = [NSTextField wrappingLabelWithString:@"英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；关闭自定义服务后可使用腾讯云。腾讯云须填写 SecretId 和 SecretKey。凭据仅保存在本机配置文件，不参与云端设置同步。关闭两个在线服务仍保留离线释义。"];
     _status = [NSTextField wrappingLabelWithString:@""];
     _save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
     _reload = [NSButton buttonWithTitle:@"重新加载（放弃编辑）" target:self action:@selector(reload:)];
@@ -65,6 +82,10 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _target.enabled = ready && _enabled.state == NSControlStateValueOn;
     BOOL custom = ready && _custom.state == NSControlStateValueOn;
     _endpoint.enabled = custom; _key.enabled = custom; _plainKey.enabled = custom; _reveal.enabled = custom;
+    _tencent.enabled = ready && !custom;
+    BOOL tencent = ready && !custom && _tencent.state == NSControlStateValueOn;
+    _secretId.enabled = tencent; _tencentKey.enabled = tencent; _plainTencentKey.enabled = tencent;
+    _revealTencent.enabled = tencent; _region.enabled = tencent;
     _save.enabled = ready; _reload.enabled = !_busy;
 }
 - (void)revealKey:(id)sender {
@@ -80,6 +101,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     if (_busy) return;
     if (!_directory.isAbsolutePath) { _status.stringValue = @"请先激活水杉输入法以加载本机配置。"; return; }
     _busy = YES; _snapshot = nil; _key.stringValue = @""; _plainKey.stringValue = @"";
+    _secretId.stringValue = @""; _tencentKey.stringValue = @""; _plainTencentKey.stringValue = @"";
     _status.stringValue = @"正在加载…"; [self updateControls:nil];
     NSUInteger epoch = ++_epoch;
     NSString *directory = _directory;
@@ -99,6 +121,13 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
                 current->_key.stringValue = custom[@"api_key"] ?: @"";
                 current->_plainKey.hidden = YES; current->_key.hidden = NO; current->_reveal.state = NSControlStateValueOff;
+                NSDictionary *tencent = preferences[@"tencent_tmt"];
+                current->_tencent.state = [tencent[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+                current->_secretId.stringValue = tencent[@"secret_id"] ?: @"";
+                current->_tencentKey.stringValue = tencent[@"secret_key"] ?: @"";
+                current->_region.stringValue = tencent[@"region"] ?: @"ap-guangzhou";
+                current->_plainTencentKey.hidden = YES; current->_tencentKey.hidden = NO;
+                current->_revealTencent.state = NSControlStateValueOff;
             }
             current->_status.stringValue = snapshot ? @"修改后点击保存。" : @"加载失败；未修改任何设置。";
             [current updateControls:nil];
@@ -123,6 +152,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     }
     NSMutableDictionary *preferences = [_snapshot[@"preferences"] mutableCopy];
     preferences[@"custom_translation"] = custom;
+    preferences[@"tencent_tmt"] = @{@"enabled":@(_tencent.state == NSControlStateValueOn),
+        @"secret_id":_secretId.stringValue, @"secret_key":_revealTencent.state == NSControlStateValueOn ? _plainTencentKey.stringValue : _tencentKey.stringValue,
+        @"region":_region.stringValue};
     preferences[@"candidate_translations"] = @(_enabled.state == NSControlStateValueOn);
     preferences[@"translation_target_language"] = TranslationLanguages()[_target.indexOfSelectedItem];
     NSMutableDictionary *snapshot = [_snapshot mutableCopy]; snapshot[@"preferences"] = preferences;
@@ -147,5 +179,14 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification; ++_epoch; _busy = NO; _saving = NO; _snapshot = nil;
     _key.stringValue = @""; _plainKey.stringValue = @""; _endpoint.stringValue = @"";
+    _secretId.stringValue = @""; _tencentKey.stringValue = @""; _plainTencentKey.stringValue = @"";
+}
+- (void)revealTencentKey:(id)sender {
+    (void)sender;
+    [self.window makeFirstResponder:nil];
+    BOOL reveal = _revealTencent.state == NSControlStateValueOn;
+    if (reveal) { _plainTencentKey.stringValue = _tencentKey.stringValue; _tencentKey.stringValue = @""; }
+    else { _tencentKey.stringValue = _plainTencentKey.stringValue; _plainTencentKey.stringValue = @""; }
+    _plainTencentKey.hidden = !reveal; _tencentKey.hidden = reveal;
 }
 @end
