@@ -638,6 +638,14 @@ async fn load_emoji_catalog(
     tauri::async_runtime::spawn_blocking(move || {
         let document: Value =
             serde_json::from_str(&options).map_err(|_| CommandError { code: "storage" })?;
+        #[cfg(target_os = "linux")]
+        let resource_directory = packaged_emoji_resources(&document)
+            .ok_or(CommandError { code: "unavailable" })?;
+        #[cfg(target_os = "linux")]
+        let resources = resource_directory
+            .to_str()
+            .ok_or(CommandError { code: "storage" })?;
+        #[cfg(not(target_os = "linux"))]
         let resources = document
             .get("resources")
             .and_then(Value::as_str)
@@ -1509,13 +1517,38 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
         })
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
-        .or_else(discover_handwriting_model)
+        .or_else(|| {
+            discover_packaged_file(
+                "msime-client/handwriting/handwriting-zh_CN.model",
+                "handwriting/handwriting-zh_CN.model",
+            )
+        })
         .filter(|path| path.is_absolute() && path.is_file())
 }
 
-fn discover_handwriting_model() -> Option<PathBuf> {
+#[cfg(target_os = "linux")]
+fn packaged_emoji_resources(document: &Value) -> Option<PathBuf> {
+    // Explicit configuration owns catalog selection: invalid paths must not
+    // silently switch to a different installed catalog.
+    let configured = document
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("MSIME_EMOJI_RESOURCES")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        });
+    if let Some(directory) = configured {
+        return (directory.is_absolute() && directory.join("others.db").is_file())
+            .then_some(directory);
+    }
+    discover_packaged_file("msime-client/emoji/others.db", "emoji/others.db")
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+}
+
+fn discover_packaged_file(relative: &str, beside_executable: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
-    let relative = "msime-client/handwriting/handwriting-zh_CN.model";
 
     #[cfg(target_os = "linux")]
     {
@@ -1536,7 +1569,7 @@ fn discover_handwriting_model() -> Option<PathBuf> {
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
             // Preserve the Windows bundle and relocatable Unix prefix layouts.
-            candidates.push(directory.join("handwriting/handwriting-zh_CN.model"));
+            candidates.push(directory.join(beside_executable));
             if let Some(prefix) = directory.parent() {
                 candidates.push(prefix.join("share").join(relative));
             }
