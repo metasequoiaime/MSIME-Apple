@@ -1470,6 +1470,26 @@ fn send_voice_text(
     }
 }
 
+#[tauri::command]
+fn voice_input_language(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<String, HostActionError> {
+    store
+        .inner()
+        .load()
+        .map(|snapshot| {
+            let language = snapshot.preferences.voice_input.language;
+            if language.is_empty() {
+                "zh-CN".to_owned()
+            } else {
+                language
+            }
+        })
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
 fn external_url_is_safe(url: &str) -> bool {
     url.starts_with("https://")
         && !url.bytes().any(|byte| {
@@ -2300,6 +2320,7 @@ pub fn run() {
             send_key,
             send_text,
             send_voice_text,
+            voice_input_language,
             recognize_handwriting,
             recognize_voice,
             cancel_voice,

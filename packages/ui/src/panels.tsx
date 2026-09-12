@@ -24,6 +24,7 @@ export interface PanelClient {
 }
 
 export interface VoicePanelClient extends PanelClient {
+  loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
   cancelVoice?(): Promise<void>;
@@ -228,6 +229,13 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
+
+  useEffect(() => {
+    if (!client.loadVoiceLanguage) return;
+    void client.loadVoiceLanguage().then(next => {
+      if (["zh-CN", "en-US", "ja-JP"].includes(next)) setLanguage(next);
+    }).catch(() => undefined);
+  }, [client]);
 
   useEffect(() => {
     if (!client.rememberInputTarget) return;
