@@ -1,7 +1,6 @@
 #pragma once
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
-#include "CandidateLayout.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>

@@ -25,6 +25,10 @@ struct CandidateCardInput {
 struct CandidateCardSize {
   double width, height;
 };
+// Screen pixels, including negative monitor origins.
+struct CandidateBounds {
+  int x, y, width, height;
+};
 // One source for the card's spacing, so sizing, drawing and hit testing cannot
 // drift apart. Rows are laid out from the top padding downwards.
 struct CandidateCardMetrics {
