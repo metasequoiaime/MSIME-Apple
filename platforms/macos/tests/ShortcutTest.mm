@@ -289,8 +289,8 @@ static void TestIndependentAssistancePreferences() {
     NSMutableDictionary *displayControls = [NSMutableDictionary dictionary];
     for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
         NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
-        if (control.action == @selector(helpcodeSchemaChanged:)) schemaControls[control.identifier] = control;
-        if (control.action == @selector(helpcodeDisplayChanged:)) displayControls[control.identifier] = control;
+        if ([control isKindOfClass:NSControl.class] && control.action == @selector(helpcodeSchemaChanged:)) schemaControls[control.identifier] = control;
+        if ([control isKindOfClass:NSControl.class] && control.action == @selector(helpcodeDisplayChanged:)) displayControls[control.identifier] = control;
     }
     assert(schemaControls.count == 2 && displayControls.count == 2);
     NSDictionary *options = @{@"quanpin_helpcode": @{@"schema": @"shouyou2_0", @"show_in_candidate_window": @NO}, @"shuangpin_helpcode": @{@"schema": @"xiaohe", @"show_in_candidate_window": @YES}};

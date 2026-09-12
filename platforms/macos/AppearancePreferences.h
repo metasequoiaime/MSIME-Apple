@@ -22,6 +22,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
 @property(nonatomic) NSUInteger fontSize;
 @property(nonatomic, copy) NSString *fontFamily;
+@property(nonatomic, copy) NSArray<NSString *> *fallbackFonts;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;

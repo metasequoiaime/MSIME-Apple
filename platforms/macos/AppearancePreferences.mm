@@ -24,9 +24,15 @@ static BOOL LocalModeBoolean(id value) {
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
+static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
            [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128;
+}
+static BOOL ValidFallbackFonts(id value) {
+    if (![value isKindOfClass:NSArray.class] || [value count] > 32) return NO;
+    for (id family in value) if (!ValidFontFamily(family)) return NO;
+    return YES;
 }
 static NSString *const PreeditFontKey = @"MSIMEClientCandidatePreeditFontSize";
 static NSString *const CandidatePreeditKey = @"MSIMEClientCandidatePreeditStyle";
@@ -69,6 +75,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedVertical;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
+    NSArray<NSString *> *_sharedFallbackFonts;
     NSNumber *_sharedPreeditFontSize;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
@@ -83,6 +90,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
     NSComboBox *_fontFamilyControl;
+    NSPopUpButton *_fallbackList;
+    NSComboBox *_fallbackFamilyControl;
     NSPopUpButton *_preeditFontButton;
     NSPopUpButton *_candidatePreeditButton;
     NSPopUpButton *_pageShortcutButton;
@@ -151,6 +160,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
     if (_sharedFontFamily || [_defaults objectForKey:FontFamilyKey]) merged[@"candidate_font_family"] = self.fontFamily;
+    if (_sharedFallbackFonts || [_defaults objectForKey:FallbackFontsKey]) merged[@"candidate_fallback_fonts"] = self.fallbackFonts;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
@@ -377,11 +387,33 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (NSFont *)candidateFontOfSize:(CGFloat)size {
     // Resolve a family without silently substituting a different installed family.
-    // Preserve unavailable cross-platform names in preferences, using the system
-    // font only for this host's rendering.
-    NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:self.fontFamily}];
-    NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
-    return (matched ? [NSFont fontWithDescriptor:matched size:size] : nil) ?: [NSFont systemFontOfSize:size];
+    // Preserve unavailable cross-platform names in preferences. Resolve installed
+    // supplementary families in order, retaining system fallback at the end.
+    NSMutableArray<NSFontDescriptor *> *resolved = [NSMutableArray array];
+    for (NSString *family in [@[self.fontFamily] arrayByAddingObjectsFromArray:self.fallbackFonts]) {
+        NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
+        NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
+        if (matched) [resolved addObject:matched];
+    }
+    NSFont *system = [NSFont systemFontOfSize:size];
+    if (!resolved.count) return system;
+    NSFontDescriptor *primary = resolved.firstObject;
+    [resolved removeObjectAtIndex:0];
+    if (self.fallbackFonts.count) {
+        [resolved addObject:system.fontDescriptor];
+        primary = [primary fontDescriptorByAddingAttributes:@{NSFontCascadeListAttribute:resolved}];
+    }
+    return [NSFont fontWithDescriptor:primary size:size] ?: system;
+}
+- (NSArray<NSString *> *)fallbackFonts {
+    id value = _sharedFallbackFonts ?: [_defaults objectForKey:FallbackFontsKey];
+    return ValidFallbackFonts(value) ? value : @[];
+}
+- (void)setFallbackFonts:(NSArray<NSString *> *)value {
+    if (!ValidFallbackFonts(value)) return;
+    _sharedFallbackFonts = nil;
+    [_defaults setObject:[[NSArray alloc] initWithArray:value copyItems:YES] forKey:FallbackFontsKey];
+    [self preferencesChanged];
 }
 - (void)setFontSize:(NSUInteger)value {
     _sharedFontSize = nil;
@@ -438,6 +470,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id font = preferences[@"candidate_font_size"];
     id family = preferences[@"candidate_font_family"];
     if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
+    id fallbacks = preferences[@"candidate_fallback_fonts"];
+    if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if ([preeditFont isKindOfClass:NSNumber.class] && !LocalModeBoolean(preeditFont) && [preeditFont doubleValue] == [preeditFont integerValue] && [preeditFont integerValue] >= 12 && [preeditFont integerValue] <= 32) _sharedPreeditFontSize = preeditFont;
@@ -478,6 +512,11 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
     _fontFamilyControl.stringValue = self.fontFamily;
+    NSInteger fallbackIndex = MAX(0, _fallbackList.indexOfSelectedItem);
+    [_fallbackList removeAllItems];
+    for (NSString *family in self.fallbackFonts)
+        [_fallbackList.menu addItem:[[NSMenuItem alloc] initWithTitle:family action:nil keyEquivalent:@""]];
+    if (_fallbackList.numberOfItems) [_fallbackList selectItemAtIndex:MIN(fallbackIndex, _fallbackList.numberOfItems - 1)];
     [_preeditFontButton selectItemAtIndex:self.preeditFontSize - 12];
     [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
@@ -533,9 +572,27 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_fontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
     _fontFamilyControl.completes = YES;
     _fontFamilyControl.accessibilityLabel = @"候选字体";
-    _fontFamilyControl.toolTip = @"可选择本机字体或输入字体家族名称；未安装时使用系统字体，但保留原设置";
+    _fontFamilyControl.toolTip = @"可选择本机字体或输入字体家族名称；未安装时按补充字体顺序回退，最后使用系统字体，并保留原设置";
     _fontFamilyControl.target = self;
     _fontFamilyControl.action = @selector(fontFamilyChanged:);
+    _fallbackList = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _fallbackList.accessibilityLabel = @"补充字体顺序";
+    [_fallbackList.widthAnchor constraintEqualToConstant:180].active = YES;
+    _fallbackFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    [_fallbackFamilyControl addItemsWithObjectValues:_fontFamilyControl.objectValues];
+    _fallbackFamilyControl.completes = YES;
+    _fallbackFamilyControl.accessibilityLabel = @"添加补充字体";
+    _fallbackFamilyControl.placeholderString = @"字体家族名称";
+    [_fallbackFamilyControl.widthAnchor constraintEqualToConstant:200].active = YES;
+    NSButton *addFallback = [NSButton buttonWithTitle:@"添加" target:self action:@selector(addFallbackFont:)];
+    NSStackView *fallbackAdd = [NSStackView stackViewWithViews:@[_fallbackFamilyControl, addFallback]];
+    fallbackAdd.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    NSStackView *fallbackOrder = [NSStackView stackViewWithViews:@[
+        _fallbackList,
+        [NSButton buttonWithTitle:@"上移" target:self action:@selector(moveFallbackFontUp:)],
+        [NSButton buttonWithTitle:@"下移" target:self action:@selector(moveFallbackFontDown:)],
+        [NSButton buttonWithTitle:@"移除" target:self action:@selector(removeFallbackFont:)]]];
+    fallbackOrder.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSUInteger size = 12; size <= 32; ++size)
         [_preeditFontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
@@ -581,6 +638,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
+        @[[NSTextField labelWithString:@"补充字体（最多 32 项）"], fallbackAdd],
+        @[[NSTextField labelWithString:@"补充字体优先顺序"], fallbackOrder],
         @[[NSTextField labelWithString:@"候选窗拼音字号"], _preeditFontButton],
         @[[NSTextField labelWithString:@"候选窗预编辑"], _candidatePreeditButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
@@ -723,6 +782,33 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
 - (void)fontFamilyChanged:(NSComboBox *)sender { self.fontFamily = sender.stringValue; }
+- (void)addFallbackFont:(id)sender {
+    (void)sender;
+    NSString *family = _fallbackFamilyControl.stringValue;
+    if (!ValidFontFamily(family) || self.fallbackFonts.count >= 32) { NSBeep(); return; }
+    self.fallbackFonts = [self.fallbackFonts arrayByAddingObject:family];
+    [_fallbackList selectItemAtIndex:self.fallbackFonts.count - 1];
+    _fallbackFamilyControl.stringValue = @"";
+}
+- (void)removeFallbackFont:(id)sender {
+    (void)sender;
+    NSInteger index = _fallbackList.indexOfSelectedItem;
+    if (index < 0 || (NSUInteger)index >= self.fallbackFonts.count) return;
+    NSMutableArray *fonts = [self.fallbackFonts mutableCopy];
+    [fonts removeObjectAtIndex:index];
+    self.fallbackFonts = fonts;
+}
+- (void)moveFallbackFontBy:(NSInteger)delta {
+    NSInteger index = _fallbackList.indexOfSelectedItem;
+    NSInteger next = index + delta;
+    if (index < 0 || next < 0 || (NSUInteger)index >= self.fallbackFonts.count || (NSUInteger)next >= self.fallbackFonts.count) return;
+    NSMutableArray *fonts = [self.fallbackFonts mutableCopy];
+    [fonts exchangeObjectAtIndex:index withObjectAtIndex:next];
+    self.fallbackFonts = fonts;
+    [_fallbackList selectItemAtIndex:next];
+}
+- (void)moveFallbackFontUp:(id)sender { (void)sender; [self moveFallbackFontBy:-1]; }
+- (void)moveFallbackFontDown:(id)sender { (void)sender; [self moveFallbackFontBy:1]; }
 - (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
 - (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 @end
