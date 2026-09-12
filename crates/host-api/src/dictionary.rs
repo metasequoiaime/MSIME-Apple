@@ -265,7 +265,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
 }
 
 fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryEntry>, String> {
-    if !matches!(format, "standard" | "windows")
+    if !matches!(format, "standard" | "windows" | "rime")
         || text.is_empty()
         || text.len() > msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
         || text.contains('\0')
@@ -276,10 +276,25 @@ fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryE
         return Err("invalid dictionary import".into());
     }
     let mut entries = Vec::new();
+    let mut in_yaml_header = false;
     for line in text.lines() {
         let line = line.trim_end_matches('\r');
-        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
+        }
+        if format == "rime" {
+            if trimmed == "---" {
+                in_yaml_header = true;
+                continue;
+            }
+            if trimmed == "..." {
+                in_yaml_header = false;
+                continue;
+            }
+            if in_yaml_header {
+                continue;
+            }
         }
         let columns: Vec<_> = line.split('\t').collect();
         if !(2..=3).contains(&columns.len()) || entries.len() >= 1000 {
@@ -290,15 +305,17 @@ fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryE
         } else {
             (columns[0].trim(), columns[1].trim())
         };
-        let weight = columns
-            .get(2)
-            .map(|value| value.trim().parse::<i64>())
-            .transpose()
-            .map_err(|_| "invalid dictionary import")?
-            .unwrap_or(100000);
+        let key = key.to_ascii_lowercase();
+        let weight = match columns.get(2).map(|value| value.trim()) {
+            None | Some("") => 10000,
+            Some(value) if format == "rime" && value.contains('=') => 10000,
+            Some(value) => value
+                .parse::<i64>()
+                .map_err(|_| "invalid dictionary import")?,
+        };
         let entry = DictionaryEntry {
             kind: (*kind).into(),
-            key: key.to_owned(),
+            key: key.clone(),
             value: word.to_owned(),
             weight,
         };
@@ -309,7 +326,9 @@ fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryE
             Kind::English => 64,
         };
         let key_alphabet = match kind {
-            Kind::Pinyin => key.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'\''),
+            Kind::Pinyin => key.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte == b'\'' || (format == "rime" && byte == b' ')
+            }),
             Kind::Wubi => key.bytes().all(|byte| byte.is_ascii_lowercase()),
             Kind::QuickPhrase => key
                 .bytes()
@@ -364,11 +383,25 @@ mod tests {
         assert_eq!(standard.len(), 2);
         assert_eq!(standard[0].value, "你好");
         assert_eq!(standard[0].key, "ni'hao");
-        assert_eq!(standard[1].weight, 100000);
+        assert_eq!(standard[1].weight, 10000);
 
         let windows = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n").unwrap();
         assert_eq!(windows[0].key, "wq");
         assert_eq!(windows[0].value, "你好");
+    }
+
+    #[test]
+    fn accepts_rime_yaml_front_matter_and_metadata_weights() {
+        let entries = parse_import(
+            &Kind::Pinyin,
+            "rime",
+            "---\nname: luna_pinyin\nsort: by_weight\n...\n你好\tni hao\tc=3 d=0.12 t=12345\n西安\txi'an\t5\n",
+        )
+        .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, "ni hao");
+        assert_eq!(entries[0].weight, 10000);
+        assert_eq!(entries[1].weight, 5);
     }
 
     #[test]
