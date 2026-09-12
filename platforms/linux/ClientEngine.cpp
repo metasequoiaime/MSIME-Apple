@@ -3235,8 +3235,28 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool candidate_active =
         s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
     const auto local_mode = s.view.value("local_mode", std::string("none"));
-    const bool ascii_letter =
-        (key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z');
+    const bool lowercase_letter =
+        (key >= 'a' && key <= 'z');
+    const bool uppercase_letter =
+        (key >= 'A' && key <= 'Z');
+    const auto active_scheme = s.scheme_override.value_or(
+        configured.at("preferences").value("scheme", "quanpin"));
+    const bool helpcode =
+        (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
+        s.helpcode_override.value_or(
+            configured.at("preferences")
+                .value(active_scheme + "_helpcode", Json::object())
+                .value("enabled", true));
+    const bool accepted_letter =
+        local_mode == "quick_phrase"
+            ? lowercase_letter
+            : local_mode == "unicode"
+                  ? ((key >= 'a' && key <= 'f') ||
+                     (key >= 'A' && key <= 'F'))
+                  : local_mode == "date_time"
+                        ? false
+                        : (local_mode != "none" || lowercase_letter ||
+                           (uppercase_letter && helpcode));
     const bool nine_key_digit =
         local_mode != "unicode" && s.view.value("nine_key", false) &&
         ((key >= IBUS_KP_2 && key <= IBUS_KP_9) ||
@@ -3247,10 +3267,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool microsoft_ing =
         microsoft_shuangpin_ing_key(s.view, key, modifiers);
     const bool unicode_plus = unicode_plus_key(s.view, key, modifiers);
+    const bool accepted_apostrophe =
+        key == IBUS_apostrophe && has_composition &&
+        ((local_mode == "none" && active_scheme != "wubi") ||
+         local_mode == "emoji" || local_mode == "kaomoji" ||
+         local_mode == "temporary_japanese");
     const bool candidate_input =
         candidate_active &&
-        (ascii_letter || nine_key_digit || unicode_digit || microsoft_ing ||
-         unicode_plus || (key == IBUS_apostrophe && has_composition));
+        (accepted_letter || nine_key_digit || unicode_digit || microsoft_ing ||
+         unicode_plus || accepted_apostrophe);
     if (candidate_input) {
       if (!apply(engine, msime_client_command(
                      s.session, MSIME_COMMIT_CANDIDATE)))
