@@ -6,3 +6,5 @@
 @end
 
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client);
+// UTF-16 display offset shared by marked text and the candidate preedit row.
+NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
