@@ -76,6 +76,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     rememberInputTarget: () => invoke("remember_input_target"),
     recognizeHandwriting: request => invoke("recognize_handwriting", { request }),
     submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
+    copyHandwritingCandidate: text => invoke("copy_text", { text }),
   },
   voice: {
     maxSubmitBytes: 4096,

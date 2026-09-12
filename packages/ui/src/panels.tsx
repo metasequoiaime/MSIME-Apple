@@ -23,6 +23,7 @@ export interface PanelClient {
   sendText?(text: string): Promise<void>;
   recognizeHandwriting?(request: HandwritingRecognitionRequest): Promise<HandwritingRecognitionResult>;
   submitHandwritingCandidate?(candidate: string): Promise<void>;
+  copyHandwritingCandidate?(candidate: string): Promise<void>;
 }
 
 export interface VoicePanelClient extends PanelClient {
@@ -290,22 +291,23 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognizeRemaining(nextStrokes);
   }
   function clear() { recognitionRevision.current++; releaseStroke(); setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
-  async function chooseCandidate(candidate: string) {
+  async function chooseCandidate(candidate: string, copyOnly = false) {
     if (submittingRef.current || !candidates.includes(candidate)) return;
-    if (!client.submitHandwritingCandidate) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
+    const action = copyOnly ? client.copyHandwritingCandidate : client.submitHandwritingCandidate;
+    if (!action) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
     const revision = ++submissionRevision.current;
     const inkRevision = recognitionRevision.current;
     submittingRef.current = true;
     setSubmitting(true);
-    setNotice("正在提交候选…");
+    setNotice(copyOnly ? "正在复制候选…" : "正在提交候选…");
     try {
-      await client.submitHandwritingCandidate(candidate);
+      await action(candidate);
       if (revision === submissionRevision.current && inkRevision === recognitionRevision.current) {
-        setNotice(`已提交：${candidate}`);
+        setNotice(copyOnly ? `已复制：${candidate}` : `已提交：${candidate}`);
       }
     } catch {
       if (revision === submissionRevision.current && inkRevision === recognitionRevision.current) {
-        setNotice("提交失败，候选和笔画已保留，请重试");
+        setNotice(copyOnly ? "复制失败，候选和笔画已保留，请重试" : "提交失败，可复制候选后手动粘贴，或重试");
       }
     } finally {
       if (revision === submissionRevision.current) {
@@ -320,7 +322,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
-      <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
+      <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}><button type="button" className="handwriting-candidate-submit" disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>{client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}</div>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
 }
