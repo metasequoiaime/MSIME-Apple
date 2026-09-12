@@ -266,6 +266,8 @@ BOOL CCompositionProcessorEngine::SetupLanguageProfile(LANGID langid, REFGUID gu
         std::string error, ignored;
         (void)_hostEngineAdapter->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);
     }
+    if (Global::msgWndHandle)
+        SetTimer(Global::msgWndHandle, TIMER_REFRESH_HOST_PREFERENCES, 500, nullptr);
 
 Exit:
     return ret;

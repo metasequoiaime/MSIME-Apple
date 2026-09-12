@@ -21,6 +21,7 @@
 #include "Global/FanyDefines.h"
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
+#include "../HostOptionsPaths.h"
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
@@ -1593,6 +1594,7 @@ STDAPI CMetasequoiaIME::Deactivate()
         KillTimer(_msgWndHandle, TIMER_REFRESH_LANG_BAR_THEME);
         KillTimer(_msgWndHandle, TIMER_DEFERRED_FOCUS_LOSS);
         KillTimer(_msgWndHandle, TIMER_FOCUS_STATUS_RESEND);
+        KillTimer(_msgWndHandle, TIMER_REFRESH_HOST_PREFERENCES);
         DestroyWindow(_msgWndHandle);
         if (Global::msgWndHandle == _msgWndHandle)
         {
@@ -2333,6 +2335,17 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         break;
     }
     case WM_TIMER: {
+        if (wParam == TIMER_REFRESH_HOST_PREFERENCES)
+        {
+            auto *engine = pIME->GetCompositionProcessorEngine();
+            if (engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())
+            {
+                std::string ignored, error;
+                (void)engine->GetHostEngineAdapter()->reload_preferences(
+                    msime::tsf::default_state_directory(), &ignored, &error);
+            }
+            break;
+        }
         if (wParam == TIMER_DEFERRED_FOCUS_LOSS)
         {
             KillTimer(hWnd, TIMER_DEFERRED_FOCUS_LOSS);

@@ -52,6 +52,7 @@ constexpr UINT_PTR TIMER_CONNECT_TO_TSF_NAMEDPIPE = 2;
 constexpr UINT_PTR TIMER_REFRESH_LANG_BAR_THEME = 3;
 constexpr UINT_PTR TIMER_DEFERRED_FOCUS_LOSS = 4;
 constexpr UINT_PTR TIMER_FOCUS_STATUS_RESEND = 5;
+constexpr UINT_PTR TIMER_REFRESH_HOST_PREFERENCES = 6;
 constexpr UINT FOCUS_LOSS_DEFER_MS = 300;
 // Chromium hosts fire a burst of OnSetFocus per window switch; coalesce them
 // into one resend instead of one packet per callback.
