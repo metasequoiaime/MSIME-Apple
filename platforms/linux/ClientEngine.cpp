@@ -1140,6 +1140,15 @@ struct TranslationTask {
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::None);
 void render(IBusEngine *engine, const Json &view);
+void apply_live_preferences(IBusEngine *engine, Json snapshot);
+void sync_translation_preferences(IBusEngine *engine) {
+  auto &s = state(engine);
+  apply_live_preferences(engine, Json{
+      {"format_version", 1},
+      {"preferences", s.applied_preferences_snapshot.is_object()
+                          ? s.applied_preferences_snapshot
+                          : configured.at("preferences")}});
+}
 void clear_candidate_translations(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.session || !s.view.is_object())
@@ -3023,6 +3032,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.candidate_translations_override = enabled;
       s.candidate_translations = enabled;
       s.invalidate_providers();
+      sync_translation_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (enabled)
@@ -3041,6 +3051,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.translation_target_language_override = selected;
       s.translation_target_language = selected;
       s.invalidate_providers();
+      sync_translation_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (s.candidate_translations)

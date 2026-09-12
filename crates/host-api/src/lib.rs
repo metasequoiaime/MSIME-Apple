@@ -1607,7 +1607,14 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
 pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
-            if !session.applied.candidate_translations {
+            // Provider settings can change while Engine preferences wait for
+            // composition to finish. Query with the newest validated settings.
+            let preferences = session
+                .requested
+                .as_ref()
+                .map(|snapshot| &snapshot.preferences)
+                .unwrap_or(&session.applied);
+            if !preferences.candidate_translations {
                 return Ok(Value::Null);
             }
             let view = session.runtime.view();
@@ -1624,7 +1631,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .iter()
                 .map(|candidate| json!({ "text": candidate.text }))
                 .collect::<Vec<_>>();
-            let custom_translation = &session.applied.custom_translation;
+            let custom_translation = &preferences.custom_translation;
             let custom_translation = (custom_translation.enabled
                 && !custom_translation.endpoint.is_empty())
             .then(|| {
@@ -1636,7 +1643,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             });
             Ok(json!({
                 "generation": view.generation,
-                "target_language": serde_json::to_value(session.applied.translation_target_language)
+                "target_language": serde_json::to_value(preferences.translation_target_language)
                     .map_err(|e| e.to_string())?,
                 "candidates": candidates,
                 "custom_translation": custom_translation,
@@ -3207,6 +3214,54 @@ mod tests {
             json!({ "format_version": 1, "revision": revision, "preferences": preferences })
                 .to_string();
         read(unsafe { msime_client_update_preferences(handle, snapshot.as_ptr(), snapshot.len()) })
+    }
+
+    #[test]
+    fn translation_queries_use_latest_preferences_without_resetting_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preferences = Preferences {
+            candidate_translations: false,
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), preferences.clone());
+        read(msime_client_focus(handle, true));
+        let mut view = Value::Null;
+        for byte in b"U4e2d" {
+            view = read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ))["value"]["view"]
+                .clone();
+        }
+        assert!(!view["candidates"].as_array().unwrap().is_empty());
+        assert_eq!(
+            read(msime_client_translation_query(handle))["value"],
+            Value::Null
+        );
+        preferences.candidate_translations = true;
+        preferences.translation_target_language =
+            msime_client_core::preferences::TranslationTargetLanguage::Fr;
+        preferences.custom_translation.enabled = true;
+        preferences.custom_translation.endpoint = "https://translation.example.invalid".into();
+        let changed = update(handle, 1, &preferences);
+        assert_eq!(changed["value"]["deferred"], true);
+        assert_eq!(changed["value"]["view"]["generation"], view["generation"]);
+        let query = read(msime_client_translation_query(handle));
+        assert_eq!(query["value"]["generation"], view["generation"]);
+        assert_eq!(query["value"]["target_language"], "fr");
+        assert_eq!(
+            query["value"]["custom_translation"]["endpoint"],
+            "https://translation.example.invalid"
+        );
+        assert!(!query["value"]["candidates"].as_array().unwrap().is_empty());
+        preferences.candidate_translations = false;
+        update(handle, 2, &preferences);
+        assert_eq!(
+            read(msime_client_translation_query(handle))["value"],
+            Value::Null
+        );
+        read(msime_client_destroy(handle));
     }
 
     #[test]
