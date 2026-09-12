@@ -221,6 +221,37 @@ int main(int argc, const char **argv) {
         assert([familyControl.stringValue isEqual:installedFamily]);
         preferences.fontFamily = @"Segoe UI";
         TestFallbackFonts(preferences, defaults);
+        NSTextField *colorField = (id)FindControl(preferences.window.contentView, @"候选文字颜色");
+        NSColorWell *colorWell = (id)FindControl(preferences.window.contentView, @"选择候选文字颜色");
+        assert(colorField && colorWell);
+        NSUInteger colorNotifications = notifications;
+        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#1234aB"}];
+        assert(notifications == colorNotifications && [colorField.stringValue isEqual:@"#1234aB"]);
+        NSColor *custom = [NSColor colorWithSRGBRed:18/255.0 green:52/255.0 blue:171/255.0 alpha:1];
+        assert([preview.previewTextColor isEqual:custom]);
+        Draw(preview);
+        for (id invalid in @[@"red", @"#123", @"#12345678", @"#GG0000", @YES]) {
+            [preferences applySharedCandidatePreferences:@{@"candidate_text_color": invalid}];
+            assert([preferences.candidateTextColor isEqual:@"#1234aB"]);
+        }
+        colorWell.color = [NSColor colorWithSRGBRed:1 green:0 blue:0 alpha:1];
+        [NSApp sendAction:colorWell.action to:colorWell.target from:colorWell];
+        assert([preferences.candidateTextColor isEqual:@"#FF0000"]);
+        MSIMEAppearancePreferences *colorReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert([colorReloaded.candidateTextColor isEqual:@"#FF0000"]);
+        colorField.stringValue = @"#112233";
+        [NSApp sendAction:colorField.action to:colorField.target from:colorField];
+        assert([[preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] isEqual:@"#112233"]);
+        [preferences applySharedCandidatePreferences:@{}];
+        assert(preferences.candidateTextColor == nil);
+        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#112233"}];
+        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": NSNull.null}];
+        assert(preferences.candidateTextColor == nil);
+        preferences.candidateTextColor = @"#112233";
+        [NSApp sendAction:NSSelectorFromString(@"resetTextColor:") to:preferences from:nil];
+        assert([preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] == NSNull.null);
+        colorReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert(colorReloaded.candidateTextColor == nil);
         preferences.fontFamily = @"Helvetica";
         preferences.fontSize = 32;
         NSFont *fallbackFont = [preferences candidateFontOfSize:32];

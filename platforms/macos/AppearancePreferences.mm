@@ -24,6 +24,11 @@ static BOOL LocalModeBoolean(id value) {
 }
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
+static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
+static BOOL ValidTextColor(id value) {
+    if (![value isKindOfClass:NSString.class] || [value length] != 7 || ![value hasPrefix:@"#"]) return NO;
+    return [[value substringFromIndex:1] rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"] invertedSet]].location == NSNotFound;
+}
 static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
@@ -76,6 +81,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
     NSArray<NSString *> *_sharedFallbackFonts;
+    id _sharedTextColor;
+    NSTextField *_textColorField;
+    NSColorWell *_textColorWell;
     NSNumber *_sharedPreeditFontSize;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
@@ -160,6 +168,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
     if (_sharedFontFamily || [_defaults objectForKey:FontFamilyKey]) merged[@"candidate_font_family"] = self.fontFamily;
+    if (_sharedTextColor || [_defaults objectForKey:TextColorKey]) merged[@"candidate_text_color"] = self.candidateTextColor ?: (id)NSNull.null;
     if (_sharedFallbackFonts || [_defaults objectForKey:FallbackFontsKey]) merged[@"candidate_fallback_fonts"] = self.fallbackFonts;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
@@ -379,6 +388,23 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
     return ValidFontFamily(value) ? value : @"Segoe UI";
 }
+- (NSString *)candidateTextColor {
+    id value = _sharedTextColor ?: [_defaults objectForKey:TextColorKey];
+    return ValidTextColor(value) ? value : nil;
+}
+- (void)setCandidateTextColor:(NSString *)value {
+    if (value && !ValidTextColor(value)) { NSBeep(); [self refreshControls]; return; }
+    _sharedTextColor = nil;
+    [_defaults setObject:value ?: @"" forKey:TextColorKey];
+    [self preferencesChanged];
+}
+- (NSColor *)candidateTextColorWithDefault:(NSColor *)color {
+    NSString *value = self.candidateTextColor;
+    if (!value) return color;
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:[value substringFromIndex:1]] scanHexInt:&rgb];
+    return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
+}
 - (void)setFontFamily:(NSString *)value {
     if (!ValidFontFamily(value)) { [self refreshControls]; return; }
     _sharedFontFamily = nil;
@@ -468,6 +494,11 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
     id font = preferences[@"candidate_font_size"];
+    id textColor = preferences[@"candidate_text_color"];
+    // This optional shared field is omitted when None; omission also clears a
+    // previously loaded explicit color, without persisting a local override.
+    if (!textColor || textColor == NSNull.null) _sharedTextColor = NSNull.null;
+    else if (ValidTextColor(textColor)) _sharedTextColor = [textColor copy];
     id family = preferences[@"candidate_font_family"];
     if (ValidFontFamily(family)) _sharedFontFamily = [family copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];
@@ -512,6 +543,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
     _fontFamilyControl.stringValue = self.fontFamily;
+    _textColorField.stringValue = self.candidateTextColor ?: @"";
+    _textColorWell.color = [self candidateTextColorWithDefault:NSColor.labelColor];
     NSInteger fallbackIndex = MAX(0, _fallbackList.indexOfSelectedItem);
     [_fallbackList removeAllItems];
     for (NSString *family in self.fallbackFonts)
@@ -575,6 +608,19 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _fontFamilyControl.toolTip = @"可选择本机字体或输入字体家族名称；未安装时按补充字体顺序回退，最后使用系统字体，并保留原设置";
     _fontFamilyControl.target = self;
     _fontFamilyControl.action = @selector(fontFamilyChanged:);
+    _textColorField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    _textColorField.placeholderString = @"跟随皮肤（留空）";
+    _textColorField.accessibilityLabel = @"候选文字颜色";
+    _textColorField.target = self;
+    _textColorField.action = @selector(textColorChanged:);
+    [_textColorField.widthAnchor constraintEqualToConstant:160].active = YES;
+    _textColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(0, 0, 40, 24)];
+    _textColorWell.accessibilityLabel = @"选择候选文字颜色";
+    _textColorWell.target = self;
+    _textColorWell.action = @selector(textColorWellChanged:);
+    NSStackView *textColorControls = [NSStackView stackViewWithViews:@[_textColorField, _textColorWell,
+        [NSButton buttonWithTitle:@"跟随皮肤" target:self action:@selector(resetTextColor:)]]];
+    textColorControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     _fallbackList = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _fallbackList.accessibilityLabel = @"补充字体顺序";
     [_fallbackList.widthAnchor constraintEqualToConstant:180].active = YES;
@@ -638,6 +684,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"候选排列"], _layoutButton],
         @[[NSTextField labelWithString:@"候选字号"], _fontButton],
         @[[NSTextField labelWithString:@"候选字体"], _fontFamilyControl],
+        @[[NSTextField labelWithString:@"候选文字颜色"], textColorControls],
         @[[NSTextField labelWithString:@"补充字体（最多 32 项）"], fallbackAdd],
         @[[NSTextField labelWithString:@"补充字体优先顺序"], fallbackOrder],
         @[[NSTextField labelWithString:@"候选窗拼音字号"], _preeditFontButton],
@@ -782,6 +829,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
 - (void)fontFamilyChanged:(NSComboBox *)sender { self.fontFamily = sender.stringValue; }
+- (void)textColorChanged:(NSTextField *)sender { self.candidateTextColor = sender.stringValue.length ? sender.stringValue : nil; }
+- (void)resetTextColor:(id)sender { (void)sender; self.candidateTextColor = nil; }
+- (void)textColorWellChanged:(NSColorWell *)sender {
+    NSColor *color = [sender.color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    if (!color) return;
+    auto channel = [](CGFloat value) { return (unsigned int)lround(MAX(0.0, MIN(1.0, value)) * 255); };
+    self.candidateTextColor = [NSString stringWithFormat:@"#%02X%02X%02X", channel(color.redComponent), channel(color.greenComponent), channel(color.blueComponent)];
+}
 - (void)addFallbackFont:(id)sender {
     (void)sender;
     NSString *family = _fallbackFamilyControl.stringValue;

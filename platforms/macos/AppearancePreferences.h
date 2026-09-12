@@ -26,6 +26,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
+@property(nonatomic, copy) NSString *candidateTextColor;
+- (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
 @property(nonatomic) NSUInteger pageSize;
 @property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.

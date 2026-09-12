@@ -163,7 +163,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     NSFont *numberFont = [NSFont monospacedDigitSystemFontOfSize:MAX(10.0, fontSize - 4.0) weight:NSFontWeightRegular];
     NSDictionary *preeditAttributes = @{
         NSFontAttributeName : preeditFont,
-        NSForegroundColorAttributeName : PreviewColor(tokens.text),
+        NSForegroundColorAttributeName : [preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text),
     };
     const CGFloat pad = 6.0;
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
@@ -192,7 +192,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         };
         NSDictionary *wordAttributes = @{
             NSFontAttributeName : font,
-            NSForegroundColorAttributeName : PreviewColor(selected ? tokens.selectedText : tokens.text),
+            NSForegroundColorAttributeName : selected ? PreviewColor(tokens.selectedText) : ([preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text)),
         };
         NSString *number = [NSString stringWithFormat:@"%ld", static_cast<long>(index + 1)];
         NSString *word = words[index];
@@ -203,7 +203,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         {
             NSDictionary *ellipsisAttributes = @{
                 NSFontAttributeName : font,
-                NSForegroundColorAttributeName : PreviewColor(tokens.text),
+                NSForegroundColorAttributeName : [preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text),
             };
             NSSize ellipsisSize = [@"…" sizeWithAttributes:ellipsisAttributes];
             if (x + ellipsisSize.width <= maxX)
@@ -376,7 +376,7 @@ NSArray<NSString *> *PreviewSamples()
 
 - (NSColor *)previewTextColor
 {
-    return PreviewColor([self previewSkin].tokens.text);
+    return [self.preferences candidateTextColorWithDefault:PreviewColor([self previewSkin].tokens.text)] ?: PreviewColor([self previewSkin].tokens.text);
 }
 
 - (NSColor *)previewAccentColor
