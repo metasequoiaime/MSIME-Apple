@@ -71,6 +71,7 @@ struct State {
   std::optional<std::string> frequency_mode_override, helpcode_schema_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
   std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
+  std::optional<bool> nine_key_override;
   bool fullwidth = false;
   bool traditional_output = false;
   std::string candidate_preedit_style = "pinyin";
@@ -248,6 +249,8 @@ struct State {
     view = response(msime_client_set_character_width(session, fullwidth));
     if (options.at("preferences").value("default_ime_mode", "chinese") == "english")
       view = response(msime_client_set_english_mode(session, true));
+    if (active_scheme == "quanpin" && nine_key_override)
+      view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
     smart_punctuation = smart_punctuation_override.value_or(preferences.value("smart_punctuation", true));
@@ -927,6 +930,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("autocorrect", true));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
+  const bool nine_key = active_scheme == "quanpin" &&
+                        s.view.value("nine_key", false);
   const bool helpcode = (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
       s.helpcode_override.value_or(configured.at("preferences")
           .value(active_scheme + "_helpcode", Json::object()).value("enabled", true));
@@ -1171,8 +1176,15 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto number_row_property = ibus_property_new(
       "NumberRowSelection", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("数字选词"), "",
-      ibus_text_new_from_static_string("使用数字键选择候选词"), TRUE, TRUE,
-      s.number_row_selection ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+      ibus_text_new_from_static_string("使用数字键选择候选词"),
+      s.focused && !s.blocked && s.input_enabled && !nine_key, TRUE,
+      s.number_row_selection && !nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto nine_key_property = ibus_property_new(
+      "NineKey", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("九键输入"), "",
+      ibus_text_new_from_static_string("使用数字键输入全拼并选择拼音候选"),
+      s.focused && !s.blocked && s.input_enabled && active_scheme == "quanpin",
+      TRUE, nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto word_character_property = ibus_property_new(
       "WordCharacter", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("以词定字"), "",
@@ -1311,6 +1323,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, page_size_property);
     ibus_prop_list_append(properties, frequency_property);
     ibus_prop_list_append(properties, number_row_property);
+    ibus_prop_list_append(properties, nine_key_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
@@ -1342,6 +1355,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, page_size_property);
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, number_row_property);
+    ibus_engine_update_property(engine, nine_key_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
@@ -1839,6 +1853,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
        property_name.rfind("FrequencyMode/", 0) != 0 &&
        std::string(name) != "NumberRowSelection" &&
+       std::string(name) != "NineKey" &&
        std::string(name) != "WordCharacter" &&
        std::string(name) != "PreeditStyle/raw" &&
        std::string(name) != "PreeditStyle/pinyin" &&
@@ -1876,8 +1891,27 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (property_name == "NumberRowSelection") {
+      if (s.view.value("nine_key", false))
+        return;
       s.number_row_selection = value == PROP_STATE_CHECKED;
       s.number_row_override = s.number_row_selection;
+      publish_mode(engine);
+      return;
+    }
+    if (property_name == "NineKey") {
+      const bool enabled = value == PROP_STATE_CHECKED;
+      const auto active_scheme = s.scheme_override.value_or(
+          configured.at("preferences").value("scheme", "quanpin"));
+      if (active_scheme != "quanpin" ||
+          s.view.value("nine_key", false) == enabled)
+        return;
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      s.nine_key_override = enabled;
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
       return;
     }
@@ -2605,7 +2639,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
         s.smart_punctuation_rejected = 0;
       return;
     }
-    if (s.number_row_selection && !s.view.at("candidates").empty() && modifiers == 0 &&
+    if (s.number_row_selection && !s.view.value("nine_key", false) &&
+        !s.view.at("candidates").empty() && modifiers == 0 &&
         ((key >= IBUS_0 && key <= IBUS_9) || (key >= IBUS_KP_0 && key <= IBUS_KP_9))) {
       const bool keypad = key >= IBUS_KP_0 && key <= IBUS_KP_9;
       const size_t index = keypad ? (key == IBUS_KP_0 ? 9 : key - IBUS_KP_1)
