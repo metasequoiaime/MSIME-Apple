@@ -1468,7 +1468,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
 
   const isDetail = page !== "home";
   const displayGroups = (page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups).map(group => ({ ...group, items: group.items.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage) })).filter(group => group.items.length);
-  const itemPageCount = Math.max(1, Math.ceil((page === "home" ? homeGroups : filteredGroups).reduce((count, group) => count + group.items.length, 0) / itemsPerPage));
+  const itemPageCount = Math.max(1, Math.max(...(page === "home" ? homeGroups : filteredGroups).map(group => Math.ceil(group.items.length / itemsPerPage)), 1));
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
@@ -1506,7 +1506,7 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [clipboard, clipboardBusy, page, query]);
   return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" disabled={clipboardBusy} onClick={() => void closeEmoji()}>×</button></header>
-    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => { setQuery(event.target.value); setNotice(""); }} placeholder={page === "clipboard" ? "搜索剪贴板" : page === "emoji" ? "Search emojis" : page === "kaomoji" ? "Search kaomoji" : page === "symbols" ? "Search symbols" : page === "home" ? "Search emoji, kaomoji, and symbols" : "Search"} /></div>
+    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => { setQuery(event.target.value); setItemPage(0); setNotice(""); }} placeholder={page === "clipboard" ? "搜索剪贴板" : page === "emoji" ? "Search emojis" : page === "kaomoji" ? "Search kaomoji" : page === "symbols" ? "Search symbols" : page === "home" ? "Search emoji, kaomoji, and symbols" : "Search"} /></div>
     <nav className="emoji-panel-tabs" aria-label="面板分类">
       {emojiPages.map(item => <button type="button" key={item.id} className={page === item.id ? "active" : ""} aria-label={item.label} aria-pressed={page === item.id} onClick={() => selectPage(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}
     </nav>
