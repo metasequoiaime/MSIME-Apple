@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
-import { ExternalSkins } from "../../../packages/ui/src/external-skins";
+import { ExternalSkins, paletteCss } from "../../../packages/ui/src/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
 import geometryCss from "../../../packages/ui/src/external-skin-geometry.css?raw";
 import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin-image";
@@ -27,6 +27,11 @@ const initial: Snapshot = { format_version: 1, revision: 3, preferences: {
   scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 6, candidate_layout: "horizontal", learning: true, chinese_punctuation: true,
 } };
 const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
+
+test("external skin selected-bar flag emits a scoped hide rule", () => {
+  expect(paletteCss("scope", { showSelectedBar: false })).toContain(".scope .first::before{display:none !important}");
+  expect(paletteCss("scope", { showSelectedBar: true })).not.toContain("display:none");
+});
 function refresh() { fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" })); }
 
 test("settings forwards the declared toolbar reader using only package id", async () => {
