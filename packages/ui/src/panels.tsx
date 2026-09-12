@@ -154,7 +154,7 @@ export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key
     if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
-  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={layout} aria-label="屏幕键盘">
+  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header"
       onPointerDown={event => {
         pendingDrag.current = null;
