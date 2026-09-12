@@ -24,7 +24,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{c_char, CString};
+// Only the Unix socket streaming entry point takes raw callback context.
+#[cfg(unix)]
+use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
