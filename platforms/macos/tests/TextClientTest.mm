@@ -145,6 +145,36 @@ static void TestEnginePreedit(FakeTextClient *client) {
     assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
     assert([other setFocused:YES error:&error]);
     assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"quanpin"]);
+    NSMutableDictionary *formattedOptions = [otherOptions mutableCopy];
+    NSMutableDictionary *formattedPreferences = [otherPreferences mutableCopy];
+    formattedPreferences[@"scheme"] = @"shuangpin";
+    formattedPreferences[@"shuangpin_profile"] = @"microsoft";
+    formattedPreferences[@"shuangpin_preedit_uses_raw"] = @NO;
+    formattedOptions[@"preferences"] = formattedPreferences;
+    MSIMEClientSession *formatted = [[MSIMEClientSession alloc] initWithOptions:formattedOptions error:&error];
+    assert(formatted && !error && [formatted setFocused:YES error:&error]);
+    for (NSString *raw in @[@"nini", @"ni'ni"]) {
+        for (NSUInteger i = 0; i < raw.length; ++i)
+            assert([formatted typeASCII:[raw characterAtIndex:i] shift:NO error:&error]);
+        NSDictionary *segmented = [formatted viewWithError:&error];
+        assert(!error && [segmented[@"preedit"] isEqual:@"ni'ni"]);
+        NSArray *offsets = [raw isEqual:@"nini"] ? @[@0, @1, @2, @4, @5] : @[@0, @1, @2, @3, @4, @5];
+        for (NSUInteger i = raw.length; i > 0; --i) {
+            NSDictionary *moved = [formatted command:MSIME_MOVE_LEFT error:&error];
+            assert(moved && !error && [moved[@"view"][@"caret_position"] unsignedIntegerValue] == i - 1);
+            MSIMEApplyTransition(moved, client);
+            assert([client.marked isEqual:@"ni'ni"] && client.selection.location == [offsets[i - 1] unsignedIntegerValue]);
+        }
+        for (NSUInteger i = 1; i <= raw.length; ++i) {
+            NSDictionary *moved = [formatted command:MSIME_MOVE_RIGHT error:&error];
+            assert(moved && !error && [moved[@"view"][@"caret_position"] unsignedIntegerValue] == i);
+            MSIMEApplyTransition(moved, client);
+            assert([client.marked isEqual:@"ni'ni"] && client.selection.location == [offsets[i] unsignedIntegerValue]);
+        }
+        MSIMEApplyTransition([formatted command:MSIME_CANCEL error:&error], client);
+        assert(!error && !client.marked.length);
+    }
+    assert([formatted closeWithError:&error] && !error);
     assert([session setFocused:YES error:&error]);
     assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
     assert([session setFocused:NO error:&error]);
@@ -172,7 +202,27 @@ int main() {
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @2}}, client);
         assert([client.marked isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihao", @"preedit": @"ni hao", @"caret_position": @2}}, client);
-        assert([client.marked isEqual:@"ni hao"] && client.selection.location == 6);
+        assert([client.marked isEqual:@"ni hao"] && client.selection.location == 2);
+        // Every raw offset, including either side of an explicit apostrophe.
+        for (NSArray *fixture in @[
+            @[@"nihao", @"ni'hao", @[@0, @1, @2, @4, @5, @6]],
+            @[@"nihao", @"ni hao", @[@0, @1, @2, @4, @5, @6]],
+            @[@"ni'hao", @"ni hao", @[@0, @1, @2, @3, @4, @5, @6]],
+            @[@"ni'hao", @"nihao", @[@0, @1, @2, @2, @3, @4, @5]],
+            @[@"xian", @"xi'an", @[@0, @1, @2, @4, @5]],
+            @[@"nihaoma", @"ni'hao'ma", @[@0, @1, @2, @4, @5, @6, @8, @9]],
+            @[@"b;", @"bing", @[@4, @4, @4]],
+            @[@"shnag", @"shang", @[@5, @5, @5, @5, @5, @5]],
+            @[@"nihao", @"你hao", @[@4, @4, @4, @4, @4, @4]]]) {
+            NSString *raw = fixture[0], *display = fixture[1];
+            NSArray *offsets = fixture[2];
+            assert(offsets.count == raw.length + 1);
+            for (NSUInteger offset = 0; offset <= raw.length; ++offset) {
+                MSIMEApplyTransition(@{@"view": @{@"editing_text": raw, @"preedit": display, @"caret_position": @(offset)}}, client);
+                assert([client.marked isEqual:display] && client.selection.location == [offsets[offset] unsignedIntegerValue]);
+                assert(client.selection.length == 0);
+            }
+        }
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"shi", @"preedit": @"shi", @"caret_position": @1}}, client);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"x", @"preedit": @"😀", @"caret_position": @1}}, client);
