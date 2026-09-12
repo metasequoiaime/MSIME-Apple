@@ -177,11 +177,18 @@ int wmain(int argc, wchar_t **argv) {
         modes.stop();
       }
     } click_shutdown{server, clicks, mode_clicks};
+    std::optional<COLORREF> candidate_text_color;
+    if (!config.candidate_text_color.empty()) {
+      const auto color = parse_css_color(config.candidate_text_color, {});
+      candidate_text_color = RGB(static_cast<BYTE>(color.r * 255.0f),
+                                 static_cast<BYTE>(color.g * 255.0f),
+                                 static_cast<BYTE>(color.b * 255.0f));
+    }
     CandidateWindow candidates(
         [&] { return server.candidate_view(); },
-        [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
+        [&](const CandidateClick &click) { (void)clicks.submit(click); },
         static_cast<unsigned>(config.candidate_font_size),
-        static_cast<unsigned>(config.candidate_preedit_font_size), std::nullopt, "Segoe UI", {}, config.dark_theme,
+        static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color, "Segoe UI", {}, config.dark_theme,
         config.horizontal_candidates);
     const auto palette = resolve_palette(config);
     candidates.set_palette(palette);

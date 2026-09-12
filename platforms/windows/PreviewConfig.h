@@ -26,6 +26,7 @@ struct PreviewConfig {
   bool horizontal_candidates = true;
   int candidate_font_size = 16;
   int candidate_preedit_font_size = 16;
+  std::string candidate_text_color;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
@@ -64,7 +65,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 6 ||
+      if (!appearance.is_object() || appearance.size() > 7 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -104,6 +105,11 @@ struct PreviewConfig {
         result.candidate_preedit_font_size = appearance.at("candidate_preedit_font_size").get<int>();
         if (result.candidate_preedit_font_size < 8 || result.candidate_preedit_font_size > 48)
           throw std::invalid_argument("Invalid candidate preedit font size");
+      }
+      if (appearance.contains("candidate_text_color")) {
+        result.candidate_text_color = appearance.at("candidate_text_color").get<std::string>();
+        if (result.candidate_text_color.size() > 32)
+          throw std::invalid_argument("Invalid candidate text color");
       }
     }
     if (value.contains("key_bindings")) {
