@@ -1,7 +1,13 @@
 // Synthetic, in-memory settings only. No native bridge or real user data.
 import { createRoot } from "react-dom/client";
-import { SettingsPage, type Snapshot, type SkinCatalog } from "@msime/ui";
+import { KeyboardPanel, SettingsPage, type Snapshot, type SkinCatalog } from "@msime/ui";
 import "../../../../packages/ui/src/styles.css";
+
+export function mountKeyboard() {
+  const root = createRoot(document.getElementById("root")!);
+  root.render(<KeyboardPanel client={{ close: async () => {} }} />);
+  return () => root.unmount();
+}
 
 export function mount() {
   const snapshot: Snapshot = { format_version: 1, revision: 1, preferences: {
