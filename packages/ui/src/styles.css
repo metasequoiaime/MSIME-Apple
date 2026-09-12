@@ -529,3 +529,6 @@ html[data-theme="light"] .window-close:active .window-icon { filter: none; }
 .emoji-panel-activation button:disabled, .emoji-panel-item:disabled { opacity: .55; cursor: wait; }
 .emoji-panel[data-panel-theme="light"] .emoji-panel-activation { color: #656a73; }
 .emoji-panel[data-panel-theme="light"] .emoji-panel-activation button[aria-pressed="true"] { background: #eceef3; color: #202124; }
+
+.ink-canvas:focus-visible { outline: 2px solid #d88bde; outline-offset: -3px; }
+.handwriting-actions { flex-wrap: wrap; }
