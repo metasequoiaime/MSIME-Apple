@@ -1,8 +1,11 @@
 package app.msime.client;
 
+import java.util.List;
+
 /** Android-native colors for the shared candidate_skin preference. */
 public final class KeyboardSkin {
     private final String id;
+    private final String title;
     private final String background;
     private final String keyBackground;
     private final String keyForeground;
@@ -12,10 +15,11 @@ public final class KeyboardSkin {
     private final int cornerRadius;
     private final boolean monospaced;
 
-    private KeyboardSkin(String id, String background, String keyBackground, String keyForeground,
-            String accent, String actionBackground, String actionForeground, int cornerRadius,
-            boolean monospaced) {
+    private KeyboardSkin(String id, String title, String background, String keyBackground,
+            String keyForeground, String accent, String actionBackground, String actionForeground,
+            int cornerRadius, boolean monospaced) {
         this.id = id;
+        this.title = title;
         this.background = background;
         this.keyBackground = keyBackground;
         this.keyForeground = keyForeground;
@@ -28,18 +32,23 @@ public final class KeyboardSkin {
 
     public static KeyboardSkin from(String value) {
         return switch (value == null ? "" : value) {
-            case "wechat" -> new KeyboardSkin("wechat", "#F0FAF4", "#E8FFF0", "#155B32",
-                "#32B76A", "#D7F5E2", "#155B32", 12, false);
-            case "graphite" -> new KeyboardSkin("graphite", "#1F2125", "#2B2D31", "#F1F1F1",
-                "#8AB4F8", "#41454D", "#FFFFFF", 3, true);
-            case "willow_green" -> new KeyboardSkin("willow_green", "#EDF5EA", "#F0F8ED", "#244B2B",
-                "#6B9B63", "#D6E9D0", "#244B2B", 18, false);
-            default -> new KeyboardSkin("fluent", "#F1F4F8", "#FFFFFF", "#1E293B",
+            case "wechat" -> new KeyboardSkin("wechat", "微信绿", "#F0FAF4", "#E8FFF0",
+                "#155B32", "#32B76A", "#D7F5E2", "#155B32", 12, false);
+            case "graphite" -> new KeyboardSkin("graphite", "石墨黑", "#1F2125", "#2B2D31",
+                "#F1F1F1", "#8AB4F8", "#41454D", "#FFFFFF", 3, true);
+            case "willow_green" -> new KeyboardSkin("willow_green", "柳绿", "#EDF5EA", "#F0F8ED",
+                "#244B2B", "#6B9B63", "#D6E9D0", "#244B2B", 18, false);
+            default -> new KeyboardSkin("fluent", "流光白", "#F1F4F8", "#FFFFFF", "#1E293B",
                 "#2563EB", "#E0E7FF", "#1E3A8A", 8, false);
         };
     }
 
+    public static List<KeyboardSkin> builtIns() {
+        return List.of(from("fluent"), from("wechat"), from("graphite"), from("willow_green"));
+    }
+
     public String id() { return id; }
+    public String title() { return title; }
     public String background() { return background; }
     public String keyBackground() { return keyBackground; }
     public String keyForeground() { return keyForeground; }
