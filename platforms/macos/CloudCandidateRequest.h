@@ -8,6 +8,9 @@
 /// Consume the shared custom-translation descriptor. HTTP(S) only; no redirects.
 - (instancetype)initWithTranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
                                    completion:(void (^)(NSData *body))completion;
+/// Consume the shared AI chat descriptor. HTTP(S) only; no redirects.
+- (instancetype)initWithAITranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                       completion:(void (^)(NSData *body))completion;
 /// Cancel without delivering a result; safe after completion.
 - (void)cancel;
 /// Fixed Tencent HTTPS endpoint. Sends signed body_utf8 unchanged; no redirects.

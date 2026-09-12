@@ -15,6 +15,10 @@
                                config:(NSDictionary *)config
                         configuration:(NSURLSessionConfiguration *)configuration
                            completion:(void (^)(NSArray<NSDictionary *> *translations))completion;
+/// AI items are {text, request}; each request is a shared AI HTTP descriptor.
+- (instancetype)initWithAIItems:(NSArray<NSDictionary *> *)items
+                   configuration:(NSURLSessionConfiguration *)configuration
+                      completion:(void (^)(NSArray<NSDictionary *> *translations))completion;
 /// Single-use. A six-second whole-batch deadline returns completed partial results.
 - (void)start;
 /// Suppresses completion, aborts transport and releases credential-bearing inputs.
