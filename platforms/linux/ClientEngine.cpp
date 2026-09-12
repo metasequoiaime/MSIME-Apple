@@ -1029,9 +1029,9 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                               ? s.view.value("candidates", Json::array())
                               : Json::array();
   const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
-  size_t slot = 0;
   bool editable_candidates = false;
-  for (const auto &candidate : candidates) {
+  for (size_t index = 0; index < candidates.size(); ++index) {
+    const auto &candidate = candidates.at(index);
     if (!candidate.is_object() || !candidate.contains("id") ||
         !candidate.at("id").is_object())
       continue;
@@ -1047,7 +1047,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     if (scheme == 3 || (source != 0 && source != 1 && source != 4))
       continue;
     editable_candidates = true;
-    ++slot;
+    const auto slot = index + 1;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"},
                                        std::pair{"CandidateFix1", "固定到 1"},
