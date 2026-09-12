@@ -47,7 +47,7 @@ enum MacEmojiHomeCatalog {
 
   static func load(search: String, groups: (String) throws -> [String],
     page: (String, String, Int) throws -> [MacEmojiCatalogItem]) throws -> [MacEmojiHomeSection] {
-    try [("表情", "", 18), ("颜文字", "kaomoji", 15), ("符号", "symbols", 18)].map { title, category, limit in
+    try [("Emoji", "", 18), ("Kaomoji", "kaomoji", 15), ("Symbols", "symbols", 18)].map { title, category, limit in
       try Task.checkCancellation()
       if !search.isEmpty {
         return MacEmojiHomeSection(title: title, category: category, items: Array(try page(category, "", limit).prefix(limit)))
@@ -90,13 +90,8 @@ struct MacEmojiHomeView: View {
 
   private func section(_ title: String, category: String, items: [MacEmojiCatalogItem], showMore: Bool,
     width: CGFloat, flowCells: [MacEmojiFlowCell]) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Text(title).font(.headline)
-        Spacer()
-        if showMore { Button("更多") { more(category) }.accessibilityLabel("更多\(title)") }
-      }
-      if items.isEmpty && MacEmojiMediaPage(rawValue: category) == nil { Text("没有匹配项").font(.caption) }
+    VStack(alignment: .leading, spacing: 0) {
+      MacEmojiHomeHeading(title: title, palette: palette, more: showMore ? { more(category) } : nil)
       if category == "kaomoji" {
         MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
           selected: { effectiveSelection == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
@@ -114,7 +109,7 @@ struct MacEmojiHomeView: View {
             copy(items[index])
           })
       }
-    }
+    }.padding(.bottom, MacEmojiHomeHeading.bottomPadding)
   }
 
   var body: some View {
@@ -131,15 +126,15 @@ struct MacEmojiHomeView: View {
           if command == .activate { copy(entry.item) }
         }.frame(height: 24)
         MacEmojiScroll(resetID: [resources, search, String(navigationRevision)]) {
-          VStack(alignment: .leading, spacing: 20) {
-            if !recent.isEmpty { section("最近使用", category: "recent", items: recent, showMore: false, width: width, flowCells: []) }
+          VStack(alignment: .leading, spacing: 0) {
+            if !recent.isEmpty { section("Recently used", category: "recent", items: recent, showMore: false, width: width, flowCells: []) }
             if loaded == [resources, search] {
               ForEach(sections, id: \.category) { section($0.title, category: $0.category, items: $0.items, showMore: true, width: width, flowCells: flowCells) }
             } else {
               Text(failed ? "首页目录加载失败，请切换目录重试" : "正在加载首页…").font(.caption)
             }
             ForEach(MacEmojiMediaPage.allCases, id: \.rawValue) { page in
-              section(page.title, category: page.rawValue, items: [], showMore: true, width: width, flowCells: [])
+              section(page == .sticker ? "Sticker" : "GIF", category: page.rawValue, items: [], showMore: true, width: width, flowCells: [])
             }
           }.frame(width: width, alignment: .leading)
         }

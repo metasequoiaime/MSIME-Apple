@@ -28,6 +28,17 @@ import SwiftUI
     assert(MacEmojiMediaPage.gif.message == "可在此接入 GIF 内容源")
     assert(MacEmojiMediaPage(rawValue: "symbols") == nil && MacEmojiMediaPage(rawValue: "home") == nil)
     _ = NSApplication.shared
+    assert(MacEmojiHomeHeading.height == 32 && MacEmojiHomeHeading.bottomPadding == 12)
+    for light in [false, true] {
+      for title in ["Recently used", "Emoji", "Kaomoji", "Symbols", "Sticker", "GIF"] {
+        let renderer = ImageRenderer(content: MacEmojiHomeHeading(title: title,
+          palette: MacEmojiPalette(light: light), more: title == "Recently used" ? nil : {})
+          .frame(width: 336).padding(.bottom, MacEmojiHomeHeading.bottomPadding))
+        renderer.scale = 3
+        guard let image = renderer.cgImage else { fatalError("Home heading unavailable") }
+        assert(image.width == 1008 && image.height == 132)
+      }
+    }
     for light in [false, true] {
       for page in MacEmojiMediaPage.allCases {
         let renderer = ImageRenderer(content: MacEmojiMediaPlaceholder(page: page, palette: MacEmojiPalette(light: light))

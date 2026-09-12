@@ -45,7 +45,7 @@ endif()
 enable_testing()
 include(ClipboardTests.cmake)
 set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
-  BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
+  BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHomeHeading.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
   BackendEmojiKeyboard.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiNavigation.swift tests/EmojiHomeTest.swift)
 list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
