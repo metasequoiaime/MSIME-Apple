@@ -114,6 +114,7 @@ struct State {
   bool voice_hotkey_ctrl_f9 = true;
   guint voice_hotkey_consumed_key = 0;
   bool voice_space_consumed = false;
+  bool voice_space_locked = false;
   bool voice_active = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
@@ -149,6 +150,7 @@ struct State {
     voice_preedit.clear();
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
+    voice_space_locked = false;
     pure_shift_candidate = false;
     pure_ctrl_candidate = false;
     mode_chord_held = false;
@@ -1836,6 +1838,8 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_active = false;
   s.voice_generation = 0;
   s.voice_preedit.clear();
+  s.voice_space_consumed = false;
+  s.voice_space_locked = false;
   s.voice_worker.cancel_async();
   if (s.session)
     render(engine, s.view);
@@ -1850,6 +1854,8 @@ void voice_start(IBusEngine *engine) {
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
   s.voice_generation = generation;
+  s.voice_space_consumed = false;
+  s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
   const auto provider_options = voice_provider_options(
@@ -1933,6 +1939,9 @@ void voice_start(IBusEngine *engine) {
                   s.voice_active = false;
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
+                  s.voice_hotkey_consumed_key = 0;
+                  s.voice_space_consumed = false;
+                  s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
                   return G_SOURCE_REMOVE;
@@ -1944,6 +1953,9 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_hotkey_consumed_key = 0;
+                s.voice_space_consumed = false;
+                s.voice_space_locked = false;
                 if (applied.is_string()) {
                   auto text = traditional_display(
                       s, Json{{"scheme", s.view.value("scheme", 0)},
@@ -1959,6 +1971,9 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_hotkey_consumed_key = 0;
+                s.voice_space_consumed = false;
+                s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 publish_mode(result->engine);
               }
@@ -1979,6 +1994,11 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
       modifiers == (IBUS_CONTROL_MASK | IBUS_MOD4_MASK))
     return s.voice_hotkey_ctrl_win;
   return false;
+}
+bool voice_hold_hotkey(const State &s, guint key, guint modifiers) {
+  if (key == IBUS_F9)
+    return false;
+  return voice_hotkey(s, key, modifiers);
 }
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
@@ -2856,6 +2876,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (s.voice_hotkey_consumed_key == key) {
       s.voice_hotkey_consumed_key = 0;
+      if (s.voice_active && !s.voice_space_locked &&
+          voice_hold_hotkey(s, key, chord_modifiers))
+        guarded(engine, "voice_hotkey_release", [&] { voice_cancel(engine); });
       return TRUE;
     }
     return FALSE;
@@ -2896,6 +2919,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
       modifiers == 0) {
     s.voice_space_consumed = true;
+    s.voice_space_locked = true;
     return TRUE;
   }
   if (character_set_toggle) {
