@@ -21,6 +21,23 @@ static NSDictionary *MaintenanceCandidate(MSIMEClientSession *session) {
     return nil;
 }
 
+static void TestCustomTranslationHTTPBridge() {
+    NSError *error = nil;
+    NSDictionary *request = @{@"config":@{@"enabled":@YES, @"endpoint":@"https://translation.invalid/api", @"api_key":@""},
+        @"text":@"hello", @"source_language":@"en", @"target_language":@"zh"};
+    NSDictionary *descriptor = [MSIMEClientSession customTranslationHTTPRequest:request error:&error];
+    assert(descriptor && !error && [descriptor[@"method"] isEqual:@"POST"]);
+    assert([descriptor[@"body"][@"source_lang"] isEqual:@"EN"] && !descriptor[@"headers"][@"Authorization"]);
+    assert([[MSIMEClientSession parseCustomTranslationResponse:[@"{\"data\":\"测试释义\"}" dataUsingEncoding:NSUTF8StringEncoding] error:&error] isEqual:@"测试释义"] && !error);
+    assert(![MSIMEClientSession parseCustomTranslationResponse:[@"invalid" dataUsingEncoding:NSUTF8StringEncoding] error:&error] && !error);
+    assert(![MSIMEClientSession parseCustomTranslationResponse:NSData.data error:&error] && !error);
+    assert(![MSIMEClientSession parseCustomTranslationResponse:[NSMutableData dataWithLength:1048577] error:&error] && error);
+    error = nil;
+    NSMutableDictionary *disabled = [request mutableCopy];
+    disabled[@"config"] = @{@"enabled":@NO};
+    assert(![MSIMEClientSession customTranslationHTTPRequest:disabled error:&error] && !error);
+}
+
 static void TestEngineMaintenance() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
@@ -348,6 +365,7 @@ int main() {
         TestEnginePreedit(client);
         TestEngineEdges(client);
         TestEngineMaintenance();
+        TestCustomTranslationHTTPBridge();
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);

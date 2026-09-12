@@ -127,6 +127,15 @@ char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
+/* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
+ * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
+ * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
+ * Descriptor can contain credentials: never log it. Host enforces timeout/size,
+ * rejects redirects and checks HTTP status before parsing. Text <=40 scalars. */
+char *msime_client_custom_translation_http_request(const uint8_t *request, size_t length);
+/* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
+ * malformed/no result. No session mutation; host validates original identity. */
+char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t length);
 /* Apply JSON [{"text":"candidate","translation":"gloss"}] for a candidate generation. */
 char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
