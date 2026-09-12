@@ -203,6 +203,7 @@ export type Preferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
   candidate_text_color?: string | null;
+  candidate_number_color?: string | null;
   candidate_font_family?: string;
   candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
@@ -866,6 +867,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
           <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
+          <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
         </div></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>
           <option value="pinyin">显示拼音</option><option value="empty">隐藏</option>

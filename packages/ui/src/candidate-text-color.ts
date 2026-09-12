@@ -5,7 +5,8 @@ export function candidateTextColor(value: unknown): string | null {
 }
 // Match pinned appearance.ts: text colour plus translucent candidate numbers.
 // Omitting the properties restores the selected skin's original variables.
-export function candidateTextStyle(value: unknown): CSSProperties {
+export function candidateTextStyle(value: unknown, numberValue?: unknown): CSSProperties {
   const color = candidateTextColor(value);
-  return color ? { "--cand-text": color, "--cand-num": `${color}9d` } as CSSProperties : {};
+  const numberColor = candidateTextColor(numberValue) ?? (color ? `${color}9d` : null);
+  return color || numberColor ? { ...(color ? { "--cand-text": color } : {}), ...(numberColor ? { "--cand-num": numberColor } : {}) } as CSSProperties : {};
 }
