@@ -221,7 +221,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
-先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；批量识别及润色对象包含 `provider`、`endpoint`、`model`、`token` 四个非空字符串。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；批量识别及润色对象包含 `provider`、`endpoint`、`token` 三个非空字符串，以及可选的 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
 
 服务捕获 16kHz 单声道 PCM，在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
@@ -381,3 +381,18 @@ IBus 快捷键录音通过 `msime_client_voice_provider_stream_feedback` 接收�
 ### 随包录音提示音
 
 Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音，离线转换为 16 kHz 单声道 PCM，通过已有 PulseAudio、PipeWire 或 ALSA 播放工具输出，不增加运行时 MP3 解码依赖。`sound_enabled`、`start_sound`、`end_sound` 开关继续分别控制播放。音频来源见 `data/voice/SOURCE.md`；安装路径随自定义前缀定位。单独复制服务脚本而未带音频资源时仍使用短音回退。
+
+
+### 语音服务默认模型
+
+私有语音配置的 `asr`、`polish` 及各 provider profile 中，省略 `model` 或填写空字符串时，沿用 Windows 固定基线的默认模型；非空模型保持原样。端点和凭据仍须明确配置。
+
+| 服务 | ASR 默认模型 | 润色默认模型 |
+| --- | --- | --- |
+| OpenAI | `whisper-1` | `gpt-4o-mini` |
+| Groq | `whisper-large-v3-turbo` | `llama-3.3-70b-versatile` |
+| SiliconFlow | `FunAudioLLM/SenseVoiceSmall` | `Qwen/Qwen3-8B` |
+| DeepSeek | — | `deepseek-v4-flash` |
+| Doubao | 使用流式资源配置，无模型名 | — |
+
+这是兼容 Windows 提交 `7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6` 的配置回退规则，不代表在线服务可用性已验收。共享设置中明确指定的非空模型仍须与解析后的私有配置一致。
