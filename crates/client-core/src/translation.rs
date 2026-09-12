@@ -490,9 +490,21 @@ mod tests {
             )
             .unwrap();
         });
-        let config = TranslationConfig {
+        // Exercise the same validated, persisted preferences the host reads.
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::preferences::PreferencesStore::new(directory.path());
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.custom_translation = crate::preferences::CustomTranslationPreferences {
+            enabled: true,
             endpoint: format!("http://{address}"),
             api_key: "test-key".into(),
+        };
+        store.save(0, preferences).unwrap();
+        let saved = store.load().unwrap().preferences.custom_translation;
+        assert!(saved.enabled);
+        let config = TranslationConfig {
+            endpoint: saved.endpoint,
+            api_key: saved.api_key,
         };
         let result = translate_batch(&config, &["hello".into()], "en", "zh");
         server.join().unwrap();
