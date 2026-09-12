@@ -17,6 +17,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
 /// Returns a View (not a transition). Finish composition before changing mode.
 - (nullable NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error;
+/// Compatibility selector with the same session-mode restoration behavior.
+- (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error;
+/// Returns a View; remembers an explicit live width override across recreation.
+- (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)command:(uint32_t)command error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;

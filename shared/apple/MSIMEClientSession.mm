@@ -44,10 +44,15 @@ static NSDictionary *decode(char *response, NSError **error) {
     uint64_t _handle;
     NSDictionary *_hostOptions;
     BOOL _dedicatedEnglishEnabled;
+    NSNumber *_punctuationOverride;
+    NSNumber *_characterWidthOverride;
 }
-- (BOOL)restoreDedicatedEnglishMode:(NSError **)error {
-    if (!_dedicatedEnglishEnabled) return YES;
-    if (decode(msime_client_set_english_mode(_handle, true), error)) return YES;
+- (BOOL)restoreLiveModes:(NSError **)error {
+    BOOL restored = YES;
+    if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
+    if (restored && _characterWidthOverride) restored = decode(msime_client_set_character_width(_handle, _characterWidthOverride.boolValue), error) != nil;
+    if (restored && _dedicatedEnglishEnabled) restored = decode(msime_client_set_english_mode(_handle, true), error) != nil;
+    if (restored) return YES;
     // Do not expose a replacement session silently running in the wrong mode.
     msime_client_string_free(msime_client_destroy(_handle));
     _handle = 0;
@@ -173,7 +178,7 @@ static NSDictionary *decode(char *response, NSError **error) {
         NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
         session->_handle = [view[@"session"] unsignedLongLongValue];
         if (session->_handle != 0) {
-            [session restoreDedicatedEnglishMode:nil];
+            [session restoreLiveModes:nil];
             // Recovery creates a fresh session too; the host must clear the
             // destroyed composition and restore focus even though activation failed.
             [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
@@ -186,7 +191,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!view) return NO;
     session->_handle = [view[@"session"] unsignedLongLongValue];
     if (session->_handle != 0) {
-        [session restoreDedicatedEnglishMode:error];
+        [session restoreLiveModes:error];
         [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
     }
     return session->_handle != 0;
@@ -274,16 +279,19 @@ static NSDictionary *decode(char *response, NSError **error) {
     return result;
 }
 - (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error {
-    if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_set_english_mode(_handle, enabled), error);
+    return [self setDedicatedEnglishEnabled:enabled error:error];
 }
 - (nullable NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
+    NSDictionary *view = decode(msime_client_set_chinese_punctuation(_handle, enabled), error);
+    if (view) _punctuationOverride = @(enabled);
+    return view;
 }
 - (nullable NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_set_character_width(_handle, fullwidth), error);
+    NSDictionary *view = decode(msime_client_set_character_width(_handle, fullwidth), error);
+    if (view) _characterWidthOverride = @(fullwidth);
+    return view;
 }
 - (nullable NSDictionary *)typeASCII:(uint8_t)character shift:(BOOL)shift error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
