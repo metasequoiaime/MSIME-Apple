@@ -3036,6 +3036,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    // Match Windows TSF: with CapsLock enabled, an uppercase letter at the
+    // beginning of a fresh composition belongs to the editor. IBus exposes
+    // the lock state in the modifier mask while preserving the uppercase
+    // keysym, so leave that stroke untouched instead of opening a pinyin
+    // composition.
+    if ((flags & IBUS_LOCK_MASK) && key >= 'A' && key <= 'Z' &&
+        s.view.at("editing_text").get<std::string>().empty() &&
+        s.view.at("candidates").empty())
+      return;
     // Apply configured candidate bindings before punctuation can consume them.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
         !s.view.at("candidates").empty()) {
