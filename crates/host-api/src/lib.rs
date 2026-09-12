@@ -1319,6 +1319,82 @@ pub unsafe extern "C" fn msime_client_apply_translations(
     })
 }
 
+/// Save short English-target glosses through Engine into a user-owned overlay.
+/// # Safety
+/// Both pointers must reference readable buffers of their declared lengths.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_translation_gloss_save(
+    request: *const u8,
+    request_length: usize,
+    user_data: *const u8,
+    user_data_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        target_language: String,
+        translations: Vec<msime_input_runtime::TranslationResult>,
+    }
+    response(|| {
+        if request.is_null()
+            || user_data.is_null()
+            || request_length > 131_072
+            || user_data_length > 4096
+        {
+            return Err("invalid translation persistence buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid translation persistence request")?;
+        let user_data =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(user_data, user_data_length) })
+                .map_err(|_| "invalid user data path")?;
+        if !std::path::Path::new(user_data).is_absolute()
+            || !std::path::Path::new(user_data).is_dir()
+        {
+            return Err("user data requires an existing absolute directory".into());
+        }
+        if request.translations.len() > 9
+            || request
+                .translations
+                .iter()
+                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+        {
+            return Err("translation persistence entries exceed limits".into());
+        }
+        let mut saved = 0;
+        if request.target_language == "en" {
+            use msime_client_core::translation::{
+                format_translation_gloss, is_cloud_translatable_chinese,
+                is_cloud_translatable_english, should_persist_translation,
+            };
+            for item in request.translations {
+                let english = is_cloud_translatable_english(&item.text);
+                if item.text.chars().count() > 40
+                    || (!english && !is_cloud_translatable_chinese(&item.text))
+                {
+                    continue;
+                }
+                let Some(gloss) = format_translation_gloss(&item.translation) else {
+                    continue;
+                };
+                if !should_persist_translation(&item.text, &gloss) {
+                    continue;
+                }
+                let key = if english {
+                    item.text.to_ascii_lowercase()
+                } else {
+                    item.text
+                };
+                if msime_engine_bridge::save_candidate_gloss(user_data, !english, &key, &gloss) {
+                    saved += 1;
+                }
+            }
+        }
+        Ok(json!({"saved":saved}))
+    })
+}
+
 /// Resolve copied candidates against the packaged offline English dictionary.
 /// This owns no session state and is safe to call on a host worker thread. The
 /// copied generation is echoed so the host can apply only to the originating view.
@@ -1337,6 +1413,8 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
     #[serde(deny_unknown_fields)]
     struct Request {
         generation: u64,
+        #[serde(default)]
+        user_data: Option<String>,
         candidates: Vec<GlossCandidate>,
     }
     #[derive(Deserialize)]
@@ -1375,8 +1453,15 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             .iter()
             .map(|candidate| (candidate.text.clone(), candidate.source))
             .collect::<Vec<_>>();
-        let glosses = msime_engine_bridge::candidate_glosses(resources, &candidates)
-            .map_err(|_| "candidate gloss dictionary unavailable")?;
+        let user_data = request.user_data.as_deref().unwrap_or("");
+        if !user_data.is_empty()
+            && (user_data.len() > 4096 || !std::path::Path::new(user_data).is_absolute())
+        {
+            return Err("user data path must be absolute".into());
+        }
+        let glosses =
+            msime_engine_bridge::candidate_glosses_with_user(resources, user_data, &candidates)
+                .map_err(|_| "candidate gloss dictionary unavailable")?;
         if glosses.len() != candidates.len() {
             return Err("candidate gloss response mismatch".into());
         }
@@ -4575,6 +4660,62 @@ mod tests {
                 {"text":"Hello","translation":"你好; 您好"},
                 {"text":"你好！","translation":"hello there"}
             ])
+        );
+        let user = tempfile::tempdir().unwrap();
+        let user_path = user.path().to_str().unwrap();
+        let save = |target: &str, translations: Value| {
+            let request =
+                serde_json::to_vec(&json!({"target_language":target,"translations":translations}))
+                    .unwrap();
+            read(unsafe {
+                msime_client_translation_gloss_save(
+                    request.as_ptr(),
+                    request.len(),
+                    user_path.as_ptr(),
+                    user_path.len(),
+                )
+            })
+        };
+        let entries = json!([
+            {"text":"你好","translation":" learned   greeting "},
+            {"text":"SYNTHETIC","translation":"合成释义"},
+            {"text":"unchanged","translation":"UNCHANGED"},
+            {"text":"long","translation":"x".repeat(33)},
+            {"text":"🙂","translation":"emoji"}
+        ]);
+        assert_eq!(save("fr", entries.clone())["value"]["saved"], 0);
+        assert!(!user.path().join("translation-glosses.db").exists());
+        assert_eq!(save("en", entries)["value"]["saved"], 2);
+        // Each API call opens a fresh Engine dictionary, proving durable reuse.
+        let learned = call(
+            json!({"generation":43,"user_data":user_path,"candidates":[
+                {"text":"你好","source":0},{"text":"Synthetic","source":4},{"text":"Hello","source":4}
+            ]}),
+            resources,
+        );
+        assert_eq!(
+            learned["value"]["translations"],
+            json!([
+                {"text":"你好","translation":"learned greeting"},
+                {"text":"Synthetic","translation":"合成释义"},
+                {"text":"Hello","translation":"你好; 您好"}
+            ])
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT english_gloss FROM zh_en_glosses WHERE chinese='你好'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            " hello ; greeting ; salutation"
+        );
+        assert_eq!(
+            call(
+                json!({"generation":1,"user_data":"relative","candidates":[]}),
+                resources
+            )["ok"],
+            false
         );
         assert_eq!(
             call(json!({"generation":1,"candidates":[]}), b"relative")["ok"],

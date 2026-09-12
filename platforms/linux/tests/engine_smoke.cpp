@@ -527,6 +527,32 @@ int main(int argc, char **argv) {
       }
       require(has_remote_gloss() && seen.candidates.front() == local_hit,
               "Online misses did not merge with the displayed offline hits");
+      // A fresh host with no online socket must reuse the persisted misses.
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      auto learned = translated;
+      learned.erase("translation_provider_socket");
+      learned["preferences"]["candidate_translations"] = true;
+      learned["preferences"]["translation_target_language"] = "en";
+      msime_preview_configure(learned.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto learned_deadline = g_get_monotonic_time() + 2000000;
+      while (!has_remote_gloss() && g_get_monotonic_time() < learned_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(has_remote_gloss() && provider.requests == 5,
+              "Learned translation did not survive host restart without an online provider");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      learned["translation_provider_socket"] = socket;
+      msime_preview_configure(learned.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
       provider.tag_responses = true;
       // Observe every publication, not only the final page: a stale gloss
       // must never flash after changing target, composition or focus.
