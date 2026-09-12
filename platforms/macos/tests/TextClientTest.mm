@@ -36,19 +36,50 @@ static void TestEngineMaintenance() {
     assert(sqlite3_close(database) == SQLITE_OK);
     assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
-        "INSERT INTO english_words VALUES('hello','hello',100);", nullptr, nullptr, nullptr) == SQLITE_OK);
+        "INSERT INTO english_words VALUES('hello','hello',100);"
+        "CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;"
+        "CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;"
+        "INSERT INTO en_zh_glosses VALUES('hello','测试释义');", nullptr, nullptr, nullptr) == SQLITE_OK);
     assert(sqlite3_close(database) == SQLITE_OK);
     NSError *error = nil;
     MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
     assert(session && !error && [session setFocused:YES error:&error]);
+    assert(![session translationQueryWithError:&error] && !error);
     NSDictionary *englishView = [session setDedicatedEnglishEnabled:YES error:&error];
     assert(!error && [englishView[@"dedicated_english"] isEqual:@YES]);
     assert([session typeASCII:'h' shift:NO error:&error]);
     NSDictionary *englishTyped = [session typeASCII:'e' shift:NO error:&error];
     assert(!error && [englishTyped[@"view"][@"dedicated_english"] isEqual:@YES]);
     assert([englishTyped[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
+    NSDictionary *translationQuery = [session translationQueryWithError:&error];
+    assert(translationQuery && !error);
+    NSDictionary *glossRequest = @{@"generation":translationQuery[@"generation"], @"candidates":@[@{@"text":@"hello", @"source":@4}]};
+    __block NSDictionary *gloss = nil;
+    __block NSError *glossError = nil;
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        assert(!NSThread.isMainThread);
+        gloss = [MSIMEClientSession candidateGlossRequest:glossRequest resources:options[@"dictionaries"] error:&glossError];
+        dispatch_semaphore_signal(finished);
+    });
+    assert(dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
+    assert(gloss && !glossError && [gloss[@"generation"] isEqual:translationQuery[@"generation"]]);
+    uint64_t translationGeneration = [translationQuery[@"generation"] unsignedLongLongValue];
+    NSDictionary *translated = [session applyTranslations:gloss[@"translations"] generation:translationGeneration error:&error];
+    assert(!error && [translated[@"applied"] isEqual:@YES]);
+    assert([translated[@"view"][@"candidates"][0][@"translation"] isEqual:@"测试释义"]);
+    assert([translated[@"view"][@"candidates"][0][@"id"] isEqual:englishTyped[@"view"][@"candidates"][0][@"id"]]);
+    assert([translated[@"view"][@"editing_text"] isEqual:englishTyped[@"view"][@"editing_text"]]);
+    assert(![MSIMEClientSession candidateGlossRequest:glossRequest resources:@"relative" error:&error] && error);
+    error = nil;
+    assert(![MSIMEClientSession candidateGlossRequest:@{@"padding":[@"x" stringByPaddingToLength:262145 withString:@"x" startingAtIndex:0]} resources:options[@"dictionaries"] error:&error] && error);
+    error = nil;
+    assert((![session applyTranslations:@[@{@"text":@"hello", @"translation":[@"x" stringByPaddingToLength:4097 withString:@"x" startingAtIndex:0]}] generation:translationGeneration error:&error] && error));
+    error = nil;
     assert([[session setCharacterWidthFull:YES error:&error][@"character_width"] isEqual:@"Fullwidth"]);
     assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"ｈｅｌｌｏ"]);
+    translated = [session applyTranslations:gloss[@"translations"] generation:translationGeneration error:&error];
+    assert(!error && [translated[@"applied"] isEqual:@NO]);
     assert([[session setCharacterWidthFull:NO error:&error][@"character_width"] isEqual:@"Halfwidth"]);
     for (NSNumber *enabled in @[@YES, @NO, @YES]) {
         assert([session setEnglishMode:enabled.boolValue error:&error] && !error);

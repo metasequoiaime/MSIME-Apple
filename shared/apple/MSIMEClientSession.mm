@@ -67,6 +67,26 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_online_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    id value = decodeValue(msime_client_translation_query(_handle), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
++ (NSDictionary *)candidateGlossRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error {
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath ||
+        ![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"候选释义请求格式错误"); return nil; }
+    NSData *path = [resources dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!path || path.length > 4096 || !data || data.length > 262144) { setError(error, @"候选释义请求过大"); return nil; }
+    return decode(msime_client_candidate_gloss_request((const uint8_t *)data.bytes, data.length,
+        (const uint8_t *)path.bytes, path.length), error);
+}
+- (NSDictionary *)applyTranslations:(NSArray<NSDictionary *> *)translations generation:(uint64_t)generation error:(NSError **)error {
+    if (![translations isKindOfClass:NSArray.class] || translations.count > 4096 ||
+        ![NSJSONSerialization isValidJSONObject:translations]) { setError(error, @"候选释义格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:translations options:0 error:error];
+    if (!data || data.length > 1048576) { setError(error, @"候选释义过大"); return nil; }
+    return decode(msime_client_apply_translations(_handle, generation, (const uint8_t *)data.bytes, data.length), error);
+}
 + (NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"在线查询格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
