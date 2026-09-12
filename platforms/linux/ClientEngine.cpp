@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2037,8 +2037,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto local_modes_property = ibus_property_new(
       "LocalModes", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("本地输入模式"), "",
-      ibus_text_new_from_static_string("启用或停用当前会话的本地快捷输入模式"),
-      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
+      ibus_text_new_from_static_string("启用或停用本地快捷输入模式"),
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto local_modes_menu = ibus_prop_list_new();
   const auto configured_local_modes = configured.at("preferences").value(
@@ -2059,8 +2059,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("LocalModes/") + key).c_str(), PROP_TYPE_TOGGLE,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("当前会话本地快捷输入模式"),
-        s.focused && !s.blocked && s.input_enabled, TRUE,
+        ibus_text_new_from_static_string("本地快捷输入模式"),
+        s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
         enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(local_modes_menu, item);
   }
@@ -3239,6 +3239,13 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const bool enabled = value == PROP_STATE_CHECKED;
       if (current == enabled)
         return;
+      if (menu_save_pending) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::LocalMode,
+                             Json{{"key", key}, {"enabled", enabled}});
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4873,6 +4880,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->scheme_override.reset();
           if (request.preference == MenuPreference::NineKey)
             self->state->nine_key_override.reset();
+          if (request.preference == MenuPreference::LocalMode)
+            self->state->local_mode_overrides.erase(request.value.at("key").get<std::string>());
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4959,6 +4968,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           case MenuPreference::NineKey:
             snapshot["preferences"]["touch_keyboard_layout"] =
                 request.value.get<bool>() ? "nine_key" : "twenty_six_key";
+            break;
+          case MenuPreference::LocalMode:
+            snapshot["preferences"]["local_modes"][request.value.at("key").get<std::string>()] =
+                request.value.at("enabled");
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
