@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryPanelClient, type EmojiCatalogGroup, type EmojiPanelClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./window-state";
+import { discoverFontReader } from "./system-font-client";
 
 const dictionary: DictionaryClient = {
   list: (offset, limit) => invoke("dictionary_request", { action: { operation: "list", offset, limit } }),
@@ -86,11 +87,23 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   } },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
+function DesktopSettings() {
+  const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
+  useEffect(() => {
+    let active = true;
+    void discoverFontReader(isTauri(), invoke).then(reader => {
+      if (active) setSettingsClient(reader ? { ...client, listFontFamilies: reader } : client);
+    });
+    return () => { active = false; };
+  }, []);
+  // Mount once after discovery: replacing the client later would reload draft preferences.
+  return settingsClient ? <SettingsPage client={settingsClient} /> : <p role="status">正在连接设置…</p>;
+}
 const content = panel === "keyboard" ? <KeyboardPanel client={panelClients.keyboard} />
   : panel === "handwriting" ? <HandwritingPanel client={panelClients.handwriting} />
   : panel === "voice" ? <VoicePanel client={panelClients.voice} />
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
   : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
   : panel === "emoji" ? <EmojiPanel client={panelClients.emoji} />
-  : <SettingsPage client={client} />;
+  : <DesktopSettings />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);

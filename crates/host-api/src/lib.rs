@@ -4,6 +4,7 @@
 use msime_client_core::dictionary_access::DictionaryAccess;
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
+pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
     TouchKeyboardLayout,
