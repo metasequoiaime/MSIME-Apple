@@ -593,6 +593,21 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         NSString *characters = event.charactersIgnoringModifiers;
         if (characters.length == 1) {
             const unichar character = [characters characterAtIndex:0];
+            NSDictionary *wordCharacter = [_appearance wordCharacterOptions];
+            BOOL brackets = [wordCharacter[@"keys"] isEqual:@"brackets"];
+            BOOL first = character == (brackets ? '[' : '-');
+            BOOL last = character == (brackets ? ']' : '=');
+            if ([wordCharacter[@"enabled"] boolValue] && (first || last)) {
+                for (NSDictionary *candidate in _view[@"candidates"]) {
+                    if (![candidate[@"highlighted"] boolValue]) continue;
+                    NSDictionary *identifier = candidate[@"id"];
+                    if (![identifier isKindOfClass:NSDictionary.class] || ![identifier[@"session"] isEqual:_view[@"session"]]) return YES;
+                    NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
+                    if (selected) [self apply:selected];
+                    return YES; // Unsupported/stale candidates must not turn into punctuation.
+                }
+                return YES;
+            }
             const BOOL previous = ([_appearance navigationEnabled:@"minus_equal"] && character == '-') || ([_appearance navigationEnabled:@"brackets"] && character == '[') || ([_appearance navigationEnabled:@"comma_period"] && character == ',');
             const BOOL next = ([_appearance navigationEnabled:@"minus_equal"] && character == '=') || ([_appearance navigationEnabled:@"brackets"] && character == ']') || ([_appearance navigationEnabled:@"comma_period"] && character == '.');
             if (previous || next) {

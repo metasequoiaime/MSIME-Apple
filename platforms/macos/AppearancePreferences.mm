@@ -44,6 +44,7 @@ static NSString *const PreeditFontKey = @"MSIMEClientCandidatePreeditFontSize";
 static NSString *const CandidatePreeditKey = @"MSIMEClientCandidatePreeditStyle";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const NavigationKey = @"MSIMEClientNavigation";
+static NSString *const WordCharacterKey = @"MSIMEClientWordCharacter";
 static NSArray<NSArray<NSString *> *> *NavigationControls() {
     return @[@[@"minus_equal", @"减号/等号翻页"], @[@"comma_period", @"逗号/句号翻页"],
              @[@"brackets", @"方括号翻页"], @[@"tab", @"Tab / Shift-Tab 翻页"],
@@ -96,6 +97,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSNumber *_sharedPageSize;
     NSMutableDictionary *_sharedNavigation;
     NSDictionary *_sharedWordCharacter;
+    NSButton *_wordCharacterButton;
+    NSPopUpButton *_wordCharacterKeys;
     NSMutableArray<NSButton *> *_navigationButtons;
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
@@ -176,6 +179,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
             if (ValidHelpcodeOption(key, stored[key])) target[key] = effective[key];
     }
     merged[@"candidate_page_size"] = @(self.pageSize);
+    if ([_defaults dictionaryForKey:WordCharacterKey]) merged[@"word_character"] = [self wordCharacterOptions];
     NSDictionary *navigationOverrides = [_defaults dictionaryForKey:NavigationKey];
     if (navigationOverrides.count) {
         NSMutableDictionary *navigation = [merged[@"navigation"] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -254,7 +258,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (!MSIMEValidateCloudAppearance(values)) return NO;
     NSInteger preset = [values[@"platform.macos.candidate_page_shortcut"] integerValue];
     NSString *pagingKey = preset == 0 ? @"minus_equal" : preset == 1 ? @"brackets" : @"page_up_down";
-    if ([_sharedWordCharacter[@"enabled"] boolValue] && [_sharedWordCharacter[@"keys"] isEqual:pagingKey]) return NO;
+    if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:pagingKey]) return NO;
     if (!MSIMEApplyCloudAppearance(values, _defaults)) return NO;
     [self applyNavigationPreset:preset];
     // Invalidate only fields represented by the legacy platform cloud snapshot.
@@ -529,11 +533,22 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if ([key isEqual:@"brackets"]) return self.pageShortcut == 1;
     return [@[@"comma_period", @"tab", @"page_up_down", @"arrows"] containsObject:key];
 }
+- (NSDictionary *)wordCharacterOptions {
+    NSDictionary *value = _sharedWordCharacter ?: [_defaults dictionaryForKey:WordCharacterKey];
+    return LocalModeBoolean(value[@"enabled"]) && [@[@"brackets", @"minus_equal"] containsObject:value[@"keys"]] ? value : @{@"enabled": @NO, @"keys": @"brackets"};
+}
+- (void)setWordCharacterEnabled:(BOOL)enabled keys:(NSString *)keys {
+    if (![@[@"brackets", @"minus_equal"] containsObject:keys]) return;
+    if (enabled && [self navigationEnabled:keys]) { NSBeep(); [self refreshControls]; return; }
+    _sharedWordCharacter = @{@"enabled": @(enabled), @"keys": keys};
+    [_defaults setObject:_sharedWordCharacter forKey:WordCharacterKey];
+    [self preferencesChanged];
+}
 - (void)setNavigation:(NSString *)key enabled:(BOOL)enabled {
     BOOL known = NO;
     for (NSArray *entry in NavigationControls()) if ([entry[0] isEqual:key]) known = YES;
     if (!known) return;
-    if (enabled && [_sharedWordCharacter[@"enabled"] boolValue] && [_sharedWordCharacter[@"keys"] isEqual:key]) {
+    if (enabled && [[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:key]) {
         NSBeep(); [self refreshControls]; return;
     }
     NSMutableDictionary *values = [[_defaults dictionaryForKey:NavigationKey] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -597,7 +612,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)setPageShortcut:(NSInteger)value {
     value = value == 1 || value == 2 ? value : 0;
     NSString *enabledKey = value == 0 ? @"minus_equal" : value == 1 ? @"brackets" : @"page_up_down";
-    if ([_sharedWordCharacter[@"enabled"] boolValue] && [_sharedWordCharacter[@"keys"] isEqual:enabledKey]) { NSBeep(); [self refreshControls]; return; }
+    if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:enabledKey]) { NSBeep(); [self refreshControls]; return; }
     [self applyNavigationPreset:value];
     [_defaults setInteger:value forKey:PageShortcutKey];
     [self preferencesChanged];
@@ -612,6 +627,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     for (NSString *key in @[@"minus_equal", @"brackets", @"page_up_down"]) _sharedNavigation[key] = navigation[key];
 }
 - (void)refreshControls {
+    NSDictionary *wordCharacter = [self wordCharacterOptions];
+    _wordCharacterButton.state = [wordCharacter[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+    [_wordCharacterKeys selectItemAtIndex:[wordCharacter[@"keys"] isEqual:@"minus_equal"] ? 1 : 0];
     for (NSButton *button in _navigationButtons)
         button.state = [self navigationEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSString *scheme in _helpcodeSchemaButtons) {
@@ -751,6 +769,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _pageShortcutButton.accessibilityLabel = @"候选翻页快捷键";
     _pageShortcutButton.target = self;
     _pageShortcutButton.action = @selector(pageShortcutChanged:);
+    _wordCharacterButton = [NSButton checkboxWithTitle:@"以词定字（首字／尾字）" target:self action:@selector(wordCharacterChanged:)];
+    _wordCharacterButton.accessibilityLabel = @"以词定字";
+    _wordCharacterButton.toolTip = @"须先关闭所选键组的翻页功能";
+    _wordCharacterKeys = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_wordCharacterKeys addItemsWithTitles:@[@"[ / ]", @"- / ="]];
+    _wordCharacterKeys.accessibilityLabel = @"以词定字键组";
+    _wordCharacterKeys.target = self;
+    _wordCharacterKeys.action = @selector(wordCharacterChanged:);
     _navigationButtons = [NSMutableArray array];
     for (NSArray *entry in NavigationControls()) {
         NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(navigationChanged:)];
@@ -799,6 +825,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"候选窗预编辑"], _candidatePreeditButton],
         @[[NSTextField labelWithString:@"候选翻页快捷键"], _pageShortcutButton],
         @[[NSTextField labelWithString:@"独立候选导航"], navigationControls],
+        @[[NSTextField labelWithString:@"以词定字"], _wordCharacterButton],
+        @[[NSTextField labelWithString:@"首字／尾字键组"], _wordCharacterKeys],
         @[[NSTextField labelWithString:@"每页候选"], _pageSizeButton],
         @[[NSTextField labelWithString:@"候选皮肤"], _skinButton],
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
@@ -931,6 +959,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)showWindow:(id)sender { [self reloadSkins]; [super showWindow:sender]; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)navigationChanged:(NSButton *)sender { [self setNavigation:sender.identifier enabled:sender.state == NSControlStateValueOn]; }
+- (void)wordCharacterChanged:(id)sender {
+    (void)sender;
+    [self setWordCharacterEnabled:_wordCharacterButton.state == NSControlStateValueOn keys:_wordCharacterKeys.indexOfSelectedItem == 1 ? @"minus_equal" : @"brackets"];
+}
 - (void)pageSizeChanged:(NSPopUpButton *)sender {
     self.pageSize = sender.indexOfSelectedItem + 1;
 }

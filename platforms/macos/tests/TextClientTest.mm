@@ -13,6 +13,44 @@
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); self.marked = text; self.selection = selection; }
 @end
 
+static void TestEngineEdges(FakeTextClient *client) {
+    for (NSString *code in @[@"4e2d", @"20000", @"41"]) {
+        for (uint8_t edge = 0; edge < 2; ++edge) {
+            NSError *error = nil;
+            NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+            for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+                NSString *path = [root stringByAppendingPathComponent:name];
+                assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+                options[name] = path;
+            }
+            MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+            assert(session && !error && [session setFocused:YES error:&error]);
+            assert([session typeASCII:'U' shift:YES error:&error]);
+            for (NSUInteger i = 0; i < code.length; ++i) assert([session typeASCII:[code characterAtIndex:i] shift:NO error:&error]);
+            NSDictionary *view = [session viewWithError:&error];
+            NSDictionary *identifier = [view[@"candidates"] firstObject][@"id"];
+            assert(identifier && !error);
+            assert(![session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] + 1 index:[identifier[@"index"] unsignedIntegerValue] edge:edge error:&error]);
+            assert(error);
+            error = nil;
+            assert([[[session viewWithError:&error] objectForKey:@"editing_text"] isEqual:view[@"editing_text"]]);
+            NSDictionary *result = [session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:edge error:&error];
+            assert(result && !error);
+            if ([code isEqual:@"41"]) {
+                assert(![result[@"handled"] boolValue]);
+                assert([result[@"view"][@"editing_text"] isEqual:view[@"editing_text"]]);
+            } else {
+                MSIMEApplyTransition(result, client);
+                assert([client.committed isEqual:[code isEqual:@"4e2d"] ? @"中" : @"𠀀"]);
+                assert(client.marked.length == 0);
+            }
+            assert([session closeWithError:&error]);
+            assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+        }
+    }
+}
+
 static void TestEnginePreedit(FakeTextClient *client) {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"shuangpin", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @YES, @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
@@ -124,6 +162,7 @@ int main() {
     @autoreleasepool {
         FakeTextClient *client = [FakeTextClient new];
         TestEnginePreedit(client);
+        TestEngineEdges(client);
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
