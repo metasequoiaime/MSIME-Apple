@@ -79,6 +79,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
+    _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
@@ -86,10 +87,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [self syncPunctuation];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
+    if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
     [self persistAppearancePreferences];
 }
 - (void)persistAppearancePreferences {
-    if (!_preferencesDirectory || !_session) return;
+    if (!_preferencesDirectory) return;
     if (!_preferenceSaveState.request()) return;
     NSString *directory = [_preferencesDirectory copy];
     // Capture all host-owned fields together on the main thread. Both CAS
@@ -382,7 +384,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)reloadPreferences {
-    if (!_activeClient || !_preferencesDirectory || !_preferenceLoadState.begin()) return;
+    if (!_activeClient || !_preferencesDirectory || _preferenceSaveState.saving || !_preferenceLoadState.begin()) return;
     const uint64_t generation = _preferenceLoadState.generation;
     MSIMEClientSession *session = _session;
     NSString *directory = [_preferencesDirectory copy];
@@ -397,19 +399,29 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
             // Never apply a delayed read to a replacement or inactive input session.
             if (!snapshot || error || !controller->_activeClient || controller->_session != session) return;
             if (!session) {
-                [controller->_toolbar applyThemePreferences:snapshot[@"preferences"]];
+                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
                 return;
             }
             NSError *updateError = nil;
             NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
             // Failed loads/updates retain the existing window appearance and runtime.
             if (result && !updateError) {
-                [controller->_toolbar applyThemePreferences:snapshot[@"preferences"]];
+                [controller applySharedToolbarPreferences:snapshot[@"preferences"]];
                 controller->_view = result[@"view"];
                 [controller renderCandidates];
             }
         });
     });
+}
+
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [_toolbar applyThemePreferences:preferences];
+    NSDictionary *toolbar = preferences[@"floating_toolbar"];
+    id enabled = [toolbar isKindOfClass:NSDictionary.class] ? toolbar[@"enabled"] : nil;
+    if ([enabled isKindOfClass:NSNumber.class]) {
+        [_appearance applySharedToolbarVisibility:[enabled boolValue]];
+        [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
+    }
 }
 
 - (void)deactivateServer:(id)sender {
