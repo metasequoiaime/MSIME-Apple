@@ -135,6 +135,8 @@ pub struct Preferences {
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
+    #[serde(default = "enabled_by_default")]
+    pub shuangpin_preedit_uses_raw: bool,
     pub candidate_page_size: u8,
     #[serde(default = "default_candidate_font_size")]
     pub candidate_font_size: u8,
@@ -686,6 +688,7 @@ impl Default for Preferences {
             touch_voice_shortcut: false,
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
+            shuangpin_preedit_uses_raw: true,
             candidate_page_size: 5,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_font_size(),

@@ -159,6 +159,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
         case 3: options.shuangpin_profile = GetMicrosoftShuangpinProfile(); break;
         default: throw std::invalid_argument("Unsupported shuangpin profile");
     }
+    options.shuangpin_preedit_uses_raw = value.shuangpin_preedit_uses_raw;
     options.learning = value.learning;
     options.autocorrect_types =
         (value.autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
