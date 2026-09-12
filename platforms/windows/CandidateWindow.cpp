@@ -180,12 +180,23 @@ void CandidateWindow::hide() {
   pressed_.reset();
   ShowWindow(window_, SW_HIDE);
 }
+// Measuring the page reads Engine text, so unusable presentation data reaches
+// this path as well as the paint one. The owner's thread learns nothing about
+// it: the card gives up and stays hidden, exactly as the window procedure does.
 void CandidateWindow::refresh() {
   DpiScope dpi_scope;
   if (failed_) {
     hide();
     return;
   }
+  try {
+    reposition();
+  } catch (...) {
+    failed_ = true;
+    hide();
+  }
+}
+void CandidateWindow::reposition() {
   const auto value = reader_();
   if (!value || !value->visible) {
     hide();
