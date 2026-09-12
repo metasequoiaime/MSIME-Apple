@@ -12,6 +12,7 @@
 #import "PreferencesWindowController.h"
 #import "BackendAccountEntry.h"
 #import "BackendSelectionObservation.h"
+#include "ToolTextReturn.h"
 #include "PreferenceSaveState.h"
 #include "PreferenceLoadState.h"
 #include "PreferenceSnapshotMerge.h"
@@ -58,6 +59,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     MSIMEVoiceInputService *_voiceService;
     uint64_t _voiceGeneration;
     id _activeClient;
+    MSIMEToolTextReturn _emojiReturn;
     NSDictionary *_view;
     NSPanel *_panel;
     MSIMEShuangpinKeymapPanel *_keymapPanel;
@@ -222,8 +224,30 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     id resources = [self runtimeOptions][@"resources"];
-    if ([shared respondsToSelector:@selector(showEmojiWithResources:)])
-        [shared performSelector:@selector(showEmojiWithResources:) withObject:[resources isKindOfClass:NSString.class] ? resources : @""];
+    NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
+        ![shared respondsToSelector:@selector(showEmojiWithResources:selection:)]) return;
+    const uint64_t token = _emojiReturn.capture(_activeClient);
+    __weak MSIMEInputController *weakSelf = self;
+    void (^selection)(NSString *) = ^(NSString *text) {
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || application.terminated ||
+            !controller->_emojiReturn.queue(text, token, NSProcessInfo.processInfo.systemUptime)) return;
+        // The Swift bridge closes its window before this activation is executed.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_emojiReturn.generation != token || !current->_emojiReturn.pending) return;
+            if (![application activateWithOptions:0]) {
+                current->_emojiReturn.discard(token);
+            }
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (current) current->_emojiReturn.discard(token);
+        });
+    };
+    [shared performSelector:@selector(showEmojiWithResources:selection:)
+                 withObject:[resources isKindOfClass:NSString.class] ? resources : @"" withObject:selection];
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
@@ -334,6 +358,8 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
     else [self startPreferencesMonitoring];
+    NSString *toolText = _emojiReturn.take(sender, NSProcessInfo.processInfo.systemUptime);
+    if (toolText) [sender insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)];
 }
 
 - (void)handwritingCandidateSelected:(NSNotification *)notification {
