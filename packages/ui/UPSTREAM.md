@@ -338,3 +338,16 @@ do not read resources. Unit and Chromium resize tests cover this lifecycle.
 local()/data sources, tech() hints, variable font
 shorthand recovery and native-platform typography parity remain unfinished.
 This is preview font support, not full native candidate font delivery.
+
+Whole-value variable font shorthands now use the same bounded source projection
+as animation shorthands, before CSSOM can discard their pending substitution.
+Each font longhand receives a private variable alias; original variables and
+declaration priority/order are retained. Family projection subsequently passes
+through the existing per-card font namespace. Chromium tests reproduce failure
+on the previous implementation and verify actual font rendering after later
+size overrides, earlier important sizes, shorthand resets, inheritance,
+conditional definitions, nested fallback and cyclic fallback. The full font,
+animation, image and CSP regression also passes without relaxing policy.
+This supersedes whole-value variable font shorthand recovery above; fragment
+substitution, local()/data sources, tech() hints and native typography parity
+remain unfinished. No native platform acceptance is claimed.
