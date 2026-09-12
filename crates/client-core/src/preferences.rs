@@ -329,6 +329,8 @@ pub struct Preferences {
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
+    pub tencent_tmt: TencentTmtPreferences,
+    #[serde(default)]
     pub floating_toolbar: FloatingToolbarPreferences,
     #[serde(default)]
     pub theme: ThemeMode,
@@ -612,6 +614,26 @@ pub struct CustomTranslationPreferences {
     pub endpoint: String,
     #[serde(default)]
     pub api_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TencentTmtPreferences {
+    pub enabled: bool,
+    pub secret_id: String,
+    pub secret_key: String,
+    pub region: String,
+}
+
+impl Default for TencentTmtPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            secret_id: String::new(),
+            secret_key: String::new(),
+            region: "ap-guangzhou".into(),
+        }
+    }
 }
 
 fn default_ai_candidate_limit() -> u8 {
@@ -930,6 +952,7 @@ impl Default for Preferences {
             ime_mode_scope: ImeModeScope::default(),
             ai_assistant: AiAssistantPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
+            tencent_tmt: TencentTmtPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
             theme: ThemeMode::default(),
@@ -1151,6 +1174,22 @@ impl Preferences {
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
+        let tencent = &self.tencent_tmt;
+        if tencent.secret_id.len() > 4096
+            || tencent.secret_key.len() > 4096
+            || tencent.secret_key.chars().any(char::is_control)
+            || !tencent
+                .secret_id
+                .bytes()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-')
+            || tencent.region.len() > 64
+            || !tencent
+                .region
+                .bytes()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
+        {
+            return Err(PreferencesError::InvalidTencentTmt);
+        }
         let translation = &self.custom_translation;
         if translation.endpoint.len() > 2048
             || translation.api_key.len() > 4096
@@ -1280,6 +1319,8 @@ pub enum PreferencesError {
     InvalidAiAssistant,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
+    #[error("Tencent translation credentials or region are invalid")]
+    InvalidTencentTmt,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
@@ -2634,6 +2675,49 @@ mod tests {
         assert!(restored.preferences.floating_toolbar.english_mode);
         assert!(restored.preferences.floating_toolbar.fullwidth);
         assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    }
+
+    #[test]
+    fn tencent_translation_defaults_migrate_and_round_trip() {
+        let defaults = Preferences::default();
+        assert!(defaults.tencent_tmt.enabled);
+        assert!(defaults.tencent_tmt.secret_id.is_empty());
+        assert!(defaults.tencent_tmt.secret_key.is_empty());
+        assert_eq!(defaults.tencent_tmt.region, "ap-guangzhou");
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("tencent_tmt");
+        let restored: Preferences = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.tencent_tmt, defaults.tencent_tmt);
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut configured = defaults;
+        configured.tencent_tmt.secret_id = "AKIDsynthetic".into();
+        configured.tencent_tmt.secret_key = "synthetic".into();
+        configured.tencent_tmt.region = "ap-shanghai".into();
+        configured.candidate_page_size = 7;
+        store.save(0, configured.clone()).unwrap();
+        assert_eq!(store.load().unwrap().preferences, configured);
+    }
+
+    #[test]
+    fn tencent_translation_rejects_unbounded_or_injected_parameters() {
+        for (id, key, region) in [
+            ("x".repeat(4097), String::new(), String::new()),
+            (String::new(), "x".repeat(4097), String::new()),
+            ("bad id".into(), String::new(), String::new()),
+            (String::new(), "bad\r\nkey".into(), String::new()),
+            (String::new(), String::new(), "x".repeat(65)),
+            (String::new(), String::new(), "region\r\nheader".into()),
+        ] {
+            let mut preferences = Preferences::default();
+            preferences.tencent_tmt.secret_id = id;
+            preferences.tencent_tmt.secret_key = key;
+            preferences.tencent_tmt.region = region;
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidTencentTmt)
+            ));
+        }
     }
 
     #[test]

@@ -226,10 +226,11 @@ char *msime_client_view(uint64_t session);
  * document back to apply_online_candidate. */
 char *msime_client_online_query(uint64_t session);
 /* Return null or {generation,target_language,candidates:[{text}],
- * custom_translation:{enabled,endpoint,api_key}|null} for visible candidate
- * translations. The optional custom provider fields are present only when
- * enabled in validated preferences and are intended for the user-owned Linux
- * translation service.
+ * custom_translation:{enabled,endpoint,api_key}|null,
+ * tencent_tmt:{enabled,secret_id,secret_key,region}|null} for visible candidates.
+ * Tencent credentials are returned only when usable and enabled, and custom
+ * translation is not selected. These fields are for host-owned transport;
+ * never log the query. The existing target_language applies to both providers.
  */
 char *msime_client_translation_query(uint64_t session);
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native

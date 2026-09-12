@@ -36,6 +36,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 /// Shared bounded parser and stale-query guard; returns {applied,view}.
 - (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;
 /// Copied enabled translation query, or nil when no candidates are eligible.
+/// May contain custom/Tencent credentials for native transport; never log it.
 - (nullable NSDictionary *)translationQueryWithError:(NSError **)error;
 /// Pure descriptor construction. Contains optional credentials; never log it.
 + (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
