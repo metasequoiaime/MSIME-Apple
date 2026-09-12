@@ -32,6 +32,7 @@ use std::ffi::{c_char, CString};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
+mod learned_translation;
 mod tencent_translation;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
 mod dictionary_snapshot;
@@ -1154,6 +1155,23 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             }
         }
         Ok(json!(results))
+    })
+}
+
+/// Read/write private learned glosses on a host-owned IO worker. Never log inputs.
+/// # Safety
+/// `request` must reference `length` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_learned_translation_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid learned translation buffer".into());
+        }
+        learned_translation::execute(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(str::to_owned)
     })
 }
 
@@ -4096,6 +4114,15 @@ mod tests {
             read(unsafe { msime_client_custom_translation_plan(std::ptr::null(), 0) })["ok"],
             false
         );
+    }
+    #[test]
+    fn learned_translation_buffers_are_bounded() {
+        for (pointer, length) in [(std::ptr::null(), 0), (b"x".as_ptr(), 65537)] {
+            assert_eq!(
+                read(unsafe { msime_client_learned_translation_request(pointer, length) })["ok"],
+                false
+            );
+        }
     }
     #[test]
     fn tencent_translation_buffers_are_bounded() {

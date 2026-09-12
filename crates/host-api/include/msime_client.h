@@ -140,6 +140,13 @@ char *msime_client_custom_translation_plan(const uint8_t *request, size_t length
  * secret_key,region},texts:[string],source_language,target_language,timestamp}.
  * Send body_utf8 bytes unchanged. Never log this credential-bearing descriptor. */
 char *msime_client_tencent_translation_http_request(const uint8_t *request, size_t length);
+// Worker-thread disk I/O. JSON <=64KiB: {directory:absolute private user path,
+// action:lookup|remember,target_language,generation,items:[{text,direction,translation?}]}.
+// At most 9 items, directions english_to_chinese/chinese_to_english. Remember
+// requires translation; lookup forbids it. Returns {generation,translations,saved}.
+// Never pass packaged resources. Learned text is private; never log requests.
+// A malformed batch makes no writes; an I/O failure can leave earlier items saved.
+char *msime_client_learned_translation_request(const uint8_t *request, size_t length);
 /* Returns [string|null] with exact expected count (1..9), or null for invalid body. */
 char *msime_client_parse_tencent_translation_response(const uint8_t *body, size_t length, size_t expected);
 /* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
