@@ -1183,6 +1183,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
+    if (!event.isARepeat && event.keyCode == 101 &&
+        (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand)) == NSEventModifierFlagControl &&
+        ([NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceHotkeyCtrlF9"] == nil || [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlF9"])) {
+        [self toggleVoiceInput:nil];
+        return YES;
+    }
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
