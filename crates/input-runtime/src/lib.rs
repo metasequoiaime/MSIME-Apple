@@ -770,11 +770,17 @@ impl UnixSocketProvider {
             || reply
                 .candidates
                 .iter()
-                .any(|candidate| candidate.is_empty() || candidate.len() > 4096)
+                .any(|candidate| candidate.is_empty() || candidate.len() > 4096 || candidate.chars().any(char::is_control))
         {
             return None;
         }
-        Some(reply.candidates)
+        let mut candidates = Vec::with_capacity(reply.candidates.len());
+        for candidate in reply.candidates {
+            if !candidates.contains(&candidate) {
+                candidates.push(candidate);
+            }
+        }
+        Some(candidates)
     }
 
     /// Search the user-owned emoji catalog. Results stay outside the IBus
