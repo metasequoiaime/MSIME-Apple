@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// The fixed Windows reference exposes these pages without connected media providers.
+enum MacEmojiMediaPage: String, CaseIterable {
+  case sticker, gif
+  var title: String { self == .sticker ? "贴纸" : "GIF" }
+  var message: String {
+    self == .sticker ? "可在此接入贴纸" : "可在此接入 GIF 内容源"
+  }
+}
+
+struct MacEmojiMediaPlaceholder: View {
+  let page: MacEmojiMediaPage
+  let palette: MacEmojiPalette
+  var body: some View {
+    VStack {
+      Text(page.message).font(.system(size: 20 * 2 / 3))
+        .foregroundStyle(MacEmojiPalette.color(palette.muted))
+        .frame(maxWidth: .infinity, minHeight: 64 * 2 / 3)
+        .padding(.top, 50 * 2 / 3)
+      Spacer(minLength: 0)
+    }
+  }
+}
+
 struct MacEmojiHomeSection: Sendable {
   let title: String
   let category: String
@@ -69,7 +92,7 @@ struct MacEmojiHomeView: View {
         Spacer()
         if showMore { Button("更多") { more(category) }.accessibilityLabel("更多\(title)") }
       }
-      if items.isEmpty { Text("没有匹配项").font(.caption) }
+      if items.isEmpty && MacEmojiMediaPage(rawValue: category) == nil { Text("没有匹配项").font(.caption) }
       if category == "kaomoji" {
         MacEmojiFlowGrid(items: items, cells: flowCells, width: width, palette: palette,
           selected: { selected == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
@@ -110,6 +133,9 @@ struct MacEmojiHomeView: View {
               ForEach(sections, id: \.category) { section($0.title, category: $0.category, items: $0.items, showMore: true, width: width, flowCells: flowCells) }
             } else {
               Text(failed ? "首页目录加载失败，请切换目录重试" : "正在加载首页…").font(.caption)
+            }
+            ForEach(MacEmojiMediaPage.allCases, id: \.rawValue) { page in
+              section(page.title, category: page.rawValue, items: [], showMore: true, width: width, flowCells: [])
             }
           }.frame(width: width, alignment: .leading)
         }

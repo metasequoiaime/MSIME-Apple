@@ -1,10 +1,36 @@
 import Foundation
+import AppKit
+import SwiftUI
 
 @main enum EmojiHomeTest {
   static func items(_ group: String, _ count: Int) -> [MacEmojiCatalogItem] {
     (0..<count).map { .init(text: "synthetic-\(group)-\($0)", annotation: "fixture", group: group) }
   }
-  static func main() throws {
+  @MainActor static func main() throws {
+    assert(MacEmojiMediaPage.allCases.map(\.rawValue) == ["sticker", "gif"])
+    assert(MacEmojiMediaPage.sticker.title == "贴纸" && MacEmojiMediaPage.gif.title == "GIF")
+    assert(MacEmojiMediaPage.sticker.message == "可在此接入贴纸")
+    assert(MacEmojiMediaPage.gif.message == "可在此接入 GIF 内容源")
+    assert(MacEmojiMediaPage(rawValue: "symbols") == nil && MacEmojiMediaPage(rawValue: "home") == nil)
+    _ = NSApplication.shared
+    for light in [false, true] {
+      for page in MacEmojiMediaPage.allCases {
+        let renderer = ImageRenderer(content: MacEmojiMediaPlaceholder(page: page, palette: MacEmojiPalette(light: light))
+          .frame(width: 336, height: 200).background(Color.white))
+        renderer.scale = 3
+        guard let image = renderer.cgImage else { fatalError("Media placeholder render unavailable") }
+        assert(image.width == 1008 && image.height == 600)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        pixels.withUnsafeMutableBytes { buffer in
+          let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+          context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        let painted = stride(from: 0, to: pixels.count, by: 4).filter { pixels[$0] < 220 }.count
+        assert(painted > 100) // The empty-source hint must actually render in both palettes.
+      }
+    }
     let navigationSections = [
       MacEmojiHomeSection(title: "fixture emoji", category: "", items: items("emoji", 8)),
       MacEmojiHomeSection(title: "fixture empty", category: "empty", items: []),
