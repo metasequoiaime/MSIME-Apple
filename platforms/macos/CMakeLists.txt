@@ -73,7 +73,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 add_test(NAME emoji-swift-host COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 set_tests_properties(emoji-swift-host PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift BackendEmojiCatalogCursor.swift
+set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift BackendEmojiCatalogCursor.swift BackendEmojiClipboardDisabled.swift
   BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHomeHeading.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
   BackendEmojiKeyboard.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiNavigation.swift tests/EmojiHomeTest.swift)
 list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
