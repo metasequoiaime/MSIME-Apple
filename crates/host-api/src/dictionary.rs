@@ -174,10 +174,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             request_id,
         } => {
             let entries = parse_import(&kind, &format, &text)?;
-            if request_id.is_empty() || request_id.len() > 120
-                || !request_id.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
-                })
+            if request_id.is_empty()
+                || request_id.len() > 120
+                || !request_id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
             {
                 return Err("invalid dictionary request ID".into());
             }
@@ -190,12 +191,9 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             let mut applied = 0usize;
             for (index, entry) in entries.iter().enumerate() {
                 let receipt = format!("{request_id}-{index}");
-                let result = msime_engine_bridge::edit_personal_dictionary(
-                    &options,
-                    None,
-                    Some(entry),
-                    &receipt,
-                );
+                // The batch already owns the maintenance lock; use the Engine bridge directly.
+                let result =
+                    msime_engine_bridge::dictionary_edit(&options, None, Some(entry), &receipt);
                 if result.is_err() {
                     return Err("dictionary import rejected".into());
                 }
@@ -234,8 +232,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 cursor = cursor.saturating_add(page.entries.len());
                 source_has_more = page.has_more;
                 matching.extend(
-                    page
-                        .entries
+                    page.entries
                         .into_iter()
                         .filter(|entry| entry.kind == kind.into()),
                 );
@@ -258,7 +255,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let text = if text.is_empty() { text } else { format!("{text}\n") };
+            let text = if text.is_empty() {
+                text
+            } else {
+                format!("{text}\n")
+            };
             Ok(json!({ "text": text, "has_more": has_more }))
         }
     }
