@@ -534,6 +534,126 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
     })
 }
 
+/// Read saved clipboard history without observing or modifying the system clipboard.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_load_clipboard_history(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid history directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid history directory encoding")?;
+        let path = std::path::Path::new(directory);
+        if !path.is_absolute() {
+            return Err("history directory must be absolute".into());
+        }
+        let enabled = PreferencesStore::new(path)
+            .load()
+            .map_err(|_| "history preferences unavailable")?
+            .preferences
+            .clipboard_history;
+        if !enabled {
+            return Ok(serde_json::json!({"enabled": false, "entries": []}));
+        }
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+            path.join("clipboard_history.json"),
+        );
+        history
+            .load()
+            .map_err(|_| "clipboard history unavailable")?;
+        Ok(serde_json::json!({"enabled": true, "entries": history.entries()}))
+    })
+}
+
+/// Save host-sampled text only while shared history is enabled.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_capture_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 131072 {
+            return Err("invalid history capture buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Capture {
+            directory: String,
+            text: String,
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let capture: Capture =
+            serde_json::from_slice(bytes).map_err(|_| "invalid history capture document")?;
+        if !std::path::Path::new(&capture.directory).is_absolute()
+            || capture.directory.len() > 16384
+            || capture.text.len() > 4096
+        {
+            return Err("invalid history capture parameters".into());
+        }
+        let captured = PreferencesStore::new(&capture.directory)
+            .capture_clipboard_text(capture.text)
+            .map_err(|_| "clipboard history capture failed")?;
+        Ok(json!({"captured": captured}))
+    })
+}
+
+/// Remove one saved history entry by exact content, without touching the clipboard.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_remove_clipboard_history(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 131072 {
+            return Err("invalid history removal buffer".into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Removal {
+            directory: String,
+            text: String,
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let removal: Removal =
+            serde_json::from_slice(bytes).map_err(|_| "invalid history removal document")?;
+        let path = std::path::Path::new(&removal.directory);
+        if !path.is_absolute() || removal.directory.len() > 16384 {
+            return Err("invalid history directory".into());
+        }
+        if removal.text.is_empty() || removal.text.len() > 4096 {
+            return Err("invalid history entry".into());
+        }
+        if !PreferencesStore::new(path)
+            .load()
+            .map_err(|_| "history preferences unavailable")?
+            .preferences
+            .clipboard_history
+        {
+            return Err("clipboard history disabled".into());
+        }
+        let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(
+            path.join("clipboard_history.json"),
+        );
+        let removed = history
+            .remove(&removal.text)
+            .map_err(|_| "clipboard history removal failed")?;
+        Ok(json!({"removed": removed}))
+    })
+}
+
 /// Try to read preferences without waiting for the writer lock.
 /// # Safety
 /// `directory` must point to `length` readable bytes. Null is rejected.
@@ -1417,6 +1537,10 @@ struct EmojiCatalogQuery {
     group: String,
     #[serde(default)]
     list_groups: bool,
+    #[serde(default)]
+    list_symbol_groups: bool,
+    #[serde(default)]
+    parent: String,
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
@@ -1461,13 +1585,24 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
                     .map_err(|_| "local emoji catalog unavailable")?;
             return Ok(json!({"groups": groups}));
         }
-        let items = msime_engine_bridge::emoji_catalog_filtered_page(
+        if query.list_symbol_groups {
+            let groups = msime_engine_bridge::emoji_symbol_groups(resources)
+                .map_err(|_| "local emoji catalog unavailable")?;
+            return Ok(
+                json!({"symbol_groups": groups.into_iter().map(|g| json!({"parent":g.parent,"title":g.title})).collect::<Vec<_>>()}),
+            );
+        }
+        if !query.parent.is_empty() && query.panel.category != "symbols" {
+            return Err("parent filter requires symbols catalog".into());
+        }
+        let items = msime_engine_bridge::emoji_catalog_parent_page(
             resources,
             &query.panel.search,
             &query.panel.category,
             &query.group,
             query.offset,
             u16::from(query.panel.limit),
+            &query.parent,
         )
         .map_err(|_| "local emoji catalog unavailable")?;
         Ok(json!({
@@ -1617,6 +1752,33 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
             return Err("socket path must be absolute".into());
         }
         Ok(json!(UnixSocketProvider::new(path).voice_cancel(generation)))
+    })
+}
+
+/// Ask a user-owned voice socket to finish capture and return its final stream
+/// result. The streaming connection remains responsible for delivering text.
+///
+/// # Safety
+/// `socket_path` must reference a readable UTF-8 buffer for this call.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_stop(
+    socket_path: *const u8,
+    socket_length: usize,
+    generation: u64,
+) -> *mut c_char {
+    response(|| {
+        if socket_path.is_null() || socket_length > 4096 {
+            return Err("invalid voice provider socket buffer".into());
+        }
+        let path = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })
+        .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        Ok(json!(UnixSocketProvider::new(path).voice_stop(generation)))
     })
 }
 
@@ -2139,6 +2301,125 @@ mod tests {
             false
         );
     }
+    #[test]
+    fn clipboard_reader_respects_preferences_and_preserves_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap();
+        let load =
+            || read(unsafe { msime_client_load_clipboard_history(path.as_ptr(), path.len()) });
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, Preferences::default()).unwrap();
+        assert_eq!(load()["value"]["entries"], serde_json::json!([]));
+        let file = directory.path().join("clipboard_history.json");
+        let fixture = r#"["synthetic alpha","synthetic beta","synthetic alpha"]"#;
+        std::fs::write(&file, fixture).unwrap();
+        assert_eq!(
+            load()["value"]["entries"],
+            serde_json::json!(["synthetic alpha", "synthetic beta"])
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), fixture);
+        std::fs::write(&file, "broken synthetic fixture").unwrap();
+        assert_eq!(load()["error"], "clipboard history unavailable");
+        let mut preferences = saved.preferences;
+        preferences.clipboard_history = false;
+        store.save(saved.revision, preferences).unwrap();
+        assert_eq!(
+            load()["value"],
+            serde_json::json!({"enabled": false, "entries": []})
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "broken synthetic fixture"
+        );
+        std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
+        assert_eq!(load()["error"], "history preferences unavailable");
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history(b"relative".as_ptr(), 8) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_load_clipboard_history([255u8].as_ptr(), 1) })["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn history_removal_is_exact_idempotent_and_respects_disabled_setting() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("clipboard_history.json");
+        let store = PreferencesStore::new(directory.path());
+        let saved = store.save(0, Preferences::default()).unwrap();
+        let remove = |path: &std::path::Path, text: &str| {
+            let request = serde_json::to_vec(&json!({"directory": path, "text": text})).unwrap();
+            read(unsafe { msime_client_remove_clipboard_history(request.as_ptr(), request.len()) })
+        };
+        std::fs::write(&file, br#"["synthetic first","synthetic second"]"#).unwrap();
+        assert_eq!(
+            remove(directory.path(), "synthetic first")["value"]["removed"],
+            true
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        assert_eq!(
+            remove(directory.path(), "synthetic first")["value"]["removed"],
+            false
+        );
+        assert_eq!(remove(directory.path(), "")["ok"], false);
+        assert_eq!(
+            remove(std::path::Path::new("relative"), "synthetic")["ok"],
+            false
+        );
+        assert_eq!(remove(directory.path(), &"x".repeat(4097))["ok"], false);
+        let mut preferences = saved.preferences;
+        preferences.clipboard_history = false;
+        store.save(saved.revision, preferences).unwrap();
+        assert_eq!(
+            remove(directory.path(), "synthetic second")["error"],
+            "clipboard history disabled"
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), br#"["synthetic second"]"#);
+        assert_eq!(
+            read(unsafe { msime_client_remove_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        assert_eq!(
+            read(unsafe { msime_client_remove_clipboard_history(b"{".as_ptr(), 1) })["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn history_capture_bridge_validates_and_returns_no_text() {
+        let directory = tempfile::tempdir().unwrap();
+        let capture = |request: Value| {
+            let bytes = serde_json::to_vec(&request).unwrap();
+            read(unsafe { msime_client_capture_clipboard_history(bytes.as_ptr(), bytes.len()) })
+        };
+        let request = json!({"directory": directory.path(), "text": "synthetic capture"});
+        assert_eq!(capture(request.clone())["value"], json!({"captured": true}));
+        assert_eq!(
+            capture(json!({"directory": "relative", "text": "synthetic"}))["ok"],
+            false
+        );
+        assert_eq!(
+            capture(json!({"directory": directory.path(), "text": "x".repeat(4097)}))["ok"],
+            false
+        );
+        assert_eq!(capture(json!({"directory": directory.path()}))["ok"], false);
+        assert_eq!(
+            read(unsafe { msime_client_capture_clipboard_history(std::ptr::null(), 0) })["ok"],
+            false
+        );
+        std::fs::write(directory.path().join("preferences.json"), "broken").unwrap();
+        assert_eq!(
+            capture(request)["error"],
+            "clipboard history capture failed"
+        );
+    }
+
     fn test_host(root: &std::path::Path) -> u64 {
         test_host_preferences(root, Preferences::default())
     }
@@ -2771,6 +3052,26 @@ mod tests {
             request(json!({"category":"kaomoji","group":"missing"}))["value"]["items"],
             json!([])
         );
+        db.execute_batch("UPDATE symbol_catalog SET category='Shared', parent_category=CASE WHEN sort_order=2 THEN 'Parent-B' ELSE 'Parent-A' END WHERE sort_order<4;
+            UPDATE symbol_catalog SET parent_category='' WHERE sort_order=4;").unwrap();
+        assert_eq!(
+            request(json!({"list_symbol_groups":true}))["value"]["symbol_groups"],
+            json!([
+                {"parent":"Parent-A","title":"Shared"}, {"parent":"Parent-B","title":"Shared"}, {"parent":"Z","title":"Z"}
+            ])
+        );
+        let page = request(
+            json!({"category":"symbols","parent":"Parent-A","group":"Shared","search":"match","offset":1,"limit":1}),
+        );
+        assert_eq!(page["value"]["items"][0]["text"], "three");
+        let other = request(json!({"category":"symbols","parent":"Parent-B","group":"Shared"}));
+        assert_eq!(other["value"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(other["value"]["items"][0]["text"], "two");
+        assert_eq!(
+            request(json!({"category":"symbols","parent":"missing"}))["value"]["items"],
+            json!([])
+        );
+        assert_eq!(request(json!({"parent":"Parent-A"}))["ok"], false);
         db.execute_batch("DROP TABLE emoji").unwrap();
         assert_eq!(request(json!({"list_groups":true}))["ok"], false);
     }

@@ -962,6 +962,19 @@ impl PreferencesStore {
         self.read_locked().map(Some)
     }
 
+    /// Capture under the preferences lock so disabling cannot race a later write.
+    /// Lock order is preferences, then clipboard history; never reverse it.
+    pub fn capture_clipboard_text(&self, text: String) -> Result<bool, PreferencesError> {
+        let _lock = self.lock()?;
+        if !self.read_locked()?.preferences.clipboard_history {
+            return Ok(false);
+        }
+        let mut history = crate::clipboard::ClipboardHistoryStore::open(
+            self.directory.join("clipboard_history.json"),
+        );
+        Ok(history.push(text)?)
+    }
+
     /// Compare-and-swap prevents stale settings windows or IME hosts losing updates.
     /// Corrupt or future-format files are never silently replaced with defaults.
     pub fn save(
@@ -1003,6 +1016,47 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_obeys_shared_enablement_and_preserves_corrupt_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let file = directory.path().join("clipboard_history.json");
+        let preferences = Preferences {
+            clipboard_history: false,
+            ..Preferences::default()
+        };
+        let disabled = store.save(0, preferences).unwrap();
+        assert!(!store
+            .capture_clipboard_text("synthetic disabled".into())
+            .unwrap());
+        assert!(!file.exists());
+        let mut preferences = disabled.preferences;
+        preferences.clipboard_history = true;
+        let enabled = store.save(disabled.revision, preferences).unwrap();
+        assert!(store
+            .capture_clipboard_text("synthetic first".into())
+            .unwrap());
+        assert!(!store
+            .capture_clipboard_text("synthetic\0invalid".into())
+            .unwrap());
+        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        let mut preferences = enabled.preferences;
+        preferences.clipboard_history = false;
+        let disabled = store.save(enabled.revision, preferences).unwrap();
+        assert!(!store
+            .capture_clipboard_text("synthetic stopped".into())
+            .unwrap());
+        assert_eq!(fs::read(&file).unwrap(), br#"["synthetic first"]"#);
+        fs::write(&file, b"broken synthetic document").unwrap();
+        let mut preferences = disabled.preferences;
+        preferences.clipboard_history = true;
+        store.save(disabled.revision, preferences).unwrap();
+        assert!(store
+            .capture_clipboard_text("synthetic rejected".into())
+            .is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"broken synthetic document");
+    }
 
     #[test]
     fn default_ime_mode_legacy_defaults_and_roundtrips() {

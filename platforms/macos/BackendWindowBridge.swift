@@ -7,11 +7,19 @@ import SwiftUI
 @MainActor @objc(MSIMEBackendWindowBridge)
 final class BackendWindowBridge: NSObject {
   @objc static let shared = BackendWindowBridge()
+  @objc func startClipboardCapture(withOptions options: NSDictionary) {
+    MacClipboardService.shared.start(directory: options["preferences_directory"] as? String ?? "")
+  }
+  @objc func stopClipboardCapture() { MacClipboardService.shared.stop() }
   private let windows = BackendAccountWindowCache<NSWindowController>()
+  private let emojiDeliveryNotice = MacEmojiDeliveryNotice()
+
+  @objc func showEmojiDeliveryFailure() { emojiDeliveryNotice.show() }
 
   @objc func applyEmojiPreferences(_ preferences: NSDictionary) { MacEmojiAppearance.shared.apply(preferences) }
 
   func closeAll() {
+    emojiDeliveryNotice.dismiss()
     windows.closeAll { controller in
       controller.close()
       controller.window?.contentViewController = nil
@@ -23,10 +31,20 @@ final class BackendWindowBridge: NSObject {
   @objc func showSnapshot(forAccountID accountID: String) { show("snapshot", accountID: accountID, title: "词库快照", size: NSSize(width: 560, height: 460)) { MacCloudSnapshotView(accountID: accountID) } }
   @objc func showSettings(forAccountID accountID: String) { show("settings", accountID: accountID, title: "桌面设置同步", size: NSSize(width: 540, height: 520)) { MacCloudSettingsView(accountID: accountID) } }
   @objc func showHandwriting() { show("handwriting", accountID: "local", title: "手写输入", size: NSSize(width: 560, height: 360)) { MacHandwritingToolView() } }
-  @objc func showEmoji(withResources resources: String) { show("emoji", accountID: resources, title: "表情与符号", size: NSSize(width: 420, height: 360)) { MacEmojiView(resources: resources) } }
+  @objc func showEmoji(withOptions options: NSDictionary, selectionAttempt selection: @escaping (String) -> Bool) {
+    weak var presented: NSWindowController?
+    // Each presentation binds a new target; never reuse an older selection closure.
+    presented = show("emoji", accountID: UUID().uuidString, title: "表情与符号", size: NSSize(width: 420, height: 560)) {
+      MacEmojiView(resources: options["resources"] as? String ?? "", preferencesDirectory: options["preferences_directory"] as? String ?? "", onSelect: { text in
+        let accepted = selection(text)
+        if accepted { presented?.close() }
+        return accepted
+      })
+    }
+  }
   @objc func showCommunityResources(forAccountID accountID: String) { show("resources", accountID: accountID, title: "词包与回复模板", size: NSSize(width: 650, height: 650)) { BackendCommunityResourcesView(accountID: accountID) } }
 
-  private func show<Content: View>(_ key: String, accountID: String, title: String, size: NSSize, @ViewBuilder content: () -> Content) {
+  @discardableResult private func show<Content: View>(_ key: String, accountID: String, title: String, size: NSSize, @ViewBuilder content: () -> Content) -> NSWindowController {
     let controller = windows.window(for: key, accountID: accountID,
       reusable: { $0.window?.isVisible == true || $0.window?.isMiniaturized == true },
       close: { controller in
@@ -37,7 +55,14 @@ final class BackendWindowBridge: NSObject {
       let window = NSWindow(contentViewController: host)
       window.title = title; window.setContentSize(size); window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
       window.isReleasedWhenClosed = false
-      let controller = NSWindowController(window: window)
+      let controller: NSWindowController
+      if key == "emoji" {
+        let emoji = MacEmojiWindowController(window: window)
+        window.delegate = emoji
+        controller = emoji
+      } else {
+        controller = NSWindowController(window: window)
+      }
       window.center()
       return controller
     }
@@ -45,5 +70,6 @@ final class BackendWindowBridge: NSObject {
     controller.showWindow(nil)
     controller.window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+    return controller
   }
 }

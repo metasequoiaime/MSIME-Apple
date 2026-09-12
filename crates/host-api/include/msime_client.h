@@ -76,6 +76,12 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  * package supports the layout and theme before adopting its colors.
  * Keys are camelCase, the same document the settings page consumes. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
+/* Read saved history only; disabled preferences return an empty entries array. */
+char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
+/* JSON {directory,text}; removes exact saved entry, not the system clipboard. */
+char *msime_client_remove_clipboard_history(const uint8_t *request, size_t length);
+/* JSON {directory,text}; capture under the shared preference/history locks. */
+char *msime_client_capture_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
  * Busy is not missing/corrupt and must not reset preferences to defaults. */
@@ -225,6 +231,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.
+ * list_symbol_groups:true returns {symbol_groups:[{parent,title},...]}.
+ * Optional parent narrows symbols to a parent category before paging.
  * Advance offset by limit, not returned item count: each page deduplicates text. */
 char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
@@ -250,6 +258,10 @@ char *msime_client_voice_provider_stream(
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,
                                          uint64_t generation);
+/* Ask the provider to finish capture and deliver the final stream result. */
+char *msime_client_voice_provider_stop(const uint8_t *socket_path,
+                                       size_t socket_length,
+                                       uint64_t generation);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,

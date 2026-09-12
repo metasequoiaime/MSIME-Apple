@@ -69,6 +69,7 @@ public final class MSIMEInputService extends InputMethodService {
     private ScrollView verticalCandidateScroll;
     private LinearLayout candidatePaging;
     private LinearLayout expandedCandidates;
+    private ScrollView expandedCandidateScroll;
     private TextView preedit;
     private TextView candidatePage;
     private LinearLayout nineKeySpellings;
@@ -125,6 +126,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable handwritingAvailabilityTask;
     private boolean handwritingDownloading;
     private java.util.List<String> handwritingResults = java.util.List.of();
+    private HandwritingRequestTracker.Token handwritingCandidateToken;
     private final HandwritingRequestTracker handwritingRequests = new HandwritingRequestTracker();
     private final SpaceCursorMovement cursorMovement = new SpaceCursorMovement();
     private Button layerButton;
@@ -582,6 +584,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void space() {
         if (connection == null) return;
+        if (commitFirstHandwritingCandidate()) return;
         if (dedicatedEnglish) {
             if (session != 0) command(1);
             if (connection != null) connection.commitText(" ", 1);
@@ -648,6 +651,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void enter() {
         if (connection == null) return;
+        if (commitFirstHandwritingCandidate()) return;
         command(9);
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
@@ -761,8 +765,13 @@ public final class MSIMEInputService extends InputMethodService {
             }
             return super.onKeyDown(keyCode, event);
         }
+        if (keyCode == KeyEvent.KEYCODE_DEL && handwritingActive()) {
+            deleteFromHandwriting();
+            return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_DEL) return command(0) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_SPACE && dedicatedEnglish) { space(); return true; }
+        if (keyCode == KeyEvent.KEYCODE_SPACE && handwritingActive()) { space(); return true; }
         if (keyCode == KeyEvent.KEYCODE_SPACE) return command(1) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_ENTER) { enter(); return true; }
         int unicode = event.getUnicodeChar();
@@ -2352,8 +2361,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void closeCandidatePanel() {
         candidatePanelOpen = false;
-        if (keyboardRoot != null && expandedCandidates != null)
+        if (keyboardRoot != null && expandedCandidates != null) {
             expandedCandidates.setVisibility(View.GONE);
+            if (expandedCandidateScroll != null)
+                expandedCandidateScroll.setVisibility(View.GONE);
+        }
     }
 
     private void openCandidatePanel() {
@@ -2363,12 +2375,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void renderExpandedCandidates() {
-        if (expandedCandidates == null) return;
+        if (expandedCandidates == null || expandedCandidateScroll == null) return;
         expandedCandidates.removeAllViews();
         if (!candidatePanelOpen || view == null) {
             expandedCandidates.setVisibility(View.GONE);
+            expandedCandidateScroll.setVisibility(View.GONE);
             return;
         }
+        expandedCandidateScroll.setVisibility(View.VISIBLE);
         expandedCandidates.setVisibility(View.VISIBLE);
         LinearLayout header = new LinearLayout(this);
         TextView title = new TextView(this);
@@ -2437,6 +2451,7 @@ public final class MSIMEInputService extends InputMethodService {
         handwritingDownload = null;
         handwritingDownloading = false;
         handwritingResults = java.util.List.of();
+        handwritingCandidateToken = null;
     }
 
     private void showHandwritingStatus(String text) {
@@ -2537,6 +2552,7 @@ public final class MSIMEInputService extends InputMethodService {
         handwritingRecognitionTask = null;
         handwritingRequests.invalidate();
         handwritingResults = java.util.List.of();
+        handwritingCandidateToken = null;
         if (handwritingRecognizer != null) {
             try { handwritingRecognizer.cancelPending(); } catch (RuntimeException ignored) { }
         }
@@ -2590,6 +2606,7 @@ public final class MSIMEInputService extends InputMethodService {
                         if (handwritingRecognizer != expected || revision != token.revision()
                                 || !acceptsHandwriting(token)) return;
                         handwritingResults = HandwritingRecognizer.sanitizeCandidates(values);
+                        handwritingCandidateToken = handwritingResults.isEmpty() ? null : token;
                         renderHandwritingCandidates(token);
                     });
                 }
@@ -2599,6 +2616,7 @@ public final class MSIMEInputService extends InputMethodService {
                         if (handwritingRecognizer != expected || revision != token.revision()
                                 || !acceptsHandwriting(token)) return;
                         handwritingResults = java.util.List.of();
+                        handwritingCandidateToken = null;
                         showHandwritingStatus("识别失败，请撤销或重新书写");
                     });
                 }
@@ -2640,13 +2658,21 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void commitHandwritingCandidate(HandwritingRequestTracker.Token token, String candidate) {
+    private boolean commitFirstHandwritingCandidate() {
+        if (!handwritingActive() || handwritingCanvas == null || !handwritingCanvas.hasInk()
+                || handwritingCandidateToken == null || handwritingResults.isEmpty()) return false;
+        return commitHandwritingCandidate(handwritingCandidateToken, handwritingResults.get(0));
+    }
+
+    private boolean commitHandwritingCandidate(HandwritingRequestTracker.Token token, String candidate) {
         if (!acceptsHandwriting(token) || !handwritingResults.contains(candidate)
-                || connection == null) return;
+                || connection == null) return false;
         long targetSession = session;
         command(9);
-        if (targetSession != session || !acceptsHandwriting(token) || connection == null) return;
-        if (connection.commitText(chineseOutput(candidate, view), 1)) clearHandwriting();
+        if (targetSession != session || !acceptsHandwriting(token) || connection == null) return false;
+        if (!connection.commitText(chineseOutput(candidate, view), 1)) return false;
+        clearHandwriting();
+        return true;
     }
 
     private void rebuildHandwritingRows() {
@@ -3091,7 +3117,7 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "←", () -> command(4));
         button(controls, "→", () -> command(5));
         button(controls, "尾", () -> command(7));
-        button(controls, "⌫", () -> { if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0); });
+        button(controls, "⌫", this::deleteFromHandwriting);
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
         spaceButton = button(controls, "空格", this::space);
@@ -3123,9 +3149,10 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidates.setBackgroundColor(0xfff5f5f5);
         expandedCandidates.setContentDescription("候选面板");
         expandedCandidates.setVisibility(View.GONE);
-        ScrollView expandedScroll = new ScrollView(this);
-        expandedScroll.addView(expandedCandidates);
-        keyboardRoot.addView(expandedScroll, new FrameLayout.LayoutParams(
+        expandedCandidateScroll = new ScrollView(this);
+        expandedCandidateScroll.addView(expandedCandidates);
+        expandedCandidateScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         clipboardPanel = new LinearLayout(this);
         clipboardPanel.setOrientation(LinearLayout.VERTICAL);

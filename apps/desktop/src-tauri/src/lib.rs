@@ -17,7 +17,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use tauri::Emitter;
 use tauri::Manager;
 #[cfg(all(not(target_os = "windows"), not(mobile)))]
@@ -989,25 +989,12 @@ fn send_panel_key(
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_text(
+fn send_panel_text_to_target(
     app: &tauri::AppHandle,
-    state: &tauri::State<'_, PanelInputState>,
+    target: &PanelInputTarget,
     text: &str,
 ) -> Result<(), HostActionError> {
-    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
-        code: "invalid_text",
-    })?;
-    let target = state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clone()
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-    if let PanelInputTarget::X11(window) = &target {
+    if let PanelInputTarget::X11(window) = target {
         let status = std::process::Command::new("xdotool")
             .args(["type", "--window", window.as_str(), "--delay", "0", text])
             .status()
@@ -1029,7 +1016,97 @@ fn send_panel_text(
     if matches!(target, PanelInputTarget::Wayland) {
         hide_linux_panels(app);
     }
-    run_wtype(&target, &["--".to_owned(), text.to_owned()])
+    run_wtype(target, &["--".to_owned(), text.to_owned()])
+}
+
+#[cfg(target_os = "linux")]
+fn send_panel_text(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, PanelInputState>,
+    text: &str,
+) -> Result<(), HostActionError> {
+    msime_client_core::panels::validate_candidate(text).map_err(|_| HostActionError {
+        code: "invalid_text",
+    })?;
+    let target = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .clone()
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    send_panel_text_to_target(app, &target, text)
+}
+
+#[cfg(target_os = "linux")]
+fn send_panel_ctrl_v(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+) -> Result<(), HostActionError> {
+    if let PanelInputTarget::X11(window) = target {
+        let status = std::process::Command::new("xdotool")
+            .args(["key", "--window", window.as_str(), "ctrl+v"])
+            .status()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return status.success().then_some(()).ok_or(HostActionError {
+            code: "unavailable",
+        });
+    }
+    if let PanelInputTarget::Ydotool = target {
+        return run_ydotool(&[
+            "key".to_owned(),
+            "29:1".to_owned(),
+            "47:1".to_owned(),
+            "47:0".to_owned(),
+            "29:0".to_owned(),
+        ]);
+    }
+    if matches!(target, PanelInputTarget::Wayland) {
+        hide_linux_panels(app);
+    }
+    run_wtype(
+        target,
+        &[
+            "-M".to_owned(),
+            "ctrl".to_owned(),
+            "-k".to_owned(),
+            "v".to_owned(),
+        ],
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn send_panel_voice_text(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, PanelInputState>,
+    text: &str,
+    commit_mode: &str,
+) -> Result<(), HostActionError> {
+    if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control) {
+        return Err(HostActionError {
+            code: "invalid_text",
+        });
+    }
+    let target = state
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .clone()
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    if commit_mode == "ctrl_v" && write_linux_clipboard(text) {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        return send_panel_ctrl_v(app, &target);
+    }
+    send_panel_text_to_target(app, &target, text)
 }
 
 #[tauri::command]
@@ -1221,7 +1298,7 @@ fn voice_provider_options(document: &Value) -> Value {
 async fn recognize_voice(
     app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
-    options: tauri::State<'_, DictionaryHostOptions>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     if request.language.is_empty()
         || request.language.len() > 64
@@ -1233,16 +1310,16 @@ async fn recognize_voice(
     }
     #[cfg(unix)]
     {
-        let document = serde_json::from_str::<Value>(&options.0).unwrap_or(Value::Null);
+        let document = runtime
+            .document
+            .lock()
+            .map(|document| document.clone())
+            .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
-        let configured = serde_json::from_str::<serde_json::Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("voice_provider_socket")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            });
+        let configured = document
+            .get("voice_provider_socket")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         let path = configured
             .or_else(|| {
                 std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
@@ -1284,16 +1361,15 @@ async fn recognize_voice(
     }
     #[cfg(not(unix))]
     {
-        let _ = (request, options);
-    Err(HostActionError {
-        code: "unavailable",
-    })
+        let _ = (request, runtime);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
 }
 
 #[tauri::command]
-fn cancel_voice(
-    options: tauri::State<'_, DictionaryHostOptions>,
-) -> Result<(), HostActionError> {
+fn cancel_voice(options: tauri::State<'_, DictionaryHostOptions>) -> Result<(), HostActionError> {
     #[cfg(unix)]
     {
         let path = serde_json::from_str::<Value>(&options.0)
@@ -1328,7 +1404,6 @@ fn cancel_voice(
         })
     }
 }
-}
 
 #[tauri::command]
 fn submit_handwriting_candidate(
@@ -1362,6 +1437,55 @@ fn send_text(
             code: "unavailable",
         })
     }
+}
+
+#[tauri::command]
+fn send_voice_text(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    text: String,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "linux")]
+    {
+        let commit_mode = store
+            .inner()
+            .load()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?
+            .preferences
+            .voice_input
+            .commit_mode;
+        return send_panel_voice_text(&app, &state, &text, &commit_mode);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, state, store, text);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
+fn voice_input_language(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<String, HostActionError> {
+    store
+        .inner()
+        .load()
+        .map(|snapshot| {
+            let language = snapshot.preferences.voice_input.language;
+            if language.is_empty() {
+                "zh-CN".to_owned()
+            } else {
+                language
+            }
+        })
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
 }
 
 fn external_url_is_safe(url: &str) -> bool {
@@ -2193,6 +2317,8 @@ pub fn run() {
             remember_input_target,
             send_key,
             send_text,
+            send_voice_text,
+            voice_input_language,
             recognize_handwriting,
             recognize_voice,
             cancel_voice,

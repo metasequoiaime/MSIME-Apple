@@ -3,9 +3,11 @@ import Foundation
 @objc(MSIMEClientSession) final class StubEmojiSession: NSObject {
   static var lastRequest: NSDictionary = [:]
   static var groups: Any = ["Z", "A"]
+  static var symbolGroups: Any = [["parent": "P1", "title": "Shared"], ["parent": "P2", "title": "Shared"], ["parent": "P1", "title": "Other"]]
   @objc class func emojiCatalogRequest(_ request: NSDictionary) -> NSDictionary {
     lastRequest = request
     if request["list_groups"] as? Bool == true { return ["groups": groups] }
+    if request["list_symbol_groups"] as? Bool == true { return ["symbol_groups": symbolGroups] }
     return ["items": [["text": "😀", "annotation": "笑脸", "group": "Smileys"]]]
   }
 }
@@ -53,6 +55,16 @@ import Foundation
       do { _ = try MacEmojiCatalog.loadGroups(resources: directory.path, category: ""); assertionFailure("accepted invalid groups") }
       catch {}
     }
+    let hierarchy = try MacEmojiCatalog.loadSymbolGroups(resources: directory.path)
+    assert(MacEmojiSymbolGroup.parents(hierarchy) == ["P1", "P2"])
+    assert(MacEmojiSymbolGroup.titles(hierarchy, parent: "") == ["Shared", "Other"])
+    assert(MacEmojiSymbolGroup.titles(hierarchy, parent: "P2") == ["Shared"])
+    assert(MacEmojiSymbolGroup.titles(hierarchy, parent: "missing").isEmpty)
+    _ = try MacEmojiCatalog.load(resources: directory.path, search: "match", category: "symbols", group: "Shared", parent: "P2")
+    assert(StubEmojiSession.lastRequest["parent"] as? String == "P2")
+    StubEmojiSession.symbolGroups = [["parent": "", "title": "Invalid"]]
+    do { _ = try MacEmojiCatalog.loadSymbolGroups(resources: directory.path); assertionFailure("accepted empty parent") }
+    catch {}
     do { _ = try MacEmojiCatalog.load(resources: directory.path, search: "", offset: -1); assertionFailure("accepted negative offset") }
     catch {}
     print("Emoji catalog decoding checks passed")

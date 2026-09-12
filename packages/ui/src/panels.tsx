@@ -24,9 +24,18 @@ export interface PanelClient {
 }
 
 export interface VoicePanelClient extends PanelClient {
+  loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
   cancelVoice?(): Promise<void>;
+  sendVoiceText?(text: string): Promise<void>;
+}
+
+function validVoiceLanguage(value: string) {
+  return value.length > 0 && value.length <= 64 && !Array.from(value).some(character => {
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 0x1f || code === 0x7f;
+  });
 }
 
 export type CloudClipboardAction =
@@ -79,6 +88,13 @@ const keyboardRows: KeyboardKey[][] = [
   [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
   [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Del", 0x2e), modifier("Ctrl", 0x11)],
 ];
+const nineKeyRows: KeyboardKey[][] = [
+  [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
+  [key("4", 0x34), key("5", 0x35), key("6", 0x36)],
+  [key("7", 0x37), key("8", 0x38), key("9", 0x39)],
+  [key("Backspace", 0x08), key("0", 0x30), key("Enter", 0x0d)],
+  [key("Space", 0x20, " ")],
+];
 
 function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"].filter(value => modifiers.has(value as Modifier)).join("+");
@@ -98,7 +114,8 @@ function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39);
 }
 
-export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
+export function KeyboardPanel({ client, theme = "dark", layout = "twenty_six_key" }: { client: PanelClient; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key" }) {
+  const rows = layout === "nine_key" ? nineKeyRows : keyboardRows;
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
   useEffect(() => {
     const reset = () => { pendingDrag.current = null; };
@@ -134,7 +151,7 @@ export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient;
     if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
-  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} aria-label="屏幕键盘">
+  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} data-keyboard-layout={layout} aria-label="屏幕键盘">
     <header className="native-panel-header"
       onPointerDown={event => {
         pendingDrag.current = null;
@@ -158,7 +175,7 @@ export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient;
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
-        {keyboardRows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
+        {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = activeModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
@@ -229,6 +246,13 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
 
   useEffect(() => {
+    if (!client.loadVoiceLanguage) return;
+    void client.loadVoiceLanguage().then(next => {
+      if (validVoiceLanguage(next)) setLanguage(next);
+    }).catch(() => undefined);
+  }, [client]);
+
+  useEffect(() => {
     if (!client.rememberInputTarget) return;
     void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
   }, [client]);
@@ -260,6 +284,10 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       setNotice("当前宿主未提供语音识别能力");
       return;
     }
+    if (!validVoiceLanguage(language)) {
+      setNotice("请输入有效的识别语言码");
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     setText("");
@@ -277,9 +305,10 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   }
 
   async function submit() {
-    if (!text || !client.sendText) return;
+    const send = client.sendVoiceText ?? client.sendText;
+    if (!text || !send) return;
     try {
-      await client.sendText(text);
+      await send(text);
       setNotice(`已提交：${text}`);
       setText("");
     } catch {
@@ -300,10 +329,10 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <div className="voice-panel-icon" aria-hidden="true">🎙</div>
       <h1>语音输入</h1>
       <p className="voice-panel-description">录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。</p>
-      <label className="voice-panel-language">识别语言<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></select></label>
+      <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
-      <textarea aria-label="识别结果" value={text} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
-      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !client.sendText || busy}>提交到当前窗口</button>
+      <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
+      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
       <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
   </main>;

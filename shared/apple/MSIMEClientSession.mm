@@ -1,4 +1,5 @@
 #import "MSIMEClientSession.h"
+#import "ClipboardPreferences.h"
 #include "msime_client.h"
 #include <cstring>
 
@@ -64,6 +65,49 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSError *error = nil;
     NSDictionary *result = [self handwritingProviderRequest:request error:&error];
     return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+}
++ (NSDictionary *)captureClipboardHistoryRequest:(NSDictionary<NSString *, id> *)request {
+    if (![NSJSONSerialization isValidJSONObject:request]) return @{ @"error": @YES };
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:&error];
+    if (!data || data.length > 131072) return @{ @"error": @YES };
+    NSDictionary *result = decode(msime_client_capture_clipboard_history(
+        static_cast<const uint8_t *>(data.bytes), data.length), &error);
+    return result ?: @{ @"error": @YES };
+}
++ (NSDictionary *)removeClipboardHistoryRequest:(NSDictionary<NSString *, id> *)request {
+    if (![NSJSONSerialization isValidJSONObject:request]) return @{ @"error": @YES };
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:&error];
+    if (!data || data.length > 131072) return @{ @"error": @YES };
+    NSDictionary *result = decode(msime_client_remove_clipboard_history(
+        static_cast<const uint8_t *>(data.bytes), data.length), &error);
+    return result ?: @{ @"error": @YES };
+}
++ (NSDictionary *)clipboardCaptureEnabledRequest:(NSString *)directory {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return @{ @"error": @YES };
+    NSDictionary *snapshot = [self loadPreferencesInDirectory:directory error:nil];
+    id enabled = snapshot[@"preferences"][@"clipboard_history"];
+    return [enabled isKindOfClass:NSNumber.class] ? @{ @"enabled": enabled } : @{ @"error": @YES };
+}
++ (NSDictionary *)enableClipboardHistoryRequest:(NSString *)directory {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return @{ @"error": @YES };
+    return MSIMEEnableClipboardHistory(^NSDictionary *{
+        return [self loadPreferencesInDirectory:directory error:nil];
+    }, ^NSDictionary *(uint64_t revision, NSDictionary *snapshot) {
+        return [self savePreferencesInDirectory:directory expectedRevision:revision snapshot:snapshot error:nil];
+    });
+}
++ (NSDictionary *)clipboardHistoryRequest:(NSString *)directory {
+    NSError *error = nil;
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) {
+        return @{ @"error": @YES };
+    }
+    NSData *path = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    if (!path || path.length > 16384) return @{ @"error": @YES };
+    NSDictionary *result = decode(msime_client_load_clipboard_history(
+        static_cast<const uint8_t *>(path.bytes), path.length), &error);
+    return result ?: @{ @"error": @YES };
 }
 + (NSDictionary *)emojiCatalogRequest:(NSDictionary<NSString *, id> *)request {
     NSError *error = nil;

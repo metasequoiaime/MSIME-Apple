@@ -21,10 +21,25 @@ enum MacEmojiCatalog {
     }
   }
 
-  static func load(resources: String, search: String, category: String = "", offset: Int = 0, group: String = "") throws -> [MacEmojiCatalogItem] {
+  static func load(resources: String, search: String, category: String = "", offset: Int = 0, group: String = "", parent: String = "") throws -> [MacEmojiCatalogItem] {
     guard offset >= 0 else { throw NSError(domain: "MSIMEEmojiCatalog", code: 3) }
     return try decode(request(resources: resources, parameters: ["search": search,
-      "category": category, "offset": offset, "group": group, "limit": 255]))
+      "category": category, "offset": offset, "group": group, "parent": parent, "limit": 255]))
+  }
+
+  static func loadSymbolGroups(resources: String) throws -> [MacEmojiSymbolGroup] {
+    let response = try request(resources: resources, parameters: ["list_symbol_groups": true])
+    guard response["error"] == nil, let rows = response["symbol_groups"] as? [[String: String]] else {
+      throw NSError(domain: "MSIMEEmojiCatalog", code: 5)
+    }
+    let groups = try rows.map { row -> MacEmojiSymbolGroup in
+      guard let parent = row["parent"], !parent.isEmpty, let title = row["title"], !title.isEmpty else {
+        throw NSError(domain: "MSIMEEmojiCatalog", code: 5)
+      }
+      return MacEmojiSymbolGroup(parent: parent, title: title)
+    }
+    guard Set(groups).count == groups.count else { throw NSError(domain: "MSIMEEmojiCatalog", code: 5) }
+    return groups
   }
 
   static func loadGroups(resources: String, category: String) throws -> [String] {

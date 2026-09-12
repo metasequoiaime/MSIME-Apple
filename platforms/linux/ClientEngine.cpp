@@ -114,6 +114,7 @@ struct State {
   bool voice_hotkey_ctrl_f9 = true;
   guint voice_hotkey_consumed_key = 0;
   bool voice_space_consumed = false;
+  bool voice_space_locked = false;
   bool voice_active = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
@@ -149,6 +150,7 @@ struct State {
     voice_preedit.clear();
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
+    voice_space_locked = false;
     pure_shift_candidate = false;
     pure_ctrl_candidate = false;
     mode_chord_held = false;
@@ -768,6 +770,7 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   // A UTF-8 continuation byte means the preceding code point is non-ASCII.
   return value < 0x80 && is_ascii_alphanumeric(value);
 }
+constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
 
 struct OnlineTask {
   uint64_t session;
@@ -1029,9 +1032,9 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
                               ? s.view.value("candidates", Json::array())
                               : Json::array();
   const auto scheme = s.view.is_object() ? s.view.value("scheme", 255) : 255;
-  size_t slot = 0;
   bool editable_candidates = false;
-  for (const auto &candidate : candidates) {
+  for (size_t index = 0; index < candidates.size(); ++index) {
+    const auto &candidate = candidates.at(index);
     if (!candidate.is_object() || !candidate.contains("id") ||
         !candidate.at("id").is_object())
       continue;
@@ -1047,7 +1050,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     if (scheme == 3 || (source != 0 && source != 1 && source != 4))
       continue;
     editable_candidates = true;
-    ++slot;
+    const auto slot = index + 1;
     for (const auto &[action, label] : {std::pair{"CandidatePin", "固定候选"},
                                        std::pair{"CandidateRemove", "删除候选"},
                                        std::pair{"CandidateFix1", "固定到 1"},
@@ -1835,10 +1838,38 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_active = false;
   s.voice_generation = 0;
   s.voice_preedit.clear();
+  s.voice_space_consumed = false;
+  s.voice_space_locked = false;
   s.voice_worker.cancel_async();
   if (s.session)
     render(engine, s.view);
   publish_mode(engine);
+}
+void voice_stop(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.voice_active || s.voice_provider_socket.empty())
+    return;
+  std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+      msime_client_voice_provider_stop(
+          reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
+          s.voice_provider_socket.size(), s.voice_generation),
+      msime_client_string_free);
+  bool stopped = false;
+  if (owned) {
+    try {
+      const auto result = Json::parse(owned.get());
+      stopped = result.at("ok").get<bool>() && result.at("value").get<bool>();
+    } catch (...) {
+      stopped = false;
+    }
+  }
+  if (!stopped)
+    voice_cancel(engine);
+  else {
+    s.voice_space_consumed = false;
+    s.voice_space_locked = false;
+    publish_mode(engine);
+  }
 }
 void voice_start(IBusEngine *engine) {
   auto &s = state(engine);
@@ -1849,6 +1880,8 @@ void voice_start(IBusEngine *engine) {
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
   s.voice_generation = generation;
+  s.voice_space_consumed = false;
+  s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
   const auto provider_options = voice_provider_options(
@@ -1932,6 +1965,9 @@ void voice_start(IBusEngine *engine) {
                   s.voice_active = false;
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
+                  s.voice_hotkey_consumed_key = 0;
+                  s.voice_space_consumed = false;
+                  s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
                   return G_SOURCE_REMOVE;
@@ -1943,11 +1979,16 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_hotkey_consumed_key = 0;
+                s.voice_space_consumed = false;
+                s.voice_space_locked = false;
                 if (applied.is_string()) {
                   auto text = traditional_display(
                       s, Json{{"scheme", s.view.value("scheme", 0)},
                               {"local_mode", "none"}},
                       applied.get<std::string>());
+                  if (s.fullwidth)
+                    text = fullwidth_text(std::move(text));
                   ibus_engine_commit_text(
                       result->engine,
                       ibus_text_new_from_string(text.c_str()));
@@ -1958,6 +1999,9 @@ void voice_start(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_hotkey_consumed_key = 0;
+                s.voice_space_consumed = false;
+                s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 publish_mode(result->engine);
               }
@@ -1978,6 +2022,11 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
       modifiers == (IBUS_CONTROL_MASK | IBUS_MOD4_MASK))
     return s.voice_hotkey_ctrl_win;
   return false;
+}
+bool voice_hold_hotkey(const State &s, guint key, guint modifiers) {
+  if (key == IBUS_F9)
+    return false;
+  return voice_hotkey(s, key, modifiers);
 }
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
@@ -2056,6 +2105,10 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         if (!pin && !remove && !clear && position == 0)
           continue;
         if (id.at("session").get<uint64_t>() != s.session)
+          return;
+        const auto source = candidate.value("source", 0);
+        if (s.view.value("scheme", 255) == 3 ||
+            (source != 0 && source != 1 && source != 4))
           return;
         const auto generation = id.at("generation").get<uint64_t>();
         const auto index = id.at("index").get<size_t>();
@@ -2851,6 +2904,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (s.voice_hotkey_consumed_key == key) {
       s.voice_hotkey_consumed_key = 0;
+      if (s.voice_active && !s.voice_space_locked &&
+          voice_hold_hotkey(s, key, chord_modifiers))
+        guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
       return TRUE;
     }
     return FALSE;
@@ -2891,6 +2947,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
       modifiers == 0) {
     s.voice_space_consumed = true;
+    s.voice_space_locked = true;
     return TRUE;
   }
   if (character_set_toggle) {
@@ -2968,7 +3025,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
       s.voice_hotkey_consumed_key = key;
       if (s.voice_active)
-        voice_cancel(engine);
+        voice_stop(engine);
       else
         voice_start(engine);
       handled = true;
@@ -2981,6 +3038,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
+    // Match Windows TSF: with CapsLock enabled, an uppercase letter at the
+    // beginning of a fresh composition belongs to the editor. IBus exposes
+    // the lock state in the modifier mask while preserving the uppercase
+    // keysym, so leave that stroke untouched instead of opening a pinyin
+    // composition.
+    if ((flags & IBUS_LOCK_MASK) && key >= 'A' && key <= 'Z' &&
+        s.view.at("editing_text").get<std::string>().empty() &&
+        s.view.at("candidates").empty())
+      return;
     // Apply configured candidate bindings before punctuation can consume them.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
         !s.view.at("candidates").empty()) {
@@ -3047,8 +3113,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = apply(engine, msime_client_punctuation_ascii(
             s.session, static_cast<uint8_t>(*keypad)));
         if (!handled && *keypad == '.') {
+          auto text = std::string(".");
+          if (s.fullwidth)
+            text = fullwidth_text(text);
           ibus_engine_commit_text(
-              engine, ibus_text_new_from_static_string("."));
+              engine, ibus_text_new_from_string(text.c_str()));
           handled = true;
         }
       } else {
@@ -3060,10 +3129,20 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
+      if (s.view.at("candidates").is_array() &&
+          !s.view.at("candidates").empty() &&
+          !apply(engine, msime_client_command(
+                      s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
       handled = apply(engine, msime_client_character(s.session, ';', false));
       return;
     }
     if (unicode_plus_key(s.view, key, modifiers)) {
+      if (s.view.at("candidates").is_array() &&
+          !s.view.at("candidates").empty() &&
+          !apply(engine, msime_client_command(
+                      s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
       handled = apply(engine, msime_client_character(s.session, '+', true));
       return;
     }
@@ -3106,7 +3185,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (s.smart_punctuation_repeat && s.paired_punctuation && s.last_smart_punctuation == key &&
         s.last_smart_punctuation_time != 0 &&
-        g_get_monotonic_time() - s.last_smart_punctuation_time <= 500000 &&
+        g_get_monotonic_time() - s.last_smart_punctuation_time <=
+            kSmartPunctuationRepeatIntervalUs &&
         s.view.at("editing_text").get<std::string>().empty()) {
       if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
         ibus_engine_delete_surrounding_text(engine, -1, 1);
@@ -3143,13 +3223,87 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
         std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
             std::string::npos) {
-      char raw[2] = {static_cast<char>(key), '\0'};
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
+      auto text = std::string(1, static_cast<char>(key));
+      if (s.fullwidth)
+        text = fullwidth_text(text);
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
       handled = true;
       return;
     }
     const bool has_composition =
         !s.view.at("editing_text").get<std::string>().empty();
+    const bool candidate_active =
+        s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
+    const auto local_mode = s.view.value("local_mode", std::string("none"));
+    const bool lowercase_letter =
+        (key >= 'a' && key <= 'z');
+    const bool uppercase_letter =
+        (key >= 'A' && key <= 'Z');
+    const auto active_scheme = s.scheme_override.value_or(
+        configured.at("preferences").value("scheme", "quanpin"));
+    const bool helpcode =
+        (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
+        s.helpcode_override.value_or(
+            configured.at("preferences")
+                .value(active_scheme + "_helpcode", Json::object())
+                .value("enabled", true));
+    const bool accepted_letter =
+        local_mode == "quick_phrase"
+            ? lowercase_letter
+            : local_mode == "unicode"
+                  ? ((key >= 'a' && key <= 'f') ||
+                     (key >= 'A' && key <= 'F'))
+                  : local_mode == "date_time"
+                        ? lowercase_letter
+                        : (local_mode != "none" || lowercase_letter ||
+                           (uppercase_letter && helpcode));
+    const bool nine_key_digit =
+        local_mode != "unicode" && s.view.value("nine_key", false) &&
+        ((key >= IBUS_KP_2 && key <= IBUS_KP_9) ||
+         (key >= '2' && key <= '9'));
+    const bool unicode_digit =
+        local_mode == "unicode" && key >= '0' && key <= '9' &&
+        (modifiers & IBUS_SHIFT_MASK) == 0;
+    const bool microsoft_ing =
+        microsoft_shuangpin_ing_key(s.view, key, modifiers);
+    const bool unicode_plus = unicode_plus_key(s.view, key, modifiers);
+    const auto caret_position = s.view.value(
+        "caret_position", s.view.value("editing_text", std::string{}).size());
+    const bool accepted_apostrophe =
+        key == IBUS_apostrophe && has_composition && caret_position != 0 &&
+        ((local_mode == "none" && active_scheme != "wubi") ||
+         local_mode == "emoji" || local_mode == "kaomoji" ||
+         local_mode == "temporary_japanese");
+    const bool candidate_input =
+        candidate_active &&
+        (accepted_letter || nine_key_digit || unicode_digit || microsoft_ing ||
+         unicode_plus || accepted_apostrophe);
+    if (candidate_input) {
+      if (!apply(engine, msime_client_command(
+                     s.session, MSIME_COMMIT_CANDIDATE)))
+        return;
+      if (microsoft_ing) {
+        handled = apply(engine, msime_client_character(
+                                   s.session, ';', false));
+      } else if (unicode_plus) {
+        handled = apply(engine, msime_client_character(
+                                   s.session, '+', true));
+      } else if (key >= IBUS_KP_0 && key <= IBUS_KP_9) {
+        handled = apply(engine, msime_client_character(
+                                   s.session,
+                                   static_cast<uint8_t>('0' + key - IBUS_KP_0),
+                                   false));
+      } else {
+        const auto input_value =
+            (flags & IBUS_SHIFT_MASK) && key >= 'a' && key <= 'z'
+                ? key - 'a' + 'A'
+                : key;
+        handled = apply(engine, msime_client_character(
+            s.session, static_cast<uint8_t>(input_value),
+            (flags & IBUS_SHIFT_MASK) != 0));
+      }
+      return;
+    }
     const char ascii = static_cast<char>(key);
     if (key >= 0x21 && key <= 0x7e &&
         std::ispunct(static_cast<unsigned char>(ascii)) != 0 &&
@@ -3172,11 +3326,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
-      command = MSIME_BACKSPACE;
+      command = candidate_active ? MSIME_CANCEL : MSIME_BACKSPACE;
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
-      command = MSIME_COMMIT_RAW;
+      command = candidate_active ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
       command = MSIME_CANCEL;
@@ -3202,7 +3356,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
-      command = MSIME_DELETE_FORWARD;
+      command = candidate_active ? MSIME_CANCEL : MSIME_DELETE_FORWARD;
       break;
     }
     if (command != UINT32_MAX)
@@ -3239,9 +3393,12 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     if (!id.is_object() || id.at("session").get<uint64_t>() != s.session) return;
     const auto generation = id.at("generation").get<uint64_t>();
     const auto global_index = id.at("index").get<size_t>();
-    if (button == 3)
+    const auto source = entry.value("source", 0);
+    const auto scheme = s.view.value("scheme", 255);
+    if (button == 3 && scheme != 3 &&
+        (source == 0 || source == 1 || source == 4))
       apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
-    else
+    else if (button != 3)
       apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }

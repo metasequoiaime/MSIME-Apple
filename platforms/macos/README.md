@@ -52,9 +52,11 @@ SwiftUI 设置同步现覆盖 16 个当前宿主偏好：候选皮肤、布局�
 
 并行开发时使用独立产物目录，避免其他平台构建覆盖最低系统版本设置：
 
+原生更新控制器依赖固定的 [Sparkle 2.9.6](https://github.com/sparkle-project/Sparkle/releases/tag/2.9.6)，不可省略。下载该发布的 `Sparkle-2.9.6.tar.xz`，用 `shasum -a 256` 校验为 `52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192` 后解压到独立依赖目录。下列 `MSIME_SPARKLE_ROOT` 必须指向包含 `Sparkle.framework` 的目录，不是框架内部；请替换示例绝对路径。CMake 校验框架版本，并将其复制到应用的 `Contents/Frameworks`。构建不会自动下载框架，也不应从其他已安装应用复制依赖。
+
 ```sh
 MACOSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked
-cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a"
+cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a" -DMSIME_SPARKLE_ROOT="/absolute/path/to/Sparkle-2.9.6"
 cmake --build target/macos-isolated --parallel
 ctest --test-dir target/macos-isolated --output-on-failure
 ```

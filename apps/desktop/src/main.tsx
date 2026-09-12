@@ -69,10 +69,12 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   voice: {
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
+    loadVoiceLanguage: () => invoke<string>("voice_input_language"),
     recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
     onVoiceUpdate: listener => listen<{ text: string; final: boolean }>("voice-update", event => listener(event.payload)),
     cancelVoice: () => invoke("cancel_voice"),
     sendText: text => invoke("send_text", { text }),
+    sendVoiceText: text => invoke("send_voice_text", { text }),
   },
   cloudClipboard: {
     close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),
