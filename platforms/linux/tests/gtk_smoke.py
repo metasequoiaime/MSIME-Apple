@@ -1,4 +1,5 @@
 """Real GTK3 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
+import ctypes
 import os
 import subprocess
 import time
@@ -6,9 +7,10 @@ import time
 import gi
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 gi.require_version("GdkX11", "3.0")
 gi.require_version("IBus", "1.0")
-from gi.repository import GdkX11, GLib, Gtk, IBus
+from gi.repository import Gdk, GdkX11, GLib, Gtk, IBus
 
 assert os.environ.get("MSIME_ISOLATED_LINUX_TEST") == "1"
 assert os.environ.get("GTK_IM_MODULE") == "ibus"
@@ -76,6 +78,48 @@ wait(lambda: first.get_text() == "qwer", "GTK letter keys were mistaken for cand
 first.set_text("")
 keys("n", "i", "h", "a", "o", "1")
 wait(lambda: first.get_text() == "你好", "GTK physical number row did not select a candidate")
+# Inject a physical XKB number-row key, not a keysym which xdotool may remap.
+x11 = ctypes.CDLL("libX11.so.6")
+xtst = ctypes.CDLL("libXtst.so.6")
+x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+x11.XOpenDisplay.restype = ctypes.c_void_p
+x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+display = x11.XOpenDisplay(None)
+assert display, "Physical-key fixture could not open X11 display"
+try:
+    subprocess.run(["setxkbmap", "fr"], check=True)
+    wait(lambda: Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_entries_for_keycode(10)[2][0]
+         == Gdk.KEY_ampersand, "French number row was not installed")
+    first.set_text("")
+    keys("n", "i", "h", "a", "o")
+    wait(lambda: bool(preedit["text"]), "French layout did not compose")
+    assert xtst.XTestFakeKeyEvent(display, 10, True, 0)
+    assert xtst.XTestFakeKeyEvent(display, 10, False, 0)
+    x11.XSync(display, False)
+    wait(lambda: first.get_text() == "你好", "French physical number row did not select candidate")
+    # Compose a Unicode value on US, then select it with AZERTY Shift+row 1.
+    # Its keysym is '1', unlike the US '!', so this must use the physical code.
+    subprocess.run(["setxkbmap", "us"], check=True)
+    wait(lambda: Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_entries_for_keycode(10)[2][0]
+         == Gdk.KEY_1, "US number row was not restored")
+    first.set_text("")
+    keys("U", "plus", "4", "e", "2", "d")
+    wait(lambda: preedit["text"] == "U+4e2d", "Unicode layout fixture did not compose")
+    subprocess.run(["setxkbmap", "fr"], check=True)
+    wait(lambda: Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_entries_for_keycode(10)[2][0]
+         == Gdk.KEY_ampersand, "French Unicode number row was not installed")
+    assert xtst.XTestFakeKeyEvent(display, 50, True, 0)  # Left Shift
+    assert xtst.XTestFakeKeyEvent(display, 10, True, 0)
+    assert xtst.XTestFakeKeyEvent(display, 10, False, 0)
+    assert xtst.XTestFakeKeyEvent(display, 50, False, 0)
+    x11.XSync(display, False)
+    wait(lambda: first.get_text() == "中", "French Shift+number row did not select Unicode")
+finally:
+    subprocess.run(["setxkbmap", "us"], check=True)
+    x11.XCloseDisplay(display)
+    pump()
 first.set_text("")
 keys("n", "i", "h", "a", "o")
 wait(lambda: bool(preedit["text"]), "GTK focus fixture did not compose")
@@ -90,4 +134,4 @@ keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.get_text() == "nihao ", "GTK password input was intercepted by the IME")
 window.destroy()
 pump()
-print("GTK3 X11 IM-module candidate/edit/focus/password acceptance passed")
+print("GTK3 X11 IM-module candidate/edit/layout/focus/password acceptance passed")
