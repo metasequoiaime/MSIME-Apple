@@ -56,3 +56,47 @@ struct MacHandwritingCanvasView: View {
 }
 
 extension Notification.Name { static let msimeHandwritingCandidateSelected = Notification.Name("MSIMEHandwritingCandidateSelected") }
+
+/// Own the window's presentation state separately from the reusable ink canvas.
+struct MacHandwritingToolView: View {
+  @State private var strokes: [MacInkStroke] = []
+  @State private var candidates: [String] = []
+  @State private var socketPath = ""
+  @State private var message: String?
+  @State private var busy = false
+  @State private var pending: Task<Void, Never>?
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("手写输入").font(.title2)
+      Text("需配置可用的本机识别服务；当前尚未完成 macOS 原生识别验收。")
+        .font(.caption).foregroundStyle(.secondary)
+      TextField("provider socket 路径", text: $socketPath).disabled(busy)
+      MacHandwritingCanvasView(strokes: $strokes, onSubmit: recognize, candidates: candidates)
+        .disabled(busy)
+      if busy { ProgressView("正在识别…") }
+      if let message { Text(message).foregroundStyle(.secondary) }
+    }.padding(20).frame(width: 560, height: 400)
+    .onChange(of: strokes.count) { _ in candidates = [] }
+    .onChange(of: socketPath) { _ in candidates = []; message = nil }
+    .onDisappear { pending?.cancel(); pending = nil; candidates = []; strokes = [] }
+  }
+  private func recognize(_ ink: [MacInkStroke]) {
+    guard !busy else { return }
+    busy = true; candidates = []; message = nil
+    let path = socketPath
+    pending = Task { @MainActor in
+      defer { busy = false }
+      do {
+        let work = Task.detached(priority: .userInitiated) {
+          try MacHandwritingProvider.recognize(ink, socketPath: path)
+        }
+        let result = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
+        try Task.checkCancellation()
+        candidates = result
+        if result.isEmpty { message = "没有识别到候选，请重新书写。" }
+      } catch {
+        if !Task.isCancelled { message = error.localizedDescription }
+      }
+    }
+  }
+}
