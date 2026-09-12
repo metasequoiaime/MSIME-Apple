@@ -1195,7 +1195,8 @@ impl Preferences {
             || translation.api_key.len() > 4096
             || translation.endpoint.chars().any(char::is_control)
             || translation.api_key.chars().any(char::is_control)
-            || (!translation.endpoint.is_empty() && !translation.endpoint.starts_with("https://"))
+            || (!translation.endpoint.is_empty()
+                && !crate::translation::is_supported_endpoint(&translation.endpoint))
         {
             return Err(PreferencesError::InvalidCustomTranslation);
         }
@@ -2730,12 +2731,18 @@ mod tests {
         assert_eq!(restored.custom_translation, defaults.custom_translation);
 
         let mut valid = defaults.clone();
-        valid.custom_translation.endpoint = "https://translate.example/api".into();
         valid.custom_translation.api_key = "masked-test-key".into();
-        assert!(valid.validate().is_ok());
+        for endpoint in [
+            "https://translate.example/api",
+            "http://127.0.0.1:1188/translate",
+            "http://[::1]:1188/translate",
+            "http://translate.example/api",
+        ] {
+            valid.custom_translation.endpoint = endpoint.into();
+            assert!(valid.validate().is_ok());
+        }
 
         for endpoint in [
-            "http://translate.example/api",
             "ftp://translate.example/api",
             "https://translate.example/\napi",
         ] {
