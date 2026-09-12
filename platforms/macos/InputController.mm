@@ -69,32 +69,57 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 
+// Match the pinned Windows TextBlock preedit marker spacing in logical points.
+static constexpr CGFloat MSIMEPreeditCaretWidth = 1.25;
+static constexpr CGFloat MSIMEPreeditCaretSideAir = 0.85;
+static constexpr CGFloat MSIMEPreeditCaretEndAir = 1.5;
+static constexpr CGFloat MSIMEPreeditCaretGap = MSIMEPreeditCaretWidth + 2 * MSIMEPreeditCaretSideAir;
+struct MSIMEPreeditSlotMetrics { CGFloat ascent; CGFloat descent; };
+static void MSIMEPreeditSlotRelease(void *context) { delete static_cast<MSIMEPreeditSlotMetrics *>(context); }
+static CGFloat MSIMEPreeditSlotAscent(void *context) { return static_cast<MSIMEPreeditSlotMetrics *>(context)->ascent; }
+static CGFloat MSIMEPreeditSlotDescent(void *context) { return static_cast<MSIMEPreeditSlotMetrics *>(context)->descent; }
+static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
+
 @interface MSIMECandidatePreeditField : NSTextField
 @property(nonatomic) NSUInteger caretIndex;
 @property(nonatomic) BOOL showsCaret;
+@property(nonatomic, strong) NSColor *caretColor;
 @property(nonatomic, readonly) NSRect caretRect;
 @end
 
 @implementation MSIMECandidatePreeditField
 - (void)setCaretIndex:(NSUInteger)value { _caretIndex = value; self.needsDisplay = YES; }
 - (void)setShowsCaret:(BOOL)value { _showsCaret = value; self.needsDisplay = YES; }
+- (void)setCaretColor:(NSColor *)value { _caretColor = value; self.needsDisplay = YES; }
 - (CTLineRef)newPreeditLine CF_RETURNS_RETAINED {
-    NSAttributedString *text = [[NSAttributedString alloc] initWithString:self.stringValue attributes:@{
-        NSFontAttributeName:self.font ?: [NSFont systemFontOfSize:16],
+    NSFont *font = self.font ?: [NSFont systemFontOfSize:16];
+    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:self.stringValue attributes:@{
+        NSFontAttributeName:font,
         NSForegroundColorAttributeName:self.textColor ?: NSColor.labelColor
     }];
+    if (self.showsCaret && self.caretIndex < self.stringValue.length) {
+        CTRunDelegateCallbacks callbacks = {kCTRunDelegateVersion1, MSIMEPreeditSlotRelease,
+            MSIMEPreeditSlotAscent, MSIMEPreeditSlotDescent, MSIMEPreeditSlotWidth};
+        CTRunDelegateRef slot = CTRunDelegateCreate(&callbacks, new MSIMEPreeditSlotMetrics{font.ascender, -font.descender});
+        NSAttributedString *gap = [[NSAttributedString alloc] initWithString:@"\uFFFC" attributes:@{
+            (__bridge NSString *)kCTRunDelegateAttributeName:(__bridge id)slot, NSFontAttributeName:font
+        }];
+        [text insertAttributedString:gap atIndex:self.caretIndex];
+        CFRelease(slot);
+    }
     return CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)text);
 }
 - (NSRect)caretRectForLine:(CTLineRef)line origin:(CGFloat *)origin baseline:(CGFloat *)baseline {
     CGFloat ascent = 0, descent = 0;
     CTLineGetTypographicBounds(line, &ascent, &descent, nullptr);
     CGFloat offset = CTLineGetOffsetForStringIndex(line, MIN(self.caretIndex, self.stringValue.length), nullptr);
-    CGFloat available = MAX(0.0, NSWidth(self.bounds) - 4.0);
+    if (self.showsCaret) offset += self.caretIndex < self.stringValue.length ? MSIMEPreeditCaretSideAir : MSIMEPreeditCaretEndAir;
+    CGFloat available = MAX(0.0, NSWidth(self.bounds) - 4.0 - MSIMEPreeditCaretWidth);
     // Scroll just enough to keep the insertion point inside the clipped row.
     *origin = 2.0 - MAX(0.0, offset - available);
     CGFloat top = MAX(0.0, (NSHeight(self.bounds) - ascent - descent) / 2.0);
     *baseline = top + ascent;
-    return NSMakeRect(*origin + offset, top, 1.0, MIN(ascent + descent, NSHeight(self.bounds)));
+    return NSMakeRect(*origin + offset, top, MSIMEPreeditCaretWidth, MIN(ascent + descent, NSHeight(self.bounds)));
 }
 - (NSRect)caretRect {
     if (!self.showsCaret || !self.stringValue.length) return NSZeroRect;
@@ -121,7 +146,7 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     CGContextRestoreGState(context);
     CFRelease(line);
     if (self.showsCaret && self.stringValue.length) {
-        [self.textColor ?: NSColor.labelColor setFill];
+        [self.caretColor ?: NSColor.controlAccentColor setFill];
         NSRectFill(NSIntersectionRect(caret, self.bounds));
     }
 }
@@ -872,7 +897,7 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     const CGFloat decorationHeight = skin.decorationTopDip;
-    if (preedit.length) width = MAX(width, MIN(ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset, MAX(80, visible.size.width - 20)));
+    if (preedit.length) width = MAX(width, MIN(ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset + 4 + MSIMEPreeditCaretGap, MAX(80, visible.size.width - 20)));
     width = MAX(width, MAX(skin.minWidthDip, skin.decorationWidthDip));
     CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight + preeditHeight;
     [_panel setContentSize:NSMakeSize(width, height)];
@@ -950,6 +975,7 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     for (MSIMECandidateButton *button in content.subviews) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
             ((NSTextField *)(id)button).textColor = [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
+            if ([button isKindOfClass:MSIMECandidatePreeditField.class]) ((MSIMECandidatePreeditField *)(id)button).caretColor = SkinColor(tokens.accent);
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);

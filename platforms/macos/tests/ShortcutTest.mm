@@ -1126,6 +1126,7 @@ int main() {
             layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
             [controller refreshCandidateSkin];
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
+            assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
             assert(NSContainsRect(layoutPanel.contentView.bounds, preeditLabel.frame));
             for (NSView *child in layoutPanel.contentView.subviews)
                 if ([child isKindOfClass:MSIMECandidateButton.class]) {
@@ -1154,6 +1155,23 @@ int main() {
         assert(NSContainsRect(longPreedit.bounds, longPreedit.caretRect));
         longPreedit.stringValue = @"";
         assert(NSIsEmptyRect(longPreedit.caretRect));
+        longPreedit.stringValue = @"iiii";
+        longPreedit.caretIndex = 2;
+        CTLineRef slotted = [longPreedit newPreeditLine];
+        CGFloat beforeSlot = CTLineGetOffsetForStringIndex(slotted, 2, nullptr);
+        CGFloat afterSlot = CTLineGetOffsetForStringIndex(slotted, 3, nullptr);
+        assert(fabs(afterSlot - beforeSlot - 2.95) < 0.01);
+        assert(fabs(NSMinX(longPreedit.caretRect) - (2 + beforeSlot + 0.85)) < 0.01);
+        assert(fabs(NSWidth(longPreedit.caretRect) - 1.25) < 0.01);
+        CFRelease(slotted);
+        assert([longPreedit.stringValue isEqual:@"iiii"]); // The slot is display-only.
+        longPreedit.showsCaret = NO;
+        CTLineRef unslotted = [longPreedit newPreeditLine];
+        CGFloat unslottedWidth = CTLineGetTypographicBounds(unslotted, nullptr, nullptr, nullptr);
+        CFRelease(unslotted);
+        longPreedit.showsCaret = YES;
+        longPreedit.caretIndex = 4;
+        assert(fabs(NSMinX(longPreedit.caretRect) - (2 + unslottedWidth + 1.5)) < 0.01);
         appearance.fontFamily = @"Segoe UI";
         for (id display in @[@"", NSNull.null]) {
             pageView[@"preedit"] = display;
@@ -1255,7 +1273,10 @@ int main() {
                     assert([unselected.titleColor isEqual:override]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     for (NSView *child in chrome.subviews)
-                        if ([child.identifier isEqual:@"candidate-preedit"]) assert([((NSTextField *)child).textColor isEqual:override]);
+                        if ([child.identifier isEqual:@"candidate-preedit"]) {
+                            assert([((NSTextField *)child).textColor isEqual:override]);
+                            assert([((MSIMECandidatePreeditField *)child).caretColor isEqual:SkinColor(tokens.accent)]);
+                        }
                     appearance.candidateTextColor = nil;
                     [controller refreshCandidateSkin];
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
