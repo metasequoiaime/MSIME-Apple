@@ -96,6 +96,7 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
+    private Button skinButton;
     private Button layoutSettingsButton;
     private Button voiceShortcutButton;
     private Button aiPolishShortcutButton;
@@ -939,20 +940,32 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
-    private void showReplySkins() {
-        if (replySkinButton == null || skinSaving) return;
-        PopupMenu popup = new PopupMenu(this, replySkinButton);
-        String[][] choices = {{"fluent", "流光白"}, {"wechat", "微信绿"},
-            {"graphite", "石墨黑"}, {"willow_green", "柳绿"}};
-        for (String[] choice : choices) {
-            MenuItem item = popup.getMenu().add(choice[1]);
-            item.setCheckable(true).setChecked(skin.id().equals(choice[0]));
+    private boolean canSaveKeyboardSkin() {
+        return !skinSaving && session != 0 && preferencesSnapshot != null
+            && !preferencesDirectory.isEmpty();
+    }
+
+    private void showSkinMenu(Button anchor) {
+        if (anchor == null || !canSaveKeyboardSkin()) return;
+        PopupMenu popup = new PopupMenu(this, anchor);
+        for (KeyboardSkin choice : KeyboardSkin.builtIns()) {
+            MenuItem item = popup.getMenu().add(choice.title());
+            item.setCheckable(true).setChecked(skin.id().equals(choice.id()));
             item.setOnMenuItemClickListener(ignored -> {
-                saveKeyboardSkin(choice[0]);
+                saveKeyboardSkin(choice.id());
                 return true;
             });
         }
         popup.show();
+    }
+
+    private void showKeyboardSkinStatus(String value) {
+        if (replyKeyboard != null && replyKeyboard.getVisibility() == View.VISIBLE) {
+            replyModel.showStatus(value);
+            renderReplyKeyboard();
+        } else {
+            Toast.makeText(this, value, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void saveKeyboardSkin(String identifier) {
@@ -968,16 +981,14 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = pending.getLong("revision");
             pending.getJSONObject("preferences").put("candidate_skin", next.id());
         } catch (JSONException error) {
-            replyModel.showStatus("皮肤切换失败，保留当前皮肤");
-            renderReplyKeyboard();
+            showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
             return;
         }
         skin = next;
         skinSaving = true;
-        replyModel.showStatus("正在保存皮肤");
         final long operation = ++preferenceSaveGeneration;
         applySkin();
-        renderReplyKeyboard();
+        render();
         try {
             preferencesWorker.execute(() -> {
                 String response;
@@ -999,16 +1010,16 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
             applyPreferencesSnapshot(value(response));
-            replyModel.showStatus("皮肤已切换");
+            showKeyboardSkinStatus("皮肤已切换");
         } catch (JSONException | LinkageError error) {
             JSONObject accepted = preferencesSnapshot == null ? null
                 : preferencesSnapshot.optJSONObject("preferences");
             skin = KeyboardSkin.from(accepted == null ? "fluent"
                 : accepted.optString("candidate_skin", "fluent"));
-            replyModel.showStatus("皮肤切换失败，已恢复原皮肤");
+            showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         applySkin();
-        renderReplyKeyboard();
+        render();
     }
 
     private LinearLayout createReplyKeyboard() {
@@ -1035,7 +1046,7 @@ public final class MSIMEInputService extends InputMethodService {
         schemes.setContentDescription("选择输入方案");
         replyTemplateButton = button(header, "模板", this::showReplyTemplates);
         replyTemplateButton.setContentDescription("回复模板");
-        replySkinButton = button(header, "皮肤", this::showReplySkins);
+        replySkinButton = button(header, "皮肤", () -> showSkinMenu(replySkinButton));
         replySkinButton.setContentDescription("切换皮肤");
         Button dismiss = button(header, "⌄", () -> requestHideSelf(0));
         dismiss.setContentDescription("收起键盘");
@@ -1096,7 +1107,7 @@ public final class MSIMEInputService extends InputMethodService {
         styleButton(replyReplyModeButton, true);
         styleButton(replyPolishModeButton, true);
         replyTemplateButton.setEnabled(!replyModel.busy());
-        replySkinButton.setEnabled(!skinSaving);
+        replySkinButton.setEnabled(canSaveKeyboardSkin());
         replySourceButton.setText(replyModel.source().isEmpty()
             ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
         if (replyModel.replies().isEmpty()) {
@@ -2764,10 +2775,14 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "切换", () -> switchToNextInputMethod(false));
         schemeButton = button(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
+        skinButton = button(controls, "皮肤", () -> showSkinMenu(skinButton));
+        skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = button(controls, "设置", this::showLayoutSettings);
         layoutSettingsButton.setContentDescription("键盘设置");
         moreButton = button(controls, "更多", this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
+        Button dismissButton = button(controls, "收起", () -> requestHideSelf(0));
+        dismissButton.setContentDescription("收起键盘");
         for (int index = 0; index < controls.getChildCount(); index++) {
             View child = controls.getChildAt(index);
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
@@ -2951,6 +2966,11 @@ public final class MSIMEInputService extends InputMethodService {
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());
             schemeButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving);
+        }
+        if (skinButton != null) {
+            skinButton.setEnabled(canSaveKeyboardSkin());
+            skinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
+            if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
         }
         synchronizeReplyKeyboard();
         if (layoutSettingsButton != null)
