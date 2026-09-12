@@ -163,7 +163,7 @@ def bounded_post(config, body, content_type, timeout, cancelled=None):
         if cancelled is not None and cancelled.is_set():
             return None
         if process.returncode != 0:
-            raise VoiceRequestError()
+            raise VoiceRequestError(retryable=process.returncode == -signal.SIGALRM)
         response = json.loads(output)
         if not response.get("ok"):
             raise VoiceRequestError(retryable=response.get("retryable") is True)
@@ -193,10 +193,17 @@ def http_request_worker():
         if len(header) > 131073 or not header.endswith(b"\n"):
             return 1
         request = json.loads(header)
-        body = sys.stdin.buffer.read(MAX_AUDIO + 131073)
-        if len(body) > MAX_AUDIO + 131072 or request["timeout"] not in (3, 60):
+        timeout = request.get("timeout")
+        if type(timeout) not in (int, float) or timeout not in (3, 60):
             return 1
-        result = post(request["config"], body, request["content_type"], request["timeout"])
+        # Bound the worker even if its parent exits before it can cancel us.
+        # SIGALRM's default action also interrupts blocked native DNS/TLS work.
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)
+        signal.setitimer(signal.ITIMER_REAL, timeout)
+        body = sys.stdin.buffer.read(MAX_AUDIO + 131073)
+        if len(body) > MAX_AUDIO + 131072:
+            return 1
+        result = post(request["config"], body, request["content_type"], timeout)
         response = {"ok": True, "value": result}
     except urllib.error.HTTPError as error:
         response["retryable"] = error.code >= 500
