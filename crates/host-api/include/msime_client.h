@@ -7,6 +7,22 @@
 extern "C" {
 #endif
 
+/* Host-neutral focus lease and key event contract. Values are opaque to the ABI. */
+typedef struct msime_client_focus_lease {
+  uint64_t client;
+  uint64_t epoch;
+  uint64_t token;
+} msime_client_focus_lease;
+
+typedef struct msime_client_key_event {
+  msime_client_focus_lease lease;
+  uint32_t virtual_key;
+  uint32_t scan_code;
+  uint32_t modifiers;
+  uint32_t character;
+  bool ui_less;
+} msime_client_key_event;
+
 /* ABI 1. All functions return owned, NUL-terminated UTF-8 JSON. Free exactly once
  * using msime_client_string_free, including error responses. Never use free().
  * Responses: {"ok":true,"value":...} or {"ok":false,"error":"..."}.
