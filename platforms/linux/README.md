@@ -454,3 +454,5 @@ X11 工具面板的单行文本提交也使用激活目标后的 XTEST 输入，
 Wayland 单行文本通过匿名管道传给 `wtype -` 或 `ydotool type --file -`，不进入进程参数。wtype 发送限时 3 秒；ydotool 为默认按键保持时间预留每个 ASCII 字符 30 毫秒并加 3 秒余量。超时终止并回收工具，不自动重发。Sway 先切回原目标；多行文本和 ydotool 非 ASCII 文本保留剪贴板粘贴。接口依据 [wtype](https://raw.githubusercontent.com/atx/wtype/master/README.md) 和 [ydotool](https://raw.githubusercontent.com/ReimuNotMoe/ydotool/master/manpage/ydotool.1.scd) 官方说明。
 
 Sway 面板输入在发送前解析窗口切换命令的成功回复，并读取窗口树确认原目标已获得焦点；目标关闭、切换失败或焦点不匹配时停止发送。命令等待限时 2 秒，焦点读取限时 1 秒，回复均有大小限制且不写入日志。wtype 按键发送也设置 3 秒期限，失败不自动重放。协议依据 [Sway IPC 官方说明](https://raw.githubusercontent.com/swaywm/sway/master/sway/sway-ipc.7.scd)。
+
+前台目标获取对每个外部命令设置 1 秒期限，并限制窗口树和工具输出大小。wtype 通过空标准输入探测虚拟键盘连接，不发送文字或按键，不使用上游不支持的 `--version`；文本发送省略延时参数，使用默认零延时，避免显式 `-d 0` 被拒绝。依据 [wtype 官方参数解析](https://raw.githubusercontent.com/atx/wtype/master/main.c)。

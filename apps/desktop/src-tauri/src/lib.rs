@@ -867,70 +867,42 @@ fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<(f
 
 #[cfg(target_os = "linux")]
 fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
+    let read = |program: &str, arguments: &[&str], limit: usize| {
+        linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
+    };
+    let sway_target = || {
+        let output = read("swaymsg", &["-t", "get_tree", "-r"], 1024 * 1024)?;
+        let tree: serde_json::Value = serde_json::from_str(&output).ok()?;
+        focused_sway_container(&tree).map(PanelInputTarget::Sway)
+    };
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
         || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
     if wayland_session {
-        if let Ok(output) = std::process::Command::new("swaymsg")
-            .args(["-t", "get_tree", "-r"])
-            .output()
-        {
-            if output.status.success() {
-                if let Ok(tree) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(target) = focused_sway_container(&tree).map(PanelInputTarget::Sway)
-                    {
-                        return Ok(target);
-                    }
-                }
-            }
+        if let Some(target) = sway_target() {
+            return Ok(target);
         }
-        let ydotool_ready = std::process::Command::new("ydotool")
-            .args(["type", "--key-delay", "0", ""])
-            .output()
-            .ok()
-            .is_some_and(|output| output.status.success());
-        if ydotool_ready {
+        if read("ydotool", &["type", "--key-delay", "0", ""], 4096).is_some() {
             return Ok(PanelInputTarget::Ydotool);
         }
-        if std::process::Command::new("wtype")
-            .arg("--version")
-            .output()
-            .ok()
-            .is_some_and(|output| output.status.success())
-        {
+        // wtype has no --version option. Empty stdin checks the compositor's
+        // virtual-keyboard support without emitting any text or key events.
+        if read("wtype", &["-"], 4096).is_some() {
             return Ok(PanelInputTarget::Wayland);
         }
     }
-    if let Ok(output) = std::process::Command::new("xdotool")
-        .arg("getactivewindow")
-        .output()
-    {
-        if output.status.success() {
-            let id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Ok(PanelInputTarget::X11(id));
-            }
+    if let Some(output) = read("xdotool", &["getactivewindow"], 64) {
+        let id = output.trim();
+        if !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Ok(PanelInputTarget::X11(id.to_owned()));
         }
     }
-    let output = std::process::Command::new("swaymsg")
-        .args(["-t", "get_tree", "-r"])
-        .output()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-    if !output.status.success() {
-        return Err(HostActionError {
-            code: "unavailable",
-        });
+    // Do not repeat a failed Sway query in the same Wayland probe sequence.
+    if !wayland_session {
+        if let Some(target) = sway_target() {
+            return Ok(target);
+        }
     }
-    let tree: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-    focused_sway_container(&tree)
-        .map(PanelInputTarget::Sway)
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })
+    Err(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]
@@ -1365,7 +1337,7 @@ fn send_panel_text_to_target(
         focus_wtype_target(target)?;
         linux_process::write_input(
             "wtype",
-            &["-d", "0", "-"],
+            &["-"],
             text.as_bytes(),
             std::time::Duration::from_secs(3),
         )
