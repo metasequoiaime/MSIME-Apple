@@ -146,6 +146,9 @@ struct MacEmojiView: View {
           }
         }
       }
+      .overlayPreferenceValue(MacClipboardTooltipPreference.self) { anchors in
+        MacClipboardTooltipOverlay(anchors: anchors, light: palette.background == 0xF7F7FA)
+      }
       Button("插入所选项") {
         guard loadedQuery == queryID, items.indices.contains(selectedIndex) else { return }
         selection.submit(items[selectedIndex].text, send: onSelect)

@@ -49,6 +49,7 @@ struct MacEmojiClipboardRow: View {
   let copy: () -> Void
   let remove: () -> Void
   @State private var hovered = false
+  @State private var deleteHovered = false
   @FocusState private var deleteFocused: Bool
 
   var body: some View {
@@ -64,7 +65,9 @@ struct MacEmojiClipboardRow: View {
     }
     .buttonStyle(MacClipboardRowStyle(palette: palette, selected: selected, hovered: hovered))
     .accessibilityLabel(text)
-    .help(MacClipboardPreview.tooltip(text))
+    .anchorPreference(key: MacClipboardTooltipPreference.self, value: .bounds) {
+      hovered && !deleteHovered ? [MacClipboardTooltipAnchor(text: text, bounds: $0)] : []
+    }
     .overlay(alignment: .trailing) {
       Button(action: remove) { Image(systemName: "xmark").frame(width: 32 * MacClipboardPreview.scale, height: 32 * MacClipboardPreview.scale) }
         .buttonStyle(.plain)
@@ -72,6 +75,7 @@ struct MacEmojiClipboardRow: View {
         .accessibilityLabel("删除此条历史记录")
         .help("删除此条历史记录，不会清空系统剪贴板")
         .disabled(deleting)
+        .onHover { deleteHovered = $0 }
         .focused($deleteFocused)
         .opacity(hovered || deleteFocused ? 1 : 0)
         .padding(.trailing, 10 * MacClipboardPreview.scale)
