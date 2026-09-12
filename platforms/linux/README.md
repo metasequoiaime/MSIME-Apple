@@ -1,5 +1,13 @@
 # Linux IBus 预览宿主
 
+## 卸载 CMake 安装
+
+保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板；已启用的用户 provider 服务应先停止。执行卸载所需权限与原安装相同。
+
+暂存安装使用相同的 `DESTDIR`，例如 `DESTDIR=/absolute/staging cmake --build <build-dir> --target uninstall`。若安装时用 `cmake --install` 的 `--prefix` 覆盖了配置前缀，使用 `cmake -DMSIME_UNINSTALL_PREFIX=/actual/prefix -P <build-dir>/uninstall.cmake`。程序文件必须位于该前缀内；前缀外的自定义绝对安装目录会使卸载在删除前中止，需要按原安装布局单独处理。
+
+卸载保留 `msime-client/runtime-options.json`、用户配置及学习数据，不递归删除目录，不修改 IBus 选择或自动停止其他进程。通过发行版包管理器安装的文件应由原包管理器卸载。
+
 本目录只处理 IBus 系统入口，使用同一个 `msime-host-api` 动态库；不直接创建 C++ Engine、不复制候选分页、数字选词或配置持久化逻辑，不依赖 Tauri 常驻。按键与焦点在 GLib 主线程调用线程绑定会话，系统候选点击取当前共享视图中的代次和全局索引。预编辑采用 Engine 的 ASCII editing_text，避免把字节光标用于中文显示串。失焦、禁用和 reset 清除组合；修饰键与 key-up 透传，快捷键取消组合后透传。密码、PIN、数字与电话字段不处理输入，private/no-spellcheck 文本会话关闭学习。
 
 共享运行时只返回当前候选页；IBus lookup table 显示该页，auxiliary text 标示共享页码。宿主读取共享 navigation 六组设置，支持减号/等号、逗号/句号、方括号、Tab/Shift+Tab、PageUp/Down 翻页及上下候选移动，也支持小键盘导航键。设置通过验证后立即更新按键分派，不等待 Engine 组合结束；按键路径不读文件。按当前键盘布局的字符映射，Shift 符号不当作未按 Shift 的物理键，保留 Unicode `U+`。关闭的标点绑定交回 Engine，关闭的 Tab/Page/上下键先完成组合再交还编辑器；空闲时透传。Panel 翻页按钮独立于键盘绑定。尚未验证各桌面 panel 对原生翻页按钮的呈现；不把当前页伪装成完整候选集自行分页。

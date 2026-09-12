@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
 include(GNUInstallDirs)
+configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
+add_custom_target(uninstall
+  COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake"
+  COMMENT "Remove installed MSIME files while preserving runtime configuration")
 include(CTest)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
