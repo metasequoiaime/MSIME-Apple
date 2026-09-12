@@ -388,17 +388,20 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   const [draft, setDraft] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
+  const refreshRevision = useRef(0);
   const [notice, setNotice] = useState("只上传你明确选择的内容");
 
   async function refresh(nextSearch = search) {
+    const revision = ++refreshRevision.current;
     setBusy(true);
     try {
       const result = await client.request({ operation: "list", search: nextSearch });
+      if (revision !== refreshRevision.current) return;
       setItems(cloudClipboardItems(result));
       if (typeof result.enabled === "boolean") setEnabled(result.enabled);
       setNotice("云剪贴板已刷新");
-    } catch { setNotice("无法访问云剪贴板服务"); }
-    finally { setBusy(false); }
+    } catch { if (revision === refreshRevision.current) setNotice("无法访问云剪贴板服务"); }
+    finally { if (revision === refreshRevision.current) setBusy(false); }
   }
 
   useEffect(() => {
@@ -469,17 +472,20 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const [form, setForm] = useState<{ entry: CloudDictionaryEntry | null; code: string; word: string; weight: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
+  const refreshRevision = useRef(0);
 
   async function refresh(nextOffset = 0, nextSearch = search, nextKind = kind) {
+    const revision = ++refreshRevision.current;
     setBusy(true);
     try {
       const result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch });
+      if (revision !== refreshRevision.current) return;
       setEntries(cloudDictionaryEntries(result));
       setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
       setHasMore(result.has_more === true);
       setNotice("云词典已刷新");
-    } catch { setNotice("无法访问云词典服务，请确认 provider 已连接"); }
-    finally { setBusy(false); }
+    } catch { if (revision === refreshRevision.current) setNotice("无法访问云词典服务，请确认 provider 已连接"); }
+    finally { if (revision === refreshRevision.current) setBusy(false); }
   }
 
   useEffect(() => { void refresh(0, ""); }, [client]);
@@ -568,10 +574,19 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
 export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
   const [page, setPage] = useState<EmojiPage>("home");
   const [query, setQuery] = useState("");
-  const [recent, setRecent] = useState<EmojiCatalogItem[]>([]);
+  const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
+    try {
+      const value: unknown = typeof window === "undefined" ? null : JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
+      return Array.isArray(value) ? value.filter(item => item && typeof item.text === "string" && Array.isArray(item.keywords)).slice(0, 28) as EmojiCatalogItem[] : [];
+    } catch { return []; }
+  });
   const [clipboard, setClipboard] = useState<string[]>([]);
   const [notice, setNotice] = useState("点击项目即可复制");
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+
+  useEffect(() => {
+    try { window.localStorage.setItem("msime.emoji.recent", JSON.stringify(recent.slice(0, 28))); } catch { /* preference is optional */ }
+  }, [recent]);
 
   useEffect(() => {
     if (!client.rememberInputTarget) return;

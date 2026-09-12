@@ -130,9 +130,7 @@ struct MacEmojiView: View {
         palette: palette)
       if category == "clipboard" {
         if historyEnabled == false && loadedQuery == queryID {
-          Button("开启剪贴板历史") { enableHistory() }
-            .buttonStyle(.borderedProminent).disabled(enablingHistory)
-          Text("开启共享设置；已运行的桌面客户端可能按此设置保存复制的文本。").font(.caption)
+          MacEmojiClipboardDisabledView(palette: palette, enabling: enablingHistory, enable: enableHistory)
         }
         HStack {
           Text(clipboardService.status?.message ?? "正在检查剪贴板采集设置…").font(.caption)
@@ -141,7 +139,6 @@ struct MacEmojiView: View {
         }
         if !deletionNotice.isEmpty { Text(deletionNotice).font(.caption) }
       }
-      if mediaPage == nil { Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       if selection.rejected {
         Text(MacEmojiSelectionState.failureMessage).font(.caption)
           .foregroundStyle(MacEmojiPalette.color(palette.text))
@@ -169,7 +166,9 @@ struct MacEmojiView: View {
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           MacEmojiScroll(resetID: scrollID) {
-            if category == "kaomoji" {
+            if loadedQuery == queryID && items.isEmpty && category != "clipboard" {
+              MacEmojiEmptyStateView(category: category, search: search, group: group, palette: palette)
+            } else if category == "kaomoji" {
               if loadedQuery == queryID && (!items.isEmpty || search.isEmpty) {
               MacEmojiDetailSection(title: "All", palette: palette) {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { HostActionButton } from "./HostActionButton";
 import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, readDictionaryFile } from "./dictionary-file";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
@@ -298,6 +299,7 @@ export interface SettingsClient {
   openVoice?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
   openCloudDictionary?: () => Promise<void>;
+  restartInputMethod?: () => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -956,6 +958,14 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <div className="shortcut-row shortcut-row-danger"><span>立即退出输入法服务</span><kbd>Ctrl+Shift+Alt+T</kbd></div>
           </div>
         </div>
+        {linuxPlatform && client.restartInputMethod && <div className="section shortcut-section">
+          <div className="section-title">输入法服务</div>
+          <small>IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。</small>
+          <div className="service-action-row">
+            <span>立即重启输入法服务</span>
+            <HostActionButton action={client.restartInputMethod} label="重启" success="已发送重启请求。" error="重启输入法服务失败，请稍后重试。" />
+          </div>
+        </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
         <div className="section"><label className="section-header"><span className="section-title">剪贴板管理<small>开启后记录复制的文本；关闭后立即清空已保存记录，且只记录文本类型。</small></span><input aria-label="剪贴板管理" className="toggle" type="checkbox" checked={clipboardHistory} onChange={event => { setDraft({ ...draft, clipboard_history: event.target.checked }); if (!event.target.checked) { void client.clipboard?.clear(); setClipboardEntries([]); } }} /></label>

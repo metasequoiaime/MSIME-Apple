@@ -34,6 +34,7 @@ const client: SettingsClient = {
   openVoice: () => invoke("open_voice_panel"),
   openCloudClipboard: () => invoke("open_cloud_clipboard_panel"),
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
+  restartInputMethod: () => invoke("restart_input_method"),
   windowControl: async action => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();

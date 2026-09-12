@@ -44,6 +44,15 @@ if(MSIME_OPTIONS_FILE)
 endif()
 enable_testing()
 include(ClipboardTests.cmake)
+set(MSIME_EMOJI_EMPTY_TEST_SOURCES BackendEmojiAppearance.swift BackendEmojiEmptyState.swift tests/EmojiEmptyStateTest.swift)
+list(TRANSFORM MSIME_EMOJI_EMPTY_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_EMPTY_TEST_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test"
+  DEPENDS ${MSIME_EMOJI_EMPTY_TEST_SOURCES} VERBATIM)
+add_custom_target(emoji-empty-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test")
+add_test(NAME emoji-empty COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test")
+set_tests_properties(emoji-empty PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 set(MSIME_EMOJI_EXIT_SOURCES BackendEmojiExit.swift tests/EmojiExitTest.swift)
 list(TRANSFORM MSIME_EMOJI_EXIT_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test"
@@ -73,7 +82,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 add_test(NAME emoji-swift-host COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 set_tests_properties(emoji-swift-host PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift BackendEmojiCatalogCursor.swift
+set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift BackendEmojiCatalogCursor.swift BackendEmojiClipboardDisabled.swift BackendEmojiEmptyState.swift
   BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHomeHeading.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
   BackendEmojiKeyboard.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiNavigation.swift tests/EmojiHomeTest.swift)
 list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
