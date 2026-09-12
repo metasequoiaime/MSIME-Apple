@@ -228,7 +228,37 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id) {
     auto paths = metasequoia::prepare_runtime_paths(std::filesystem::u8path(std::string(resources)),
         std::filesystem::u8path(std::string(user_data)), std::filesystem::u8path(std::string(cache)), std::string(content_id));
-    return {paths.resources.u8string(), paths.user_data.u8string(), paths.cache.u8string(), paths.dictionaries.u8string(), 0, 0, false, true, true, true, "ziranma", true, true, 0, "promote", 1, 1, true, 2, false, false, true, true, true, true, true, true, true, true, true};
+    EngineOptions result;
+    result.resources = paths.resources.u8string();
+    result.user_data = paths.user_data.u8string();
+    result.cache = paths.cache.u8string();
+    result.dictionaries = paths.dictionaries.u8string();
+    result.scheme = 0;
+    result.shuangpin_profile = 0;
+    result.learning = false;
+    result.autocorrect_transposition = true;
+    result.autocorrect_neighbor = true;
+    result.helpcode = true;
+    result.helpcode_schema = "ziranma";
+    result.chinese_punctuation = true;
+    result.paired_punctuation = true;
+    result.punctuation_lock = 0;
+    result.frequency_mode = "promote";
+    result.frequency_trigger_count = 1;
+    result.frequency_linear_step = 1;
+    result.mixed_english = true;
+    result.english_minimum_prefix = 2;
+    result.mixed_emoji = false;
+    result.mixed_kaomoji = false;
+    result.local_unicode = true;
+    result.local_date_time = true;
+    result.local_quick_phrase = true;
+    result.local_emoji = true;
+    result.local_kaomoji = true;
+    result.local_super_jianpin = true;
+    result.local_temporary_english = true;
+    result.local_temporary_japanese = true;
+    return result;
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();
