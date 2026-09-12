@@ -1255,7 +1255,7 @@ export function EmojiPanel({ client, theme = "dark" }: { client: EmojiPanelClien
     } else {
       void client.close().catch(() => setNotice("无法关闭面板，请重试"));
     }
-  });
+  }, JSON.stringify([page, query, activeCategory]));
   return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
     <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" value={query} onChange={event => setQuery(event.target.value)} placeholder={page === "clipboard" ? "搜索剪贴板" : "Search emoji, kaomoji, and symbols"} /></div>

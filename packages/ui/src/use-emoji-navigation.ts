@@ -1,9 +1,27 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 
 // Use rendered positions so navigation follows both responsive grids and
 // variable-width kaomoji rows, including movement between catalog groups.
-export function useEmojiNavigation(onEscape: () => void) {
+export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
   const panelRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    for (const viewport of panel.querySelectorAll<HTMLElement>(".emoji-panel-content")) {
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = 0;
+    }
+    // Keep native focus on search/category controls. If a retained item has
+    // focus across a view change, reset item navigation to the new first row.
+    const focused = panel.ownerDocument.activeElement;
+    if (focused instanceof HTMLElement && panel.contains(focused)
+      && focused.matches("[data-emoji-navigation-item]")) {
+      const first = panel.querySelector<HTMLButtonElement>("[data-emoji-navigation-item]:not(:disabled)");
+      if (first) first.focus({ preventScroll: true });
+      else panel.querySelector<HTMLInputElement>(".emoji-panel-search input")?.focus({ preventScroll: true });
+    }
+  }, [viewKey]);
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229
@@ -47,6 +65,11 @@ export function useEmojiNavigation(onEscape: () => void) {
           bestVertical = vertical;
           bestHorizontal = horizontal;
         }
+      }
+      // Windows clamps ordinary grids to their first/last item at the edge;
+      // flow-layout kaomoji keep their geometric vertical-navigation behavior.
+      if (bestVertical === Infinity && (pageStep || !items[index].closest(".emoji-panel-flow"))) {
+        next = direction < 0 ? 0 : items.length - 1;
       }
     }
     items[next].focus({ preventScroll: true });
