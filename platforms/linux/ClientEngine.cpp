@@ -3380,7 +3380,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                                    ? key - 'a' + 'A'
                                    : key),
           (flags & IBUS_SHIFT_MASK) != 0));
-    else
+    else if (key <= 0x10ffff && g_unichar_isprint(key) &&
+             (!s.view.value("editing_text", std::string{}).empty() ||
+              !s.view.value("candidates", Json::array()).empty())) {
+      // Windows finalizes the active TSF composition before handing an
+      // unsupported printable key back to the application. Preserve the
+      // same text while allowing IBus to deliver the original keyval.
+      apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
+      handled = false;
+    } else
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   });
   return handled;
