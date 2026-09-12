@@ -28,7 +28,7 @@ struct MacEmojiHomeHeading: View {
         MacEmojiHomeChevron().stroke(MacEmojiPalette.color(palette.muted), lineWidth: 1.44)
           .frame(width: 24, height: 24).padding(.trailing, 8 * 2 / 3)
       }
-    }.frame(height: Self.height).contentShape(Rectangle())
+    }.frame(maxWidth: .infinity).frame(height: Self.height).contentShape(Rectangle())
   }
 
   var body: some View {
