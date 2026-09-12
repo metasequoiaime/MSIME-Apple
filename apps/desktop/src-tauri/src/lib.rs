@@ -74,6 +74,7 @@ async fn list_font_families() -> Result<Vec<String>, CommandError> {
         .map_err(|code| CommandError { code })
 }
 
+#[derive(Clone)]
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
 struct DictionaryHostOptions {
@@ -2463,11 +2464,24 @@ fn start_linux_clipboard_monitor(
 }
 
 #[tauri::command]
-fn list_clipboard_history(
+async fn list_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Vec<String>, HostActionError> {
-    if !clipboard_enabled(store.inner())? {
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || list_clipboard_history_blocking(&state, &store))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn list_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<Vec<String>, HostActionError> {
+    if !clipboard_enabled(store)? {
         return Ok(Vec::new());
     }
     let mut history = state
@@ -2483,8 +2497,19 @@ fn list_clipboard_history(
 }
 
 #[tauri::command]
-fn clear_clipboard_history(
+async fn clear_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
+) -> Result<(), HostActionError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || clear_clipboard_history_blocking(&state))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn clear_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
 ) -> Result<(), HostActionError> {
     state
         .0
@@ -2499,11 +2524,24 @@ fn clear_clipboard_history(
 }
 
 #[tauri::command]
-fn sync_clipboard_history(
+async fn sync_clipboard_history(
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Vec<String>, HostActionError> {
-    if !clipboard_enabled(store.inner())? {
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || sync_clipboard_history_blocking(&state, &store))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn sync_clipboard_history_blocking(
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<Vec<String>, HostActionError> {
+    if !clipboard_enabled(store)? {
         return Err(HostActionError { code: "disabled" });
     }
     #[cfg(target_os = "macos")]
@@ -2549,12 +2587,26 @@ fn sync_clipboard_history(
 }
 
 #[tauri::command]
-fn copy_text(
+async fn copy_text(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<(), HostActionError> {
-    let enabled = clipboard_enabled(store.inner())?;
+    let state = state.inner().clone();
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn copy_text_blocking(
+    text: String,
+    state: &ClipboardHistoryState,
+    store: &Arc<PreferencesStore>,
+) -> Result<(), HostActionError> {
+    let enabled = clipboard_enabled(store)?;
     #[cfg(target_os = "macos")]
     let result = {
         use std::io::Write;
