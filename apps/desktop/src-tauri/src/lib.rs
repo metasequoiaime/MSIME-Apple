@@ -2420,11 +2420,14 @@ fn visible_panel_position(
     let Ok(monitors) = window.available_monitors() else { return position; };
     let x = f64::from(point.x);
     let y = f64::from(point.y);
+    // panel_position used the logical requested width. Recover the editor's
+    // physical center before choosing a monitor and applying its scale.
+    let center_x = x + width / 2.0;
     let distance = |monitor: &tauri::Monitor| {
         let area = monitor.work_area();
         let left = f64::from(area.position.x);
         let top = f64::from(area.position.y);
-        let dx = x - x.clamp(left, left + f64::from(area.size.width));
+        let dx = center_x - center_x.clamp(left, left + f64::from(area.size.width));
         let dy = y - y.clamp(top, top + f64::from(area.size.height));
         dx * dx + dy * dy
     };
@@ -2434,6 +2437,7 @@ fn visible_panel_position(
     else { return position; };
     let scale = monitor.scale_factor();
     if !scale.is_finite() || scale <= 0.0 { return position; }
+    let x = center_x - width * scale / 2.0;
     let area = monitor.work_area();
     let left = f64::from(area.position.x);
     let top = f64::from(area.position.y);
