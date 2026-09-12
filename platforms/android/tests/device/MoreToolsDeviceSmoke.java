@@ -23,7 +23,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         stage = "more tools primary cards";
         Rect panelBounds = new Rect();
         panel.getBoundsInScreen(panelBounds);
-        for (String title : new String[] {"剪贴板历史", "AI 润色", "语音结果"}) {
+        for (String title : new String[] {"表情", "剪贴板历史", "AI 润色", "语音结果"}) {
             AccessibilityNodeInfo card = await(tool(title));
             Rect cardBounds = new Rect();
             card.getBoundsInScreen(cardBounds);
