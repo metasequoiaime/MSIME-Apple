@@ -21,10 +21,10 @@ enum MacEmojiCatalog {
     }
   }
 
-  static func load(resources: String, search: String, category: String = "", offset: Int = 0, group: String = "", parent: String = "") throws -> [MacEmojiCatalogItem] {
-    guard offset >= 0 else { throw NSError(domain: "MSIMEEmojiCatalog", code: 3) }
+  static func load(resources: String, search: String, category: String = "", offset: Int = 0, group: String = "", parent: String = "", limit: Int = 255) throws -> [MacEmojiCatalogItem] {
+    guard offset >= 0, (1...255).contains(limit) else { throw NSError(domain: "MSIMEEmojiCatalog", code: 3) }
     return try decode(request(resources: resources, parameters: ["search": search,
-      "category": category, "offset": offset, "group": group, "parent": parent, "limit": 255]))
+      "category": category, "offset": offset, "group": group, "parent": parent, "limit": limit]))
   }
 
   static func loadSymbolGroups(resources: String) throws -> [MacEmojiSymbolGroup] {

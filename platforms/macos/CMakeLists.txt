@@ -44,6 +44,17 @@ if(MSIME_OPTIONS_FILE)
 endif()
 enable_testing()
 include(ClipboardTests.cmake)
+set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
+  BackendEmojiAppearance.swift BackendEmojiHome.swift tests/EmojiHomeTest.swift)
+list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_HOME_TEST_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
+  DEPENDS ${MSIME_EMOJI_HOME_TEST_SOURCES} VERBATIM)
+add_custom_target(emoji-home-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test")
+add_test(NAME emoji-home COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test")
+set_tests_properties(emoji-home PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 add_executable(screen-keyboard-panel-test tests/ScreenKeyboardPanelTest.mm ScreenKeyboardPanel.mm)
 target_compile_options(screen-keyboard-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(screen-keyboard-panel-test PRIVATE "-framework AppKit" "-framework CoreGraphics" "-framework Carbon")
