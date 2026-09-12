@@ -333,6 +333,9 @@ fn default_ai_candidate_limit() -> u8 {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
+    /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ai_context: String,
     pub scheme: u8,
     pub generation: u64,
     pub identity: String,
@@ -471,7 +474,13 @@ impl UnixSocketProvider {
         Self { path: path.into() }
     }
 
-    pub fn query(&self, query: OnlineQuery) -> Option<(String, u8)> {
+    pub fn query(&self, mut query: OnlineQuery) -> Option<(String, u8)> {
+        if query.ai_context.len() > 1024 {
+            return None;
+        }
+        if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
+            query.ai_context.clear();
+        }
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
@@ -1107,6 +1116,7 @@ impl Runtime<Session> {
             ai_eligible: query.ai_eligible,
             cloud_candidates: true,
             session_id: query.session_id,
+            ai_context: String::new(),
             ai_assistant: None,
         }))
     }
@@ -1837,6 +1847,7 @@ mod tests {
             ai_eligible: true,
             cloud_candidates: true,
             session_id: 9,
+            ai_context: String::new(),
             ai_assistant: None,
         };
         let worker = OnlineProviderWorker::spawn(1, |query| {
@@ -1880,6 +1891,7 @@ mod tests {
             ai_eligible: false,
             cloud_candidates: true,
             session_id: 1,
+            ai_context: String::new(),
             ai_assistant: None,
         };
         assert!(cloud_request_url(&query).is_none());

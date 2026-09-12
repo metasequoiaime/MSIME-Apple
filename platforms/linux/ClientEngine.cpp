@@ -106,6 +106,21 @@ struct State {
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
+  std::string ai_context;
+  void remember_commit(const std::string &text) {
+    if (!focused || blocked || private_input) {
+      ai_context.clear();
+      return;
+    }
+    ai_context += text;
+    if (ai_context.size() > 1024) {
+      size_t cut = ai_context.size() - 1024;
+      while (cut < ai_context.size() &&
+             (static_cast<unsigned char>(ai_context[cut]) & 0xc0) == 0x80)
+        ++cut;
+      ai_context.erase(0, cut);
+    }
+  }
   std::string clipboard_history_path, online_provider_socket,
       translation_provider_socket;
   std::string voice_provider_socket, voice_language = "zh-cn";
@@ -144,6 +159,7 @@ struct State {
     close();
   }
   void close() {
+    ai_context.clear();
     if (voice_active && !voice_provider_socket.empty())
       msime_client_string_free(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(voice_provider_socket.data()),
@@ -930,6 +946,10 @@ void online_schedule(IBusEngine *engine) {
         (s.cloud_candidates &&
          !(query.value("cloud_eligible", false) || query.value("ai_eligible", false))))
       return;
+    if (!s.private_input && query.value("ai_eligible", false) &&
+        query.contains("ai_assistant") && query["ai_assistant"].is_object() &&
+        query["ai_assistant"].value("enabled", false))
+      query["ai_context"] = s.ai_context;
     auto *task_data = new OnlineTask{s.session, s.provider_epoch, query.dump(), s.online_provider_socket};
     s.online_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
@@ -1922,8 +1942,10 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
     }
     if (state(engine).fullwidth)
       text = fullwidth_text(text);
-    if (!text.empty())
+    if (!text.empty()) {
       ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+      s.remember_commit(text);
+    }
   }
   state(engine).view = result.at("view");
   render(engine, state(engine).view);
@@ -2233,6 +2255,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.ai_context.clear();
     s.invalidate_providers();
     s.surrounding_text.clear();
     s.surrounding_cursor = 0;
@@ -2886,6 +2909,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 }
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
+    state(engine).ai_context.clear();
     if (state(engine).voice_active)
       voice_cancel(engine);
     state(engine).voice_hotkey_consumed_key = 0;
