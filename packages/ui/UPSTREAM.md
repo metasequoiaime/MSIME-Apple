@@ -351,3 +351,22 @@ animation, image and CSP regression also passes without relaxing policy.
 This supersedes whole-value variable font shorthand recovery above; fragment
 substitution, local()/data sources, tech() hints and native typography parity
 remain unfinished. No native platform acceptance is claimed.
+
+The appearance page now includes the candidate preview section from pinned
+04a8df56 settings appearance.html / appearance.ts. It reuses the scoped candidate
+markup and built-in palettes, follows current draft layout, font size, page size,
+preedit visibility, helpcode visibility and built-in skin selection, and resets
+on reload without writing preferences. Fixed sample candidates 7–9 now also come
+from the same candidate-wnd-h.html partial (GPL-3.0); skin cards still default to
+six samples. No Engine input or private data is used. External skins explicitly
+direct users to the existing skin-page preview, not an inaccurate built-in
+substitute. Preview remains dark like the current settings host.
+
+React tests cover draft/reload behavior and helpcode visibility. Local Chromium
+tests bundle the actual settings page with an in-memory host and production CSS:
+node scripts/build-settings-browser.mjs <temporary-directory>, serve on loopback,
+then run scripts/test-appearance-preview.py with --url, desktop --csp and optional
+--executable / --screenshot. Actual font sizes, selected skin colours, both
+layouts, candidate count, preedit visibility and cleanup are checked. Native
+host parity, external-skin appearance-page previews, full upstream font controls
+and global theme selection remain unfinished.

@@ -57,6 +57,9 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .skin-card-preview { display: flex; flex-direction: column; padding: 9px 0; background: var(--skin-preview-stage-bg); }
 .skin-preview-stage { display: flex; align-items: flex-start; min-width: 0; padding: 9px 24px; overflow: hidden; }
 .skin-card-preview .candidate { font-size: 16px; min-width: 0; max-width: 100%; }
+.appearance-candidate-preview[data-font-size="16"] .candidate { font-size: 16px; }
+.appearance-candidate-preview[data-font-size="18"] .candidate { font-size: 18px; }
+.appearance-candidate-preview[data-font-size="20"] .candidate { font-size: 20px; }
 .skin-card-preview .wnd-v .container { width: fit-content; max-width: 100%; }
 .skin-card-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .skin-card-title { font-size: 15px; font-weight: 550; color: var(--text-color); }
