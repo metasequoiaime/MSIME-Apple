@@ -271,3 +271,25 @@ This supersedes the blanket var() limitation, not full variable substitution:
 fragment substitutions (e.g. pulse var(--duration)), escaped/non-ASCII variable
 names and partially overridden pending shorthands remain partial support.
 Fonts, imports and native-platform visual acceptance remain unfinished.
+
+Pending variable animation shorthands are now expanded before browser parsing,
+because Chromium drops their source when individual longhands override them.
+PostCSS 8.5.28 (MIT, already locked for the build toolchain, now an explicit UI
+dependency) preserves declaration order, comments and opaque custom values.
+Whole-value variables are projected into private per-longhand aliases; original
+custom properties are retained. This preserves later duration/play-state
+overrides, earlier important longhands and later shorthand resets through both
+image preparation and scoped installation. Browser validation remains in place;
+source maps are disabled and malformed input falls back to browser recovery
+with a partial notice. Source and expanded output are each capped at 16 MiB.
+The production JS bundle increases by approximately 13 KiB gzip.
+
+For the CSP regression, replace the earlier raw tsc compile instructions with
+node scripts/build-skin-browser.mjs <temporary-directory>, then serve that
+directory on loopback and run the same Python test. The bundled entries include
+the parser's browser implementation with no external assets or relaxed CSP.
+The regression checks actual fixed-time playback, overridden longhands,
+priority/order, opaque quoted text and the complete prior skin tests.
+This supersedes the pending-shorthand override limitation. Fragment variable
+substitution, escaped/non-ASCII variable names, fonts, imports and native visual
+acceptance remain unfinished.

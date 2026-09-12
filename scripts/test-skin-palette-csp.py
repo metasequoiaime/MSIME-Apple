@@ -1,6 +1,6 @@
 """Read-only browser regression for skin-palette/skin-toolbar-css/toolbar-images.
 
-Compile these modules to a temporary directory, serve it on loopback, then pass
+Bundle with node scripts/build-skin-browser.mjs <temporary-directory>, serve it on loopback, then pass
 --url, the desktop --csp, and optionally --executable for installed Chromium.
 Requires Python Playwright. Does not launch the input method or touch user data.
 """
@@ -170,8 +170,22 @@ with sync_playwright() as playwright:
       const preparedVariableSheet = installToolbarCss('card1', preparedVariable.css);
       if (preparedVariable.partial || preparedVariableSheet.partial || first.getAnimations().length !== 1) throw Error('image preparation lost variable shorthand');
       preparedVariableSheet.remove();
+      const overrideCss = '@keyframes pulse { from {opacity:0} to {opacity:1} } .sample { --motion: pulse 1s linear both; animation: var(--motion); animation-duration: 2s; animation-play-state: paused; }';
+      for (const source of [overrideCss, (await prepareToolbarImages(overrideCss, async () => { throw Error('must not read'); })).css]) {
+        const overrides = installToolbarCss('card1', source);
+        if (overrides.partial || first.getAnimations().length !== 1 || getComputedStyle(first).animationDuration !== '2s' || getComputedStyle(first).animationPlayState !== 'paused') throw Error('pending shorthand longhand overrides lost');
+        first.getAnimations()[0].currentTime = 1000;
+        if (Math.abs(Number(getComputedStyle(first).opacity) - .5) > .01) throw Error('overridden animation timing incorrect');
+        overrides.remove();
+      }
+      const importantOverride = installToolbarCss('card1', '@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {--motion:pulse 1s linear both paused; animation-duration:3s!important; animation:var(--motion); animation-duration:2s; content:"animation:var(--untouched);";}');
+      if (importantOverride.partial || getComputedStyle(first).animationDuration !== '3s' || !getComputedStyle(first).content.includes('--untouched')) throw Error('shorthand rewrite changed priority or quoted content');
+      importantOverride.remove();
+      const lateShorthand = installToolbarCss('card1', '@keyframes pulse {from{opacity:0}to{opacity:1}} .sample {--motion:pulse 1s linear both paused; animation-duration:2s; animation:var(--motion); }');
+      if (lateShorthand.partial || getComputedStyle(first).animationDuration !== '1s') throw Error('later shorthand failed to reset prior longhand');
+      lateShorthand.remove();
       if (document.adoptedStyleSheets.length) throw Error('image stylesheet leaked');
-      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true};
+      return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true, animationLonghandOverrides:true, animationPriority:true};
     }""")
     print(result)
     browser.close()

@@ -53,6 +53,9 @@ importers:
 
   packages/ui:
     dependencies:
+      postcss:
+        specifier: 8.5.28
+        version: 8.5.28
       react:
         specifier: ^19.2.8
         version: 19.2.8

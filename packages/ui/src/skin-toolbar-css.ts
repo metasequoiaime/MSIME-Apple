@@ -1,16 +1,19 @@
 import { hasUnresolvedCssResource } from "./css-image-value.js";
 import { isolateToolbarAnimations } from "./skin-animations.js";
+import { preserveAnimationShorthands } from "./animation-shorthand-source.js";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
 export function installToolbarCss(scope: string, css: string): { remove: () => void; partial: boolean } {
   if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(scope) || !("adoptedStyleSheets" in document)) throw new Error("unsupported scope");
+  const preserved = preserveAnimationShorthands(css);
+  css = preserved.css;
   const parsed = new CSSStyleSheet();
   parsed.replaceSync(css.replace(/:root\b/g, ":scope"));
   const sheet = new CSSStyleSheet();
   sheet.insertRule(`@scope (.${scope}) {}`, 0);
   const target = sheet.cssRules[0] as CSSGroupingRule;
   if (!target.cssRules || !target.insertRule) throw new Error("scope unavailable");
-  let partial = isolateToolbarAnimations(parsed) || /@import\b/i.test(css); // Constructed sheets discard imports.
+  let partial = isolateToolbarAnimations(parsed) || preserved.partial || /@import\b/i.test(css); // Constructed sheets discard imports.
   function sanitize(container: CSSStyleSheet | CSSGroupingRule | CSSStyleRule) {
     // Edit the parsed tree in place so declarations after a nested rule retain
     // their native CSSNestedDeclarations ordering and pseudo-element semantics.
