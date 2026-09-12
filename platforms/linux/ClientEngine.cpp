@@ -3220,6 +3220,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     const bool has_composition =
         !s.view.at("editing_text").get<std::string>().empty();
+    const bool candidate_active =
+        s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
     const char ascii = static_cast<char>(key);
     if (key >= 0x21 && key <= 0x7e &&
         std::ispunct(static_cast<unsigned char>(ascii)) != 0 &&
@@ -3242,11 +3244,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
-      command = MSIME_BACKSPACE;
+      command = candidate_active ? MSIME_CANCEL : MSIME_BACKSPACE;
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
-      command = MSIME_COMMIT_RAW;
+      command = candidate_active ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
       command = MSIME_CANCEL;
@@ -3272,7 +3274,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
-      command = MSIME_DELETE_FORWARD;
+      command = candidate_active ? MSIME_CANCEL : MSIME_DELETE_FORWARD;
       break;
     }
     if (command != UINT32_MAX)
