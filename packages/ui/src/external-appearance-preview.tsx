@@ -25,7 +25,7 @@ function LoadedPreview({ skin, preferences, readImage, helpcode, theme }: {
   const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base) ? skin.base : "fluent";
   const geometry = {
     ...candidateFontStyle(preferences),
-    ...candidateTextStyle(preferences.candidate_text_color, preferences.candidate_number_color, preferences.candidate_accent_color),
+    ...candidateTextStyle(preferences.candidate_text_color, preferences.candidate_number_color, preferences.candidate_accent_color, preferences.candidate_selected_color),
     ...candidateFamilyStyle(preferences),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
