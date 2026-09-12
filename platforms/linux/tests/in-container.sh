@@ -27,6 +27,9 @@ cmake --build /build/ibus
 ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
+if [[ -x /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 ]]; then
+  xvfb-run -a python3 platforms/linux/tests/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
+fi
 test -x /build/stage/usr/local/bin/msime-client-ibus
 test -x /build/stage/usr/local/bin/msime-client-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
