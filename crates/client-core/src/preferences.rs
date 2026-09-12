@@ -194,6 +194,9 @@ pub struct Preferences {
     /// Vertical row gap in tenths of a density-independent pixel.
     #[serde(default = "default_touch_row_spacing_tenths")]
     pub touch_row_spacing_tenths: u8,
+    /// Touch-keyboard height adjustment in density-independent pixels.
+    #[serde(default)]
+    pub touch_keyboard_height_adjustment: i8,
     /// Show a direct voice-result entry in touch-keyboard toolbars.
     #[serde(default)]
     pub touch_voice_shortcut: bool,
@@ -753,6 +756,7 @@ impl Default for Preferences {
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
+            touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
@@ -983,6 +987,7 @@ impl Preferences {
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
             || !(40..=100).contains(&self.touch_row_spacing_tenths)
+            || !(-12..=48).contains(&self.touch_keyboard_height_adjustment)
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
@@ -1819,6 +1824,7 @@ mod tests {
         for key in [
             "touch_key_spacing_tenths",
             "touch_row_spacing_tenths",
+            "touch_keyboard_height_adjustment",
             "touch_voice_shortcut",
         ] {
             legacy["preferences"].as_object_mut().unwrap().remove(key);
@@ -1828,6 +1834,7 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded.preferences.touch_key_spacing_tenths, 60);
         assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
+        assert_eq!(loaded.preferences.touch_keyboard_height_adjustment, 0);
         assert!(!loaded.preferences.touch_voice_shortcut);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
@@ -1837,6 +1844,7 @@ mod tests {
                 Preferences {
                     touch_key_spacing_tenths: 35,
                     touch_row_spacing_tenths: 95,
+                    touch_keyboard_height_adjustment: 24,
                     touch_voice_shortcut: true,
                     ..Preferences::default()
                 },
@@ -1844,6 +1852,7 @@ mod tests {
             .unwrap();
         assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
         assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
+        assert_eq!(saved.preferences.touch_keyboard_height_adjustment, 24);
         assert!(saved.preferences.touch_voice_shortcut);
 
         for (key, value) in [
@@ -1857,6 +1866,15 @@ mod tests {
                 "touch_key_spacing_tenths" => invalid.touch_key_spacing_tenths = value,
                 _ => invalid.touch_row_spacing_tenths = value,
             }
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSpacing)
+            ));
+        }
+
+        for value in [-13, 49] {
+            let mut invalid = saved.preferences.clone();
+            invalid.touch_keyboard_height_adjustment = value;
             assert!(matches!(
                 invalid.validate(),
                 Err(PreferencesError::InvalidTouchKeyboardSpacing)

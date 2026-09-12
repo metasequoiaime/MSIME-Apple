@@ -16,11 +16,11 @@ use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
-#[cfg(unix)]
-use std::os::unix::fs::FileTypeExt;
 use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use tauri::Emitter;
@@ -1556,10 +1556,26 @@ fn voice_provider_options(document: &Value) -> Value {
 
 #[cfg(unix)]
 fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
-    document.get("voice_provider_socket").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from)
+    document
+        .get("voice_provider_socket")
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
-        .or_else(|| std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET").map(std::path::PathBuf::from).filter(|path| path.is_absolute()))
-        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).map(|dir| dir.join("msime-client/voice.sock")).filter(|path| path.metadata().map(|metadata| metadata.file_type().is_socket()).unwrap_or(false)))
+        .or_else(|| {
+            std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+        })
+        .or_else(|| {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(std::path::PathBuf::from)
+                .map(|dir| dir.join("msime-client/voice.sock"))
+                .filter(|path| {
+                    path.metadata()
+                        .map(|metadata| metadata.file_type().is_socket())
+                        .unwrap_or(false)
+                })
+        })
 }
 
 #[tauri::command]
@@ -1594,8 +1610,8 @@ async fn recognize_voice(
             .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
         let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
-                code: "unavailable",
-            })?;
+            code: "unavailable",
+        })?;
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let session = sessions
             .begin(request.request_id, path)

@@ -33,8 +33,12 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 26 键\"]')";
     private static final String NINE_KEY_SELECT =
         "document.querySelector('[aria-label=\"设为当前输入方案 全拼 9 键\"]')";
+    private static final String KEYBOARD_HEIGHT =
+        "document.querySelector('[aria-label=\"键盘高度\"]')";
     private WebView web;
-    @Override protected String successDescription() { return "React save, scheme visibility fallback, persistence and cross-process IME application"; }
+    @Override protected String successDescription() {
+        return "React save, keyboard height, scheme visibility fallback, persistence and cross-process IME application";
+    }
     @Override protected void runChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
@@ -72,6 +76,13 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             js("(" + NINE_KEY_TOGGLE + ").click(); true");
             awaitJs("!(" + NINE_KEY_TOGGLE + ").checked && (" + NINE_KEY_SELECT
                 + ").disabled && (" + QUANPIN_SELECT + ").getAttribute('aria-pressed') === 'true'");
+            stage = "React keyboard height setting";
+            js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '屏幕键盘').click(); true");
+            awaitJs("!!(" + KEYBOARD_HEIGHT + ")");
+            js("const slider=" + KEYBOARD_HEIGHT + ";"
+                + "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'24');"
+                + "slider.dispatchEvent(new Event('input',{bubbles:true}));true");
+            awaitJs("(" + KEYBOARD_HEIGHT + ").value === '24'");
             stage = "React save through Tauri";
             js("(" + PUNCTUATION_CHECKBOX + ").click(); true");
             awaitJs("!document.querySelector('button[type=submit]').disabled");
@@ -80,6 +91,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             JSONObject saved = new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8));
             if (saved.getLong("revision") != revision + 1 || saved.getJSONObject("preferences").getBoolean("chinese_punctuation") == before) throw new AssertionError("React save did not reach shared storage");
             JSONObject savedPreferences = saved.getJSONObject("preferences");
+            if (savedPreferences.getInt("touch_keyboard_height_adjustment") != 24)
+                throw new AssertionError("Keyboard height did not reach shared storage");
             JSONObject touchSchemes = savedPreferences.getJSONObject("touch_keyboard_schemes");
             if (!"quanpin".equals(touchSchemes.getString("selected")))
                 throw new AssertionError("Shared selected scheme did not use the fallback");

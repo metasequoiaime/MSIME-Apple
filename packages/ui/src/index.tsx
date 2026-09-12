@@ -179,6 +179,7 @@ export type Preferences = {
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
+  touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
@@ -696,6 +697,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
+  const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
   const availablePages = client.typingStatistics ? pages : pages.filter(item => item.id !== "typing-statistics");
@@ -1147,8 +1149,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
         <div className="section"><label className="section-header"><span className="section-title">屏幕键盘主题<small>覆盖全局主题；桌面屏幕键盘支持此设置</small></span><select aria-label="屏幕键盘主题" value={draft.screen_keyboard_theme ?? "follow"} onChange={event => setDraft({ ...draft, screen_keyboard_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
-        <div className="section" role="group" aria-labelledby="touch-keyboard-spacing-title">
-          <div className="section-title" id="touch-keyboard-spacing-title">触屏键盘间距<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+        <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
+          <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+          <label className="section-header"><span className="section-title">键盘高度 <small>{touchKeyboardHeightAdjustment > 0 ? "+" : ""}{touchKeyboardHeightAdjustment} dp</small></span><input aria-label="键盘高度" type="range" min="-12" max="48" step="1" value={touchKeyboardHeightAdjustment} onChange={event => setDraft({ ...draft, touch_keyboard_height_adjustment: Number(event.target.value) })} /></label>
+          <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">行间距 <small>{(touchRowSpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="行间距" type="range" min="40" max="100" step="1" value={touchRowSpacingTenths} onChange={event => setDraft({ ...draft, touch_row_spacing_tenths: Number(event.target.value) })} /></label>
