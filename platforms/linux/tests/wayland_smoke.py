@@ -1,8 +1,5 @@
 """Real GTK3 Wayland IM-module acceptance on a dedicated headless compositor, synthetic text only."""
-import atexit
-import select
 import os
-import subprocess
 import time
 
 import gi
@@ -34,38 +31,10 @@ def wait(predicate, description):
     raise AssertionError(description)
 
 
-keyboard = subprocess.Popen(["msime-test-wayland-keyboard"], stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, text=True)
+from wayland_keyboard import WaylandKeyboard
 
-
-def close_keyboard():
-    if keyboard.poll() is None:
-        keyboard.terminate()
-    keyboard.wait()
-
-
-atexit.register(close_keyboard)
-
-
-def reply(expected):
-    wait(lambda: bool(select.select([keyboard.stdout], [], [], 0)[0]),
-         "Wayland keyboard did not acknowledge input")
-    assert keyboard.stdout.readline().strip() == expected
-
-
-reply("ready")
-
-
-def keys(*values):
-    for value in values:
-        keyboard.stdin.write(value + "\n")
-        keyboard.stdin.flush()
-        reply("sent")
-        end = time.monotonic() + 0.04
-        while time.monotonic() < end:
-            pump()
-            time.sleep(0.005)
-    pump()
+keyboard = WaylandKeyboard(pump, wait)
+keys = keyboard.keys
 
 
 wait(lambda: bus.is_connected(), "GTK fixture could not connect to IBus")

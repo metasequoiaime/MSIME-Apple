@@ -25,4 +25,4 @@ for attempt in $(seq 1 100); do
   sleep 0.05
 done
 [[ -n ${WAYLAND_DISPLAY:-} ]] || exit 1
-GDK_BACKEND=wayland GTK_IM_MODULE=ibus NO_AT_BRIDGE=1 bash platforms/linux/tests/daemon_smoke.sh "$1" "$options" platforms/linux/tests/wayland_smoke.py
+GDK_BACKEND=wayland GTK_IM_MODULE=ibus QT_QPA_PLATFORM=wayland QT_IM_MODULE=ibus NO_AT_BRIDGE=1 bash platforms/linux/tests/daemon_smoke.sh "$1" "$options" "${4:-platforms/linux/tests/wayland_smoke.py}" "${@:5}"

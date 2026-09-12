@@ -1,4 +1,4 @@
-"""Real Qt5/Qt6 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
+"""Real Qt5/Qt6 IM-module acceptance on isolated X11 or Wayland displays, synthetic text only."""
 import os
 import sys
 import subprocess
@@ -18,6 +18,9 @@ else:
 assert os.environ.get("MSIME_ISOLATED_LINUX_TEST") == "1"
 assert os.environ.get("QT_IM_MODULE") == "ibus"
 app = QApplication([])
+wayland = "--wayland" in sys.argv
+if wayland:
+    assert app.platformName().startswith("wayland"), "Qt did not use Wayland"
 IBus.init()
 bus = IBus.Bus.new()
 
@@ -47,6 +50,12 @@ def keys(*values):
     pump()
 
 
+if wayland:
+    from wayland_keyboard import WaylandKeyboard
+    keyboard = WaylandKeyboard(pump, wait)
+    keys = keyboard.keys
+
+
 wait(lambda: bus.is_connected(), "Qt fixture could not connect to IBus")
 wait(lambda: any(engine.get_name() == "msime-client-preview" for engine in bus.list_active_engines()),
      "Native IBus engine was not registered")
@@ -69,7 +78,10 @@ for entry in (first, second, password):
     layout.addWidget(entry)
 window.show()
 pump()
-subprocess.run(["xdotool", "windowfocus", "--sync", str(int(window.winId()))], check=True)
+if wayland:
+    wait(window.isActiveWindow, "Wayland compositor did not focus Qt window")
+else:
+    subprocess.run(["xdotool", "windowfocus", "--sync", str(int(window.winId()))], check=True)
 first.setFocus()
 pump()
 assert bus.set_global_engine("msime-client-preview")
@@ -146,4 +158,5 @@ keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.text() == "nihao ", "Qt password input was intercepted by the IME")
 window.close()
 pump()
-print(f"{qt_version} X11 IM-module candidate/edit/focus/password acceptance passed")
+backend = "Wayland" if wayland else "X11"
+print(f"{qt_version} {backend} IM-module candidate/edit/focus/password acceptance passed")
