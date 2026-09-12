@@ -1,6 +1,6 @@
-# 完整词库快照接入：未完成
+# 完整词库快照接入：已接入基础链路
 
-此记录界定当前缺口，不代表功能交付。总体目标仍是完整功能迁移；不能以个人词条导入替代完整快照恢复。
+此记录界定剩余验收缺口，不代表整体平台迁移完成。总体目标仍是完整功能迁移；不能以个人词条导入替代完整快照恢复。
 
 ## 已核对证据
 
@@ -9,7 +9,7 @@
 - 此类仅在保留的 `DictionaryRuntime.mm` 内实现；当前 `CMakeLists.txt` 的 app 编译 `ClientDictionaryRuntime.mm`，不编译该文件。Swift 编译成功不能证明本地恢复可用。
 - 旧实现依赖 `RuntimePaths::legacy()`、bundle 词库摘要和 `MetasequoiaInputController.suspendForCloudDictionarySwitch`；当前宿主是 `MSIMEInputController`，会话由 host-api 管理。直接加入旧文件不构成正确接入。
 - `shared/apple-bridge/DictionarySnapshotBridge` 有准备记录流、计算状态版本和丢弃非活动代次的参考实现；不能绕过现有共享资源/词库访问边界直接发布旧宿主安装。
-- `crates/host-api/include/msime_client.h` 与 `shared/apple/MSIMEClientSession.h` 尚未提供完整词库准备、激活、清理接口。
+- `crates/host-api/include/msime_client.h` 与 `shared/apple/MSIMEClientSession.h` 已提供快照版本、准备句柄、丢弃和激活接口；`ClientDictionaryRuntime.mm` 已使用该客户端宿主边界。
 - `engine-bridge` 的 `EngineSession.snapshot()` 返回编辑串/候选等输入状态，不是词库快照；`host-api/src/cloud_dictionary.rs` 的请求校验也不是恢复实现。
 
 ## 必须完成的接入链路
@@ -33,4 +33,4 @@
 
 ## 当前结论
 
-云端备份/恢复与本地词库替换是不同链路。已有 Swift 模型测试、dylib 加载测试、设置窗口观察均不能用于宣称本地完整词库替换已接通。本项在上述证据齐全前保持未完成。
+云端备份/恢复与本地词库替换是不同链路。当前准备、句柄生命周期、版本校验、锁协调和基础原生测试已接通；完整记录类别回归、跨进程竞争、安装后的 IMK 编辑器链路与故障注入验收仍未完成，因此本项不能宣称完整交付。
