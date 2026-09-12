@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "KeyRouterAdapter.h"
 #include "ClipboardText.h"
 #include "ChineseTextConversion.h"
 #include "NavigationBindings.h"
@@ -132,6 +133,7 @@ struct State {
   uint64_t session = 0;
   uint64_t client_token = 0;
   uint64_t focus_epoch = 0;
+  msime::linux_host::KeyRouterAdapter key_router;
   Json view;
   bool focused = false;
   std::string focused_context;
@@ -4088,7 +4090,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const msime_client_key_event routed_event = {{s.client_token, s.focus_epoch, s.session}, key, keycode,
       static_cast<uint32_t>(flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)),
       key <= 0xffffu ? key : 0u, false};
-  if (!msime_client_key_event_valid(&routed_event))
+  if (!s.key_router.accepts(routed_event))
     return FALSE;
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
