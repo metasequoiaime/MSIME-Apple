@@ -265,6 +265,7 @@ struct State {
     translation_loading = false;
   }
   std::string surrounding_text;
+  bool surrounding_utf16 = false;
   guint surrounding_cursor = 0;
   guint surrounding_anchor = 0;
   ~State() {
@@ -2545,12 +2546,19 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   auto &s = state(engine);
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
   const auto *utf8 = s.surrounding_text.c_str();
-  const auto length = static_cast<guint>(g_utf8_strlen(utf8, -1));
-  // IBus reports Unicode character offsets. Store byte offsets for the UTF-8
-  // document lookup used by smart punctuation, including non-BMP characters.
+  // IBus uses Unicode character offsets. Qt's QIBusInputContext instead
+  // forwards QString UTF-16 positions; normalize only that identified client.
   auto byte_offset = [&](guint offset) {
-    return static_cast<guint>(
-        g_utf8_offset_to_pointer(utf8, std::min(offset, length)) - utf8);
+    const auto *position = utf8;
+    while (*position) {
+      const guint units = s.surrounding_utf16 &&
+                          g_utf8_get_char(position) > 0xffff ? 2 : 1;
+      if (offset < units)
+        break;
+      offset -= units;
+      position = g_utf8_next_char(position);
+    }
+    return static_cast<guint>(position - utf8);
   };
   s.surrounding_cursor = byte_offset(cursor);
   s.surrounding_anchor = byte_offset(anchor);
@@ -2578,6 +2586,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.surrounding_utf16 = false;
     s.stop_clipboard_monitor();
     s.native_compose.reset();
     s.reset_mode_modifiers();
@@ -4352,6 +4361,13 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   };
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
+#if IBUS_CHECK_VERSION(1, 5, 27)
+  engine->focus_in_id = [](IBusEngine *engine, const gchar *, const gchar *client) {
+    state(engine).surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
+    focus_in(engine);
+  };
+  engine->focus_out_id = [](IBusEngine *engine, const gchar *) { focus_out(engine); };
+#endif
   engine->disable = focus_out;
   engine->reset = reset;
   engine->set_content_type = content_type;

@@ -70,6 +70,23 @@ int main(int argc, char **argv) {
   auto factory = ibus_factory_new(ibus_bus_get_connection(bus));
   ibus_factory_add_engine(factory, "msime-client-preview",
                           msime_preview_engine_get_type());
+#if IBUS_CHECK_VERSION(1, 5, 27)
+  g_signal_connect(factory, "create-engine",
+      G_CALLBACK(+[](IBusFactory *factory, const gchar *name, gpointer) -> IBusEngine * {
+        if (g_strcmp0(name, "msime-client-preview") != 0)
+          return nullptr;
+        static guint64 sequence = 0;
+        auto path = g_strdup_printf("/org/freedesktop/IBus/Engine/MSIME/%" G_GUINT64_FORMAT,
+                                    ++sequence);
+        auto engine = IBUS_ENGINE(g_object_new(
+            msime_preview_engine_get_type(), "engine-name", name,
+            "object-path", path, "connection",
+            ibus_service_get_connection(IBUS_SERVICE(factory)),
+            "has-focus-id", TRUE, nullptr));
+        g_free(path);
+        return engine;
+      }), nullptr);
+#endif
   auto component = ibus_component_new(
       "app.msime.client.preview", "MSIME Client preview", "0.1.0",
       "GPL-3.0-only", "MSIME contributors",

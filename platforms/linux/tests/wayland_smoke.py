@@ -114,9 +114,9 @@ password.grab_focus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.get_text() == "nihao ", "GTK password input was intercepted by the IME")
-from gtk_surrounding import check_surrounding, TextViewAdapter
+from surrounding_text import check_surrounding, TextViewAdapter
 check_surrounding(first, keys, pump, wait)
-check_surrounding(TextViewAdapter(text_view), keys, pump, wait, selections=True)
+check_surrounding(TextViewAdapter(text_view), keys, pump, wait, selections=True, multiline=True)
 window.destroy()
 pump()
 print("GTK3 Wayland IBus-module candidate/edit/focus/password acceptance passed")

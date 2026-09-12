@@ -183,9 +183,9 @@ if "--custom-compose" in sys.argv:
     keys("n", "i", "h", "a", "o", "Multi_key", "x", "x")
     wait(lambda: first.get_text() == "nihao水杉😀", "Custom Compose table did not insert its UTF-8 sequence")
     print("GTK3 custom Compose table acceptance passed")
-from gtk_surrounding import check_surrounding, TextViewAdapter
+from surrounding_text import check_surrounding, TextViewAdapter
 check_surrounding(first, keys, pump, wait)
-check_surrounding(TextViewAdapter(text_view), keys, pump, wait, selections=True)
+check_surrounding(TextViewAdapter(text_view), keys, pump, wait, selections=True, multiline=True)
 window.destroy()
 pump()
 print("GTK3 X11 IM-module candidate/edit/layout/focus/password acceptance passed")

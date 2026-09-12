@@ -1,13 +1,13 @@
-"""Synthetic document/caret cases shared by GTK X11 and Wayland acceptance."""
+"""Synthetic document/caret cases shared by GTK and Qt on X11 and Wayland."""
 
 
-def check_surrounding(entry, keys, pump, wait, selections=False):
+def check_surrounding(entry, keys, pump, wait, selections=False, multiline=False):
     entry.grab_focus()
     pump()
     # Establish the native IM context before testing existing document text.
     entry.set_text("")
     keys("n", "i", "h", "a", "o", "space")
-    wait(lambda: entry.get_text() == "你好", "GTK surrounding fixture did not activate IME")
+    wait(lambda: entry.get_text() == "你好", "Native editor surrounding fixture did not activate IME")
     cases = [
         ("a尾", 1, "a.尾"),
         ("中1尾", 2, "中1.尾"),
@@ -16,7 +16,7 @@ def check_surrounding(entry, keys, pump, wait, selections=False):
         ("a😀尾", 2, "a😀。尾"),
         ("尾", 0, "。尾"),
     ]
-    if selections:
+    if multiline:
         cases.append(("行\n中1尾", 4, "行\n中1.尾"))
     for text, cursor, expected in cases:
         entry.set_text(text)
@@ -24,28 +24,32 @@ def check_surrounding(entry, keys, pump, wait, selections=False):
         pump()
         keys("period")
         wait(lambda: entry.get_text() == expected,
-             "GTK smart punctuation used the wrong surrounding character")
+             "Native editor smart punctuation used the wrong surrounding character")
     entry.set_text("中1尾")
     entry.set_position(2)
     pump()
     keys("period", "period")
     wait(lambda: entry.get_text() == "中1。尾",
-         "GTK repeated punctuation did not replace the preceding mark")
+         "Native editor repeated punctuation did not replace the preceding mark")
     # IBus 1.5.27 reports selection anchors for GtkTextView, not GtkEntry.
     if selections:
-        for start, end in ((2, 3), (3, 2)):
-            entry.set_text("aX尾")
-            entry.set_position(1)
-            pump()
-            keys("period")
-            wait(lambda: entry.get_text() == "a.X尾",
-                 "GTK selection fixture did not insert an ASCII mark")
-            entry.select_region(start, end)
-            pump()
-            keys("period")
-            wait(lambda: entry.get_text() == "a.。尾",
-                 "GTK punctuation deleted outside the selection or used its end")
-    print("GTK Unicode surrounding-text/caret acceptance passed")
+        for text, position, inserted, bounds, expected in (
+            ("aX尾", 1, "a.X尾", (2, 3), "a.。尾"),
+            ("😀aX尾", 2, "😀a.X尾", (3, 4), "😀a.。尾"),
+        ):
+            for start, end in (bounds, bounds[::-1]):
+                entry.set_text(text)
+                entry.set_position(position)
+                pump()
+                keys("period")
+                wait(lambda: entry.get_text() == inserted,
+                     "Native editor selection fixture did not insert an ASCII mark")
+                entry.select_region(start, end)
+                pump()
+                keys("period")
+                wait(lambda: entry.get_text() == expected,
+                     "Native editor punctuation deleted outside the selection or used its end")
+    print("Native editor Unicode surrounding-text/caret acceptance passed")
 
 
 class TextViewAdapter:

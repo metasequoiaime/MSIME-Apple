@@ -9,10 +9,10 @@ import gi
 gi.require_version("IBus", "1.0")
 from gi.repository import GLib, IBus
 if "--qt6" in sys.argv:
-    from PyQt6.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+    from PyQt6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QVBoxLayout, QWidget
     qt_version = "Qt6"
 else:
-    from PyQt5.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+    from PyQt5.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QVBoxLayout, QWidget
     qt_version = "Qt5"
 
 assert os.environ.get("MSIME_ISOLATED_LINUX_TEST") == "1"
@@ -76,6 +76,8 @@ first, second, password = Entry(), Entry(), Entry()
 password.setEchoMode(QLineEdit.EchoMode.Password)
 for entry in (first, second, password):
     layout.addWidget(entry)
+plain = QPlainTextEdit()
+layout.addWidget(plain)
 window.show()
 pump()
 if wayland:
@@ -156,6 +158,72 @@ password.setFocus()
 pump()
 keys("n", "i", "h", "a", "o", "space")
 wait(lambda: password.text() == "nihao ", "Qt password input was intercepted by the IME")
+# IBus 1.5.27 negotiates FocusId asynchronously without replaying the first
+# focus. Exercise the identified-client path after a separate context transfer.
+other_context = bus.create_input_context("msime-test-context-transfer")
+other_context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT)
+other_context.focus_in()
+end = time.monotonic() + 0.3
+while time.monotonic() < end:
+    pump()
+    time.sleep(0.01)
+other_context.focus_out()
+first.clearFocus()
+first.setFocus()
+pump()
+
+from surrounding_text import check_surrounding
+
+
+def utf16_offset(text, offset):
+    return len(text[:offset].encode("utf-16-le")) // 2
+
+
+class LineAdapter:
+    def __init__(self, entry):
+        self.entry = entry
+
+    def grab_focus(self):
+        self.entry.setFocus()
+
+    def set_text(self, text):
+        self.entry.setText(text)
+
+    def get_text(self):
+        return self.entry.text()
+
+    def set_position(self, offset):
+        self.entry.setCursorPosition(utf16_offset(self.get_text(), offset))
+
+    def select_region(self, start, end):
+        text = self.get_text()
+        first = utf16_offset(text, start)
+        last = utf16_offset(text, end)
+        self.entry.setSelection(first, last - first)
+
+
+class PlainAdapter(LineAdapter):
+    def set_text(self, text):
+        self.entry.setPlainText(text)
+
+    def get_text(self):
+        return self.entry.toPlainText()
+
+    def set_position(self, offset):
+        cursor = self.entry.textCursor()
+        cursor.setPosition(utf16_offset(self.get_text(), offset))
+        self.entry.setTextCursor(cursor)
+
+    def select_region(self, start, end):
+        cursor = self.entry.textCursor()
+        text = self.get_text()
+        cursor.setPosition(utf16_offset(text, start))
+        cursor.setPosition(utf16_offset(text, end), cursor.MoveMode.KeepAnchor)
+        self.entry.setTextCursor(cursor)
+
+
+check_surrounding(LineAdapter(first), keys, pump, wait, selections=True)
+check_surrounding(PlainAdapter(plain), keys, pump, wait, selections=True, multiline=True)
 window.close()
 pump()
 backend = "Wayland" if wayland else "X11"
