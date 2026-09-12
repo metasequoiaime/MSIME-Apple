@@ -489,9 +489,17 @@ impl UnixSocketProvider {
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
+        let timeout = if query.ai_eligible
+            && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled)
+        {
+            // Windows ai_assistant.cpp permits eight seconds for model inference.
+            std::time::Duration::from_secs(8)
+        } else {
+            std::time::Duration::from_millis(500)
+        };
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
         if request.len() > 16384
@@ -500,11 +508,31 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).take(16385).read_line(&mut line).ok()?;
-        if line.len() > 16384 || !line.ends_with('\n') {
-            return None;
+        // One response deadline: partial writes by the provider must not
+        // restart the inference timeout or grow an unbounded line buffer.
+        let deadline = std::time::Instant::now() + timeout;
+        let mut bytes = Vec::new();
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_read_timeout(Some(remaining)).ok()?;
+            let mut chunk = [0_u8; 1024];
+            let count = stream.read(&mut chunk).ok()?;
+            if count == 0 {
+                return None;
+            }
+            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
+            if bytes.len() > 16384 {
+                return None;
+            }
+            if end.is_some() {
+                break;
+            }
         }
+        let line = String::from_utf8(bytes).ok()?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
