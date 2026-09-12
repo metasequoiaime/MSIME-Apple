@@ -67,6 +67,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)startVoiceWithError:(NSError **)error;
 - (BOOL)cancelVoiceWithError:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
+/// User-owned provider socket boundary for cloud ASR; no credentials are logged.
+- (nullable NSDictionary<NSString *, id> *)voiceProviderRequest:(NSDictionary *)query socket:(NSString *)socket error:(NSError **)error;
 /// Management is separate from live sessions; call only after all sessions are closed.
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
 + (nullable NSDictionary<NSString *, id> *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;

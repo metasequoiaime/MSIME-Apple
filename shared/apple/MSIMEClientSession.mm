@@ -51,6 +51,12 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSNumber *_punctuationOverride;
     NSNumber *_characterWidthOverride;
 }
+- (NSDictionary *)voiceProviderRequest:(NSDictionary *)query socket:(NSString *)socket error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:query] || ![socket isKindOfClass:NSString.class] || !socket.length) { setError(error, @"语音服务请求格式错误"); return nil; }
+    NSData *q = [NSJSONSerialization dataWithJSONObject:query options:0 error:error]; NSData *s = [socket dataUsingEncoding:NSUTF8StringEncoding];
+    if (!q || q.length > 65536 || !s || s.length > 4096) { setError(error, @"语音服务请求过大"); return nil; }
+    return decode(msime_client_voice_provider_request((const uint8_t *)q.bytes, q.length, (const uint8_t *)s.bytes, s.length), error);
+}
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;
     if (_punctuationOverride) restored = decode(msime_client_set_chinese_punctuation(_handle, _punctuationOverride.boolValue), error) != nil;
