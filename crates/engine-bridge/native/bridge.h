@@ -2,6 +2,7 @@
 #include "rust/cxx.h"
 #include <memory>
 #include <metasequoia/session.h>
+#include "../../vendor/MSIME-Engine/common/helpcode_utils.h"
 
 namespace msime {
 struct EngineOptions;
@@ -46,6 +47,8 @@ private:
     bool nine_key_ = false;
     bool microsoft_shuangpin_;
     std::string shuangpin_profile_;
+    HelpcodeUtils::SharedKeymap helpcode_keymap_;
+    bool helpcode_enabled_ = false;
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);

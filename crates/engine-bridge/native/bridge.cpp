@@ -134,7 +134,13 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
     microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3),
-    shuangpin_profile_(options_for(options).shuangpin_profile.name) {}
+    shuangpin_profile_(options_for(options).shuangpin_profile.name),
+    helpcode_keymap_(options.helpcode
+                         ? HelpcodeUtils::load_helpcode_keymap(
+                               std::filesystem::u8path(std::string(options.resources)),
+                               std::string(options.helpcode_schema))
+                         : nullptr),
+    helpcode_enabled_(options.helpcode) {}
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options) {
     return std::make_unique<EngineSession>(options);
 }
@@ -277,9 +283,15 @@ EngineSnapshot EngineSession::snapshot() const {
     for (std::size_t index = 0; index < value.candidates.size(); ++index) {
         const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));
-        const auto &annotation = index < value.candidate_annotations.size()
-                                     ? value.candidate_annotations[index]
-                                     : candidate.corrected_from;
+        auto annotation = index < value.candidate_annotations.size()
+                              ? value.candidate_annotations[index]
+                              : candidate.corrected_from;
+        if (annotation.empty() && helpcode_enabled_ && helpcode_keymap_ &&
+            candidate.source == CandidateSource::Generated &&
+            (value.scheme == SchemeType::Quanpin || value.scheme == SchemeType::Shuangpin)) {
+            annotation = HelpcodeUtils::compute_helpcodes(
+                candidate.word, value.scheme == SchemeType::Quanpin, helpcode_keymap_.get());
+        }
         output.candidate_annotations.push_back(rust::String(annotation));
         output.candidate_sources.push_back(static_cast<std::uint8_t>(candidate.source));
         output.candidate_positions.push_back(static_cast<std::uint8_t>(candidate.fixed_position));
