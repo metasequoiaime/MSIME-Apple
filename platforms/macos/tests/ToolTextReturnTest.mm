@@ -40,5 +40,16 @@ int main() {
         assert(state.queue(@"synthetic-cancelled", token, 60));
         state.discard(token);
         assert(!state.take(first, 61));
+        token = state.capture(first);
+        assert(!state.fail(token));
+        assert(state.queue(@"synthetic-failure", token, 70));
+        assert(!state.fail(token - 1));
+        assert(state.fail(token));
+        assert(!state.fail(token));
+        assert(!state.take(first, 71));
+        token = state.capture(first);
+        assert(state.queue(@"synthetic-success", token, 80));
+        assert([state.take(first, 81) isEqual:@"synthetic-success"]);
+        assert(!state.fail(token));
     }
 }
