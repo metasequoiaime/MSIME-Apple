@@ -3,6 +3,7 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./appearance-candidate-preview";
 import { candidateFontSize, candidateFontSizes } from "./candidate-font-size";
 import { candidateTextColor } from "./candidate-text-color";
+import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { CandidateFontControls } from "./candidate-font-controls";
 import { validCandidateFonts } from "./candidate-font-family";
 import type { FontCatalogReader } from "./font-catalog";
@@ -540,6 +541,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
   const themeMode = draft?.theme ?? "dark";
   const settingsTheme = draft?.settings_theme ?? "follow";
+  const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
@@ -652,7 +654,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>
         <div className="section"><div className="section-header"><span className="section-title">候选文字颜色</span><div className="candidate-color-control">
-          <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? "#e9e8e8"} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
+          <input aria-label="候选文字颜色" type="color" value={candidateTextColor(draft.candidate_text_color) ?? (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")} onChange={event => setDraft({ ...draft, candidate_text_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_text_color)} onClick={() => { if (candidateTextColor(draft.candidate_text_color)) setDraft({ ...draft, candidate_text_color: null }); }}>跟随主题</button>
         </div></div></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗预编辑</span><select aria-label="候选窗预编辑" value={draft.candidate_preedit_style ?? "pinyin"} onChange={event => setDraft({ ...draft, candidate_preedit_style: event.target.value as Preferences["candidate_preedit_style"] })}>

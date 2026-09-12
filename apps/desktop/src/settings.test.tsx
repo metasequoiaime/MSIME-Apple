@@ -248,7 +248,7 @@ test("voice settings persist under the shared voice_input contract", async () =>
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US" },
+    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", asr_resource_id: "volc.seedasr.sauc.duration" },
   });
 });
 
@@ -522,6 +522,29 @@ test("font controls allow 32 existing fallbacks but prevent a 33rd", async () =>
   expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "移除补充字体 32" }));
   expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("automatic color swatch follows candidate theme without persisting a color override", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  const color = await screen.findByLabelText("候选文字颜色") as HTMLInputElement;
+  const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  expect(color.value).toBe("#e9e8e8");
+  change("全局主题", "light");
+  expect(color.value).toBe("#1a1a1a");
+  change("设置窗口主题", "dark");
+  expect(color.value).toBe("#1a1a1a");
+  change("候选窗主题", "dark");
+  expect(color.value).toBe("#e9e8e8");
+  change("候选文字颜色", "#123456");
+  change("候选窗主题", "light");
+  expect(color.value).toBe("#123456");
+  fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
+  expect(color.value).toBe("#1a1a1a");
+  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  expect(preview.style.getPropertyValue("--cand-text")).toBe("");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
 });
 
 test("candidate text colour loads, previews, saves and resets to theme", async () => {
