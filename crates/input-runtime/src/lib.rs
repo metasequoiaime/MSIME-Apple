@@ -39,12 +39,19 @@ use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+// The Unix socket providers below are the only consumers of these imports.
+#[cfg(unix)]
+use serde_json::{json, Value};
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(unix)]
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(unix)]
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
