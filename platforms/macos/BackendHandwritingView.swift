@@ -29,8 +29,10 @@ private struct MacInkCanvas: NSViewRepresentable {
     override func draw(_ dirtyRect: NSRect) {
       NSColor.controlBackgroundColor.setFill(); dirtyRect.fill()
       if strokes.isEmpty && active.isEmpty {
-        NSColor.secondaryLabelColor.set();
-        NSString(string: "请在这里书写").draw(in: bounds, withAttributes: [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor])
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.secondaryLabelColor]
+        let text = NSString(string: "请在这里书写")
+        let size = text.size(withAttributes: attributes)
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2), withAttributes: attributes)
       }
       NSColor.labelColor.setStroke()
       for stroke in strokes + (active.isEmpty ? [] : [MacInkStroke(points: active)]) {
