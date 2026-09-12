@@ -107,6 +107,24 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_pinCandidateRaw(
     }
     return response(env, msime_client_pin_candidate(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_fixCandidatePositionRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index, jint position) {
+    if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");
+        return nullptr;
+    }
+    if (position < 1 || position > 5) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Candidate position must be between 1 and 5");
+        return nullptr;
+    }
+    return response(env, msime_client_fix_candidate_position(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index), static_cast<uint8_t>(position)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_clearCandidatePositionRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
+    if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");
+        return nullptr;
+    }
+    return response(env, msime_client_clear_candidate_position(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_removeCandidateRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
     if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");

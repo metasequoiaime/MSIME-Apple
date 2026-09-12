@@ -31,6 +31,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/JapaneseNineKeyLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/HandwritingContractSmoke.java" \
   "$repo_root/platforms/android/tests/CandidateAppearanceSmoke.java" \
+  "$repo_root/platforms/android/tests/CandidateManagementSmoke.java" \
   "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
@@ -48,6 +49,7 @@ java -cp "$output_dir" NineKeyLayoutSmoke
 java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
 java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
+java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
 "$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \

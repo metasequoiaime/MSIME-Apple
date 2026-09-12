@@ -1935,13 +1935,24 @@ public final class MSIMEInputService extends InputMethodService {
         return scheme != 2 && scheme != 3;
     }
 
-    private void editCandidate(JSONObject id, boolean remove) {
+    private void editCandidate(JSONObject id, CandidateManagementAction action) {
         if (session == 0 || id == null || id.optLong("session") != session) return;
         try {
-            String result = remove
-                ? NativeClient.removeCandidate(session, id.getLong("generation"), id.getLong("index"))
-                : NativeClient.pinCandidate(session, id.getLong("generation"), id.getLong("index"));
-            if (!apply(result)) Toast.makeText(this, "当前候选不支持此操作", Toast.LENGTH_SHORT).show();
+            long generation = id.getLong("generation");
+            long index = id.getLong("index");
+            String result = switch (action) {
+                case PROMOTE -> NativeClient.pinCandidate(session, generation, index);
+                case FIX_FIRST -> NativeClient.fixCandidatePosition(
+                    session, generation, index, action.fixedPosition());
+                case CLEAR_POSITION -> NativeClient.clearCandidatePosition(
+                    session, generation, index);
+                case REMOVE -> NativeClient.removeCandidate(session, generation, index);
+            };
+            if (!apply(result)) {
+                Toast.makeText(this, "当前候选不支持此操作", Toast.LENGTH_SHORT).show();
+            } else if (keyboardRoot != null) {
+                keyboardRoot.announceForAccessibility(action.announcement());
+            }
         } catch (JSONException | LinkageError error) { fail(); }
     }
 
@@ -1952,7 +1963,7 @@ public final class MSIMEInputService extends InputMethodService {
             .setNegativeButton("取消", null)
             .setPositiveButton("删除", (dialog, which) -> {
                 playFeedback(moreButton);
-                editCandidate(id, true);
+                editCandidate(id, CandidateManagementAction.REMOVE);
             })
             .show();
     }
@@ -1960,19 +1971,23 @@ public final class MSIMEInputService extends InputMethodService {
     private void showCandidateMenu(Button button, JSONObject id, String text) {
         if (!candidateManagementEnabled()) return;
         PopupMenu popup = new PopupMenu(this, button);
-        MenuItem promote = popup.getMenu().add("优先显示");
-        MenuItem remove = popup.getMenu().add("删除词条…");
+        for (CandidateManagementAction action : CandidateManagementAction.values()) {
+            popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
+        }
         popup.setOnMenuItemClickListener(item -> {
             playFeedback(button);
-            if (item == promote) {
-                editCandidate(id, false);
-                return true;
+            CandidateManagementAction action;
+            try {
+                action = CandidateManagementAction.fromMenuItemId(item.getItemId());
+            } catch (IllegalArgumentException error) {
+                return false;
             }
-            if (item == remove) {
+            if (action.confirmationRequired()) {
                 confirmCandidateRemoval(id, text);
                 return true;
             }
-            return false;
+            editCandidate(id, action);
+            return true;
         });
         popup.show();
     }
