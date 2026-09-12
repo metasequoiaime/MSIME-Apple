@@ -77,6 +77,53 @@ pub trait ClientKeyRouter {
     fn cancel(&mut self, lease: &ClientFocusLease) -> Result<bool, Self::Error>;
 }
 
+/// Guards a platform router against events from a previous focus/session.
+/// Hosts update the lease on focus-in and invalidate it on focus-out.
+pub struct LeasedClientKeyRouter<R> {
+    router: R,
+    lease: Option<ClientFocusLease>,
+}
+
+impl<R> LeasedClientKeyRouter<R> {
+    pub fn new(router: R) -> Self {
+        Self {
+            router,
+            lease: None,
+        }
+    }
+
+    pub fn set_lease(&mut self, lease: ClientFocusLease) {
+        self.lease = Some(lease);
+    }
+
+    pub fn clear_lease(&mut self) {
+        self.lease = None;
+    }
+
+    pub fn into_inner(self) -> R {
+        self.router
+    }
+}
+
+impl<R: ClientKeyRouter> ClientKeyRouter for LeasedClientKeyRouter<R> {
+    type Error = R::Error;
+
+    fn dispatch(&mut self, event: &ClientKeyEvent) -> Result<bool, Self::Error> {
+        if event.validate().is_err() || self.lease != Some(event.lease) {
+            return Ok(false);
+        }
+        self.router.dispatch(event)
+    }
+
+    fn cancel(&mut self, lease: &ClientFocusLease) -> Result<bool, Self::Error> {
+        if self.lease != Some(*lease) {
+            return Ok(false);
+        }
+        self.lease = None;
+        self.router.cancel(lease)
+    }
+}
+
 pub struct KeyboardInputRequest {
     /// Windows virtual-key value. Other hosts may map this value to their own
     /// native key event while keeping the panel contract stable.
@@ -211,6 +258,46 @@ pub fn validate_candidate(candidate: &str) -> Result<(), PanelContractError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Router(bool);
+    impl ClientKeyRouter for Router {
+        type Error = ();
+        fn dispatch(&mut self, _: &ClientKeyEvent) -> Result<bool, Self::Error> {
+            self.0 = true;
+            Ok(true)
+        }
+        fn cancel(&mut self, _: &ClientFocusLease) -> Result<bool, Self::Error> {
+            self.0 = false;
+            Ok(true)
+        }
+    }
+
+    #[test]
+    fn leased_router_rejects_stale_events_and_clears_on_cancel() {
+        let lease = ClientFocusLease {
+            client: 1,
+            epoch: 2,
+            token: 3,
+        };
+        let mut router = LeasedClientKeyRouter::new(Router(false));
+        router.set_lease(lease);
+        let event = ClientKeyEvent {
+            lease,
+            virtual_key: 0x41,
+            scan_code: 30,
+            modifiers: 0,
+            character: 'a',
+            ui_less: false,
+        };
+        assert!(router.dispatch(&event).unwrap());
+        let stale = ClientKeyEvent {
+            lease: ClientFocusLease { epoch: 1, ..lease },
+            ..event
+        };
+        assert!(!router.dispatch(&stale).unwrap());
+        assert!(router.cancel(&lease).unwrap());
+        assert!(!router.cancel(&lease).unwrap());
+    }
 
     fn stroke() -> InkStroke {
         InkStroke {
