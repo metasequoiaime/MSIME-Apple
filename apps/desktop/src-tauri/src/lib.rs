@@ -1163,6 +1163,13 @@ struct VoiceRecognitionResult {
     text: String,
 }
 
+#[derive(serde::Serialize, Clone)]
+struct VoiceRecognitionUpdate {
+    text: String,
+    #[serde(rename = "final")]
+    final_result: bool,
+}
+
 fn voice_provider_options(document: &Value) -> Value {
     let Some(voice) = document
         .get("preferences")
@@ -1182,6 +1189,7 @@ fn voice_provider_options(document: &Value) -> Value {
         "doubao_enable_itn",
         "doubao_enable_punc",
         "doubao_enable_ddc",
+        "stream_inline_preedit",
     ] {
         if let Some(value) = voice.get(key).filter(|value| value.is_boolean()) {
             options.insert(key.to_owned(), value.clone());
@@ -1191,10 +1199,15 @@ fn voice_provider_options(document: &Value) -> Value {
         "commit_mode",
         "asr_provider",
         "asr_model",
+        "asr_resource_id",
         "polish_provider",
         "polish_model",
         "polish_prompt_id",
         "polish_prompt",
+        "polish_prompt_custom_1",
+        "polish_prompt_custom_2",
+        "polish_prompt_custom_3",
+        "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
             let bounded = value.chars().take(512).collect::<String>();
@@ -1206,6 +1219,7 @@ fn voice_provider_options(document: &Value) -> Value {
 
 #[tauri::command]
 async fn recognize_voice(
+    app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
     options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
@@ -1240,8 +1254,24 @@ async fn recognize_voice(
                 code: "unavailable",
             })?;
         let language = request.language;
+        let app = app.clone();
         let text = tauri::async_runtime::spawn_blocking(move || {
-            UnixSocketProvider::new(path).voice_with_options(&language, 1, &provider_options)
+            let mut update = |text: &str, final_result: bool| {
+                let _ = app.emit(
+                    "voice-update",
+                    VoiceRecognitionUpdate {
+                        text: text.to_owned(),
+                        final_result,
+                    },
+                );
+            };
+            UnixSocketProvider::new(path).voice_stream_with_options_cancelled(
+                &language,
+                1,
+                &provider_options,
+                None,
+                &mut update,
+            )
         })
         .await
         .map_err(|_| HostActionError {

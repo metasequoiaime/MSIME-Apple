@@ -25,6 +25,7 @@ export interface PanelClient {
 
 export interface VoicePanelClient extends PanelClient {
   recognizeVoice?(language: string): Promise<{ text: string }>;
+  onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
 }
 
 export type CloudClipboardAction =
@@ -228,6 +229,24 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
   useEffect(() => {
     if (!client.rememberInputTarget) return;
     void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+  }, [client]);
+
+  useEffect(() => {
+    if (!client.onVoiceUpdate) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void client.onVoiceUpdate(update => {
+      if (!active) return;
+      setText(update.text);
+      setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : "正在录音并识别…");
+    }).then(stop => {
+      if (active) unlisten = stop;
+      else stop();
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
   }, [client]);
 
   async function recognize() {

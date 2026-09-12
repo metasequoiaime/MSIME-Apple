@@ -70,6 +70,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     recognizeVoice: language => invoke<{ text: string }>("recognize_voice", { request: { language } }),
+    onVoiceUpdate: listener => listen<{ text: string; final: boolean }>("voice-update", event => listener(event.payload)),
     sendText: text => invoke("send_text", { text }),
   },
   cloudClipboard: {
