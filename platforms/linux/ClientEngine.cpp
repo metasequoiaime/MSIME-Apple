@@ -2996,6 +2996,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.smart_punctuation_rejected = 0;
   }
   bool handled = false;
+  const auto fullwidth_idle_commit = [&](guint value) {
+    if (!s.fullwidth || value < 0x21 || value > 0x7e)
+      return false;
+    const auto editing_text = s.view.value("editing_text", std::string{});
+    const auto candidates = s.view.value("candidates", Json::array());
+    if (!editing_text.empty() || (candidates.is_array() && !candidates.empty()))
+      return false;
+    auto text = fullwidth_text(std::string(1, static_cast<char>(value)));
+    ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+    return true;
+  };
   guarded(engine, "process_key", [&] {
     s.open();
     if (dedicated_english_toggle) {
@@ -3132,6 +3143,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = apply(engine, msime_client_punctuation(
             s.session, static_cast<uint8_t>(*keypad)));
       }
+      if (!handled)
+        handled = fullwidth_idle_commit(static_cast<guint>(*keypad));
       return;
     }
     if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
@@ -3163,6 +3176,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = apply(engine, msime_client_punctuation(
                                    s.session, static_cast<uint8_t>(key)),
                                pair_mode);
+      if (!handled)
+        handled = fullwidth_idle_commit(key);
       if (handled)
         ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
@@ -3185,6 +3200,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
         handled = true;
       }
+      if (!handled)
+        handled = fullwidth_idle_commit(key);
       if (handled)
         ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
@@ -3316,6 +3333,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (ascii != '\'' || !has_composition)) {
       handled = apply(engine, msime_client_punctuation(
           s.session, static_cast<uint8_t>(ascii)));
+      if (!handled)
+        handled = fullwidth_idle_commit(key);
       if (is_smart_punctuation_key(key))
         s.smart_punctuation_rejected = 0;
       return;
@@ -3396,6 +3415,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = false;
     } else
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+    if (!handled && key >= 0x21 && key <= 0x7e)
+      handled = fullwidth_idle_commit(key);
   });
   return handled;
 }
