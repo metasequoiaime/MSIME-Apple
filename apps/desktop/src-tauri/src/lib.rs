@@ -874,6 +874,7 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0xbc => 51,
         0xbe => 52,
         0xbf => 53,
+        0xe2 => 86,
         0x30 => 11,
         0x31 => 2,
         0x32 => 3,
@@ -965,6 +966,7 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0xbc => "comma",
         0xbe => "period",
         0xbf => "slash",
+        0xe2 => "less",
         0x30..=0x39 => return char::from_u32(virtual_key as u32).map(|value| value.to_string()),
         0x41..=0x5a => {
             return char::from_u32(virtual_key as u32)
