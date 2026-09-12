@@ -14,6 +14,10 @@ public final class NativeClient {
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
+    public static String typingStatistics(String request) {
+        return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
+    }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
         if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
@@ -68,6 +72,7 @@ public final class NativeClient {
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] typingStatisticsRaw(byte[] request);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);

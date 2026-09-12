@@ -10,6 +10,8 @@ import type { FontCatalogReader } from "./font-catalog";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { ExternalSkins, type SkinCatalog } from "./external-skins";
+import { TypingStatisticsPage, type TypingStatisticsClient } from "./typing-statistics";
+export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./typing-statistics";
 export type { SkinCatalog, ExternalSkin } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
 export type { SkinImage, SkinImageReader } from "./skin-image";
@@ -40,6 +42,7 @@ const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨�
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
+  { id: "typing-statistics", title: "打字统计", icon: new URL("./assets/statistics.svg", import.meta.url).href },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   { id: "shortcuts", title: "快捷键", icon: new URL("./assets/shortcut.svg", import.meta.url).href },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
@@ -302,6 +305,7 @@ export interface SettingsClient {
     sync?(): Promise<string[]>;
     copy?(text: string): Promise<void>;
   };
+  typingStatistics?: TypingStatisticsClient;
 }
 
 function message(error: unknown): string {
@@ -600,6 +604,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
   const [clipboardEntries, setClipboardEntries] = useState<string[]>([]);
+  const availablePages = client.typingStatistics ? pages : pages.filter(item => item.id !== "typing-statistics");
+  useEffect(() => {
+    if (page === "typing-statistics" && !client.typingStatistics) setPage("appearance");
+  }, [client.typingStatistics, page]);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const apply = () => {
@@ -680,18 +688,19 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     <div className="settings-body">
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
-      {pages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
+      {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
         aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => setPage(item.id)}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>
     </nav>
     <main id="settings-content" aria-labelledby="page-title"><div className="content">
-    <header className="content-header"><h1 id="page-title">{pages.find(item => item.id === page)!.title}</h1></header>
+    <header className="content-header"><h1 id="page-title">{availablePages.find(item => item.id === page)?.title ?? "外观"}</h1></header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
-    {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
+    {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
+    {draft && page !== "typing-statistics" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
         <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">工具栏主题<small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small></span><select aria-label="工具栏主题" value={draft.toolbar_theme ?? "follow"} onChange={event => setDraft({ ...draft, toolbar_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
@@ -1055,8 +1064,8 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       {!validCandidateFonts(draft) && <p role="alert">请在外观页修正字体：名称不能为空或超过 128 个 UTF-8 字节，补充字体最多 32 项。</p>}
       <footer className="settings-actions"><span>{dirty ? "有未保存的修改" : ""}</span><button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>{busy ? "处理中…" : "保存设置"}</button></footer>
     </form>}
-    <button className="secondary" disabled={busy} onClick={() => {
+    {page !== "typing-statistics" && <button className="secondary" disabled={busy} onClick={() => {
       if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？")) void reload();
-    }}>重新读取</button>
+    }}>重新读取</button>}
   </div></main></div></div>;
 }

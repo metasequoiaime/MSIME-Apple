@@ -39,8 +39,12 @@ import android.widget.Toast;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.LocalDate;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -188,9 +192,13 @@ public final class MSIMEInputService extends InputMethodService {
     private EditorContextSnapshot replyTarget;
     private AiPolishConfiguration replyRequestConfiguration;
     private boolean replySuppressed;
+    private boolean statisticsFailureReported;
     private long editorContextRevision;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
+        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
+        new ThreadPoolExecutor.AbortPolicy());
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
@@ -221,16 +229,78 @@ public final class MSIMEInputService extends InputMethodService {
         return envelope.getJSONObject("value");
     }
 
-    private EditorBridge.Sink sink() {
+    private EditorBridge.Sink sink(TypingSource source) {
         final InputConnection target = connection;
         return new EditorBridge.Sink() {
             public void begin() { target.beginBatchEdit(); }
-            public boolean commit(String text) { return target.commitText(text, 1); }
+            public boolean commit(String text) {
+                boolean committed = target.commitText(text, 1);
+                if (committed) recordTypingStatistics(text, source);
+                return committed;
+            }
             public boolean compose(String text) { return target.setComposingText(text, 1); }
             public boolean finish() { return target.finishComposingText(); }
             public void end() { target.endBatchEdit(); }
         };
     }
+
+    private TypingSource typingSource() {
+        return TypingSource.resolve(selectedScheme, dedicatedEnglish,
+            view == null ? null : view.optString("local_mode", null));
+    }
+
+    private String typingStatisticsDirectory() {
+        if (!preferencesDirectory.isEmpty()) return preferencesDirectory;
+        File files = getFilesDir();
+        return files == null ? "" : new File(files, "bootstrap/state").getAbsolutePath();
+    }
+
+    private void recordTypingStatistics(String text, TypingSource source) {
+        String directory = typingStatisticsDirectory();
+        if (directory.isEmpty() || text == null || text.isEmpty()) return;
+        final String request;
+        try {
+            request = new JSONObject().put("directory", directory).put("action",
+                new JSONObject().put("operation", "record").put("text", text)
+                    .put("source", source.id()).put("day", LocalDate.now().toString()))
+                .toString();
+        } catch (JSONException error) {
+            reportTypingStatisticsFailure();
+            return;
+        }
+        try {
+            typingStatisticsWorker.execute(() -> {
+                try {
+                    JSONObject result = new JSONObject(NativeClient.typingStatistics(request));
+                    if (!result.getBoolean("ok")) reportTypingStatisticsFailure();
+                } catch (Exception | LinkageError error) {
+                    reportTypingStatisticsFailure();
+                }
+            });
+        } catch (RuntimeException error) {
+            reportTypingStatisticsFailure();
+        }
+    }
+
+    private void reportTypingStatisticsFailure() {
+        main.post(() -> {
+            if (statisticsFailureReported) return;
+            statisticsFailureReported = true;
+            preferencesNotice = " · 打字统计未能写入";
+            render();
+        });
+    }
+
+    private boolean commitText(String text, TypingSource source) {
+        if (connection == null) return false;
+        boolean committed;
+        try { committed = connection.commitText(text, 1); }
+        catch (RuntimeException error) { return false; }
+        if (committed) recordTypingStatistics(text, source);
+        return committed;
+    }
+
+    private boolean commitText(String text) { return commitText(text, typingSource()); }
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
@@ -251,6 +321,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (englishOverride != null) dedicatedEnglish = englishOverride;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         preferencesNotice = "";
+        statisticsFailureReported = false;
         message = "直接输入";
         if (info != null && connection != null && EditorPolicy.useEngine(info.inputType)) {
             try {
@@ -307,6 +378,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         stop(false);
         preferencesWorker.shutdown();
+        typingStatisticsWorker.shutdown();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -330,7 +402,7 @@ public final class MSIMEInputService extends InputMethodService {
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
         }
-        if (connection != null) bridge.abandon(sink());
+        if (connection != null) bridge.abandon(sink(typingSource()));
         view = null;
         closeCandidatePanel();
         closeClipboardHistory();
@@ -536,7 +608,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
         if (commit != null) commit = chineseOutput(commit, result.optJSONObject("commit_context"));
-        if (connection != null && !bridge.apply(sink(), commit, next.getString("editing_text"))) {
+        if (connection != null
+                && !bridge.apply(sink(typingSource()), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
@@ -571,7 +644,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
-        if (!character(output)) connection.commitText(String.valueOf(output), 1);
+        if (!character(output)) commitText(String.valueOf(output));
         if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();
@@ -585,7 +658,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
         if (session != 0) command(9);
-        if (connection != null) connection.commitText(String.valueOf((char) value), 1);
+        if (connection != null) commitText(String.valueOf((char) value));
     }
 
     private void space() {
@@ -593,9 +666,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (commitFirstHandwritingCandidate()) return;
         if (dedicatedEnglish) {
             if (session != 0) command(1);
-            if (connection != null) connection.commitText(" ", 1);
+            if (connection != null) commitText(" ");
         } else if (!command(1)) {
-            connection.commitText(" ", 1);
+            commitText(" ");
         }
     }
 
@@ -665,7 +738,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         if (ReturnKeyAction.performsEditorAction(action, disabled)
                 && connection.performEditorAction(action)) return;
-        connection.commitText("\n", 1);
+        commitText("\n");
     }
 
     private void updateReturnKey() {
@@ -807,7 +880,7 @@ public final class MSIMEInputService extends InputMethodService {
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
             try { value(NativeClient.command(session, 3)); } catch (JSONException | LinkageError error) { fail(); }
-            if (connection != null) bridge.abandon(sink());
+            if (connection != null) bridge.abandon(sink(typingSource()));
             view = null;
             render();
         }
@@ -1155,7 +1228,7 @@ public final class MSIMEInputService extends InputMethodService {
                     || !replyRequestConfiguration.equals(aiPolishConfiguration)
                     || connection == null) return false;
             try {
-                if (!connection.commitText(value, 1)) return false;
+                if (!commitText(value, TypingSource.REPLY)) return false;
             } catch (RuntimeException error) { return false; }
             replySuppressed = true;
             return true;
@@ -1616,8 +1689,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         boolean committed;
-        try { committed = connection.commitText(aiOutputText, 1); }
-        catch (RuntimeException error) { committed = false; }
+        committed = commitText(aiOutputText, TypingSource.AI);
         if (committed) closeAiPolish();
         else {
             aiError = "编辑器拒绝替换，请返回键盘后重试。";
@@ -1711,8 +1783,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             String text = voiceResultStore.consume(entry.id(), System.currentTimeMillis());
             boolean committed;
-            try { committed = connection.commitText(text, 1); }
-            catch (RuntimeException error) { committed = false; }
+            committed = commitText(text, TypingSource.VOICE);
             closeVoiceResult();
             if (!committed)
                 Toast.makeText(this, "编辑器拒绝插入；结果已安全清除", Toast.LENGTH_SHORT).show();
@@ -2107,7 +2178,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void insertClipboardText(String text) {
         if (connection == null || !ClipboardHistoryPolicy.acceptable(text)) return;
         command(9);
-        connection.commitText(text, 1);
+        commitText(text);
         closeClipboardHistory();
     }
 
@@ -2820,7 +2891,7 @@ public final class MSIMEInputService extends InputMethodService {
         long targetSession = session;
         command(9);
         if (targetSession != session || !acceptsHandwriting(token) || connection == null) return false;
-        if (!connection.commitText(chineseOutput(candidate, view), 1)) return false;
+        if (!commitText(chineseOutput(candidate, view), TypingSource.HANDWRITING)) return false;
         clearHandwriting();
         return true;
     }
@@ -3119,7 +3190,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void commitNineKeyLiteral(String text) {
         if (connection == null) return;
         command(9);
-        connection.commitText(text, 1);
+        commitText(text);
     }
 
     private void chooseNineKeySpelling(long generation, int index) {

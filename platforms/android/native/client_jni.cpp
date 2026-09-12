@@ -29,6 +29,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_loadPreferencesR
     env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_typingStatisticsRaw(JNIEnv *env, jclass, jbyteArray request) {
+    if (!request) return response(env, msime_client_typing_statistics(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_typing_statistics(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));

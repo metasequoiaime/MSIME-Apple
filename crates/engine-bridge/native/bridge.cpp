@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <limits>
 #include <filesystem>
+#include "../../vendor/MSIME-Engine/contracts/assets/assets.h"
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_map>

@@ -80,6 +80,14 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
+/* Private aggregate typing statistics. JSON request (<=65536 bytes):
+ * {directory:absolute path,action:{operation:"load"|"reset"}}
+ * {directory,action:{operation:"set_enabled",enabled:bool}}
+ * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD"}}.
+ * Record classifies committed text in memory and persists only aggregate counts;
+ * text is never returned or stored. May block on disk/file lock: use a worker.
+ */
+char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page
  * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
  * An unreadable root is an empty catalog; an invalid package becomes an issue
