@@ -132,15 +132,24 @@ function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pi
 }
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
+  // The host menu entry that started this window names a section; resolve it
+  // before mounting so the page never opens on one and then jumps.
+  const [initialPage, setInitialPage] = useState<string | undefined>();
   useEffect(() => {
     let active = true;
-    void discoverFontReader(isTauri(), invoke).then(reader => {
-      if (active) setSettingsClient(reader ? { ...client, listFontFamilies: reader } : client);
+    const requested = isTauri()
+      ? invoke<string | null>("initial_settings_page").catch(() => null)
+      : Promise.resolve(null);
+    void Promise.all([discoverFontReader(isTauri(), invoke), requested]).then(([reader, page]) => {
+      if (!active) return;
+      setInitialPage(page ?? undefined);
+      setSettingsClient(reader ? { ...client, listFontFamilies: reader } : client);
     });
     return () => { active = false; };
   }, []);
   // Mount once after discovery: replacing the client later would reload draft preferences.
-  return settingsClient ? <SettingsPage client={settingsClient} /> : <p role="status">正在连接设置…</p>;
+  return settingsClient ? <SettingsPage client={settingsClient} initialPage={initialPage} />
+    : <p role="status">正在连接设置…</p>;
 }
 const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
