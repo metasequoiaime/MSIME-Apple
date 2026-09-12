@@ -649,6 +649,38 @@ bool restart_ibus_service() {
   return started != FALSE;
 }
 
+struct DesktopPanelAction {
+  const char *property;
+  const char *panel;
+  const char *label;
+};
+constexpr DesktopPanelAction desktop_panel_actions[] = {
+    {"DesktopTools/Handwriting", "handwriting", "手写识别板"},
+    {"DesktopTools/Keyboard", "keyboard", "屏幕键盘"},
+    {"DesktopTools/Emoji", "emoji", "表情与符号"},
+    {"DesktopTools/Voice", "voice", "语音面板"},
+    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典"},
+    {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板"},
+    {"DesktopTools/Settings", "settings", "设置"},
+};
+
+IBusProperty *desktop_tools_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  auto items = ibus_prop_list_new();
+  for (const auto &action : desktop_panel_actions) {
+    ibus_prop_list_append(items, ibus_property_new(
+        action.property, PROP_TYPE_NORMAL,
+        ibus_text_new_from_static_string(action.label), "",
+        ibus_text_new_from_static_string(action.label),
+        s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr));
+  }
+  return ibus_property_new(
+      "DesktopTools", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("桌面工具"), "",
+      ibus_text_new_from_static_string("打开水杉桌面面板"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, items);
+}
+
 IBusProperty *toolbar_property(IBusEngine *engine) {
   const auto &s = state(engine);
   const auto toolbar = configured.at("preferences").value(
@@ -1735,6 +1767,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, toolbar);
+    ibus_prop_list_append(properties, desktop_tools_property(engine));
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, voice);
@@ -1773,6 +1806,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_register_properties(engine, properties);
   } else {
     ibus_engine_update_property(engine, toolbar);
+    ibus_engine_update_property(engine, desktop_tools_property(engine));
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, voice);
@@ -2410,6 +2444,18 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   }
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
+  if (property_name.rfind("DesktopTools/", 0) == 0) {
+    if (!s.focused || s.blocked)
+      return;
+    for (const auto &action : desktop_panel_actions) {
+      if (property_name == action.property) {
+        if (!launch_desktop_panel(action.panel))
+          g_warning("Cannot start MSIME desktop panel launcher");
+        return;
+      }
+    }
+    return;
+  }
   if (property_name.rfind("Toolbar/", 0) == 0) {
     if (property_name == "Toolbar/Emoji") {
       launch_desktop_panel("emoji");
