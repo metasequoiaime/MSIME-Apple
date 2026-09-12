@@ -44,7 +44,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 键盘工具栏与 Android 设置按 Apple 固定顺序共享全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 9 键、日语 26 键、手写和高情商回复。`touch_keyboard_schemes.enabled` 控制快捷切换中可见的卡片并至少保留一种，`selected` 保存当前方案；隐藏当前方案时按固定顺序回退到第一种可见方案，设置与输入法进程重启后继续生效。键盘内切换先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 同步 `scheme`、`last_chinese_scheme`、`shuangpin_profile`、平台无关的 `touch_keyboard_layout` 及嵌套方案选择，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认全部可见和 26 键，并在第一次键盘内切换时迁移；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
 
-全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点、删除、重输和数字 0 分区，并显示 Engine 返回的拼音消歧条。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。
+全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点、删除、重输和数字 0 分区，并显示 Engine 返回的拼音消歧条。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。九键英文候选按固定来源 `MSIME-Apple@1a0d7194bba6ae1ee4555a7d2866bfb06a9fca6b` 和 `MSIME-Engine@15ff08fc50ff9b469dae0f4bdabeae76c2a66b91` 接入，继续由共享 `mixed_input.english` 与 `minimum_prefix` 控制，Android 只发送数字、展示并选择 Engine 候选。合成加权词典回归验证完整编码 `65` 的 `ok` 排在更高频前缀词 `old` 前；当前锁定的 `dict-v1.0.0` 尚未包含 Engine 构建脚本新增的英文权重，因此设备验收只要求 `ok` 存在于完整候选面板并可原样上屏，不把其首屏位置作为已证明的生产排序。
 
 日语 9 键复刻 Apple 的 10 组五向假名：轻点输入中间假名，向左、上、右、下滑动选择其余假名，长按显示该键全部选项；“小゛゜”菜单提供小假名、浊音和半浊音，括号、长音和波浪号作为文字直接提交。Android 只把对应罗马字逐字符发送给日语 Engine，不在宿主实现假名组合或转换。
 
