@@ -14,6 +14,7 @@ public final class SettingsLifecycleSmoke extends DeviceSmoke {
         shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
         shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
         shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        android.os.SystemClock.sleep(1000);
         shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
         tap(field("msime-test-plain"));
         await(key("n"));

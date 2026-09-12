@@ -19,6 +19,12 @@ import org.json.JSONObject;
 
 /** Drive the actual React DOM and Tauri IPC, then observe a separate system editor. */
 public final class SettingsDeviceSmoke extends DeviceSmoke {
+    private static final String PUNCTUATION_CHECKBOX =
+        "Array.from(document.querySelectorAll('label')).find(label => "
+        + "label.textContent?.includes('中文标点'))?.querySelector('input[type=checkbox]')";
+    private static final String RELOAD_BUTTON =
+        "Array.from(document.querySelectorAll('button')).find(button => "
+        + "button.textContent?.trim() === '重新读取')";
     private WebView web;
     @Override protected String successDescription() { return "React save, shared revision persistence, reload and cross-process IME application"; }
     @Override protected void runChecks() throws Exception {
@@ -42,26 +48,28 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 SystemClock.sleep(100);
             } while (SystemClock.uptimeMillis() < deadline);
             if (web == null) throw new AssertionError("Tauri WebView not created");
-            awaitJs("document.querySelectorAll('input[type=checkbox]').length === 2");
-            boolean before = "true".equals(js("document.querySelectorAll('input[type=checkbox]')[1].checked"));
+            awaitJs("!!(" + PUNCTUATION_CHECKBOX + ")");
+            boolean before = "true".equals(js("(" + PUNCTUATION_CHECKBOX + ").checked"));
             stage = "React save through Tauri";
-            js("document.querySelectorAll('input[type=checkbox]')[1].click(); true");
+            js("(" + PUNCTUATION_CHECKBOX + ").click(); true");
             awaitJs("!document.querySelector('button[type=submit]').disabled");
             js("document.querySelector('button[type=submit]').click(); true");
             awaitJs("document.querySelector('[role=status]')?.textContent === '设置已保存。'");
             JSONObject saved = new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8));
             if (saved.getLong("revision") != revision + 1 || saved.getJSONObject("preferences").getBoolean("chinese_punctuation") == before) throw new AssertionError("React save did not reach shared storage");
             stage = "React reload";
-            js("document.querySelector('button.secondary').click(); true");
-            awaitJs("!document.querySelector('button.secondary').disabled && document.querySelectorAll('input[type=checkbox]')[1].checked === " + !before);
+            js("(" + RELOAD_BUTTON + ").click(); true");
+            awaitJs("!(" + RELOAD_BUTTON + ").disabled && ("
+                + PUNCTUATION_CHECKBOX + ").checked === " + !before);
             stage = "cross-process system input uses saved preferences";
             shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
             shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
             shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
             tap(field("msime-test-plain"));
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
-            tap(key(","));
+            tapSymbol(",");
             String expected = before ? "你好," : "你好，";
             await(field("msime-test-plain").and(node -> equalsText(expected, node.getText())));
         } finally {

@@ -143,6 +143,9 @@ pub struct Preferences {
     pub quanpin_helpcode: HelpcodePreferences,
     #[serde(default)]
     pub shuangpin_helpcode: HelpcodePreferences,
+    /// Render and commit Chinese Engine output in Traditional Chinese at the host boundary.
+    #[serde(default)]
+    pub traditional_chinese_output: bool,
     pub chinese_punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub smart_punctuation: bool,
@@ -658,6 +661,7 @@ impl Default for Preferences {
             autocorrect: true,
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
+            traditional_chinese_output: false,
             chinese_punctuation: true,
             smart_punctuation: true,
             smart_punctuation_repeat: true,
@@ -1501,6 +1505,27 @@ mod tests {
         };
         store.save(0, preferences).unwrap();
         assert!(!store.load().unwrap().preferences.autocorrect);
+    }
+
+    #[test]
+    fn traditional_chinese_output_legacy_default_and_enabled_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("traditional_chinese_output");
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(!store.load().unwrap().preferences.traditional_chinese_output);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let preferences = Preferences {
+            traditional_chinese_output: true,
+            ..Preferences::default()
+        };
+        store.save(0, preferences).unwrap();
+        assert!(store.load().unwrap().preferences.traditional_chinese_output);
     }
 
     #[test]
