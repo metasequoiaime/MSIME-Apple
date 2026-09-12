@@ -71,6 +71,8 @@ static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnab
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
+static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
+static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
@@ -78,6 +80,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSNumber *_sharedShiftTapShortcut;
+    NSNumber *_sharedControlTapShortcut;
+    NSButton *_shiftTapShortcutButton;
+    NSButton *_controlTapShortcutButton;
     NSNumber *_sharedControlOptionSpaceShortcut;
     NSButton *_controlOptionSpaceShortcutButton;
     NSNumber *_sharedCharacterSetShortcut;
@@ -167,6 +173,14 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
+    for (NSArray *entry in @[@[ShiftTapShortcutKey, @"switch_language_shift", @(self.shiftTapShortcut)],
+                            @[ControlTapShortcutKey, @"switch_language_ctrl", @(self.controlTapShortcut)]]) {
+        if ([_defaults objectForKey:entry[0]] == nil) continue;
+        id existing = merged[@"keybindings"];
+        NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+        keys[entry[1]] = entry[2];
+        merged[@"keybindings"] = keys;
+    }
     if ([_defaults objectForKey:ControlOptionSpaceShortcutKey] != nil) {
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -407,6 +421,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (![preferences isKindOfClass:NSDictionary.class]) return;
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
+        if (LocalModeBoolean(keys[@"switch_language_shift"])) _sharedShiftTapShortcut = keys[@"switch_language_shift"];
+        if (LocalModeBoolean(keys[@"switch_language_ctrl"])) _sharedControlTapShortcut = keys[@"switch_language_ctrl"];
         id inputMode = keys[@"switch_language_ctrl_alt_space"];
         if (LocalModeBoolean(inputMode)) _sharedControlOptionSpaceShortcut = inputMode;
         id enabled = keys[@"toggle_character_set_ctrl_shift_f"];
@@ -458,6 +474,23 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (BOOL)inputModeShortcut {
     return [_defaults objectForKey:InputModeShortcutKey] == nil || [_defaults boolForKey:InputModeShortcutKey];
+}
+- (BOOL)shiftTapShortcut {
+    if (_sharedShiftTapShortcut) return _sharedShiftTapShortcut.boolValue;
+    return [_defaults objectForKey:ShiftTapShortcutKey] == nil || [_defaults boolForKey:ShiftTapShortcutKey];
+}
+- (void)setShiftTapShortcut:(BOOL)value {
+    _sharedShiftTapShortcut = nil;
+    [_defaults setBool:value forKey:ShiftTapShortcutKey];
+    [self preferencesChanged];
+}
+- (BOOL)controlTapShortcut {
+    return _sharedControlTapShortcut ? _sharedControlTapShortcut.boolValue : [_defaults boolForKey:ControlTapShortcutKey];
+}
+- (void)setControlTapShortcut:(BOOL)value {
+    _sharedControlTapShortcut = nil;
+    [_defaults setBool:value forKey:ControlTapShortcutKey];
+    [self preferencesChanged];
 }
 - (BOOL)controlOptionSpaceShortcut {
     if (_sharedControlOptionSpaceShortcut) return _sharedControlOptionSpaceShortcut.boolValue;
@@ -700,6 +733,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     for (NSButton *button in _localModeButtons)
         button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
+    _shiftTapShortcutButton.state = self.shiftTapShortcut ? NSControlStateValueOn : NSControlStateValueOff;
+    _controlTapShortcutButton.state = self.controlTapShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     _controlOptionSpaceShortcutButton.state = self.controlOptionSpaceShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     _characterSetShortcutButton.state = self.characterSetShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
@@ -855,6 +890,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
     NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     _inputModeShortcutButton = [NSButton checkboxWithTitle:@"Shift + 空格切换中英文" target:self action:@selector(inputModeShortcutChanged:)];
+    _shiftTapShortcutButton = [NSButton checkboxWithTitle:@"单按 Shift 切换中英文" target:self action:@selector(shiftTapShortcutChanged:)];
+    _controlTapShortcutButton = [NSButton checkboxWithTitle:@"单按 Control 切换中英文" target:self action:@selector(controlTapShortcutChanged:)];
     _controlOptionSpaceShortcutButton = [NSButton checkboxWithTitle:@"Control + Option + 空格切换中英文" target:self action:@selector(controlOptionSpaceShortcutChanged:)];
     _characterSetShortcutButton = [NSButton checkboxWithTitle:@"Control + Shift + F 切换简繁" target:self action:@selector(characterSetShortcutChanged:)];
     _fullWidthButton = [NSButton checkboxWithTitle:@"全角输入（Option + Shift + H）" target:self action:@selector(fullWidthChanged:)];
@@ -889,6 +926,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"外部皮肤"], reload],
         @[[NSTextField labelWithString:@"皮肤卡片"], browse],
         @[[NSTextField labelWithString:@"输入切换"], _inputModeShortcutButton],
+        @[[NSTextField labelWithString:@"输入切换"], _shiftTapShortcutButton],
+        @[[NSTextField labelWithString:@"输入切换"], _controlTapShortcutButton],
         @[[NSTextField labelWithString:@"输入切换"], _controlOptionSpaceShortcutButton],
         @[[NSTextField labelWithString:@"简繁切换"], _characterSetShortcutButton],
         @[[NSTextField labelWithString:@"字符宽度"], _fullWidthButton],
@@ -983,6 +1022,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
+- (void)shiftTapShortcutChanged:(NSButton *)sender { self.shiftTapShortcut = sender.state == NSControlStateValueOn; }
+- (void)controlTapShortcutChanged:(NSButton *)sender { self.controlTapShortcut = sender.state == NSControlStateValueOn; }
 - (void)controlOptionSpaceShortcutChanged:(NSButton *)sender { self.controlOptionSpaceShortcut = sender.state == NSControlStateValueOn; }
 - (void)characterSetShortcutChanged:(NSButton *)sender { self.characterSetShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSButton *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
