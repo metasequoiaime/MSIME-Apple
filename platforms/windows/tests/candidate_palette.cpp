@@ -57,6 +57,16 @@ int main() {
   require(defaults.show_selected_bar && defaults.radius == 6.0f &&
           defaults.border_width == 1.5f && defaults.item_radius == 4.0f);
 
+  // The light branch replaces only the colors the shipped presenter overrides.
+  const auto light_defaults = candidate_light_palette();
+  require(same(light_defaults.surface, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(light_defaults.border, 0.0f, 0.0f, 0.0f, 0.12f));
+  require(same(light_defaults.number, 26 / 255.0f, 26 / 255.0f, 26 / 255.0f,
+               0.55f));
+  require(light_defaults.accent == defaults.accent &&
+          light_defaults.radius == defaults.radius &&
+          light_defaults.show_selected_bar == defaults.show_selected_bar);
+
   // A package overrides only what it declares.
   CandidatePaletteOverrides overrides;
   overrides.accent = "#00ff00";

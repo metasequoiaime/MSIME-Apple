@@ -89,6 +89,8 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  bool horizontal, bool show_preedit)
     : reader_(std::move(reader)), click_(std::move(click)), font_size_(font_size),
       preedit_font_size_(preedit_font_size), text_color_(text_color),
+      palette_(dark_theme.value_or(false) ? CandidatePalette{}
+                                          : candidate_light_palette()),
       font_family_(wide(font_family)), dark_theme_(dark_theme), horizontal_(horizontal),
       show_preedit_(show_preedit) {
   if (font_family_.empty() || font_family_.size() > 128)
@@ -123,6 +125,19 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                             nullptr, nullptr, descriptor.hInstance, this);
   if (!window_)
     throw std::runtime_error("Candidate window unavailable");
+}
+CandidateWindow::Apartment::Apartment() {
+  const HRESULT entered =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  // S_FALSE only means this thread was already inside the same apartment; the
+  // reference still has to be released. A different mode is left untouched.
+  if (FAILED(entered) && entered != RPC_E_CHANGED_MODE)
+    throw std::runtime_error("Candidate apartment unavailable");
+  owned = entered != RPC_E_CHANGED_MODE;
+}
+CandidateWindow::Apartment::~Apartment() {
+  if (owned)
+    CoUninitialize();
 }
 CandidateWindow::~CandidateWindow() {
   if (window_)
@@ -186,16 +201,6 @@ void CandidateWindow::paint() {
   Painting painting(window_);
   if (!painting.dc)
     throw std::runtime_error("Candidate painting unavailable");
-  RECT bounds{};
-  GetClientRect(window_, &bounds);
-  const auto background = dark_theme_.value_or(false) ? RGB(32, 32, 32) : GetSysColor(COLOR_WINDOW);
-  const auto foreground = dark_theme_.value_or(false) ? RGB(243, 243, 243) : GetSysColor(COLOR_WINDOWTEXT);
-  const auto highlight = dark_theme_.value_or(false) ? RGB(76, 74, 150) : GetSysColor(COLOR_HIGHLIGHT);
-  const auto highlight_text = dark_theme_.value_or(false) ? RGB(255, 255, 255) : GetSysColor(COLOR_HIGHLIGHTTEXT);
-  HBRUSH background_brush = CreateSolidBrush(background);
-  if (!background_brush) throw std::runtime_error("Candidate background unavailable");
-  FillRect(painting.dc, &bounds, background_brush);
-  DeleteObject(background_brush);
   const auto value = reader_(); // Never paint the last cached owner's text.
   if (!value || !value->visible) {
     hide();
@@ -203,59 +208,107 @@ void CandidateWindow::paint() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  const auto metrics = candidate_metrics(GetDpiForWindow(window_), font_size_);
-  SetBkMode(painting.dc, TRANSPARENT);
-  auto line = [&](const std::wstring &text, size_t row, bool highlighted) {
-    RECT rect{metrics.padding,
-              static_cast<LONG>(metrics.padding + row * metrics.row),
-              bounds.right - metrics.padding,
-              static_cast<LONG>(metrics.padding + (row + 1) * metrics.row)};
-    if (highlighted) {
-      HBRUSH brush = CreateSolidBrush(highlight);
-      if (!brush) throw std::runtime_error("Candidate highlight unavailable");
-      FillRect(painting.dc, &rect, brush);
-      DeleteObject(brush);
-    }
-    SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
-    rect.left += metrics.padding;
-    DrawTextW(painting.dc, text.c_str(), static_cast<int>(text.size()), &rect,
-              DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+  if (!device_.EnsureForWindow(window_))
+    throw std::runtime_error("Candidate device unavailable");
+  auto *target = device_.GetRenderTarget();
+  if (!target)
+    throw std::runtime_error("Candidate render target unavailable");
+  // DrawText goes through the windows.h macro so the call matches whichever
+  // name the Direct2D declaration picked up for this target.
+  // The window rect is still sized in physical pixels, so lay the card out in
+  // the same units the rect was derived from, expressed at 96 dpi.
+  const auto metrics = candidate_metrics(96, font_size_);
+  const auto size = target->GetSize();
+  auto brush = [&](const CandidateColor &color) {
+    auto *value = device_.GetSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a));
+    if (!value)
+      throw std::runtime_error("Candidate brush unavailable");
+    return value;
   };
+  auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
+    auto *value = device_.GetTextFormat(
+        font_family_, static_cast<float>(candidate_metrics(96, points).font),
+        DWRITE_FONT_WEIGHT_NORMAL, alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (!value)
+      throw std::runtime_error("Candidate text format unavailable");
+    return value;
+  };
+  const float pad = static_cast<float>(metrics.padding);
+  const float row = static_cast<float>(metrics.row);
+  const float inset = palette_.border_width / 2.0f;
+  // The configured text color still wins over the skin token.
+  const CandidateColor text_color =
+      text_color_ ? candidate_rgb(GetRValue(*text_color_) << 16 |
+                                  GetGValue(*text_color_) << 8 |
+                                  GetBValue(*text_color_))
+                  : palette_.text;
+  target->BeginDraw();
+  target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
+                             palette_.surface.b, palette_.surface.a));
+  const D2D1_ROUNDED_RECT card{
+      {inset, inset, size.width - inset, size.height - inset},
+      palette_.radius, palette_.radius};
+  target->DrawRoundedRectangle(card, brush(palette_.border),
+                               palette_.border_width);
   if (show_preedit_) {
-    Font preedit_font(painting.dc, candidate_metrics(
-        GetDpiForWindow(window_), preedit_font_size_).font, font_family_.c_str());
-    line(wide(value->preedit), 0, false);
+    const D2D1_RECT_F rect{pad * 2.0f, pad, size.width - pad, pad + row};
+    const auto text = wide(value->preedit);
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
+                      format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
+                      rect, brush(text_color));
   }
-  {
-    Font candidate_font(painting.dc, metrics.font, font_family_.c_str());
-    if (!horizontal_) {
-      for (size_t i = 0; i < value->candidates.size(); ++i)
-        line(std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text),
-             i + 1, value->candidates[i].highlighted);
-    } else {
-      const auto inner = bounds.right - 2 * metrics.padding;
-      const auto column = (inner + static_cast<LONG>(value->candidates.size()) - 1) /
-                          static_cast<LONG>(value->candidates.size());
-      for (size_t i = 0; i < value->candidates.size(); ++i) {
-        RECT rect{metrics.padding + static_cast<LONG>(i) * column,
-                  metrics.padding + metrics.row,
-                  metrics.padding + static_cast<LONG>(i + 1) * column,
-                  metrics.padding + 2 * metrics.row};
-        const auto highlighted = value->candidates[i].highlighted;
-        if (highlighted) {
-          HBRUSH brush = CreateSolidBrush(highlight);
-          if (!brush) throw std::runtime_error("Candidate highlight unavailable");
-          FillRect(painting.dc, &rect, brush);
-          DeleteObject(brush);
-        }
-        SetTextColor(painting.dc, highlighted ? highlight_text : text_color_.value_or(foreground));
-        rect.left += metrics.padding;
-        DrawTextW(painting.dc,
-                  (std::to_wstring(i + 1) + L". " + wide(value->candidates[i].text)).c_str(),
-                  -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+  // Reserve the selection number column and its separator bar, matching the
+  // shipped card, so candidates start on one vertical line.
+  const float number = static_cast<float>(metrics.font) * 0.8f;
+  const float gutter = number + static_cast<float>(metrics.font) * 0.2f + 8.0f;
+  const size_t count = value->candidates.size();
+  auto candidate_rect = [&](size_t index) {
+    if (!horizontal_)
+      return D2D1_RECT_F{pad, pad + static_cast<float>(index + 1) * row,
+                         size.width - pad,
+                         pad + static_cast<float>(index + 2) * row};
+    const float column =
+        (size.width - 2.0f * pad) / static_cast<float>((std::max)(count, size_t{1}));
+    return D2D1_RECT_F{pad + static_cast<float>(index) * column, pad + row,
+                       pad + static_cast<float>(index + 1) * column,
+                       pad + 2.0f * row};
+  };
+  for (size_t i = 0; i < count; ++i) {
+    const auto rect = candidate_rect(i);
+    if (value->candidates[i].highlighted) {
+      const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
+                                        palette_.item_radius};
+      target->FillRoundedRectangle(selection, brush(palette_.selected));
+      if (palette_.show_selected_bar) {
+        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f, rect.top + row * 0.25f,
+                                     rect.left + 5.0f, rect.bottom - row * 0.25f},
+                                    1.5f, 1.5f};
+        target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }
+    const auto label = std::to_wstring(i + 1);
+    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
+                      format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
+                      D2D1_RECT_F{rect.left, rect.top, rect.left + number,
+                                  rect.bottom},
+                      brush(palette_.number));
+    const auto text = wide(value->candidates[i].text);
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
+                      format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
+                      D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
+                                  rect.bottom},
+                      brush(text_color));
   }
+  const HRESULT drawn = target->EndDraw();
+  if (drawn == D2DERR_RECREATE_TARGET) {
+    // Losing the device is not a presentation failure; rebuild on the next
+    // refresh rather than hiding a live composition.
+    device_.DiscardTarget();
+    return;
+  }
+  if (FAILED(drawn))
+    throw std::runtime_error("Candidate drawing failed");
   painted_ = value;
   painted_dpi_ = GetDpiForWindow(window_);
 }

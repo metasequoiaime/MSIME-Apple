@@ -97,6 +97,18 @@ struct CandidatePalette {
   float item_radius = 4.0f;
   bool show_selected_bar = true;
 };
+// Built-in tokens. The defaults above are the shipped fluent dark values; the
+// light branch replaces only the colors the shipped presenter overrides.
+inline CandidatePalette candidate_light_palette() {
+  CandidatePalette palette;
+  palette.surface = candidate_rgb(0xFFFFFF);
+  palette.border = {0.0f, 0.0f, 0.0f, 0.12f};
+  palette.text = candidate_rgb(0x1A1A1A);
+  palette.number = candidate_rgb(0x1A1A1A, 0.55f);
+  palette.selected = candidate_rgb(0xE8E8E8);
+  palette.hover = candidate_rgb(0xECECEC);
+  return palette;
+}
 inline CandidatePalette
 candidate_palette(const CandidatePaletteOverrides &overrides,
                   CandidatePalette palette = {}) {
