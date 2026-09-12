@@ -42,6 +42,9 @@ target_compile_options(msime-client-translation PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-translation PRIVATE msime-ibus-host)
 add_executable(msime-client-clipboard clipboard_history.cpp)
 target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
+add_executable(msime-client-clipboard-capture clipboard_capture.cpp)
+target_compile_options(msime-client-clipboard-capture PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-clipboard-capture PRIVATE msime-ibus-host)
 add_executable(msime-client-handwriting handwriting_request.cpp)
 target_compile_options(msime-client-handwriting PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-handwriting PRIVATE msime-ibus-host)
@@ -66,14 +69,15 @@ if(MSIME_LINUX_VOICE)
 endif()
 configure_file(msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
-                msime-client-handwriting msime-client-voice msime-client-emoji
+                msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 install(PROGRAMS msime-client-ibus-launcher msime-client-online-provider msime-client-voice-provider msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
-foreach(MSIME_PROVIDER online voice)
+foreach(MSIME_PROVIDER online voice clipboard)
   configure_file(data/msime-client-${MSIME_PROVIDER}.service.in
                  ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service @ONLY)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
@@ -116,7 +120,7 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
 set_target_properties(msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-handwriting
-                      msime-client-voice msime-client-emoji PROPERTIES
+                      msime-client-voice msime-client-emoji msime-client-clipboard-capture PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 
 add_executable(linux-native-compose-test tests/native_compose.cpp)

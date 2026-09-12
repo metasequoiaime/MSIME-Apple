@@ -1,0 +1,15 @@
+[Unit]
+Description=MSIME clipboard history monitor
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-clipboard-monitor" "%E/msime-client/runtime-options.json"
+UMask=0077
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=graphical-session.target

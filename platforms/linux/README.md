@@ -294,3 +294,11 @@ systemctl --user enable --now msime-client-voice.service
 候选翻译关闭、目标语言切换或 provider 端点变更会清除当前旧译文；设置热更新后立即调度当前候选翻译。菜单翻译开关和目标语言覆盖也会提交给共享运行时。自定义翻译配置变化时使旧请求失效，避免旧服务结果回填。
 
 云候选菜单开关会传入共享运行时设置，偏好更新后重新调度在线查询。AI 配置变化会使旧请求失效并清除旧上下文；若组合期间 Engine 延后应用新配置，宿主暂不发送旧 AI 配置的请求，仍可按当前开关查询云候选，新配置生效后恢复 AI 请求。
+
+### 独立剪贴板采集
+
+`msime-client-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
+
+Wayland 使用 `wl-paste --type text`，X11 使用 `xclip` 或 `xsel`；每次读取限时 1 秒、最多 4096 字节，每轮间隔 750ms。文本经标准输入交给 `msime-client-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
+
+可按需执行 `systemctl --user enable --now msime-client-clipboard.service`，使用默认 XDG runtime-options 路径。桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`；未集成 systemd 图形会话的桌面可从会话自启动运行监视器。安装不会自动启用服务，语音和在线服务不依赖它。
