@@ -171,6 +171,15 @@ struct State {
   std::vector<std::string> clipboard_items_cache;
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
+  GFileMonitor *clipboard_monitor = nullptr;
+  GFile *clipboard_watch_file = nullptr;
+  void stop_clipboard_monitor() {
+    if (clipboard_monitor) {
+      g_file_monitor_cancel(clipboard_monitor);
+      g_clear_object(&clipboard_monitor);
+    }
+    g_clear_object(&clipboard_watch_file);
+  }
   bool online_loading = false, translation_loading = false;
   guint online_delay_source = 0;
   bool cloud_candidates = true;
@@ -195,6 +204,7 @@ struct State {
     close();
   }
   void close() {
+    stop_clipboard_monitor();
     ai_context.clear();
     if (voice_active && !voice_provider_socket.empty())
       msime_client_string_free(msime_client_voice_provider_cancel(
@@ -751,6 +761,57 @@ struct ClipboardTask {
   std::string path;
   uint64_t generation;
 };
+void clipboard_schedule(IBusEngine *engine);
+void watch_clipboard_history(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.focused || s.blocked || !s.input_enabled ||
+      s.clipboard_history_path.empty()) {
+    s.stop_clipboard_monitor();
+    return;
+  }
+  auto target = g_file_new_for_path(s.clipboard_history_path.c_str());
+  if (s.clipboard_monitor && !g_file_monitor_is_cancelled(s.clipboard_monitor) &&
+      s.clipboard_watch_file && g_file_equal(target, s.clipboard_watch_file)) {
+    g_object_unref(target);
+    return;
+  }
+  s.stop_clipboard_monitor();
+  auto parent = g_file_get_parent(target);
+  if (!parent) {
+    g_object_unref(target);
+    return;
+  }
+  // Watch the directory so atomic replace and delete/recreate keep working.
+  s.clipboard_monitor = g_file_monitor_directory(
+      parent, G_FILE_MONITOR_WATCH_MOVES, nullptr, nullptr);
+  g_object_unref(parent);
+  if (!s.clipboard_monitor) {
+    g_object_unref(target);
+    return;
+  }
+  s.clipboard_watch_file = target;
+  g_file_monitor_set_rate_limit(s.clipboard_monitor, 100);
+  g_signal_connect(s.clipboard_monitor, "changed",
+      G_CALLBACK(+[](GFileMonitor *, GFile *file, GFile *other,
+                     GFileMonitorEvent, gpointer data) {
+        auto engine = IBUS_ENGINE(data);
+        auto &s = state(engine);
+        if (!s.clipboard_watch_file || !s.focused || s.blocked || !s.input_enabled)
+          return;
+        if ((!file || !g_file_equal(file, s.clipboard_watch_file)) &&
+            (!other || !g_file_equal(other, s.clipboard_watch_file)))
+          return;
+        ++s.clipboard_generation;
+        s.clipboard_loaded = false;
+        s.clipboard_items_cache.clear();
+        publish_mode(engine);
+      }), engine);
+  // A monitor may have been unavailable when the directory did not exist.
+  // Reload after attaching to close that gap.
+  ++s.clipboard_generation;
+  s.clipboard_loaded = false;
+  clipboard_schedule(engine);
+}
 void clipboard_complete(GObject *source, GAsyncResult *result, gpointer);
 void clipboard_schedule(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2374,6 +2435,7 @@ void focus_in(IBusEngine *engine) {
     auto &s = state(engine);
     s.focused = true;
     s.open();
+    watch_clipboard_history(engine);
     sync_global_input_mode(engine);
     if (s.session)
       apply(engine, msime_client_focus(s.session, s.input_enabled));
@@ -2390,6 +2452,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.stop_clipboard_monitor();
     s.reset_mode_modifiers();
     s.ai_context.clear();
     s.invalidate_providers();
@@ -3966,6 +4029,7 @@ struct PreferencesRead {
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
+  watch_clipboard_history(engine);
   if (s.preferences_loading)
     return G_SOURCE_CONTINUE;
   const auto directory = configured.find("preferences_directory");
