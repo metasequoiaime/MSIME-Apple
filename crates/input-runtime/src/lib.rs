@@ -581,7 +581,7 @@ impl UnixSocketProvider {
         }
         let mut stream = UnixStream::connect(&self.path).ok()?;
         stream
-            .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+            .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
         if request.len() > 16384
@@ -590,8 +590,31 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).ok()?;
+        // Leave room for the provider's six-second translation batch budget.
+        // A partial response cannot renew this deadline or grow without bound.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let mut bytes = Vec::new();
+        loop {
+            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            stream.set_read_timeout(Some(remaining)).ok()?;
+            let mut chunk = [0_u8; 1024];
+            let count = stream.read(&mut chunk).ok()?;
+            if count == 0 {
+                return None;
+            }
+            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
+            if bytes.len() > 131_072 {
+                return None;
+            }
+            if end.is_some() {
+                break;
+            }
+        }
+        let line = String::from_utf8(bytes).ok()?;
         #[derive(Deserialize)]
         struct Reply {
             translations: Vec<TranslationResult>,
@@ -601,7 +624,12 @@ impl UnixSocketProvider {
             || reply
                 .translations
                 .iter()
-                .any(|item| item.text.len() > 4096 || item.translation.len() > 4096)
+                .any(|item| {
+                    item.text.len() > 4096
+                        || item.translation.is_empty()
+                        || item.translation.len() > 4096
+                        || !query.candidates.contains(&item.text)
+                })
         {
             return None;
         }

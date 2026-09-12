@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""User-session online candidate transport. Never logs requests or HTTP errors."""
+"""User-session candidate and translation transport. Never logs requests or HTTP errors."""
 import argparse
 import concurrent.futures
+import datetime
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -10,7 +13,9 @@ import socket
 import socketserver
 import stat
 import struct
+import string
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -20,12 +25,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def fetch(url, timeout, body=None, token=None):
+def fetch(url, timeout, body=None, token=None, extra_headers=None):
     headers = {"Content-Type": "application/json", "User-Agent": "MSIME-Client"}
     if token:
         headers["Authorization"] = "Bearer " + token
-    request = urllib.request.Request(url, data=None if body is None else
-                                     json.dumps(body).encode(), headers=headers)
+    headers.update(extra_headers or {})
+    payload = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(url, data=payload, headers=headers)
     with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
         payload = response.read(65537)
     if len(payload) > 65536:
@@ -95,6 +101,134 @@ def safely(call, *args):
         return None
 
 
+def translation_direction(text, target):
+    if (any(c in string.ascii_letters for c in text) and
+        all(c in string.ascii_letters + " -'" for c in text)):
+        return "en", "zh"
+    has_han = False
+    for c in text:
+        if "\u3400" <= c <= "\u4dbf" or "\u4e00" <= c <= "\u9fff" or c == "\u3007":
+            has_han = True
+        elif c in string.punctuation + string.whitespace:
+            continue
+        elif c.isascii() or "\U0001f000" <= c <= "\U0001faff":
+            return None
+    return ("zh", target) if has_han else None
+
+
+def translation_gloss(value):
+    if not isinstance(value, str):
+        return None
+    value = value.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+    value = " ".join(part for part in value.split(" ") if part)
+    return value if candidate(value, 0) and not any(127 <= ord(c) <= 159 for c in value) else None
+
+
+def custom_translation(config, text, source, target, timeout):
+    result = fetch(config["endpoint"], timeout, {
+        "text": text, "source_lang": source.upper(), "target_lang": target.upper()}, config.get("api_key"))
+    if not isinstance(result, dict) or ("code" in result and result["code"] not in (200, "200")):
+        return None
+    for key in ("data", "translation", "result", "translations"):
+        value = result.get(key)
+        if isinstance(value, list):
+            value = value[0] if value else None
+        if isinstance(value, dict):
+            value = next((value[k] for k in ("text", "translation", "data")
+                          if isinstance(value.get(k), str)), None)
+        gloss = translation_gloss(value)
+        if gloss:
+            return gloss
+    return None
+
+
+def tencent_translation(config, texts, source, target, timeout):
+    payload = json.dumps({"Source": source, "Target": target, "ProjectId": 0,
+                          "SourceTextList": texts}, ensure_ascii=False, separators=(",", ":")).encode()
+    timestamp = int(time.time())
+    date = datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).strftime("%Y-%m-%d")
+    signed_headers = "content-type;host;x-tc-action"
+    canonical = ("POST\n/\n\ncontent-type:application/json; charset=utf-8\n"
+                 "host:tmt.tencentcloudapi.com\nx-tc-action:texttranslatebatch\n\n" +
+                 signed_headers + "\n" + hashlib.sha256(payload).hexdigest())
+    scope = date + "/tmt/tc3_request"
+    to_sign = "TC3-HMAC-SHA256\n" + str(timestamp) + "\n" + scope + "\n" + hashlib.sha256(canonical.encode()).hexdigest()
+    key = ("TC3" + config["secret_key"]).encode()
+    for value in (date, "tmt", "tc3_request"):
+        key = hmac.new(key, value.encode(), hashlib.sha256).digest()
+    signature = hmac.new(key, to_sign.encode(), hashlib.sha256).hexdigest()
+    headers = {"Content-Type": "application/json; charset=utf-8", "Host": "tmt.tencentcloudapi.com",
+               "X-TC-Action": "TextTranslateBatch", "X-TC-Timestamp": str(timestamp),
+               "X-TC-Version": "2018-03-21", "X-TC-Region": config.get("region") or "ap-guangzhou",
+               "Authorization": "TC3-HMAC-SHA256 Credential=" + config["secret_id"] + "/" + scope +
+                   ", SignedHeaders=" + signed_headers + ", Signature=" + signature}
+    result = fetch("https://tmt.tencentcloudapi.com/", timeout, payload, extra_headers=headers)
+    values = result["Response"]["TargetTextList"]
+    if not isinstance(values, list) or len(values) != len(texts):
+        return [None] * len(texts)
+    return [translation_gloss(value) for value in values]
+
+
+def translations(query, server):
+    texts = query.get("candidates")
+    target = query.get("target_language", "en")
+    if (not isinstance(texts, list) or len(texts) > 9 or
+        any(not isinstance(text, str) or len(text.encode()) > 4096 for text in texts) or
+        target not in ("en", "fr", "ja", "es", "ru", "de", "ko")):
+        return []
+    custom = query.get("custom_translation")
+    custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
+    if custom:
+        endpoint = custom.get("endpoint", "")
+        if not isinstance(endpoint, str) or len(endpoint) > 2048:
+            return []
+        url = urllib.parse.urlsplit(endpoint)
+        if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password:
+            return []
+        token = custom.get("api_key", "")
+        if not isinstance(token, str) or len(token) > 4096:
+            return []
+        # Keep credentials out of cache keys and separate caches when they change.
+        provider = (endpoint, hashlib.sha256(token.encode()).digest())
+    elif server.tencent_config:
+        provider = ("tencent",)
+    else:
+        return []
+    deadline = time.monotonic() + 6
+    found = {}
+    groups = {}
+    for text in dict.fromkeys(texts):
+        direction = translation_direction(text, target) if 0 < len(text) <= 40 else None
+        if direction is None:
+            continue
+        key = (provider, direction, text)
+        with server.translation_lock:
+            cached = server.translation_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            found[text] = cached[1]
+        else:
+            groups.setdefault(direction, []).append(text)
+    for (source, destination), pending in groups.items():
+        if custom:
+            values = []
+            for text in pending:
+                remaining = min(2.5, deadline - time.monotonic())
+                values.append(safely(custom_translation, custom, text, source, destination, remaining)
+                              if remaining > 0 else None)
+        else:
+            remaining = min(2.5, deadline - time.monotonic())
+            values = safely(tencent_translation, server.tencent_config, pending, source, destination, remaining) if remaining > 0 else None
+            values = values or [None] * len(pending)
+        with server.translation_lock:
+            for text, value in zip(pending, values):
+                found[text] = value
+                if len(server.translation_cache) >= 2048:
+                    server.translation_cache.pop(next(iter(server.translation_cache)))
+                server.translation_cache[(provider, (source, destination), text)] = (
+                    time.monotonic() + (480 if value else 30), value)
+    return [{"text": text, "translation": found[text]} for text in dict.fromkeys(texts) if found.get(text)]
+
+
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         self.request.settimeout(8)
@@ -107,7 +241,13 @@ class Handler(socketserver.StreamRequestHandler):
         try:
             request = json.loads(line)
             query = request["query"]
-            if request.get("version") != 1 or request.get("kind") != "online" or not isinstance(query, dict):
+            if request.get("version") != 1 or not isinstance(query, dict):
+                return
+            if request.get("kind") == "translation":
+                rows = translations(query, self.server)
+                self.wfile.write(json.dumps({"translations": rows}, ensure_ascii=False).encode() + b"\n")
+                return
+            if request.get("kind") != "online":
                 return
             # Fetch independently so a failed AI response still preserves cloud.
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
@@ -147,6 +287,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("socket", type=Path, help="absolute socket path in a private runtime directory")
     parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider, endpoint, model, token")
+    parser.add_argument("--tencent-config", type=Path, help="owner-only JSON: secret_id, secret_key, optional region")
     args = parser.parse_args()
     config = {}
     if args.ai_config:
@@ -164,6 +305,25 @@ def main():
                 raise ValueError()
         except Exception:
             parser.error("invalid AI configuration")
+    tencent_config = {}
+    if args.tencent_config:
+        try:
+            info = args.tencent_config.stat()
+            if (info.st_uid != os.getuid() or info.st_mode & 0o077 or
+                not stat.S_ISREG(info.st_mode) or info.st_size > 16384):
+                raise ValueError()
+            tencent_config = json.loads(args.tencent_config.read_text())
+            for key in ("secret_id", "secret_key"):
+                value = tencent_config[key]
+                if (not isinstance(value, str) or not value.strip() or
+                    any(ord(c) < 33 or ord(c) > 126 for c in value) or
+                    value.startswith(("FAKESECRET_", "<"))):
+                    raise ValueError()
+            region = tencent_config.get("region", "")
+            if not isinstance(region, str) or any(c not in string.ascii_lowercase + string.digits + "-" for c in region):
+                raise ValueError()
+        except Exception:
+            parser.error("Tencent configuration must be valid owner-only JSON")
     parent = args.socket.parent.stat()
     if not args.socket.is_absolute() or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
         parser.error("socket requires an absolute path in an owner-only directory")
@@ -171,6 +331,9 @@ def main():
     # Bind fails on an existing socket: never unlink another running service.
     server = Server(str(args.socket), Handler)
     server.ai_config = config
+    server.tencent_config = tencent_config
+    server.translation_cache = {}
+    server.translation_lock = threading.Lock()
     identity = args.socket.stat()
     def stop(signum, frame):
         raise KeyboardInterrupt()
