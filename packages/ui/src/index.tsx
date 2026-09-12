@@ -48,6 +48,56 @@ const fuzzyPinyinGroups: [string, [string, string][]][] = [
   ["前后鼻音", [["an-ang", "an ↔ ang"], ["en-eng", "en ↔ eng"], ["in-ing", "in ↔ ing"]]],
   ["其他韵母", [["ian-iang", "ian ↔ iang"], ["uan-uang", "uan ↔ uang"]]],
 ];
+export type TouchKeyboardScheme = "quanpin" | "nine_key" | "xiaohe" | "ziranma" | "microsoft" |
+  "shoudao" | "wubi" | "japanese_nine_key" | "japanese" | "handwriting" | "thoughtful_reply";
+export type TouchKeyboardSchemePreferences = { enabled: TouchKeyboardScheme[]; selected?: TouchKeyboardScheme };
+const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
+  ["quanpin", "全拼 26 键"], ["nine_key", "全拼 9 键"], ["xiaohe", "小鹤双拼"],
+  ["ziranma", "自然码双拼"], ["microsoft", "微软双拼"], ["shoudao", "首道双拼"],
+  ["wubi", "86 五笔"], ["japanese_nine_key", "日语 9 键"], ["japanese", "日语 26 键"],
+  ["handwriting", "手写"], ["thoughtful_reply", "高情商回复"],
+];
+const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
+
+function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyboardScheme {
+  const enabled = preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes;
+  const selected = preferences.touch_keyboard_schemes?.selected;
+  if (selected && enabled.includes(selected)) return selected;
+  let inferred: TouchKeyboardScheme = preferences.scheme === "shuangpin"
+    ? preferences.shuangpin_profile : preferences.scheme;
+  if (preferences.touch_keyboard_layout === "handwriting" && preferences.scheme === "quanpin") inferred = "handwriting";
+  else if (preferences.touch_keyboard_layout === "nine_key")
+    inferred = preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key";
+  return enabled.includes(inferred) ? inferred : enabled[0] ?? "quanpin";
+}
+
+function selectTouchKeyboardScheme(preferences: Preferences, selected: TouchKeyboardScheme): Preferences {
+  const touch_keyboard_schemes = {
+    enabled: preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes,
+    selected,
+  };
+  if (["xiaohe", "ziranma", "microsoft", "shoudao"].includes(selected)) return {
+    ...preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin",
+    shuangpin_profile: selected as Preferences["shuangpin_profile"], touch_keyboard_layout: "twenty_six_key",
+    touch_keyboard_schemes,
+  };
+  if (selected === "japanese" || selected === "japanese_nine_key") return {
+    ...preferences, scheme: "japanese",
+    last_chinese_scheme: preferences.scheme === "japanese" ? preferences.last_chinese_scheme : preferences.scheme,
+    touch_keyboard_layout: selected === "japanese_nine_key" ? "nine_key" : "twenty_six_key",
+    touch_keyboard_schemes,
+  };
+  if (selected === "wubi") return {
+    ...preferences, scheme: "wubi", last_chinese_scheme: "wubi", touch_keyboard_layout: "twenty_six_key",
+    touch_keyboard_schemes,
+  };
+  return {
+    ...preferences, scheme: "quanpin", last_chinese_scheme: "quanpin",
+    touch_keyboard_layout: selected === "nine_key" ? "nine_key"
+      : selected === "handwriting" ? "handwriting" : "twenty_six_key",
+    touch_keyboard_schemes,
+  };
+}
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
@@ -126,6 +176,7 @@ export type Preferences = {
   keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
+  touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
   touch_voice_shortcut?: boolean;
@@ -327,6 +378,8 @@ export interface SettingsClient {
   typingStatistics?: TypingStatisticsClient;
   /** Android exposes the Apple-parity fuzzy-pinyin settings; desktop hosts keep this absent. */
   fuzzyPinyin?: boolean;
+  /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
+  touchKeyboardSchemes?: boolean;
 }
 
 function message(error: unknown): string {
@@ -603,6 +656,18 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
+  const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? { enabled: allTouchKeyboardSchemes };
+  const selectedTouchKeyboardScheme = draft ? inferredTouchKeyboardScheme(draft) : "quanpin";
+  const setTouchKeyboardSchemeEnabled = (scheme: TouchKeyboardScheme, enabled: boolean) => {
+    if (!draft) return;
+    const visible = new Set(touchKeyboardSchemes.enabled);
+    if (enabled) visible.add(scheme); else visible.delete(scheme);
+    if (visible.size === 0) return;
+    const ordered = allTouchKeyboardSchemes.filter(value => visible.has(value));
+    const selected = visible.has(selectedTouchKeyboardScheme) ? selectedTouchKeyboardScheme : ordered[0];
+    const next = selectTouchKeyboardScheme(draft, selected);
+    setDraft({ ...next, touch_keyboard_schemes: { enabled: ordered, selected } });
+  };
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
@@ -823,7 +888,27 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>
         {linuxPlatform && <div className="section"><label className="section-header"><span className="section-title">中英文状态范围<small>应用范围只影响当前输入上下文；全局范围在 Linux 输入法会话之间保持同一状态</small></span><select aria-label="中英文状态范围" value={draft.ime_mode_scope ?? "app"} onChange={event => setDraft({ ...draft, ime_mode_scope: event.target.value as Preferences["ime_mode_scope"] })}><option value="app">按应用</option><option value="global">全局</option></select></label></div>}
-        <div className="section" role="group" aria-labelledby="input-mode-title">
+        {client.touchKeyboardSchemes && <div className="section touch-keyboard-schemes" role="group" aria-labelledby="touch-keyboard-schemes-title">
+          <div className="section-title" id="touch-keyboard-schemes-title">输入方案</div>
+          <div className="input-setting-description">开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。</div>
+          <div className="input-option-content">{touchKeyboardSchemeOptions.map(([scheme, label], index) => {
+            const enabled = touchKeyboardSchemes.enabled.includes(scheme);
+            const selected = selectedTouchKeyboardScheme === scheme;
+            return <div className="input-option-item touch-keyboard-scheme-item" key={scheme}>
+              {index > 0 && <div className="input-option-divider" />}
+              <div className="touch-keyboard-scheme-row">
+                <button type="button" className="touch-keyboard-scheme-select" aria-label={`设为当前输入方案 ${label}`}
+                  aria-pressed={selected} disabled={!enabled} onClick={() => setDraft(selectTouchKeyboardScheme(draft, scheme))}>
+                  <span>{label}</span>{selected && <span aria-hidden="true">✓</span>}
+                </button>
+                <input className="toggle" type="checkbox" aria-label={`显示输入方案 ${label}`} checked={enabled}
+                  disabled={enabled && touchKeyboardSchemes.enabled.length === 1}
+                  onChange={event => setTouchKeyboardSchemeEnabled(scheme, event.target.checked)} />
+              </div>
+            </div>;
+          })}</div>
+        </div>}
+        <div className="section" role="group" aria-labelledby="input-mode-title" hidden={client.touchKeyboardSchemes}>
           <div className="section-title" id="input-mode-title">输入模式</div>
           <div className="input-setting-description">切换中文或日文输入，并保留各模式上次选择的方案</div>
           <div className="input-option-content input-mode-options">
@@ -832,7 +917,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <label className="radio-option"><input type="radio" name="input-mode" value="japanese" checked={draft.scheme === "japanese"} onChange={() => setDraft({ ...draft, last_chinese_scheme: draft.scheme === "japanese" ? draft.last_chinese_scheme : draft.scheme, scheme: "japanese" })} /><span>日文</span></label>
           </div>
         </div>
-        <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={draft.scheme === "japanese"}>
+        <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}>
           <div className="section-title" id="input-scheme-title">输入方案</div>
           <div className="input-option-content">
             {([["quanpin", "全拼"], ["shuangpin", "双拼"], ["wubi", "五笔"]] as const).map(([scheme, label], index) => <div className="input-option-item" key={scheme}>
@@ -841,12 +926,12 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             </div>)}
           </div>
         </div>
-        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">双拼方案</span><select value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
+        <div className="section" hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}><label className="section-header"><span className="section-title">双拼方案</span><select value={draft.shuangpin_profile} onChange={event => setDraft({ ...draft, shuangpin_profile: event.target.value as Preferences["shuangpin_profile"] })}>
           <option value="xiaohe">小鹤双拼</option><option value="ziranma">自然码双拼</option>
           <option value="shoudao">首道双拼</option><option value="microsoft">微软双拼</option>
         </select></label></div>
-        <div className="section" hidden={draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
-        <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={draft.scheme !== "japanese"}>
+        <div className="section" hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}><label className="section-header"><span className="section-title">五笔方案</span><select value="wubi86" onChange={() => {}}><option value="wubi86">86 五笔</option></select></label></div>
+        <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={client.touchKeyboardSchemes || draft.scheme !== "japanese"}>
           <div className="section-title" id="japanese-scheme-title">日语方案</div>
           <div className="input-option-content"><label className="radio-option"><input type="radio" name="japanese-scheme" checked readOnly /><span>罗马字</span></label></div>
           <div className="input-setting-description japanese-scheme-description">直接输入罗马字，提供平假名、片假名及日语词库候选</div>
