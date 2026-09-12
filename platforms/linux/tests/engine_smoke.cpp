@@ -32,6 +32,7 @@ struct Observation {
   bool input_enabled = false;
   bool english_mode = false;
   bool mode_sensitive = false;
+  bool smart_punctuation_sensitive = false;
   bool punctuation_enabled = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
@@ -70,6 +71,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
     }
+    if (std::string(ibus_property_get_key(property)) == "SmartPunctuation")
+      seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
     if (std::string(ibus_property_get_key(property)) == "EnglishMode")
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (std::string(ibus_property_get_key(property)) == "Punctuation")
@@ -259,6 +262,10 @@ int main(int argc, char **argv) {
       require(seen.mode_registered && !seen.input_enabled && !key('n') &&
                   !seen.preedit_visible && !seen.lookup_visible,
               "Default English did not start in passthrough mode");
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(seen.mode_sensitive && !seen.input_enabled && !seen.smart_punctuation_sensitive,
+              "Passthrough refocus did not restore the mode menu without a session");
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
       phrase();
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
@@ -301,6 +308,25 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
+    for (const bool enabled : {false, true}) {
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode",
+          enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED));
+      invoke("FocusOut");
+      require(!seen.mode_sensitive && !seen.smart_punctuation_sensitive,
+              "Unfocused input menus remained available");
+      invoke("FocusIn");
+      require(seen.mode_sensitive && seen.input_enabled == enabled &&
+                  seen.smart_punctuation_sensitive == enabled,
+              "Refocus did not restore mode-dependent menu availability");
+    }
+    invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                               g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
+    invoke("FocusOut");
+    invoke("FocusIn");
+    require(!seen.mode_sensitive && !seen.smart_punctuation_sensitive && !key('n'),
+            "Refocus enabled input menus in a blocked field");
+    invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                               g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_UNCHECKED));
     invoke("Disable");
     invoke("Enable");

@@ -2693,6 +2693,11 @@ void focus_in(IBusEngine *engine) {
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
       s.properties_registered = true;
+    } else if (s.properties_registered &&
+               (!already_focused || s.session != previous_session)) {
+      // FocusOut disabled the existing menu. Refresh its state on activation
+      // without re-registering it or disturbing repeated focus negotiation.
+      publish_mode(engine);
     }
   });
 }
