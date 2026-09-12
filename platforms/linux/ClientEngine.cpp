@@ -189,6 +189,29 @@ struct State {
     number_row_selection = number_row_override.value_or(
         options.value("preferences", Json::object()).value("number_row_selection", true));
     auto &preferences = options["preferences"];
+    // External skin manifests may provide a candidate palette. Apply the
+    // selected package before the lookup table is rendered; built-ins remain
+    // handled by the existing preference mapping.
+    const auto selected_skin = preferences.value("candidate_skin", "fluent");
+    if (selected_skin != "fluent" && selected_skin != "wechat" &&
+        selected_skin != "graphite" && selected_skin != "willow_green") {
+      if (const auto catalog = options.find("candidate_skin_catalog");
+          catalog != options.end() && catalog->is_object()) {
+        if (const auto packages = catalog->find("packages");
+            packages != catalog->end() && packages->is_array()) {
+          for (const auto &package : *packages) {
+            if (package.value("id", std::string{}) != selected_skin) continue;
+            const auto theme = preferences.value("candidate_theme", "follow") == "dark" ? "dark" : "light";
+            const auto palette = package.value("candidate", Json::object()).value(theme, Json::object());
+            if (palette.is_object()) {
+              if (palette.contains("text")) preferences["candidate_text_color"] = palette["text"];
+              if (palette.contains("surface")) preferences["candidate_background_color"] = palette["surface"];
+            }
+            break;
+          }
+        }
+      }
+    }
     if (paired_punctuation_override) preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override) preferences["punctuation_lock"] = *punctuation_lock_override;
     if (scheme_override) preferences["scheme"] = *scheme_override;
@@ -675,6 +698,20 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   return color;
 }
 std::optional<guint> candidate_background_color(const Json &preferences) {
+  const auto custom = preferences.value("candidate_background_color", Json(nullptr));
+  if (custom.is_string()) {
+    const auto value = custom.get<std::string>();
+    if (value.size() == 7 && value.front() == '#') {
+      guint color = 0;
+      for (size_t i = 1; i < value.size(); ++i) {
+        const auto c = static_cast<unsigned char>(value[i]);
+        const auto digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 99;
+        if (digit > 15) break;
+        color = (color << 4) | digit;
+        if (i == value.size() - 1) return color;
+      }
+    }
+  }
   const auto skin = preferences.value("candidate_skin", "fluent");
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";
