@@ -205,6 +205,7 @@ export type Preferences = {
   candidate_text_color?: string | null;
   candidate_number_color?: string | null;
   candidate_accent_color?: string | null;
+  candidate_selected_color?: string | null;
   candidate_font_family?: string;
   candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
@@ -872,6 +873,10 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
         <div className="section"><div className="section-header"><span className="section-title">候选强调色</span><div className="candidate-color-control">
           <input aria-label="候选强调色" type="color" value={candidateTextColor(draft.candidate_accent_color) ?? (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")} onChange={event => setDraft({ ...draft, candidate_accent_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_accent_color)} onClick={() => { if (candidateTextColor(draft.candidate_accent_color)) setDraft({ ...draft, candidate_accent_color: null }); }}>跟随主题</button>
+        </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选选中色</span><div className="candidate-color-control">
+          <input aria-label="候选选中色" type="color" value={candidateTextColor(draft.candidate_selected_color) ?? (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")} onChange={event => setDraft({ ...draft, candidate_selected_color: event.target.value })} />
+          <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_selected_color)} onClick={() => { if (candidateTextColor(draft.candidate_selected_color)) setDraft({ ...draft, candidate_selected_color: null }); }}>跟随主题</button>
         </div></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
           <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
