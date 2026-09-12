@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, c_void, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod dictionary;
 pub use dictionary::{dictionary_request_json, msime_client_dictionary};
@@ -1472,6 +1472,71 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
             .voice_with_options(&query.language, query.generation, &query.options)
             .map(|text| json!({"text": text}))
             .unwrap_or(Value::Null))
+    })
+}
+
+/// Stream bounded interim/final voice provider updates from a user-owned
+/// Unix socket. The callback is invoked synchronously on the calling thread.
+///
+/// # Safety
+/// Buffers must remain readable for the duration of this call. The callback
+/// must remain valid and must copy the text before returning.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_stream(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+    callback: Option<unsafe extern "C" fn(*const u8, usize, bool, *mut c_void)>,
+    context: *mut c_void,
+) -> *mut c_char {
+    response(|| {
+        if query.is_null()
+            || socket_path.is_null()
+            || query_length > 16_384
+            || socket_length > 4096
+        {
+            return Err("invalid voice provider buffer".into());
+        }
+        #[derive(Deserialize)]
+        struct VoiceQuery {
+            language: String,
+            generation: u64,
+            #[serde(default)]
+            options: Value,
+        }
+        let query = serde_json::from_slice::<VoiceQuery>(unsafe {
+            std::slice::from_raw_parts(query, query_length)
+        })
+        .map_err(|_| "invalid voice query document")?;
+        let path = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })
+        .map_err(|_| "socket path is not UTF-8")?;
+        if !std::path::Path::new(path).is_absolute() {
+            return Err("socket path must be absolute".into());
+        }
+        let mut update = |text: &str, final_result: bool| {
+            if let Some(callback) = callback {
+                unsafe {
+                    callback(
+                        text.as_ptr(),
+                        text.len(),
+                        final_result,
+                        context,
+                    );
+                }
+            }
+        };
+        let value = UnixSocketProvider::new(path).voice_stream_with_options_cancelled(
+            &query.language,
+            query.generation,
+            &query.options,
+            None,
+            &mut update,
+        );
+        Ok(value.map(|text| json!({"text": text})).unwrap_or(Value::Null))
     })
 }
 

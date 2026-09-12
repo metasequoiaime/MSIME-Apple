@@ -11,6 +11,9 @@
 class MsimeVoiceWorker {
  public:
   using Task = std::function<std::string(const std::atomic_bool &)>;
+  using Progress = std::function<void(std::string, bool)>;
+  using StreamTask = std::function<std::string(const std::atomic_bool &,
+                                               const Progress &)>;
   using Result = std::function<void(std::string)>;
   MsimeVoiceWorker() : cancelled_(std::make_shared<std::atomic_bool>(false)) {}
   ~MsimeVoiceWorker() { cancel(); }
@@ -33,6 +36,25 @@ class MsimeVoiceWorker {
     thread_ = std::thread([token, task = std::move(task), result = std::move(result)] {
       auto value = task(*token);
       if (!token->load() && result) result(std::move(value));
+    });
+  }
+  // Run a task that can publish bounded interim values while it waits for the
+  // provider. Interim callbacks are best-effort and are ignored after cancel.
+  void run_stream(StreamTask task, Progress progress,
+                  Result result) {
+    cancel();
+    cancelled_ = std::make_shared<std::atomic_bool>(false);
+    const auto token = cancelled_;
+    thread_ = std::thread([
+        token, task = std::move(task), progress = std::move(progress),
+        result = std::move(result)] {
+      const auto publish = [token, progress](std::string value, bool final) {
+        if (!token->load() && progress)
+          progress(std::move(value), final);
+      };
+      auto value = task(*token, publish);
+      if (!token->load() && result)
+        result(std::move(value));
     });
   }
  private:

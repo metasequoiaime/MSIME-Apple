@@ -701,6 +701,108 @@ impl UnixSocketProvider {
         Some(reply.text)
     }
 
+    /// Run a newline-delimited voice provider stream. Provider updates use
+    /// `{text, type:"partial"}` (or `interim`) and the terminal update uses
+    /// `{text, type:"final"}`. A legacy single `{text}` response is treated
+    /// as final. Only bounded UTF-8 text crosses the host boundary.
+    #[cfg(unix)]
+    pub fn voice_stream_with_options_cancelled(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
+    ) -> Option<String> {
+        if language.len() > 64
+            || cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
+        {
+            return None;
+        }
+        let mut stream = UnixStream::connect(&self.path).ok()?;
+        let cancellable = cancelled.is_some();
+        stream
+            .set_read_timeout(Some(if cancellable {
+                std::time::Duration::from_millis(100)
+            } else {
+                std::time::Duration::from_secs(30)
+            }))
+            .ok()?;
+        let mut request = json!({
+            "version": 1,
+            "kind": "voice",
+            "query": {"language": language, "generation": generation, "stream": true}
+        });
+        if let Some(query) = request.get_mut("query").and_then(Value::as_object_mut) {
+            if options.is_object() && !options.as_object().is_some_and(|value| value.is_empty()) {
+                query.insert("options".to_owned(), options.clone());
+            }
+        }
+        let request = request.to_string();
+        if request.len() > 16_384
+            || stream.write_all(request.as_bytes()).is_err()
+            || stream.write_all(b"\n").is_err()
+        {
+            return None;
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        loop {
+            if cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
+                || std::time::Instant::now() >= deadline
+            {
+                return None;
+            }
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => return None,
+                Ok(_) => {
+                    if line.len() > 8192 {
+                        return None;
+                    }
+                    let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
+                    if let Some(event_generation) = value.get("generation").and_then(Value::as_u64)
+                    {
+                        if event_generation != generation {
+                            return None;
+                        }
+                    }
+                    if value.get("ok").and_then(Value::as_bool) == Some(false) {
+                        return None;
+                    }
+                    let text = value.get("text").and_then(Value::as_str).unwrap_or("");
+                    if text.len() > 4096 {
+                        return None;
+                    }
+                    let kind = value
+                        .get("type")
+                        .or_else(|| value.get("event"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let is_final = match kind {
+                        "partial" | "interim" | "update" => false,
+                        "final" | "done" | "commit" => true,
+                        _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
+                    };
+                    if text.is_empty() && !is_final {
+                        continue;
+                    }
+                    update(text, is_final);
+                    if is_final {
+                        return Some(text.to_owned());
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => continue,
+                Err(_) => return None,
+            }
+        }
+    }
+
     /// Forward one validated account-backed dictionary operation to the
     /// user-owned service. The provider owns authentication, synchronization,
     /// and network policy; this adapter only carries bounded JSON.

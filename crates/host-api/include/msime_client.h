@@ -225,6 +225,16 @@ char *msime_client_voice_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
+typedef void (*msime_client_voice_update_callback)(const uint8_t *text,
+                                                   size_t text_length,
+                                                   bool final,
+                                                   void *context);
+/* Stream newline-delimited provider updates. The callback runs on the caller
+ * thread and receives bounded interim/final UTF-8 text; context is untouched. */
+char *msime_client_voice_provider_stream(
+    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
+    size_t socket_length, msime_client_voice_update_callback callback,
+    void *context);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
