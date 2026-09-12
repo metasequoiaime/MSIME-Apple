@@ -606,6 +606,32 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     assert(appearance.englishMode == english && appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
     [controller floatingToolbarDidRequestTogglePunctuation:nil];
     assert(appearance.chinesePunctuation && session.chinesePunctuation);
+    NSEvent *(^toggleEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short key, NSEventModifierFlags flags, BOOL repeat) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"." isARepeat:repeat keyCode:key];
+    };
+    NSEvent *toggle = toggleEvent(47, NSEventModifierFlagControl, NO);
+    [controller setValue:@{@"editing_text":@"test", @"candidates":@[]} forKey:@"view"];
+    session.failFinish = YES;
+    NSUInteger calls = session.punctuationCalls;
+    assert([controller handleEvent:toggle client:client]);
+    assert(appearance.chinesePunctuation && session.punctuationCalls == calls);
+    session.failFinish = NO;
+    assert([controller handleEvent:toggle client:client]);
+    assert(!appearance.chinesePunctuation && !session.chinesePunctuation && session.punctuationCalls > calls);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION && [client.committed isEqual:@"测试"]);
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
+    calls = session.punctuationCalls;
+    assert([controller handleEvent:toggleEvent(47, NSEventModifierFlagControl, YES) client:client]);
+    assert(!appearance.chinesePunctuation && session.punctuationCalls == calls);
+    for (NSNumber *flags in @[@0, @(NSEventModifierFlagCommand), @(NSEventModifierFlagControl | NSEventModifierFlagShift), @(NSEventModifierFlagControl | NSEventModifierFlagOption), @(NSEventModifierFlagControl | NSEventModifierFlagCommand)])
+        assert(!MSIMEPunctuationToggle(toggleEvent(47, flags.unsignedIntegerValue, NO)));
+    assert(!MSIMEPunctuationToggle(toggleEvent(65, NSEventModifierFlagControl, NO))); // Keypad decimal.
+    // The punctuation preference can be changed while English passthrough is active.
+    appearance.englishMode = YES;
+    assert([controller handleEvent:toggle client:client]);
+    assert(appearance.englishMode && appearance.chinesePunctuation && session.chinesePunctuation);
+    appearance.englishMode = english;
+    assert(appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
 }
 
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
