@@ -3,8 +3,29 @@ import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { SkinToolbarPreview } from "../../../packages/ui/src/skin-toolbar-preview";
 import css from "../../../packages/ui/src/skin-toolbar-preview.css?raw";
+import type { FloatingToolbarPreferences } from "@msime/ui";
 
 afterEach(cleanup);
+
+test("draft components and size update the SVG toolbar without hiding required language", () => {
+  const preferences: FloatingToolbarPreferences = { enabled: true, english_mode: true, fullwidth: true,
+    punctuation: true, character_set: true, emoji: true, screen_keyboard: false, settings: true, scale_percent: 100, font_size: 24 };
+  const view = render(<SkinToolbarPreview preferences={preferences} />);
+  const item = (key: string) => view.container.querySelector<HTMLElement>(`[data-toolbar-item="${key}"]`)!;
+  expect(item("screen_keyboard").style.display).toBe("none");
+  for (const key of ["fullwidth", "punctuation", "character_set", "emoji", "screen_keyboard", "settings"] as const) {
+    view.rerender(<SkinToolbarPreview preferences={{ ...preferences, [key]: false }} />);
+    expect(item(key).style.display).toBe("none");
+    view.rerender(<SkinToolbarPreview preferences={{ ...preferences, [key]: true }} />);
+    expect(item(key).style.display).toBe("flex");
+  }
+  view.rerender(<SkinToolbarPreview preferences={{ ...preferences, enabled: false, english_mode: false, scale_percent: 150, font_size: 28 }} />);
+  const host = view.container.querySelector<HTMLElement>(".ftb-preview-host")!;
+  expect(host.style.getPropertyValue("--ftb-scale")).toBe("1.5");
+  expect(host.style.getPropertyValue("--ftb-icon-size")).toBe("28px");
+  expect(item("language").style.display).not.toBe("none");
+  expect(host.querySelectorAll("svg").length).toBeGreaterThan(0);
+});
 
 test("toolbar preview contains upstream static icons without scripts, IDs or host actions", () => {
   const mounted = render(<SkinToolbarPreview />);

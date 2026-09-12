@@ -95,6 +95,23 @@ with sync_playwright() as playwright:
     }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
     page.evaluate("async () => { const {mount} = await import('/settings.js'); window.removeFixture = mount(); }")
     preview = page.get_by_role("region", name="候选窗口预览")
+    page.get_by_role("button", name="悬浮工具栏", exact=True).click()
+    toolbar = page.get_by_label("悬浮工具栏预览", exact=True)
+    expect(toolbar.locator(".status-bar")).to_be_visible()
+    for scale in [75, 100, 125, 150]:
+        page.get_by_label("工具栏缩放", exact=True).select_option(str(scale))
+        for size in [16, 18, 20, 22, 24, 26, 28]:
+            page.get_by_label("图标尺寸", exact=True).select_option(str(size))
+            expect(toolbar.locator(".icon").first).to_have_css("width", f"{size * scale / 100:g}px")
+    for key, label in [("fullwidth", "全角 / 半角"), ("punctuation", "中英文标点"), ("character_set", "简繁切换"), ("emoji", "表情与符号"), ("screen_keyboard", "屏幕键盘"), ("settings", "设置")]:
+        toggle = page.get_by_role("checkbox", name=label, exact=True)
+        toggle.uncheck()
+        expect(toolbar.locator(f'[data-toolbar-item="{key}"]')).to_be_hidden()
+        toggle.check()
+        expect(toolbar.locator(f'[data-toolbar-item="{key}"]')).to_be_visible()
+    expect(toolbar.locator('[data-toolbar-item="language"]')).to_be_visible()
+    page.get_by_role("button", name="重新读取", exact=True).click()
+    page.get_by_role("button", name="外观", exact=True).click()
     expect(preview.locator(".cand")).to_have_count(6)
     expect(preview.locator(".candidate")).to_have_css("font-size", "16px")
     verify_helpcode_display(page, preview)
