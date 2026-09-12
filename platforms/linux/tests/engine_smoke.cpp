@@ -183,6 +183,7 @@ int main(int argc, char **argv) {
     require(result.at("ok").get<bool>(), "Locked dictionary bootstrap failed");
     auto options = result.at("value");
     options["preferences"]["learning"] = false;
+    options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_page_size"] = 2;
     std::ofstream(root / "preferences.json") << nlohmann::json{
@@ -267,6 +268,32 @@ int main(int argc, char **argv) {
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    // Modifier chords must never be mistaken for a bare Ctrl/Shift release.
+    for (bool ctrl_first : {true, false}) {
+      for (bool ctrl_release_first : {true, false}) {
+        const guint first = ctrl_first ? IBUS_Control_L : IBUS_Shift_L;
+        const guint second = ctrl_first ? IBUS_Shift_L : IBUS_Control_L;
+        const guint first_mask = ctrl_first ? IBUS_CONTROL_MASK : IBUS_SHIFT_MASK;
+        require(!key(first, first_mask), "Modifier press was intercepted");
+        require(!key(second, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+                "Modifier chord press was intercepted");
+        const guint released = ctrl_release_first ? IBUS_Control_L : IBUS_Shift_L;
+        const guint remaining = ctrl_release_first ? IBUS_Shift_L : IBUS_Control_L;
+        const guint remaining_mask = ctrl_release_first ? IBUS_SHIFT_MASK : IBUS_CONTROL_MASK;
+        require(!key(released, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+                "Modifier chord release toggled input");
+        require(!key(remaining, IBUS_RELEASE_MASK | remaining_mask) && seen.input_enabled,
+                "Modifier chord tail toggled input");
+      }
+    }
+    for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
+      require(!key(modifier_key), "Bare modifier press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Bare modifier no longer disabled input");
+      require(!key(modifier_key), "Bare modifier restore press was intercepted");
+      require(key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Bare modifier no longer restored input");
+    }
     require(seen.committed.empty(), "Mode setup unexpectedly committed text");
     phrase();
     require(seen.committed.empty(), "Phrase unexpectedly committed before selection");

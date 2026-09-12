@@ -3145,6 +3145,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
+    s.pure_ctrl_candidate = false;
     // A modifier already held when Shift arrives makes this a chord.
     // Ignore Caps/Num Lock; IBus includes Shift in the modifier mask for
     // the Shift key event itself.
@@ -3153,7 +3154,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return FALSE;
   }
   if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK)) {
+    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK) ||
+        (flags & IBUS_SHIFT_MASK)) {
       s.pure_ctrl_candidate = false;
       return FALSE;
     }
@@ -3169,7 +3171,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.pure_shift_candidate = false;
     s.pure_ctrl_candidate =
         s.mode_ctrl_enabled && s.focused && !s.blocked &&
-        (chord_modifiers & ~IBUS_CONTROL_MASK) == 0;
+        (chord_modifiers & ~IBUS_CONTROL_MASK) == 0 &&
+        (flags & IBUS_SHIFT_MASK) == 0;
     return FALSE;
   }
   if (key == IBUS_space && release && s.mode_chord_held) {
