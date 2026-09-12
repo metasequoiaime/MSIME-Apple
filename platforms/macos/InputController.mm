@@ -472,6 +472,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [_appearance applySharedCandidatePreferences:preferences];
     [_appearance applySharedAssistancePreferences:preferences];
     [_appearance applySharedLocalModes:preferences[@"local_modes"]];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])

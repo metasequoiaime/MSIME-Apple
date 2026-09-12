@@ -161,6 +161,40 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
 
+static void TestSharedPunctuation() {
+    NSString *suite = [@"msime.punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    MSIMEFloatingToolbarPanel *toolbar = [[MSIMEFloatingToolbarPanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(punctuationChanged:));
+    NSButton *toolbarToggle = [toolbar valueForKey:@"punctuationButton"];
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    for (NSNumber *enabled in @[@NO, @YES, @NO]) {
+        [controller applySharedToolbarPreferences:@{@"chinese_punctuation": enabled}];
+        assert(prefs.chinesePunctuation == enabled.boolValue && toggle.state == (enabled.boolValue ? NSControlStateValueOn : NSControlStateValueOff));
+        assert([toolbarToggle.title isEqual:enabled.boolValue ? @"。" : @"."]);
+        assert([toolbarToggle.accessibilityLabel isEqual:enabled.boolValue ? @"切换到西文标点" : @"切换到中文标点"]);
+        assert([[prefs sharedPreferencesByMerging:@{}][@"chinese_punctuation"] isEqual:enabled] && saves == 0);
+    }
+    assert([defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    for (id invalid in @[NSNull.null, @1, @"true"]) {
+        [controller applySharedToolbarPreferences:@{@"chinese_punctuation": invalid}];
+        assert(!prefs.chinesePunctuation && [toolbarToggle.title isEqual:@"."] && saves == 0);
+    }
+    [controller floatingToolbarDidRequestTogglePunctuation:toolbar];
+    assert(prefs.chinesePunctuation && toggle.state == NSControlStateValueOn && [toolbarToggle.title isEqual:@"。"] && saves == 1);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(reopened.chinesePunctuation);
+    [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @NO}];
+    assert(!prefs.chinesePunctuation && saves == 1);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestIndependentAssistancePreferences() {
     NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -687,6 +721,7 @@ int main() {
         [NSApplication sharedApplication];
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
+        TestSharedPunctuation();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
