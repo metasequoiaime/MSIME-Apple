@@ -2981,6 +2981,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
                                    IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                                    IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const bool screen_keyboard_key =
+      (key == IBUS_k || key == IBUS_K) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);
+  if (!release && screen_keyboard_key && s.focused && !s.blocked)
+    return launch_desktop_panel("keyboard") ? TRUE : FALSE;
   const bool maintenance_restart_key =
       (key == IBUS_r || key == IBUS_R) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);

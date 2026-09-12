@@ -936,6 +936,13 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             <input aria-label={label} className="toggle" type="checkbox" checked={keybindings[key]} onChange={event => setDraft({ ...draft, keybindings: { ...keybindings, [key]: event.target.checked } })} />
           </label>)}
         </div>}
+        {linuxPlatform && <div className="section" role="group" aria-label="Linux 面板快捷键">
+          <div className="section-title">Linux 面板快捷键</div>
+          <small>桌面环境转发 Super 组合键时可从当前输入上下文打开面板。</small>
+          <div className="shortcut-list">
+            <div className="shortcut-row"><span>打开屏幕键盘</span><kbd>Ctrl+Shift+Super+K</kbd></div>
+          </div>
+        </div>}
         <div className="section shortcut-section">
           <div className="section-title">候选操作</div>
           <small>输入和选取候选词时使用</small>
