@@ -56,6 +56,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
+    private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -126,11 +127,18 @@ public final class MSIMEInputService extends InputMethodService {
     private final SpaceCursorMovement cursorMovement = new SpaceCursorMovement();
     private Button layerButton;
     private Button shiftButton;
+    private Button languageButton;
     private Button enterButton;
     private Button spaceButton;
     private TextView status;
     private String message = "MSIME Preview";
     private boolean shift;
+    private boolean automaticShift;
+    private boolean dedicatedEnglish;
+    private int editorInputType;
+    private long currentDocumentIdentifier;
+    private long nextDocumentIdentifier = 1;
+    private final KeyboardInputContext inputContext = new KeyboardInputContext();
     private KeyboardLayout.Layer keyboardLayer = KeyboardLayout.Layer.LETTERS;
     private boolean allowLearning;
     private String preferencesNotice = "";
@@ -218,6 +226,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        if (!restarting || currentDocumentIdentifier == 0) {
+            currentDocumentIdentifier = nextDocumentIdentifier++;
+        }
         resetSpaceCursor();
         stop(false);
         connection = getCurrentInputConnection();
@@ -225,7 +236,12 @@ public final class MSIMEInputService extends InputMethodService {
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
         shift = false;
+        automaticShift = false;
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
+        editorInputType = info == null ? 0 : info.inputType;
+        Boolean englishOverride = inputContext.englishOverride(
+            EditorPolicy.prefersLatin(editorInputType), currentDocumentIdentifier, dedicatedEnglish);
+        if (englishOverride != null) dedicatedEnglish = englishOverride;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         preferencesNotice = "";
         message = "直接输入";
@@ -254,6 +270,7 @@ public final class MSIMEInputService extends InputMethodService {
                 view = value(NativeClient.create(options.toString()));
                 session = view.getLong("session");
                 apply(NativeClient.focus(session, true));
+                view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
                 message = "MSIME Preview";
                 String directory = options.optString("preferences_directory", "");
                 if (!directory.isEmpty() && new File(directory).isAbsolute()) {
@@ -265,6 +282,7 @@ public final class MSIMEInputService extends InputMethodService {
                 message = "共享运行时未就绪：仅直接输入";
             }
         }
+        updateAutomaticCapitalization();
         rebuildKeyRows();
         render();
         replySuppressed = false;
@@ -275,6 +293,7 @@ public final class MSIMEInputService extends InputMethodService {
         resetSpaceCursor();
         stop(true);
         connection = null;
+        currentDocumentIdentifier = 0;
         super.onFinishInput();
     }
     @Override public void onDestroy() {
@@ -462,7 +481,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyAiPreferences(preferences);
         clipboardHistoryEnabled = nextClipboard;
         JSONObject nextView = result.getJSONObject("view");
-        boolean rebuildLayout = touchLayout(view) != touchLayout(nextView);
+        boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         selectedScheme = hostScheme(nextScheme);
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -470,7 +489,10 @@ public final class MSIMEInputService extends InputMethodService {
             closeClipboardHistory();
         }
         view = nextView;
-        if (touchLayout(view) != STANDARD_TOUCH_LAYOUT) shift = false;
+        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) {
+            shift = false;
+            automaticShift = false;
+        }
         if (rebuildLayout) rebuildKeyRows();
         else if (geometryChanged) applyKeyboardGeometry();
         renderLayoutSettingsState();
@@ -482,13 +504,16 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean apply(String response) throws JSONException {
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
-        boolean rebuildLayout = touchLayout(view) != touchLayout(next);
+        boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
         if (connection != null && !bridge.apply(sink(), commit, next.getString("editing_text"))) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
-        if (touchLayout(view) != STANDARD_TOUCH_LAYOUT) shift = false;
+        if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) {
+            shift = false;
+            automaticShift = false;
+        }
         if (rebuildLayout) rebuildKeyRows();
         render();
         return result.getBoolean("handled");
@@ -510,8 +535,84 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void type(char key) {
         if (connection == null) return;
+        if (dedicatedEnglish && !isAsciiLetter(key)) {
+            commitEnglishLiteral(key);
+            return;
+        }
         char output = shift ? Character.toUpperCase(key) : key;
         if (!character(output)) connection.commitText(String.valueOf(output), 1);
+        if (automaticShift) {
+            automaticShift = false;
+            shift = false;
+            rebuildKeyRows();
+            render();
+        }
+    }
+
+    private static boolean isAsciiLetter(int value) {
+        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+    }
+
+    private void commitEnglishLiteral(int value) {
+        if (connection == null || value < 32 || value > 126) return;
+        if (session != 0) command(9);
+        if (connection != null) connection.commitText(String.valueOf((char) value), 1);
+    }
+
+    private void space() {
+        if (connection == null) return;
+        if (dedicatedEnglish) {
+            if (session != 0) command(1);
+            if (connection != null) connection.commitText(" ", 1);
+        } else if (!command(1)) {
+            connection.commitText(" ", 1);
+        }
+    }
+
+    private int displayedTouchLayout(JSONObject value) {
+        return dedicatedEnglish ? STANDARD_TOUCH_LAYOUT : touchLayout(value);
+    }
+
+    private void updateAutomaticCapitalization() {
+        if (!dedicatedEnglish) {
+            automaticShift = false;
+            return;
+        }
+        CharSequence context = null;
+        if (connection != null) {
+            try {
+                context = connection.getTextBeforeCursor(CAPITALIZATION_CONTEXT_LIMIT, 0);
+            } catch (RuntimeException ignored) {
+                // Editor context is optional and must never be logged or persisted.
+            }
+        }
+        boolean next = EnglishCapitalizationPolicy.shouldShift(
+            EditorPolicy.capitalizationMode(editorInputType), context);
+        boolean changed = shift != next;
+        shift = next;
+        automaticShift = next;
+        if (changed) rebuildKeyRows();
+        render();
+    }
+
+    private void toggleInputLanguage() {
+        if (session == 0) return;
+        boolean nextEnglish = !dedicatedEnglish;
+        if (dedicatedEnglish) command(3); else command(9);
+        if (session == 0) return;
+        int previousLayout = displayedTouchLayout(view);
+        try {
+            JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
+            dedicatedEnglish = nextEnglish;
+            view = nextView;
+            keyboardLayer = KeyboardLayout.Layer.LETTERS;
+            shift = false;
+            automaticShift = false;
+            if (previousLayout != displayedTouchLayout(view)) rebuildKeyRows();
+            updateAutomaticCapitalization();
+        } catch (JSONException | LinkageError error) {
+            fail();
+        }
     }
 
     private static int touchLayout(JSONObject value) {
@@ -643,9 +744,14 @@ public final class MSIMEInputService extends InputMethodService {
             return super.onKeyDown(keyCode, event);
         }
         if (keyCode == KeyEvent.KEYCODE_DEL) return command(0) || super.onKeyDown(keyCode, event);
+        if (keyCode == KeyEvent.KEYCODE_SPACE && dedicatedEnglish) { space(); return true; }
         if (keyCode == KeyEvent.KEYCODE_SPACE) return command(1) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_ENTER) { enter(); return true; }
         int unicode = event.getUnicodeChar();
+        if (dedicatedEnglish && unicode >= 32 && unicode <= 126 && !isAsciiLetter(unicode)) {
+            commitEnglishLiteral(unicode);
+            return true;
+        }
         boolean previous = shift;
         shift = event.isShiftPressed();
         boolean handled = unicode >= 32 && unicode <= 126 && character(unicode);
@@ -674,6 +780,7 @@ public final class MSIMEInputService extends InputMethodService {
             view = null;
             render();
         }
+        updateAutomaticCapitalization();
     }
 
     private Button button(LinearLayout row, String label, Runnable action) {
@@ -2211,7 +2318,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean handwritingActive() {
         return session != 0 && keyboardLayer == KeyboardLayout.Layer.LETTERS
-            && touchLayout(view) == HANDWRITING_LAYOUT && handwritingCanvas != null;
+            && displayedTouchLayout(view) == HANDWRITING_LAYOUT && handwritingCanvas != null;
     }
 
     private void deactivateHandwriting() {
@@ -2506,17 +2613,17 @@ public final class MSIMEInputService extends InputMethodService {
         deactivateHandwriting();
         keyRows.removeAllViews();
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
-            if (touchLayout(view) == HANDWRITING_LAYOUT) {
+            if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
                 rebuildHandwritingRows();
                 applyKeyboardGeometry();
                 return;
             }
-            if (touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
+            if (displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
                 rebuildNineKeyRows();
                 applyKeyboardGeometry();
                 return;
             }
-            if (touchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
+            if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
                 rebuildJapaneseNineKeyRows();
                 applyKeyboardGeometry();
                 return;
@@ -2749,7 +2856,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (nineKeySpellings == null || nineKeySpellingScroll == null) return;
         nineKeySpellings.removeAllViews();
         JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
-        boolean visible = touchLayout(view) == QUANPIN_NINE_KEY_LAYOUT
+        boolean visible = displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT
             && spellings != null && spellings.length() > 0;
         nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (!visible) return;
@@ -2856,16 +2963,20 @@ public final class MSIMEInputService extends InputMethodService {
         keyboard.addView(controlScroll);
         shiftButton = button(controls, "Shift", () -> {
             shift = !shift;
+            automaticShift = false;
             shiftButton.setSelected(shift);
             shiftButton.setContentDescription(shift ? "大写已开启" : "切换大写");
             rebuildKeyRows();
             render();
         });
         shiftButton.setContentDescription("切换大写");
+        languageButton = button(controls, "中/英", this::toggleInputLanguage);
+        languageButton.setContentDescription("切换中英文");
         layerButton = button(controls, "符号", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             shift = false;
+            automaticShift = false;
             rebuildKeyRows();
             render();
         });
@@ -2877,9 +2988,7 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "⌫", () -> { if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0); });
         button(controls, "删除", () -> command(8));
         button(controls, "取消", () -> command(3));
-        spaceButton = button(controls, "空格", () -> {
-            if (connection != null && !command(1)) connection.commitText(" ", 1);
-        });
+        spaceButton = button(controls, "空格", this::space);
         spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
         bindSpaceCursor(spaceButton);
         enterButton = button(controls, "换行", this::enter);
@@ -3044,7 +3153,8 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
         }
-        if (status != null) status.setText(message + preferencesNotice + localMode + page
+        if (status != null) status.setText(message + preferencesNotice
+            + (dedicatedEnglish ? " · 英文输入" : "") + localMode + page
             + (shift ? " · Shift" : ""));
         if (preedit != null) {
             preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
@@ -3071,9 +3181,22 @@ public final class MSIMEInputService extends InputMethodService {
                 ? "切换符号键盘" : "切换字母键盘");
         }
         updateReturnKey();
-        if (shiftButton != null)
-            shiftButton.setVisibility(touchLayout(view) != STANDARD_TOUCH_LAYOUT
+        if (shiftButton != null) {
+            shiftButton.setVisibility(displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT
                 && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
+            shiftButton.setSelected(shift);
+            shiftButton.setContentDescription(shift
+                ? (automaticShift ? "自动大写已开启" : "大写已开启") : "切换大写");
+        }
+        if (languageButton != null) {
+            languageButton.setText(dedicatedEnglish ? "英" : "中");
+            languageButton.setEnabled(session != 0);
+            languageButton.setContentDescription(
+                dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
+            if (Build.VERSION.SDK_INT >= 30) {
+                languageButton.setStateDescription(dedicatedEnglish ? "英文输入" : "中文输入");
+            }
+        }
         if (schemeButton != null) {
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge());
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title());

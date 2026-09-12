@@ -1,5 +1,7 @@
 import app.msime.client.EditorBridge;
 import app.msime.client.EditorPolicy;
+import app.msime.client.EnglishCapitalizationPolicy;
+import android.text.InputType;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +37,25 @@ public final class EditorSmoke {
         for (int type : new int[] {0, 2, 3, 0x81, 0x91, 0xe1, 0x80001}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.allowLearning(0));
         check(!EditorPolicy.allowLearning(0x1000000));
+        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_VARIATION_URI));
+        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
+        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
+        check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT));
+        check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+            == EnglishCapitalizationPolicy.Mode.ALL_CHARACTERS);
+        check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_FLAG_CAP_WORDS)
+            == EnglishCapitalizationPolicy.Mode.WORDS);
+        check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+            == EnglishCapitalizationPolicy.Mode.SENTENCES);
+        check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
+            | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+            == EnglishCapitalizationPolicy.Mode.NONE);
         System.out.println("Android editor contract: composition order, failure, external selection and sensitive editor policy passed");
     }
 }

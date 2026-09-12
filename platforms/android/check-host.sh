@@ -21,6 +21,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/ReturnKeyActionSmoke.java" \
   "$repo_root/platforms/android/tests/SpaceCursorMovementSmoke.java" \
+  "$repo_root/platforms/android/tests/EnglishCapitalizationPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/KeyboardGeometrySmoke.java" \
   "$repo_root/platforms/android/tests/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/AiPolishClientSmoke.java" \
@@ -41,6 +43,8 @@ java -cp "$output_dir" PreferencesSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" ReturnKeyActionSmoke
 java -cp "$output_dir" SpaceCursorMovementSmoke
+java -cp "$output_dir" EnglishCapitalizationPolicySmoke
+java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
