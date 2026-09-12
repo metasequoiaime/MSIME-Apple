@@ -1186,6 +1186,17 @@ static NSHashTable *LiveDictionaryControllers()
     [self openCharacterPalette:nil];
 }
 
+- (void)floatingToolbarDidRequestOpenEmoji:(MetasequoiaFloatingToolbarPanel *)toolbar
+{
+    (void)toolbar;
+    Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
+    if ([shared respondsToSelector:@selector(showEmoji)]) [shared performSelector:@selector(showEmoji)];
+#pragma clang diagnostic pop
+}
+
 - (void)floatingToolbarDidRequestOpenSettings:(MetasequoiaFloatingToolbarPanel *)toolbar
 {
     (void)toolbar;

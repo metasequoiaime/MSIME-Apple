@@ -9,6 +9,7 @@
 @property(nonatomic) NSUInteger fullWidthToggles;
 @property(nonatomic) NSUInteger traditionalToggles;
 @property(nonatomic) NSUInteger characterPaletteRequests;
+@property(nonatomic) NSUInteger emojiRequests;
 @property(nonatomic) NSUInteger settingsRequests;
 @property(nonatomic) NSUInteger updateRequests;
 @property(nonatomic) NSUInteger websiteRequests;
@@ -21,6 +22,7 @@
 - (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_fullWidthToggles; }
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_traditionalToggles; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_characterPaletteRequests; }
+- (void)floatingToolbarDidRequestOpenEmoji:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_emojiRequests; }
 - (void)floatingToolbarDidRequestOpenSettings:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_settingsRequests; }
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
@@ -49,8 +51,8 @@ int main() {
 
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
-        assert(defaultFrame.size.width == 272.0 && defaultFrame.size.height == 44.0);
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 292.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        assert(defaultFrame.size.width == 322.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 342.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
 
@@ -76,24 +78,40 @@ int main() {
         NSButton *fullWidth = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarFullWidth");
         NSButton *traditional = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
         NSButton *settings = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarSettings");
+        NSButton *emoji = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarEmoji");
+        assert(emoji && emoji.image && !emoji.hidden);
+        assert([emoji.accessibilityLabel isEqualToString:@"打开水杉表情面板"]);
+        assert([emoji.toolTip isEqualToString:emoji.accessibilityLabel]);
         assert(inputMode && punctuation && fullWidth && traditional && settings);
         for (NSNumber *scale in @[@75, @100, @125, @150]) {
             for (NSNumber *size in @[@16, @18, @20, @22, @24, @26, @28]) {
                 NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};
                 [panel applySizingPreferences:preferences];
                 const double factor = scale.doubleValue / 100.0;
-                assert(panel.frame.size.width == std::ceil((272.0 + 5.0 * (size.doubleValue - 24.0)) * factor));
+                assert(panel.frame.size.width == std::ceil((322.0 + 6.0 * (size.doubleValue - 24.0)) * factor));
                 assert(panel.frame.size.height == std::ceil((size.doubleValue + 20.0) * factor));
                 assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) < 0.01);
                 assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) < 0.01);
                 assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
+                // AppKit aligns the later stack items to backing pixels at fractional positions.
+                assert(std::abs(emoji.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
+                for (NSLayoutConstraint *constraint in emoji.constraints) {
+                    if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"])
+                        assert(constraint.constant == (size.doubleValue + 18.0) * factor);
+                }
+                assert([emoji.contentTintColor isEqual:settings.contentTintColor]);
+                assert(emoji.symbolConfiguration != nil);
+                NSImage *expectedEmoji = [emoji.image imageWithSymbolConfiguration:
+                    [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
+                NSImage *configuredEmoji = [emoji.image imageWithSymbolConfiguration:emoji.symbolConfiguration];
+                assert(NSEqualSizes(expectedEmoji.size, configuredEmoji.size));
                 NSRect stable = panel.frame;
                 [panel applySizingPreferences:preferences];
                 assert(NSEqualRects(stable, panel.frame));
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(panel.frame.size.width == 272.0 && panel.frame.size.height == 44.0);
+        assert(panel.frame.size.width == 322.0 && panel.frame.size.height == 44.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         const NSSize configuredSize = panel.frame.size;
@@ -104,9 +122,9 @@ int main() {
         assert(NSEqualSizes(panel.frame.size, configuredSize));
         [panel deactivateForDelegate:sizingDelegate];
         [panel applySizingPreferences:@{}];
-        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, settings];
-        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"settings"];
-        for (NSUInteger mask = 0; mask < 16; ++mask) {
+        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, emoji, settings];
+        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"settings"];
+        for (NSUInteger mask = 0; mask < 32; ++mask) {
             NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
             NSUInteger count = 1;
             for (NSUInteger index = 0; index < keys.count; ++index) {
@@ -121,7 +139,7 @@ int main() {
             assert(panel.frame.size.width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
             assert(inputMode.superview != nil);
             CGFloat previousRight = 0;
-            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, settings]) {
+            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, settings]) {
                 if (button.hidden) continue;
                 const NSRect rect = [button convertRect:button.bounds toView:panel.contentView];
                 assert(NSMinX(rect) >= previousRight);
@@ -131,7 +149,7 @@ int main() {
         }
         [panel applySizingPreferences:@{}];
         for (NSButton *button in optionalButtons) assert(!button.hidden && button.superview != nil);
-        assert(panel.frame.size.width == 272.0);
+        assert(panel.frame.size.width == 322.0);
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
@@ -147,6 +165,8 @@ int main() {
         SendButton(punctuation);
         SendButton(fullWidth);
         SendButton(traditional);
+        SendButton(emoji);
+        assert(delegate.emojiRequests == 1 && delegate.characterPaletteRequests == 0);
         for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:",
                                          @"openWebsite:", @"dismissFloatingToolbar:"]) {
             [NSApp sendAction:NSSelectorFromString(selectorName) to:panel from:nil];
@@ -176,5 +196,12 @@ int main() {
         assert(panel.toolbarDelegate == delegate);
         [panel deactivateForDelegate:delegate];
         assert(!panel.visible && panel.toolbarDelegate == nil);
+        SendButton(emoji);
+        assert(delegate.emojiRequests == 1);
+        FloatingToolbarTestDelegate *newDelegate = [FloatingToolbarTestDelegate new];
+        [panel activateForDelegate:newDelegate visible:NO];
+        SendButton(emoji);
+        assert(newDelegate.emojiRequests == 1 && delegate.emojiRequests == 1);
+        [panel deactivateForDelegate:newDelegate];
     }
 }
