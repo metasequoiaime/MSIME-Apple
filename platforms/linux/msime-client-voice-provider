@@ -2,6 +2,7 @@
 """User-session speech service. Audio, credentials and transcripts are never logged."""
 import argparse
 import hashlib
+import http.client
 import io
 import json
 import math
@@ -126,24 +127,49 @@ def post(config, body, content_type, timeout):
     return json.loads(raw)
 
 
-def polish_request(config, body):
-    # Windows uses CURLOPT_TIMEOUT_MS: bound the entire request, including
-    # DNS, TLS and a response that trickles bytes within each socket timeout.
-    deadline = time.monotonic() + 3
-    payload = json.dumps({"config": config, "body": body}, ensure_ascii=False).encode("utf-8")
-    if len(payload) > 131072:
-        raise ValueError("polishing request too large")
+class VoiceRequestError(Exception):
+    def __init__(self, retryable=False):
+        super().__init__("voice request failed")
+        self.retryable = retryable
+
+
+def bounded_post(config, body, content_type, timeout, cancelled=None):
+    # Bound DNS, TLS, upload and slow response bodies together. Anonymous pipes
+    # carry request data; the process command line contains no private values.
+    deadline = time.monotonic() + timeout
+    if cancelled is not None and cancelled.is_set():
+        return None
+    metadata = json.dumps({"config": config, "content_type": content_type,
+                           "timeout": timeout}, ensure_ascii=False).encode("utf-8")
+    if len(metadata) > 131072 or len(body) > MAX_AUDIO + 131072:
+        raise ValueError("voice request too large")
+    payload = metadata + b"\n" + body
     process = subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), "--polish-request"],
+        [sys.executable, str(Path(__file__).resolve()), "--http-request"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
-        output, _ = process.communicate(payload, timeout=max(0.001, deadline - time.monotonic()))
+        while True:
+            if cancelled is not None and cancelled.is_set():
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise VoiceRequestError(retryable=True)
+            try:
+                output, _ = process.communicate(payload, timeout=min(0.1, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                # communicate retains pending input/output across timeout retries.
+                payload = None
+        if cancelled is not None and cancelled.is_set():
+            return None
         if process.returncode != 0:
-            raise ValueError("polishing request failed")
-        return json.loads(output)
+            raise VoiceRequestError()
+        response = json.loads(output)
+        if not response.get("ok"):
+            raise VoiceRequestError(retryable=response.get("retryable") is True)
+        return response["value"]
     finally:
-        # Terminating the helper closes network sockets as well as stopping
-        # work; timed-out requests cannot accumulate background threads.
+        # Cancellation and timeout close sockets and reap the worker immediately.
         if process.poll() is None:
             process.kill()
         process.wait()
@@ -151,16 +177,35 @@ def polish_request(config, body):
         process.stdout.close()
 
 
-def polish_request_worker():
-    # Private request data travels only through anonymous pipes, never argv,
-    # environment, files or diagnostics. The parent owns the wall-clock limit.
+def polish_request(config, body, cancelled=None):
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    if len(payload) > 131072:
+        raise ValueError("polishing request too large")
+    return bounded_post(config, payload, "application/json", 3, cancelled)
+
+
+def http_request_worker():
+    # Send only a response or a retry classification. Never forward remote
+    # error bodies, URLs, credentials or exception diagnostics to the parent.
+    response = {"ok": False, "retryable": False}
     try:
-        raw = sys.stdin.buffer.read(131073)
-        if len(raw) > 131072:
+        header = sys.stdin.buffer.readline(131074)
+        if len(header) > 131073 or not header.endswith(b"\n"):
             return 1
-        request = json.loads(raw)
-        result = post(request["config"], json.dumps(request["body"]).encode(), "application/json", 3)
-        sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode())
+        request = json.loads(header)
+        body = sys.stdin.buffer.read(MAX_AUDIO + 131073)
+        if len(body) > MAX_AUDIO + 131072 or request["timeout"] not in (3, 60):
+            return 1
+        result = post(request["config"], body, request["content_type"], request["timeout"])
+        response = {"ok": True, "value": result}
+    except urllib.error.HTTPError as error:
+        response["retryable"] = error.code >= 500
+    except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
+        response["retryable"] = True
+    except Exception:
+        pass
+    try:
+        sys.stdout.buffer.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode())
         return 0
     except Exception:
         return 1
@@ -217,14 +262,13 @@ def transcribe(pcm, config, language, session):
         if session.cancelled.is_set():
             return ""
         try:
-            result = post(config, body, content_type, 60)
+            result = bounded_post(config, body, content_type, 60, session.cancelled)
+            if result is None:
+                return ""
             return bounded_text(result.get("text") or result.get("transcription") or
                                 (result.get("result") or {}).get("text"))
-        except urllib.error.HTTPError as error:
-            if config["provider"] != "siliconflow" or error.code < 500 or attempt:
-                raise
-        except urllib.error.URLError:
-            if config["provider"] != "siliconflow" or attempt:
+        except VoiceRequestError as error:
+            if config["provider"] != "siliconflow" or not error.retryable or attempt:
                 raise
         if session.cancelled.wait(0.4):
             return ""
@@ -240,7 +284,7 @@ def polish_prompt(options):
     return PROMPTS.get(preset, PROMPTS["cleanup"])
 
 
-def polish(text, config, options):
+def polish(text, config, options, cancelled=None):
     if not config or not (options.get("polish_enabled") or options.get("polish_text")):
         return text
     if not matching(config, options, "polish"):
@@ -256,7 +300,7 @@ def polish(text, config, options):
     elif config["provider"] == "deepseek":
         body["thinking"] = {"type": "disabled"}
     try:
-        result = polish_request(config, body)
+        result = polish_request(config, body, cancelled)
         return bounded_text(result["choices"][0]["message"]["content"]) or text
     except Exception:
         return text
@@ -900,7 +944,7 @@ class Handler(socketserver.StreamRequestHandler):
             if text:
                 if polish_config and (options.get("polish_enabled") or options.get("polish_text")):
                     self.status(query, generation, "polishing")
-                text = polish(text, polish_config, options)
+                text = polish(text, polish_config, options, session.cancelled)
             self.send(generation, "" if session.cancelled.is_set() else text)
         except Exception:
             try:
@@ -1105,6 +1149,6 @@ def main():
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--polish-request"]:
-        sys.exit(polish_request_worker())
+    if sys.argv[1:] == ["--http-request"]:
+        sys.exit(http_request_worker())
     main()
