@@ -36,6 +36,7 @@ uint64_t configuration_generation = 0;
 std::string accepted_preferences_directory;
 Json accepted_preferences_snapshot;
 bool menu_save_pending = false;
+uint64_t menu_status_generation = 0;
 
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
@@ -134,6 +135,8 @@ struct State {
   bool private_input = false;
   guint preferences_timer = 0;
   bool preferences_loading = false;
+  uint64_t seen_menu_status_generation = 0;
+  uint64_t seen_menu_configuration = 0;
   bool input_enabled = true;
   bool mode_scope_global = false;
   bool chinese_punctuation = true;
@@ -4850,11 +4853,13 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
   if (menu_save_pending || directory.empty() || directory.front() != '/')
     return;
   menu_save_pending = true;
+  ++menu_status_generation;
   failed_menu_save.reset();
   publish_mode(engine);
   auto task = g_task_new(G_OBJECT(engine), nullptr,
       +[](GObject *source, GAsyncResult *result, gpointer) {
         menu_save_pending = false;
+        ++menu_status_generation;
         auto self = reinterpret_cast<MsimePreviewEngine *>(source);
         std::unique_ptr<Json> snapshot(static_cast<Json *>(
             g_task_propagate_pointer(G_TASK(result), nullptr)));
@@ -5072,6 +5077,18 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
+  // Saving is shared across contexts, but only the initiating context receives
+  // the task callback. Refresh status even when preferences did not change or
+  // a preference read is still in flight (including failed saves).
+  if (s.focused && !s.blocked &&
+      (s.seen_menu_status_generation != menu_status_generation ||
+       s.seen_menu_configuration != configuration_generation)) {
+    guarded(engine, "menu_status", [&] {
+      publish_mode(engine);
+      s.seen_menu_status_generation = menu_status_generation;
+      s.seen_menu_configuration = configuration_generation;
+    });
+  }
   watch_clipboard_history(engine);
   guarded(engine, "provider_discovery", [&] {
     if (s.refresh_provider_sockets(engine) && s.focused && !s.blocked) {
