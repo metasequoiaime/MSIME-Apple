@@ -1746,6 +1746,7 @@ fn close_panel(
     app: tauri::AppHandle,
     label: String,
     state: tauri::State<'_, PanelInputState>,
+    options: tauri::State<'_, DictionaryHostOptions>,
 ) -> Result<(), HostActionError> {
     if !matches!(
         label.as_str(),
@@ -1759,6 +1760,9 @@ fn close_panel(
         return Err(HostActionError {
             code: "invalid_panel",
         });
+    }
+    if label == "voice-panel" {
+        let _ = cancel_voice(options);
     }
     let result = app
         .get_webview_window(&label)
