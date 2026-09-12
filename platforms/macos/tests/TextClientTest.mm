@@ -59,6 +59,26 @@ static void TestEnginePreedit(FakeTextClient *client) {
         MSIMEApplyTransition([session command:MSIME_CANCEL error:&error], client);
         assert(!error && client.marked.length == 0);
     }
+    assert([session typeASCII:'b' shift:NO error:&error]);
+    __block NSUInteger replacements = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEClientSessionDidReplaceSnapshotNotification object:session queue:nil usingBlock:^(NSNotification *note) {
+        assert(note.object == session && NSThread.isMainThread);
+        ++replacements;
+    }];
+    NSString *version = [@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0];
+    // A nonexistent prepared handle forces activation failure after destruction,
+    // exercising actual host recovery rather than a mocked notification.
+    NSError *activationError = nil;
+    assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:version error:&activationError]);
+    assert(activationError && replacements == 1);
+    NSDictionary *recovered = [session viewWithError:&error];
+    assert(recovered && !error && [recovered[@"editing_text"] length] == 0);
+    assert([session setFocused:YES error:&error]);
+    NSDictionary *afterRecovery = [session typeASCII:'b' shift:NO error:&error];
+    assert(afterRecovery && !error && [afterRecovery[@"view"][@"editing_text"] isEqual:@"b"]);
+    MSIMEApplyTransition(afterRecovery, client);
+    assert([client.marked isEqual:afterRecovery[@"view"][@"preedit"]]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
     assert([session closeWithError:&error] && !error);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }

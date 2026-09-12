@@ -163,6 +163,11 @@ static NSDictionary *decode(char *response, NSError **error) {
         NSData *restore = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:nil];
         NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
         session->_handle = [view[@"session"] unsignedLongLongValue];
+        if (session->_handle != 0) {
+            // Recovery creates a fresh session too; the host must clear the
+            // destroyed composition and restore focus even though activation failed.
+            [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
+        }
         return NO;
     }
     NSData *options = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:error];
