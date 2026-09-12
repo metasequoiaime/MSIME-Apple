@@ -771,10 +771,9 @@ impl Preferences {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
-        if self.candidate_font_family.is_empty()
-            || self.candidate_font_family.len() > 128
-            || !self.candidate_font_family.is_ascii()
-        {
+        // Font family names are Unicode display names, not paths or identifiers.
+        // Keep the existing UTF-8 byte budget while allowing localized families.
+        if self.candidate_font_family.is_empty() || self.candidate_font_family.len() > 128 {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()
@@ -791,11 +790,12 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
-        if self.candidate_fallback_fonts.len() > 8
+        // Match the 32 ordered supplementary families in Windows appearance.ts.
+        if self.candidate_fallback_fonts.len() > 32
             || self
                 .candidate_fallback_fonts
                 .iter()
-                .any(|font| font.is_empty() || font.len() > 128 || !font.is_ascii())
+                .any(|font| font.is_empty() || font.len() > 128)
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
@@ -1624,14 +1624,32 @@ mod tests {
     }
 
     #[test]
+    fn unicode_font_families_and_ordered_fallbacks_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let fallback_fonts: Vec<String> = (0..32).map(|index| format!("示例字体{index}")).collect();
+        let preferences = Preferences {
+            candidate_font_family: "示例主字体".to_owned(),
+            candidate_fallback_fonts: fallback_fonts.clone(),
+            ..Preferences::default()
+        };
+        let saved = store.save(0, preferences).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.preferences.candidate_font_family, "示例主字体");
+        assert_eq!(loaded.preferences.candidate_fallback_fonts, fallback_fonts);
+        assert_eq!(loaded.revision, saved.revision);
+    }
+
+    #[test]
     fn candidate_fallback_fonts_reject_invalid_lists() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
         let initial = store.save(0, Preferences::default()).unwrap();
         for fonts in [
             vec!["".to_owned()],
-            vec!["字体".to_owned()],
-            (0..9).map(|index| format!("Font{index}")).collect(),
+            vec!["a".repeat(129)],
+            vec!["字".repeat(43)],
+            (0..33).map(|index| format!("Font{index}")).collect(),
         ] {
             assert!(matches!(
                 store.save(
@@ -1644,7 +1662,7 @@ mod tests {
                 Err(PreferencesError::InvalidCandidateFontFamily)
             ));
         }
-        let valid = vec!["Noto Sans CJK SC".to_owned(); 8];
+        let valid = vec!["Noto Sans CJK SC".to_owned(); 32];
         let saved = store
             .save(
                 1,
@@ -1657,6 +1675,25 @@ mod tests {
         assert_eq!(saved.preferences.candidate_fallback_fonts, valid);
         assert_eq!(store.load().unwrap().revision, 2);
         assert_eq!(initial.revision, 1);
+    }
+
+    #[test]
+    fn unicode_font_names_retain_utf8_byte_budget() {
+        let exact_limit = format!("{}ab", "字".repeat(42));
+        assert_eq!(exact_limit.len(), 128);
+        let mut preferences = Preferences {
+            candidate_font_family: exact_limit.clone(),
+            candidate_fallback_fonts: vec![exact_limit.clone()],
+            ..Preferences::default()
+        };
+        assert!(preferences.validate().is_ok());
+        for invalid in [String::new(), format!("{exact_limit}c"), "字".repeat(43)] {
+            preferences.candidate_font_family = invalid;
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCandidateFontFamily)
+            ));
+        }
     }
 
     #[test]
@@ -1699,7 +1736,9 @@ mod tests {
     #[test]
     fn floating_toolbar_component_defaults_and_roundtrip() {
         let defaults = Preferences::default().floating_toolbar;
-        assert!(defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation);
+        assert!(
+            defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation
+        );
         assert!(defaults.character_set && defaults.emoji && defaults.settings);
         assert!(!defaults.screen_keyboard);
         let json = serde_json::to_string(&Preferences::default()).unwrap();
