@@ -1,5 +1,5 @@
+#include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
-#include "CandidateLayout.h"
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
 #include "PreviewDispatcher.h"
@@ -12,9 +12,23 @@
 
 using namespace msime::windows;
 namespace {
-void require(bool value) {
+void require_at(bool value, int line) {
   if (!value)
-    throw std::runtime_error("Native Windows server fixture failed");
+    throw std::runtime_error("Native Windows server fixture failed at line " +
+                             std::to_string(line));
+}
+#define require(...) require_at((__VA_ARGS__), __LINE__)
+// Click the middle of the first candidate row, measured with the same geometry
+// the card draws and hit-tests with, so the fixture cannot drift from it.
+LPARAM first_candidate_point(HWND window, size_t count) {
+  RECT client{};
+  require(GetClientRect(window, &client));
+  const double scale = GetDpiForWindow(window) / 96.0;
+  const auto row = candidate_row_bounds(
+      0, count, client.right / scale,
+      candidate_card_metrics(16.0, 16.0, true), false);
+  return MAKELPARAM(static_cast<int>((row.left + row.right) / 2.0 * scale),
+                    static_cast<int>((row.top + row.bottom) / 2.0 * scale));
 }
 template <class T> std::vector<uint8_t> fixture_bytes(const T &value) {
   std::vector<uint8_t> bytes(sizeof(T));
@@ -156,10 +170,7 @@ int main() {
       UpdateWindow(clickable.handle());
       require(SendMessageW(clickable.handle(), WM_MOUSEACTIVATE, 0, 0) ==
               MA_NOACTIVATE);
-      const auto metrics =
-          candidate_metrics(GetDpiForWindow(clickable.handle()));
-      const auto point =
-          MAKELPARAM(metrics.padding + 1, metrics.padding + metrics.row + 1);
+      const auto point = first_candidate_point(clickable.handle(), 1);
       SendMessageW(clickable.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
       require(clicks == 1 && !clickable.failed());
@@ -321,10 +332,7 @@ int main() {
     }
     require(painted);
     const auto foreground = GetForegroundWindow();
-    const auto metrics =
-        candidate_metrics(GetDpiForWindow(candidates.handle()));
-    const auto point =
-        MAKELPARAM(metrics.padding + 1, metrics.padding + metrics.row + 1);
+    const auto point = first_candidate_point(candidates.handle(), 1);
     SendMessageW(candidates.handle(), WM_LBUTTONDOWN, MK_LBUTTON, point);
     SendMessageW(candidates.handle(), WM_LBUTTONUP, 0, point);
     const auto committed = read_frame(
@@ -349,6 +357,11 @@ int main() {
     require(!server.candidate_view());
     require(server.failure() == ControllerFailure::None);
     std::cout << "Native isolated Windows server pipeline passed\n";
+  } catch (const std::exception &error) {
+    // The message names the failing assertion only; never a packet or text.
+    std::cerr << "Native Windows server pipeline failed: " << error.what()
+              << "\n";
+    return 1;
   } catch (...) {
     std::cerr << "Native Windows server pipeline failed\n";
     return 1;

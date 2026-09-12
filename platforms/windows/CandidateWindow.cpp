@@ -1,5 +1,4 @@
 #include "CandidateWindow.h"
-#include "CandidateLayout.h"
 #include <algorithm>
 
 namespace msime::windows {
@@ -180,12 +179,23 @@ void CandidateWindow::hide() {
   pressed_.reset();
   ShowWindow(window_, SW_HIDE);
 }
+// Measuring the page reads Engine text, so unusable presentation data reaches
+// this path as well as the paint one. The owner's thread learns nothing about
+// it: the card gives up and stays hidden, exactly as the window procedure does.
 void CandidateWindow::refresh() {
   DpiScope dpi_scope;
   if (failed_) {
     hide();
     return;
   }
+  try {
+    reposition();
+  } catch (...) {
+    failed_ = true;
+    hide();
+  }
+}
+void CandidateWindow::reposition() {
   const auto value = reader_();
   if (!value || !value->visible) {
     hide();
@@ -289,9 +299,11 @@ void CandidateWindow::paint() {
       throw std::runtime_error("Candidate brush unavailable");
     return value;
   };
+  // Points are device independent here; the composition target carries the
+  // scale, so the constructor's validated sizes go straight to DirectWrite.
   auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
     auto *value = device_.GetTextFormat(
-        font_family_, static_cast<float>(candidate_metrics(96, points).font),
+        font_family_, static_cast<float>(points),
         DWRITE_FONT_WEIGHT_NORMAL, alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
         DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)

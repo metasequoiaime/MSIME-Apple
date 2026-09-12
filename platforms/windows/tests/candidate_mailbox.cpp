@@ -1,6 +1,5 @@
 #include "CandidateMailbox.h"
 #include "CandidateClickWorker.h"
-#include "CandidateLayout.h"
 #include "ModeMailbox.h"
 #include "ModeLayout.h"
 #include <future>
@@ -81,48 +80,6 @@ void candidate_mailbox_tests() {
             std::future_status::ready);
     failed.stop();
     require(failed.failed() && !failed.submit(click));
-  }
-  for (unsigned dpi : {96u, 120u, 144u, 192u, 288u, 384u}) {
-    const auto metrics = candidate_metrics(dpi);
-    require(!candidate_hit(metrics.padding, metrics.padding, metrics.width,
-                           1000, dpi, 9));
-    for (size_t row = 0; row < 9; ++row)
-      require(candidate_hit(metrics.padding,
-                            metrics.padding +
-                                static_cast<int>(row + 1) * metrics.row,
-                            metrics.width, 2000, dpi, 9) == row);
-    require(!candidate_hit(-1, 100, metrics.width, 1000, dpi, 9));
-    require(!candidate_hit(metrics.width, 100, metrics.width, 1000, dpi, 9));
-    require(!candidate_hit(metrics.padding, 10 * metrics.row + metrics.padding,
-                           metrics.width, 2000, dpi, 9));
-    require(metrics.row == static_cast<int>(28 * dpi / 96));
-    require(metrics.font == static_cast<int>(16 * dpi / 96));
-    for (size_t count = 0; count <= 9; ++count) {
-      const auto bounds =
-          candidate_bounds(-5000, 5000, -1920, -1080, 0, 0, dpi, count);
-      require(bounds.x == -1920 && bounds.y + bounds.height == 0);
-      require(bounds.width > 0 && bounds.width <= 1920);
-      require(bounds.height > 0 && bounds.height <= 1080);
-    }
-  }
-  const auto tiny =
-      candidate_bounds(INT32_MAX, INT32_MIN, -3, -2, 2, 4, 960, 9);
-  require(tiny.x == -3 && tiny.y == -2 && tiny.width == 5 && tiny.height == 6);
-  const auto extreme = candidate_bounds(INT32_MAX, INT32_MIN, INT32_MIN,
-                                        INT32_MIN, INT32_MAX, INT32_MAX, 96, 9);
-  require(extreme.x == INT32_MAX - 420 && extreme.y == INT32_MIN);
-  for (int invalid = 0; invalid < 4; ++invalid) {
-    bool rejected = false;
-    try {
-      (void)candidate_bounds(0, 0, 0, 0, invalid == 2 ? 0 : 100, 100,
-                             invalid == 0   ? 0
-                             : invalid == 1 ? 961
-                                            : 96,
-                             invalid == 3 ? 10 : 9);
-    } catch (const std::invalid_argument &) {
-      rejected = true;
-    }
-    require(rejected);
   }
   FocusGate gate;
   CandidateMailbox mailbox;

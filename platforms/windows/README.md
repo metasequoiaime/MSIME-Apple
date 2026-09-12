@@ -264,7 +264,7 @@ bootstrap 只管理默认工具缓存，已有错误版本、跟踪文件改动�
 {"format_version":1,"resources":"C:\\MSIME-Preview\\resources","state_root":"C:\\MSIME-Preview\\state","pipe_namespace":"dev-01","preedit_style":"pinyin"}
 ```
 
-resources 指向已下载的锁定词库代目录；state_root 必须是本预览实例独享的独立目录，两者不能互相包含。路径需绝对；preedit_style 仅 local/pinyin。命名空间只允许 1–48 个 ASCII 字母、数字或连字符，三条管道固定生成为 `\\.\pipe\msime-client-preview-<命名空间>-0/1/2`，不接受旧产品管道名。词库准备前独占打开稳定锁文件，持有到 Server/worker/输入会话全部停止；退出释放句柄，锁文件不删除，其存在不代表实例仍活着。其他直接调用 Engine 的进程不遵守此锁，必须由调用方保证不共享此状态目录。
+resources 指向已下载的锁定词库代目录；state_root 必须是本预览实例独享的独立目录，两者不能互相包含。路径需绝对；preedit_style 仅 local/pinyin，它决定预览宿主收到哪些组字帧，始终覆盖共享 preferences.json 的 tsf_preedit_style，修改启动文件需重启。命名空间只允许 1–48 个 ASCII 字母、数字或连字符，三条管道固定生成为 `\\.\pipe\msime-client-preview-<命名空间>-0/1/2`，不接受旧产品管道名。词库准备前独占打开稳定锁文件，持有到 Server/worker/输入会话全部停止；退出释放句柄，锁文件不删除，其存在不代表实例仍活着。其他直接调用 Engine 的进程不遵守此锁，必须由调用方保证不共享此状态目录。
 
 入口调用共享 prepare_host 校验词库并准备隔离工作数据，启用同目录配置监听，再启动 WindowsServer。Ctrl+C/Ctrl+Break 请求顺序停机；准备阶段的磁盘操作不能即时中断，系统强制终止不保证清理。初始化错误只输出通用信息，不输出配置路径或输入内容。此入口未在 Windows 执行验证。
 
