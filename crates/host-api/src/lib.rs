@@ -50,13 +50,36 @@ pub fn handwriting_local_candidates(
     if !std::path::Path::new(model_path).is_absolute() {
         return Err("model path must be absolute");
     }
+    engine_handwriting_candidates(model_path, query, 420.0, 420.0)
+}
+
+#[cfg(not(target_os = "android"))]
+fn engine_handwriting_candidates(
+    model_path: &str,
+    query: &HandwritingQuery,
+    width: f32,
+    height: f32,
+) -> Result<Vec<String>, &'static str> {
     let strokes = query
         .strokes
         .iter()
         .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
         .collect::<Vec<Vec<(f32, f32)>>>();
-    msime_engine_bridge::handwriting_recognize(model_path, &strokes, 420.0, 420.0)
+    msime_engine_bridge::handwriting_recognize(model_path, &strokes, width, height)
         .map_err(|_| "local handwriting recognizer unavailable")
+}
+
+#[cfg(target_os = "android")]
+fn engine_handwriting_candidates(
+    _model_path: &str,
+    _query: &HandwritingQuery,
+    _width: f32,
+    _height: f32,
+) -> Result<Vec<String>, &'static str> {
+    // Android injects ML Kit Digital Ink through HandwritingRecognizer. Keeping
+    // this boundary unavailable prevents zinnia and its model path from becoming
+    // an unused second recognizer in the IME process.
+    Err("local handwriting recognizer unavailable")
 }
 
 thread_local! {
@@ -1721,13 +1744,7 @@ pub unsafe extern "C" fn msime_client_handwriting_local_request(
         if !std::path::Path::new(model).is_absolute() {
             return Err("model path must be absolute".into());
         }
-        let strokes: Vec<Vec<(f32, f32)>> = query
-            .strokes
-            .iter()
-            .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
-            .collect();
-        let candidates = msime_engine_bridge::handwriting_recognize(model, &strokes, 1.0, 1.0)
-            .map_err(|_| "local handwriting recognizer unavailable")?;
+        let candidates = engine_handwriting_candidates(model, &query, 1.0, 1.0)?;
         Ok(json!({"candidates": candidates}))
     })
 }

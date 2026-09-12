@@ -1,7 +1,9 @@
 #include "bridge.h"
 #include "msime-engine-bridge/src/lib.rs.h"
 #include <metasequoia/personal_dictionary.h>
+#if !defined(__ANDROID__)
 #include <metasequoia/handwriting.h>
+#endif
 #include <algorithm>
 #include <cstdint>
 #include <metasequoia/dictionary_state.h>
@@ -722,6 +724,7 @@ rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources) {
     if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
     return groups;
 }
+#if !defined(__ANDROID__)
 rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
                                                rust::Slice<const HandwritingPoint> points,
                                                float width, float height) {
@@ -741,6 +744,7 @@ rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
         result.push_back(rust::String(candidate));
     return result;
 }
+#endif
 EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
     return result_for(session_.character(static_cast<char>(value), shift));
