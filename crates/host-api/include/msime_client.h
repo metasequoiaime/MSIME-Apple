@@ -23,6 +23,19 @@ typedef struct msime_client_key_event {
   bool ui_less;
 } msime_client_key_event;
 
+/* Outcome for platform key-router writes. Only definitely-not-sent may use a
+ * local fallback; ambiguous delivery must wait for lease recovery. */
+typedef enum msime_client_key_dispatch_result {
+  MSIME_CLIENT_KEY_SENT = 0,
+  MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT = 1,
+  MSIME_CLIENT_KEY_DELIVERY_AMBIGUOUS = 2,
+} msime_client_key_dispatch_result;
+
+static inline bool msime_client_key_dispatch_allows_fallback(
+    msime_client_key_dispatch_result result) {
+  return result == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT;
+}
+
 static inline bool msime_client_key_event_valid(const msime_client_key_event *event) {
   return event != NULL && event->lease.client != 0 && event->lease.epoch != 0 &&
          event->lease.token != 0 && event->virtual_key <= 0xff &&
