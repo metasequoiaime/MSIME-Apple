@@ -26,6 +26,7 @@ export interface PanelClient {
 }
 
 export interface VoicePanelClient extends PanelClient {
+  maxSubmitBytes?: number;
   loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
   onVoiceUpdate?(listener: (update: { text: string; final: boolean }) => void): Promise<() => void>;
@@ -294,6 +295,8 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
 export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
+  const exceedsSubmitLimit = client.maxSubmitBytes !== undefined
+    && new TextEncoder().encode(text).length > client.maxSubmitBytes;
   const textRevision = useRef(0);
   function updateText(value: string) { textRevision.current++; setText(value); }
   const [submitting, setSubmitting] = useState(false);
@@ -390,6 +393,10 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   async function submit(copyOnly = false) {
     const send = copyOnly ? client.copyText : client.sendVoiceText ?? client.sendText;
     if (!text || !send || busyRef.current || submittingRef.current) return;
+    if (!copyOnly && exceedsSubmitLimit) {
+      setNotice("内容超过单次提交长度，请精简或复制结果后手动粘贴");
+      return;
+    }
     const revision = ++submissionRevision.current;
     const submittedTextRevision = textRevision.current;
     submittingRef.current = true;
@@ -483,8 +490,9 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-CN">中文（普通话）</option><option value="en-US">English</option><option value="ja-JP">日本語</option></datalist></label>
       <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>
       {busy && client.stopVoice && client.cancelVoice && <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>取消录音</button>}
-      <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => updateText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
-      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy || submitting}>{submitting && !copying ? "正在提交…" : "提交到当前窗口"}</button>
+      <textarea aria-label="识别结果" aria-describedby={exceedsSubmitLimit ? "voice-result-limit" : undefined} aria-invalid={exceedsSubmitLimit || undefined} value={text} maxLength={4096} onChange={event => updateText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
+      {exceedsSubmitLimit && <p id="voice-result-limit" className="voice-panel-description" role="status">内容超过单次提交长度，请精简或复制结果后手动粘贴。</p>}
+      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || exceedsSubmitLimit || !(client.sendVoiceText ?? client.sendText) || busy || submitting}>{submitting && !copying ? "正在提交…" : "提交到当前窗口"}</button>
       {client.copyText && <button type="button" onClick={() => void submit(true)} disabled={!text || busy || submitting}>{copying ? "正在复制…" : "复制结果"}</button>}
       <button type="button" onClick={() => { updateText(""); setNotice("识别结果已清空"); }} disabled={!text || busy}>清空结果</button>
       {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}

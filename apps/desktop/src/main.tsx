@@ -78,6 +78,7 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
   },
   voice: {
+    maxSubmitBytes: 4096,
     beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
