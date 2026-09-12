@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2152,18 +2152,18 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
-      ibus_text_new_from_static_string("当前焦点会话的中文或日文方案"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      ibus_text_new_from_static_string("选择中文或日文输入方案"),
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto scheme_menu = ibus_prop_list_new();
   auto chinese = ibus_property_new(
       "Scheme/Chinese", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("中文"), "",
-      ibus_text_new_from_static_string("使用当前中文方案"), TRUE, TRUE,
+      ibus_text_new_from_static_string("使用当前中文方案"), !menu_save_pending, TRUE,
       japanese_scheme ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED, nullptr);
   auto japanese = ibus_property_new(
       "Scheme/Japanese", PROP_TYPE_RADIO,
       ibus_text_new_from_static_string("日文"), "",
-      ibus_text_new_from_static_string("使用日语罗马字方案"), TRUE, TRUE,
+      ibus_text_new_from_static_string("使用日语罗马字方案"), !menu_save_pending, TRUE,
       japanese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(scheme_menu, chinese);
   ibus_prop_list_append(scheme_menu, japanese);
@@ -2175,7 +2175,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("Scheme/") + (std::string(value) == "quanpin" ? "Quanpin" : std::string(value) == "shuangpin" ? "Shuangpin" : "Wubi")).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("直接选择中文输入方案"), TRUE, TRUE,
+        ibus_text_new_from_static_string("直接选择中文输入方案"), !menu_save_pending, TRUE,
         !japanese_scheme && active_chinese_scheme == value
             ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
@@ -3684,31 +3684,25 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name).rfind("Scheme/", 0) == 0) {
-      const bool japanese = std::string(name) == "Scheme/Japanese";
-      const bool explicit_chinese = property_name == "Scheme/Quanpin" ||
-                                    property_name == "Scheme/Shuangpin" ||
-                                    property_name == "Scheme/Wubi";
-      if (!explicit_chinese &&
-          (s.scheme_override && *s.scheme_override == "japanese") == japanese)
+      if (value != PROP_STATE_CHECKED || menu_save_pending) return;
+      auto selected = property_name == "Scheme/Japanese" ? std::string("japanese")
+          : property_name == "Scheme/Quanpin" ? std::string("quanpin")
+          : property_name == "Scheme/Shuangpin" ? std::string("shuangpin")
+          : property_name == "Scheme/Wubi" ? std::string("wubi")
+          : configured.at("preferences").value("last_chinese_scheme", std::string("quanpin"));
+      if (selected != "japanese" && selected != "quanpin" &&
+          selected != "shuangpin" && selected != "wubi") selected = "quanpin";
+      if (s.scheme_override.value_or(
+              configured.at("preferences").value("scheme", "quanpin")) == selected) return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::InputScheme, selected);
         return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
-      if (japanese) {
-        s.scheme_override = "japanese";
-      } else {
-        auto chinese = property_name == "Scheme/Quanpin"
-                           ? std::string("quanpin")
-                           : property_name == "Scheme/Shuangpin"
-                                 ? std::string("shuangpin")
-                                 : property_name == "Scheme/Wubi"
-                                       ? std::string("wubi")
-                                       : configured.at("preferences").value(
-                                             "last_chinese_scheme", std::string("quanpin"));
-        if (chinese != "quanpin" && chinese != "shuangpin" && chinese != "wubi")
-          chinese = "quanpin";
-        s.scheme_override = chinese;
-      }
+      s.scheme_override = selected;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
@@ -4870,6 +4864,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->helpcode_schema_override.reset();
           if (request.preference == MenuPreference::ShuangpinProfile)
             self->state->shuangpin_profile_override.reset();
+          if (request.preference == MenuPreference::InputScheme)
+            self->state->scheme_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4947,6 +4943,11 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::ShuangpinProfile:
             snapshot["preferences"]["shuangpin_profile"] = request.value;
+            break;
+          case MenuPreference::InputScheme:
+            snapshot["preferences"]["scheme"] = request.value;
+            if (request.value != "japanese")
+              snapshot["preferences"]["last_chinese_scheme"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
