@@ -13,13 +13,25 @@ std::string default_model_path(const char *program) {
   if (const char *configured = std::getenv("MSIME_HANDWRITING_MODEL");
       configured && *configured)
     return configured;
+  if (const char *data_home = std::getenv("XDG_DATA_HOME"); data_home && *data_home) {
+    const auto path = std::filesystem::path(data_home) /
+        "msime-client/handwriting/handwriting-zh_CN.model";
+    if (std::filesystem::is_regular_file(path))
+      return path.string();
+  }
   std::error_code error;
   const auto executable = std::filesystem::absolute(program, error);
   if (error)
     return {};
-  return (executable.parent_path().parent_path() /
-          "share/msime-client/handwriting/handwriting-zh_CN.model")
-      .string();
+  const auto prefix_path = executable.parent_path().parent_path() /
+      "share/msime-client/handwriting/handwriting-zh_CN.model";
+  if (std::filesystem::is_regular_file(prefix_path))
+    return prefix_path.string();
+  for (const auto &path : {std::filesystem::path("/usr/local/share/msime-client/handwriting/handwriting-zh_CN.model"),
+                           std::filesystem::path("/usr/share/msime-client/handwriting/handwriting-zh_CN.model")})
+    if (std::filesystem::is_regular_file(path))
+      return path.string();
+  return {};
 }
 } // namespace
 
