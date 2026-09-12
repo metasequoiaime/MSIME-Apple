@@ -3089,9 +3089,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
     }
     // Disabled navigation keys belong to the application, including when a
-    // composition is active. Do not fall through to the generic cancellation.
-    if (msime::linux_host::navigation_key(key))
+    // composition is active. Finalize that composition first so the editor
+    // never receives a navigation key while stale preedit is still owned by
+    // the IBus engine.
+    if (msime::linux_host::navigation_key(key)) {
+      const bool binding_enabled = s.navigation.command(
+          key, (flags & IBUS_SHIFT_MASK) != 0).has_value();
+      if (!binding_enabled &&
+          (!s.view.at("editing_text").get<std::string>().empty() ||
+           !s.view.at("candidates").empty()))
+        apply(engine, msime_client_command(s.session, MSIME_COMMIT_CANDIDATE));
       return;
+    }
     if (modifiers == IBUS_CONTROL_MASK && key == IBUS_period) {
       s.chinese_punctuation = !s.chinese_punctuation;
       s.punctuation_override = s.chinese_punctuation;
