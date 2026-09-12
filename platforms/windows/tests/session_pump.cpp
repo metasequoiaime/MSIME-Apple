@@ -407,6 +407,54 @@ void session_pump_tests(const std::string &options) {
       }
     }
   }
+  {
+    // The launch preedit style decides which composition frames reach the
+    // preview host, even when the shared preferences ask for another one: the
+    // host renders composition the way it was started, and a later publication
+    // must not start sending it frames it does not consume.
+    auto host = nlohmann::json::parse(options);
+    host["preferences"]["tsf_preedit_style"] = "pinyin";
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, host.dump());
+    FixtureTransport transport;
+    transport.packets.resize(2); // Activation and one composing character.
+    const nlohmann::json launch{{"format_version", 1},
+                                {"resources", host.at("resources")},
+                                {"state_root", host.at("user_data")},
+                                {"pipe_namespace", "style-fixture"},
+                                {"preedit_style", "local"}};
+    const auto handler =
+        preview_key_handler(PreviewConfig::parse(launch.dump()));
+    size_t keys = 0;
+    std::exception_ptr failure;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          try {
+            require(state.tsf_preedit_style() == TsfPreeditStyle::Pinyin);
+            auto result = handler(state, lease, packet);
+            ++keys;
+            // Local composition belongs to the host; nothing is encoded.
+            require(result && !result->encoded &&
+                    result->source.transition.at("view").at("local_mode") ==
+                        "unicode");
+            return result;
+          } catch (...) {
+            failure = std::current_exception();
+            throw;
+          }
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    const auto completed = pump.run(transport.ticket);
+    if (failure)
+      std::rethrow_exception(failure);
+    require(completed == PumpResult::Disconnected);
+    require(keys == 1);
+    // Both packets acknowledge focus; neither carries a composition frame.
+    require(transport.writes.size() == 2);
+    queue.stop();
+  }
   for (bool brackets : {false, true}) {
     for (bool paging : {false, true}) {
       for (bool uiless : {false, true}) {
