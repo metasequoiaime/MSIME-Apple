@@ -419,21 +419,27 @@ def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None,
             break
         if node.get("type") != "PipeWire:Interface:Node":
             continue
-        props = node.get("info", {}).get("props", {})
-        if props.get("media.class") != "Stream/Output/Audio" or props.get("object.serial") is None:
-            continue
         index = node.get("id")
         if type(index) is not int or index < 0:
             continue
         if indices is not None and index not in indices:
             continue
-        if wanted is not None and (index, props["object.serial"]) not in wanted:
-            continue
-        if excluded is not None and (index, props["object.serial"]) in excluded:
-            continue
-        # Use the session manager's current state, rather than assuming that
-        # missing Props in a graph snapshot means an unmuted stream.
         try:
+            # A known node with incomplete metadata is unreadable, not gone.
+            # Recovery must retain its journal entry until identity is known.
+            info = node.get("info")
+            props = info.get("props") if isinstance(info, dict) else None
+            if not isinstance(props, dict) or props.get("media.class") is None:
+                raise ValueError("audio node metadata unavailable")
+            if props["media.class"] != "Stream/Output/Audio":
+                continue
+            if props.get("object.serial") is None:
+                raise ValueError("audio node identity unavailable")
+            if wanted is not None and (index, props["object.serial"]) not in wanted:
+                continue
+            if excluded is not None and (index, props["object.serial"]) in excluded:
+                continue
+            # Query current mute state instead of inferring it from the graph.
             volume = command(["wpctl", "get-volume", str(index)], timeout=0.5)
             if not volume.startswith(b"Volume:"):
                 if indices is not None:
