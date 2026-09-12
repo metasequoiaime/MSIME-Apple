@@ -605,60 +605,93 @@ function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
 
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
   const [search, setSearch] = useState("");
-  const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [items, setItems] = useState<CloudClipboardItem[]>([]);
   const [draft, setDraft] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const refreshRevision = useRef(0);
+  const busyRef = useRef(false);
+  const draftRevision = useRef(0);
+  const searchRef = useRef("");
   const [notice, setNotice] = useState("只上传你明确选择的内容");
 
-  async function refresh(nextSearch = search) {
+  async function run(action: (revision: number) => Promise<void>, failure: string) {
+    if (busyRef.current) return;
     const revision = ++refreshRevision.current;
+    busyRef.current = true;
     setBusy(true);
-    try {
-      const result = await client.request({ operation: "list", search: nextSearch });
-      if (revision !== refreshRevision.current) return;
-      setItems(cloudClipboardItems(result));
-      if (typeof result.enabled === "boolean") setEnabled(result.enabled);
-      setNotice("云剪贴板已刷新");
-    } catch { if (revision === refreshRevision.current) setNotice("无法访问云剪贴板服务"); }
-    finally { if (revision === refreshRevision.current) setBusy(false); }
+    try { await action(revision); }
+    catch { if (revision === refreshRevision.current) setNotice(failure); }
+    finally {
+      if (revision === refreshRevision.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function load(revision: number, nextSearch: string) {
+    const result = await client.request({ operation: "list", search: nextSearch });
+    if (revision !== refreshRevision.current) return;
+    setItems(cloudClipboardItems(result));
+    if (typeof result.enabled === "boolean") setEnabled(result.enabled);
+    setNotice("云剪贴板已刷新");
+  }
+
+  function refresh(nextSearch = searchRef.current) {
+    return run(revision => load(revision, nextSearch), "无法访问云剪贴板服务");
   }
 
   useEffect(() => {
-    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
-    void refresh("");
+    let active = true;
+    busyRef.current = false;
+    setItems([]);
+    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
+      if (active) setNotice("未能记录前台输入窗口");
+    });
+    void refresh(searchRef.current);
+    return () => { active = false; refreshRevision.current++; busyRef.current = false; };
   }, [client]);
 
-  async function add() {
-    if (!draft) return;
-    setBusy(true);
-    try {
+  function add() {
+    if (!draft || !enabled) return;
+    const uploadedRevision = draftRevision.current;
+    return run(async revision => {
       await client.request({ operation: "add", text: draft });
-      setDraft("");
-      await refresh(search);
-    } catch { setNotice("上传失败，请确认账户 provider 已连接"); setBusy(false); }
+      if (revision !== refreshRevision.current) return;
+      if (uploadedRevision === draftRevision.current) setDraft("");
+      try { await load(revision, searchRef.current); }
+      catch { if (revision === refreshRevision.current) setNotice("已上传，但历史刷新失败，请点击刷新"); }
+    }, "上传失败，请确认账户 provider 已连接");
   }
 
-  async function remove(id: string) {
-    setBusy(true);
-    try { await client.request({ operation: "delete", id }); await refresh(search); }
-    catch { setNotice("删除失败"); setBusy(false); }
+  function remove(id: string) {
+    return run(async revision => {
+      await client.request({ operation: "delete", id });
+      if (revision !== refreshRevision.current) return;
+      try { await load(revision, searchRef.current); }
+      catch { if (revision === refreshRevision.current) setNotice("已删除，但历史刷新失败，请点击刷新"); }
+    }, "删除失败");
   }
 
-  async function toggle() {
+  function toggle() {
     const next = !enabled;
-    setBusy(true);
-    try { const result = await client.request({ operation: "set_enabled", enabled: next }); setEnabled(typeof result.enabled === "boolean" ? result.enabled : next); setNotice(next ? "云剪贴板已开启" : "云剪贴板已关闭"); }
-    catch { setNotice("更新云剪贴板设置失败"); }
-    finally { setBusy(false); }
+    return run(async revision => {
+      const result = await client.request({ operation: "set_enabled", enabled: next });
+      if (revision !== refreshRevision.current) return;
+      const effective = typeof result.enabled === "boolean" ? result.enabled : next;
+      setEnabled(effective);
+      setNotice(effective ? "云剪贴板已开启" : "云剪贴板已关闭");
+    }, "更新云剪贴板设置失败");
   }
 
-  async function choose(item: CloudClipboardItem) {
-    if (!client.sendText) { setNotice("当前宿主未提供目标窗口提交能力"); return; }
-    try { await client.sendText(item.text); setNotice(`已输入：${item.text}`); }
-    catch { setNotice("提交失败，前台输入窗口可能已关闭"); }
+  function choose(item: CloudClipboardItem) {
+    const send = client.sendText;
+    if (!send) { setNotice("当前宿主未提供目标窗口提交能力"); return; }
+    return run(async revision => {
+      await send(item.text);
+      if (revision === refreshRevision.current) setNotice(`已输入：${item.text}`);
+    }, "提交失败，前台输入窗口可能已关闭");
   }
 
   return <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
@@ -666,9 +699,9 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     <div className="cloud-clipboard-body">
       <p className="cloud-clipboard-description">只上传你明确选择的文本，不自动读取本地剪贴板。</p>
       <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy} /></label>
-      <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
-      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => setDraft(event.target.value)} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
-      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" onClick={() => void choose(item)}>{item.text}</button><button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
+      <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
+      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
+      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button><button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
       <p className="cloud-clipboard-notice" role="status">{notice}</p>
     </div>
   </main>;
