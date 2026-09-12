@@ -1388,6 +1388,10 @@ struct EmojiCatalogQuery {
     group: String,
     #[serde(default)]
     list_groups: bool,
+    #[serde(default)]
+    list_symbol_groups: bool,
+    #[serde(default)]
+    parent: String,
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
@@ -1432,13 +1436,24 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
                     .map_err(|_| "local emoji catalog unavailable")?;
             return Ok(json!({"groups": groups}));
         }
-        let items = msime_engine_bridge::emoji_catalog_filtered_page(
+        if query.list_symbol_groups {
+            let groups = msime_engine_bridge::emoji_symbol_groups(resources)
+                .map_err(|_| "local emoji catalog unavailable")?;
+            return Ok(
+                json!({"symbol_groups": groups.into_iter().map(|g| json!({"parent":g.parent,"title":g.title})).collect::<Vec<_>>()}),
+            );
+        }
+        if !query.parent.is_empty() && query.panel.category != "symbols" {
+            return Err("parent filter requires symbols catalog".into());
+        }
+        let items = msime_engine_bridge::emoji_catalog_parent_page(
             resources,
             &query.panel.search,
             &query.panel.category,
             &query.group,
             query.offset,
             u16::from(query.panel.limit),
+            &query.parent,
         )
         .map_err(|_| "local emoji catalog unavailable")?;
         Ok(json!({
@@ -2699,6 +2714,26 @@ mod tests {
             request(json!({"category":"kaomoji","group":"missing"}))["value"]["items"],
             json!([])
         );
+        db.execute_batch("UPDATE symbol_catalog SET category='Shared', parent_category=CASE WHEN sort_order=2 THEN 'Parent-B' ELSE 'Parent-A' END WHERE sort_order<4;
+            UPDATE symbol_catalog SET parent_category='' WHERE sort_order=4;").unwrap();
+        assert_eq!(
+            request(json!({"list_symbol_groups":true}))["value"]["symbol_groups"],
+            json!([
+                {"parent":"Parent-A","title":"Shared"}, {"parent":"Parent-B","title":"Shared"}, {"parent":"Z","title":"Z"}
+            ])
+        );
+        let page = request(
+            json!({"category":"symbols","parent":"Parent-A","group":"Shared","search":"match","offset":1,"limit":1}),
+        );
+        assert_eq!(page["value"]["items"][0]["text"], "three");
+        let other = request(json!({"category":"symbols","parent":"Parent-B","group":"Shared"}));
+        assert_eq!(other["value"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(other["value"]["items"][0]["text"], "two");
+        assert_eq!(
+            request(json!({"category":"symbols","parent":"missing"}))["value"]["items"],
+            json!([])
+        );
+        assert_eq!(request(json!({"parent":"Parent-A"}))["ok"], false);
         db.execute_batch("DROP TABLE emoji").unwrap();
         assert_eq!(request(json!({"list_groups":true}))["ok"], false);
     }

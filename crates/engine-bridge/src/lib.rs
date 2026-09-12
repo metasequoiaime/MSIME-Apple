@@ -121,6 +121,11 @@ mod ffi {
         pub annotation: String,
         pub group: String,
     }
+    #[derive(Debug)]
+    pub struct EmojiSymbolGroup {
+        pub parent: String,
+        pub title: String,
+    }
     #[derive(Clone, Debug)]
     pub struct HandwritingPoint {
         pub stroke: u32,
@@ -187,7 +192,9 @@ mod ffi {
             group: &str,
             offset: usize,
             limit: u16,
+            parent: &str,
         ) -> Result<Vec<EmojiCatalogItem>>;
+        fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
         fn handwriting_recognize(
             model_path: &str,
@@ -303,7 +310,23 @@ pub fn emoji_catalog_filtered_page(
     offset: usize,
     limit: u16,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit)
+    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, "")
+}
+
+pub fn emoji_catalog_parent_page(
+    resources: &str,
+    search: &str,
+    category: &str,
+    group: &str,
+    offset: usize,
+    limit: u16,
+    parent: &str,
+) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
+    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, parent)
+}
+
+pub fn emoji_symbol_groups(resources: &str) -> Result<Vec<ffi::EmojiSymbolGroup>, cxx::Exception> {
+    ffi::emoji_symbol_groups(resources)
 }
 
 pub fn emoji_catalog_groups(

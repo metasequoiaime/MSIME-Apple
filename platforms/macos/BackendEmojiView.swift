@@ -12,6 +12,11 @@ struct MacEmojiView: View {
   @State private var category = ""
   private var usesWideCells: Bool { category == "kaomoji" || category == "recent" }
   @State private var group = ""
+  @State private var parent = ""
+  @State private var symbolGroups: [MacEmojiSymbolGroup] = []
+  private var displayedGroups: [String] {
+    category == "symbols" ? MacEmojiSymbolGroup.titles(symbolGroups, parent: parent) : groups
+  }
   @State private var groups: [String] = []
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
@@ -20,7 +25,7 @@ struct MacEmojiView: View {
   @State private var recent = MacEmojiRecents()
   @State private var clipboardNotice = ""
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, group, String(offset), String(category == "recent" ? recent.revision : 0)] }
+  private var queryID: [String] { [search, category, parent, group, String(offset), String(category == "recent" ? recent.revision : 0)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
   @State private var selection = MacEmojiSelectionState()
@@ -44,12 +49,18 @@ struct MacEmojiView: View {
         Text("颜文字").tag("kaomoji")
         Text("符号").tag("symbols")
       }.pickerStyle(.segmented)
+      if category == "symbols" {
+        Picker("符号大类", selection: $parent) {
+          Text("全部大类").tag("")
+          ForEach(MacEmojiSymbolGroup.parents(symbolGroups), id: \.self) { Text($0).tag($0) }
+        }.disabled(groupsCategory != category || symbolGroups.isEmpty)
+      }
       Picker("分类", selection: $group) {
         Text("全部分类").tag("")
-        ForEach(groupsCategory == category ? groups : [], id: \.self) { name in
+        ForEach(groupsCategory == category ? displayedGroups : [], id: \.self) { name in
           Text(name).tag(name)
         }
-      }.disabled(groupsCategory != category || groups.isEmpty)
+      }.disabled(groupsCategory != category || displayedGroups.isEmpty)
       if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
         placeholder: category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
@@ -101,16 +112,25 @@ struct MacEmojiView: View {
       .tint(MacEmojiPalette.color(palette.accent))
       .preferredColorScheme(appearance.colorScheme)
       .onChange(of: search) { _ in offset = 0 }
-      .onChange(of: category) { _ in offset = 0; group = "" }
+      .onChange(of: category) { _ in offset = 0; group = ""; parent = "" }
+      .onChange(of: parent) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
       .task(id: category) {
         groupsCategory = nil
         groups = []
+        symbolGroups = []
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
         if selectedCategory == "recent" { groupsCategory = selectedCategory; return }
         do {
+          if selectedCategory == "symbols" {
+            let result = try await Task.detached { try MacEmojiCatalog.loadSymbolGroups(resources: directory) }.value
+            try Task.checkCancellation()
+            symbolGroups = result
+            groupsCategory = selectedCategory
+            return
+          }
           let result = try await Task.detached {
             try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory)
           }.value
@@ -140,9 +160,10 @@ struct MacEmojiView: View {
           let selectedCategory = category
           let selectedOffset = offset
           let selectedGroup = group
+          let selectedParent = parent
           let requestedID = queryID
           let result = try await Task.detached {
-            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset, group: selectedGroup)
+            try MacEmojiCatalog.load(resources: directory, search: query, category: selectedCategory, offset: selectedOffset, group: selectedGroup, parent: selectedParent)
           }.value
           try Task.checkCancellation()
           items = result

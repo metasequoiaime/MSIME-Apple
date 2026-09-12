@@ -218,6 +218,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.
+ * list_symbol_groups:true returns {symbol_groups:[{parent,title},...]}.
+ * Optional parent narrows symbols to a parent category before paging.
  * Advance offset by limit, not returned item count: each page deduplicates text. */
 char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
