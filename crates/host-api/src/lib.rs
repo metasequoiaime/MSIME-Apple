@@ -812,6 +812,7 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
                 .runtime
                 .set_dedicated_english(enabled)
                 .map_err(|e| e.to_string())?;
+            session.english_mode = enabled;
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
