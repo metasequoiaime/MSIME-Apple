@@ -423,9 +423,8 @@ struct State {
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     session = view.at("session").get<uint64_t>();
     view = response(msime_client_set_character_width(session, fullwidth));
-    const bool default_english =
-        options.at("preferences").value("default_ime_mode", "chinese") == "english";
-    english_mode = dedicated_english_override.value_or(default_english);
+    // CN/EN passthrough defaults are independent of the English candidate mode.
+    english_mode = dedicated_english_override.value_or(false);
     view = response(msime_client_set_english_mode(session, english_mode));
     if (active_scheme == "quanpin" && nine_key_override)
       view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
@@ -4466,6 +4465,10 @@ void destroy(IBusObject *object) {
 
 static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state = new State();
+  // Seed once per host instance; refocus or session recreation keeps user choice.
+  if (configured.is_object())
+    engine->state->input_enabled = configured.at("preferences").value(
+        "default_ime_mode", "chinese") != "english";
   engine->state->preferences_timer =
       g_timeout_add(1000, reload_preferences, engine);
 }

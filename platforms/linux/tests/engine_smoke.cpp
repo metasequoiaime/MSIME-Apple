@@ -214,11 +214,15 @@ int main(int argc, char **argv) {
     auto server = connect();
     auto client = connect();
     require(server && client, "Private D-Bus unavailable");
-    auto engine = IBUS_ENGINE(
-        g_object_new(msime_preview_engine_get_type(), "engine-name",
+    auto create_engine = [&] {
+      auto created = IBUS_ENGINE(
+          g_object_new(msime_preview_engine_get_type(), "engine-name",
                      "msime-client-preview", "object-path",
                      "/app/msime/test/engine", "connection", server, nullptr));
-    g_object_ref_sink(engine);
+      g_object_ref_sink(created);
+      return created;
+    };
+    auto engine = create_engine();
     Observation seen;
     const char *destination = g_dbus_connection_get_unique_name(server);
     guint subscription = g_dbus_connection_signal_subscribe(
@@ -241,6 +245,49 @@ int main(int argc, char **argv) {
       for (char c : std::string("nihao"))
         require(key(c), "Phrase key not consumed");
     };
+    for (const auto *scope : {"app", "global"}) {
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      auto initial = options;
+      initial["preferences"]["default_ime_mode"] = "english";
+      initial["preferences"]["ime_mode_scope"] = scope;
+      msime_preview_configure(initial.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(seen.mode_registered && !seen.input_enabled && !key('n') &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Default English did not start in passthrough mode");
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      phrase();
+      require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
+                  !seen.candidates.empty() && seen.candidates.front() == "你好",
+              "Switching from default English did not restore Chinese candidates");
+      invoke("Reset");
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(seen.input_enabled && key('n') && !seen.english_mode,
+              "Refocus reapplied default English over the selected mode");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "ShuangpinProfile/ziranma", PROP_STATE_CHECKED));
+      require(seen.input_enabled && key('n') && !seen.english_mode,
+              "Session recreation reapplied default English");
+      invoke("Reset");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      const bool global = std::string(scope) == "global";
+      require(seen.input_enabled == global && key('n') == global && !seen.english_mode,
+              "New host did not distinguish app defaults from global mode memory");
+      invoke("Reset");
+    }
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    msime_preview_configure(options.dump());
+    engine = create_engine();
+    seen = Observation{};
     invoke("FocusIn");
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive,
             "Input mode property was not registered");
