@@ -30,6 +30,11 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)fixGeneration:(uint64_t)generation index:(NSUInteger)index position:(uint8_t)position error:(NSError **)error;
 - (nullable NSDictionary *)clearPositionGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)viewWithError:(NSError **)error;
+/// Copied Engine query, or nil when ineligible. Does not perform network I/O.
+- (nullable NSDictionary *)onlineQueryWithError:(NSError **)error;
++ (nullable NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error;
+/// Shared bounded parser and stale-query guard; returns {applied,view}.
+- (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)setCandidatePageSize:(uint8_t)size error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)updatePreferencesSnapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)startVoiceWithError:(NSError **)error;
