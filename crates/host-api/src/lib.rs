@@ -2738,7 +2738,15 @@ mod tests {
         let load =
             || read(unsafe { msime_client_load_clipboard_history(path.as_ptr(), path.len()) });
         let store = PreferencesStore::new(directory.path());
-        let saved = store.save(0, Preferences::default()).unwrap();
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    clipboard_history: true,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
         assert_eq!(load()["value"]["entries"], serde_json::json!([]));
         let file = directory.path().join("clipboard_history.json");
         let fixture = r#"["synthetic alpha","synthetic beta","synthetic alpha"]"#;
@@ -2782,7 +2790,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("clipboard_history.json");
         let store = PreferencesStore::new(directory.path());
-        let saved = store.save(0, Preferences::default()).unwrap();
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    clipboard_history: true,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
         let remove = |path: &std::path::Path, text: &str| {
             let request = serde_json::to_vec(&json!({"directory": path, "text": text})).unwrap();
             read(unsafe { msime_client_remove_clipboard_history(request.as_ptr(), request.len()) })
@@ -2829,6 +2845,20 @@ mod tests {
             read(unsafe { msime_client_capture_clipboard_history(bytes.as_ptr(), bytes.len()) })
         };
         let request = json!({"directory": directory.path(), "text": "synthetic capture"});
+        assert_eq!(
+            capture(request.clone())["value"],
+            json!({"captured": false})
+        );
+        assert!(!directory.path().join("clipboard_history.json").exists());
+        PreferencesStore::new(directory.path())
+            .save(
+                0,
+                Preferences {
+                    clipboard_history: true,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
         assert_eq!(capture(request.clone())["value"], json!({"captured": true}));
         assert_eq!(
             capture(json!({"directory": "relative", "text": "synthetic"}))["ok"],
