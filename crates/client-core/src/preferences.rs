@@ -224,6 +224,9 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_id: String,
     #[serde(default)]
     pub polish_prompt: String,
+    /// Show streaming ASR updates in the host preedit while recording.
+    #[serde(default = "enabled_by_default")]
+    pub stream_inline_preedit: bool,
     #[serde(default)]
     pub polish_prompt_custom_1: String,
     #[serde(default)]
@@ -276,6 +279,7 @@ impl Default for VoiceInputPreferences {
             polish_model: "Qwen/Qwen3-8B".into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
+            stream_inline_preedit: true,
             polish_prompt_custom_1: String::new(),
             polish_prompt_custom_2: String::new(),
             polish_prompt_custom_3: String::new(),
