@@ -44,6 +44,15 @@ if(MSIME_OPTIONS_FILE)
 endif()
 enable_testing()
 include(ClipboardTests.cmake)
+set(MSIME_EMOJI_WINDOW_CHROME_SOURCES BackendEmojiWindowController.swift tests/EmojiWindowChromeTest.swift)
+list(TRANSFORM MSIME_EMOJI_WINDOW_CHROME_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_WINDOW_CHROME_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test"
+  DEPENDS ${MSIME_EMOJI_WINDOW_CHROME_SOURCES} VERBATIM)
+add_custom_target(emoji-window-chrome-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test")
+add_test(NAME emoji-window-chrome COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test")
+set_tests_properties(emoji-window-chrome PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 set(MSIME_EMOJI_EMPTY_TEST_SOURCES BackendEmojiAppearance.swift BackendEmojiEmptyState.swift tests/EmojiEmptyStateTest.swift)
 list(TRANSFORM MSIME_EMOJI_EMPTY_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test"

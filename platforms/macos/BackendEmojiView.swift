@@ -110,7 +110,11 @@ struct MacEmojiView: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("表情与更多").font(.system(size: 12, weight: .semibold))
+      HStack(spacing: 0) {
+        Text("Emoji and more").font(.system(size: 12, weight: .semibold))
+        Spacer()
+        MacEmojiCloseButton().frame(width: 28, height: 40 * 2 / 3)
+      }.frame(height: 27)
       if category == "home" {
         MacEmojiMainTabs(selected: .home, palette: palette, navigate: navigate)
       } else {
@@ -328,5 +332,19 @@ struct MacEmojiView: View {
           status = category == "clipboard" ? "剪贴板历史不可用，请检查共享存储配置" : "表情目录不可用，请检查本地资源配置"
         }
       }
+  }
+}
+
+private struct MacEmojiCloseButton: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSButton {
+    let button = CloseButton(title: "×", target: nil, action: nil)
+    button.target = button; button.action = #selector(CloseButton.closePanel)
+    button.isBordered = false; button.font = .systemFont(ofSize: 20)
+    button.setAccessibilityLabel("关闭表情面板"); button.toolTip = "关闭"
+    return button
+  }
+  func updateNSView(_ button: NSButton, context: Context) {}
+  final class CloseButton: NSButton {
+    @objc func closePanel() { window?.close() }
   }
 }
