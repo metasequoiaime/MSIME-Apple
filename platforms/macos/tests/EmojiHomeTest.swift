@@ -7,6 +7,21 @@ import SwiftUI
     (0..<count).map { .init(text: "synthetic-\(group)-\($0)", annotation: "fixture", group: group) }
   }
   @MainActor static func main() throws {
+    assert(MacEmojiMainPage.allCases.map(\.rawValue) == ["home", "", "kaomoji", "symbols", "sticker", "gif", "clipboard"])
+    for page in MacEmojiMainPage.allCases {
+      assert(page.destination(hasRecents: false) == page.rawValue)
+      assert(page.destination(hasRecents: true) == (page == .emoji ? "recent" : page.rawValue))
+      assert(!page.title.isEmpty)
+    }
+    assert(MacEmojiMainPage.title(category: "recent") == "表情")
+    assert(MacEmojiMainPage(rawValue: "recent") == nil)
+    assert(MacEmojiSectionChoice.recent != .group("recent"))
+    let fixtureGroups = ["fixture-first", "fixture-second"]
+    assert(MacEmojiSectionChoice.resolvedGroup(requested: "", current: "fixture-second", groups: fixtureGroups) == "fixture-first")
+    assert(MacEmojiSectionChoice.resolvedGroup(requested: "fixture-second", current: "", groups: fixtureGroups) == "fixture-second")
+    assert(MacEmojiSectionChoice.resolvedGroup(requested: nil, current: "fixture-second", groups: fixtureGroups) == "fixture-second")
+    assert(MacEmojiSectionChoice.resolvedGroup(requested: "missing", current: "", groups: fixtureGroups) == "fixture-first")
+    assert(MacEmojiSectionChoice.resolvedGroup(requested: "missing", current: "", groups: []) == "")
     assert(MacEmojiMediaPage.allCases.map(\.rawValue) == ["sticker", "gif"])
     assert(MacEmojiMediaPage.sticker.title == "贴纸" && MacEmojiMediaPage.gif.title == "GIF")
     assert(MacEmojiMediaPage.sticker.message == "可在此接入贴纸")

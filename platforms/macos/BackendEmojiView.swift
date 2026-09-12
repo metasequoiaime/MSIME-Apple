@@ -11,6 +11,23 @@ struct MacEmojiView: View {
   }
   @State private var search = ""
   @State private var category = "home"
+  @State private var pendingEmojiGroup: String?
+  private var emojiPage: Bool { category == "" || category == "recent" }
+  private var emojiSection: Binding<MacEmojiSectionChoice> {
+    Binding(get: { category == "recent" ? .recent : .group(group) }, set: { choice in
+      switch choice {
+      case .recent: pendingEmojiGroup = nil; category = "recent"
+      case .group(let name):
+        if category == "" { group = name }
+        else { pendingEmojiGroup = name; category = "" }
+      }
+    })
+  }
+  private func navigate(_ rawValue: String) {
+    guard let page = MacEmojiMainPage(rawValue: rawValue) else { return }
+    pendingEmojiGroup = page == .emoji ? "" : nil
+    category = page.destination(hasRecents: !recent.items.isEmpty)
+  }
   private var mediaPage: MacEmojiMediaPage? { MacEmojiMediaPage(rawValue: category) }
   private var columns: Int { category == "clipboard" ? 1 : MacEmojiGridMetrics.columns }
   @State private var group = ""
@@ -87,28 +104,36 @@ struct MacEmojiView: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        if category != "home" { Button("返回首页") { category = "home" } }
-        Text("表情与符号").font(.title2)
-      }
-      Picker("目录", selection: $category) {
-        Text("首页").tag("home")
-        Text("最近").tag("recent")
-        Text("表情").tag("")
-        Text("颜文字").tag("kaomoji")
-        Text("符号").tag("symbols")
-        ForEach(MacEmojiMediaPage.allCases, id: \.rawValue) { page in
+      Text("表情与更多").font(.system(size: 12, weight: .semibold))
+      if category == "home" {
+      Picker("目录", selection: Binding(get: { category }, set: navigate)) {
+        ForEach(MacEmojiMainPage.allCases, id: \.rawValue) { page in
           Text(page.title).tag(page.rawValue)
         }
-        Text("剪贴板").tag("clipboard")
       }.pickerStyle(.segmented)
+      } else {
+        HStack {
+          Button("返回首页") { navigate("home") }
+          if emojiPage {
+            Picker("表情分类", selection: emojiSection) {
+              Text("最近使用").tag(MacEmojiSectionChoice.recent)
+              if groupsCategory == category && !groups.isEmpty {
+                ForEach(groups, id: \.self) { Text($0).tag(MacEmojiSectionChoice.group($0)) }
+              } else {
+                Text(groupsFailed ? "分类不可用" : groupsCategory == category ? "分类为空" : "正在加载分类…")
+                  .tag(MacEmojiSectionChoice.group(""))
+              }
+            }
+          } else { Text(MacEmojiMainPage.title(category: category)).font(.system(size: 16, weight: .semibold)) }
+        }
+      }
       if category == "symbols" {
         Picker("符号大类", selection: $parent) {
           Text("全部大类").tag("")
           ForEach(MacEmojiSymbolGroup.parents(symbolGroups), id: \.self) { Text($0).tag($0) }
         }.disabled(groupsCategory != category || symbolGroups.isEmpty)
       }
-      if category != "home" && mediaPage == nil {
+      if category != "home" && category != "clipboard" && !emojiPage && mediaPage == nil {
       Picker("分类", selection: $group) {
         Text("全部分类").tag("")
         ForEach(groupsCategory == category ? displayedGroups : [], id: \.self) { name in
@@ -116,7 +141,7 @@ struct MacEmojiView: View {
         }
       }.disabled(groupsCategory != category || displayedGroups.isEmpty)
       }
-      if groupsFailed { Text("分类加载失败，仍可浏览全部或搜索").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
+      if groupsFailed { Text("分类加载失败，可返回首页重试").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
         placeholder: mediaPage != nil ? "搜索" : category == "home" ? "搜索表情、颜文字和符号" : category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
@@ -140,7 +165,7 @@ struct MacEmojiView: View {
       }
       if category == "home" {
         MacEmojiHomeView(resources: resources, search: search, recent: recent.matching(search),
-          palette: palette, copy: copyItem, more: { category = $0 })
+          palette: palette, copy: copyItem, more: navigate)
       } else if let page = mediaPage {
         MacEmojiMediaPlaceholder(page: page, palette: palette)
       } else {
@@ -221,7 +246,7 @@ struct MacEmojiView: View {
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
-        if selectedCategory == "home" || selectedCategory == "recent" || selectedCategory == "clipboard" || MacEmojiMediaPage(rawValue: selectedCategory) != nil { groupsCategory = selectedCategory; return }
+        if selectedCategory == "home" || selectedCategory == "clipboard" || MacEmojiMediaPage(rawValue: selectedCategory) != nil { groupsCategory = selectedCategory; return }
         do {
           if selectedCategory == "symbols" {
             let result = try await Task.detached { try MacEmojiCatalog.loadSymbolGroups(resources: directory) }.value
@@ -231,11 +256,15 @@ struct MacEmojiView: View {
             return
           }
           let result = try await Task.detached {
-            try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory)
+            try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory == "recent" ? "" : selectedCategory)
           }.value
           try Task.checkCancellation()
           groups = result
           groupsCategory = selectedCategory
+          if selectedCategory == "" {
+            group = MacEmojiSectionChoice.resolvedGroup(requested: pendingEmojiGroup, current: group, groups: result)
+            pendingEmojiGroup = nil
+          }
         } catch {
           guard !Task.isCancelled else { return }
           groupsFailed = true
