@@ -7,6 +7,10 @@ namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar";
 constexpr int kWidth = 300;
 constexpr int kHeight = 52;
+int dpi_scale(HWND window, int value) {
+  const UINT dpi = GetDpiForWindow(window);
+  return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
+}
 bool same(const FocusLease &a, const FocusLease &b) {
   return a.epoch == b.epoch && a.token == b.token &&
          same_ticket(a.transport, b.transport);
@@ -50,8 +54,11 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
-    if (!SetWindowPos(window_, HWND_TOPMOST, work.right - kWidth - 20,
-                      work.bottom - kHeight - 20, kWidth, kHeight,
+    const int width = dpi_scale(window_, kWidth);
+    const int height = dpi_scale(window_, kHeight);
+    const int margin = dpi_scale(window_, 20);
+    if (!SetWindowPos(window_, HWND_TOPMOST, work.right - width - margin,
+                      work.bottom - height - margin, width, height,
                       SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Toolbar positioning failed");
     InvalidateRect(window_, nullptr, FALSE);
@@ -122,8 +129,9 @@ void FloatingToolbarWindow::paint() {
                                label(value->fullwidth, L"\u5168", L"\u534a"),
                                L"\u8bbe"};
     for (int i = 0; i < 4; ++i) {
-      const D2D1_RECT_F cell{8.0f + static_cast<float>(i) * 72.0f, 8.0f,
-                             72.0f + static_cast<float>(i) * 72.0f, 44.0f};
+      const float unit = static_cast<float>(dpi_scale(window_, 1));
+      const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
+                             (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
       target->DrawText(labels[i], static_cast<UINT32>(wcslen(labels[i])), format,
                        cell, brush(palette_.text));
     }
@@ -145,6 +153,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
   try { switch (message) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ERASEBKGND: return 1;
+    case WM_DPICHANGED:
+      if (self->shown_) self->refresh(true);
+      return 0;
     case WM_PAINT: self->paint(); return 0;
     case WM_LBUTTONDOWN:
       ReleaseCapture();
@@ -153,8 +164,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     case WM_LBUTTONUP: {
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
-      if (value && x >= 8 && x < 296) {
-        const int slot = (x - 8) / 72;
+      const int unit = dpi_scale(window, 1);
+      if (value && x >= 8 * unit && x < 296 * unit) {
+        const int slot = (x - 8 * unit) / (72 * unit);
         const WorkerMode modes[] = {WorkerMode::Chinese,
                                     WorkerMode::ChinesePunctuation,
                                     WorkerMode::Fullwidth};
