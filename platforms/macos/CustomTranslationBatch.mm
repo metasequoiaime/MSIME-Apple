@@ -12,6 +12,7 @@
     NSTimeInterval _deadline;
     NSUInteger _nextIndex;
     BOOL _started;
+    BOOL _tencent;
 }
 - (instancetype)initWithItems:(NSArray<NSDictionary *> *)items
                 configuration:(NSURLSessionConfiguration *)configuration
@@ -33,7 +34,49 @@
     }
     return self;
 }
+- (instancetype)initWithTencentItems:(NSArray<NSDictionary *> *)items
+                               config:(NSDictionary *)config
+                        configuration:(NSURLSessionConfiguration *)configuration
+                           completion:(void (^)(NSArray<NSDictionary *> *))completion {
+    self = [self initWithItems:@[] configuration:configuration completion:completion];
+    if (!self) return nil;
+    _tencent = YES;
+    if (![items isKindOfClass:NSArray.class] || items.count > 9 ||
+        ![config isKindOfClass:NSDictionary.class]) return self;
+    NSDictionary *input = @{@"items":items, @"config":config};
+    if (![NSJSONSerialization isValidJSONObject:input]) return self;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:input options:0 error:nil];
+    if (!data.length || data.length > 65536) return self;
+    input = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    NSMutableArray<NSMutableDictionary *> *groups = [NSMutableArray array];
+    for (id item in input[@"items"]) {
+        if (![item isKindOfClass:NSDictionary.class]) return self;
+        for (NSString *field in @[@"text", @"key", @"source_language", @"target_language"]) {
+            if (![item[field] isKindOfClass:NSString.class] || ![item[field] length] ||
+                [item[field] lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 4096) return self;
+        }
+        NSMutableDictionary *group = nil;
+        for (NSMutableDictionary *candidate in groups) {
+            if ([candidate[@"source_language"] isEqual:item[@"source_language"]] &&
+                [candidate[@"target_language"] isEqual:item[@"target_language"]]) { group = candidate; break; }
+        }
+        if (!group) {
+            group = [@{@"source_language":item[@"source_language"], @"target_language":item[@"target_language"],
+                @"config":input[@"config"], @"texts":[NSMutableArray array], @"originals":[NSMutableArray array]} mutableCopy];
+            [groups addObject:group];
+        }
+        [group[@"texts"] addObject:item[@"key"]];
+        [group[@"originals"] addObject:item[@"text"]];
+    }
+    _items = [groups copy];
+    return self;
+}
 - (NSTimeInterval)currentTime { return NSProcessInfo.processInfo.systemUptime; }
+- (NSTimeInterval)unixTime { return NSDate.date.timeIntervalSince1970; }
+- (MSIMECloudCandidateRequest *)tencentRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    return [[MSIMECloudCandidateRequest alloc] initWithTencentDescriptor:descriptor
+        configuration:_configuration completion:completion];
+}
 - (MSIMECloudCandidateRequest *)requestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
     return [[MSIMECloudCandidateRequest alloc] initWithTranslationDescriptor:descriptor
         configuration:_configuration completion:completion];
@@ -58,17 +101,40 @@
     NSString *text = item[@"text"];
     NSUInteger sequence = _nextIndex;
     __weak MSIMECustomTranslationBatch *weakSelf = self;
-    _request = [self requestForDescriptor:item[@"request"] completion:^(NSData *body) {
+    void (^reply)(NSData *) = ^(NSData *body) {
         MSIMECustomTranslationBatch *strongSelf = weakSelf;
         if (!strongSelf || !strongSelf->_completion || sequence != strongSelf->_nextIndex) return;
         // The main queue may be busy when the deadline timer becomes due.
         if ([strongSelf currentTime] >= strongSelf->_deadline) { [strongSelf finish]; return; }
-        NSString *translation = body ? [MSIMEClientSession parseCustomTranslationResponse:body error:nil] : nil;
+        NSArray *translations = nil;
+        NSString *translation = nil;
+        if (strongSelf->_tencent) {
+            translations = body ? [MSIMEClientSession parseTencentTranslationResponse:body
+                expectedCount:[item[@"originals"] count] error:nil] : nil;
+        } else {
+            translation = body ? [MSIMEClientSession parseCustomTranslationResponse:body error:nil] : nil;
+        }
         if ([strongSelf currentTime] >= strongSelf->_deadline) { [strongSelf finish]; return; }
+        for (NSUInteger i = 0; i < translations.count; ++i) {
+            id gloss = translations[i];
+            if ([gloss isKindOfClass:NSString.class] && [gloss length])
+                [strongSelf->_results addObject:@{@"text":item[@"originals"][i], @"translation":gloss}];
+        }
         if (translation.length) [strongSelf->_results addObject:@{@"text":text, @"translation":translation}];
         strongSelf->_request = nil;
         [strongSelf advance];
-    }];
+    };
+    if (_tencent) {
+        NSDictionary *descriptor = [MSIMEClientSession tencentTranslationHTTPRequest:@{
+            @"config":item[@"config"], @"texts":item[@"texts"],
+            @"source_language":item[@"source_language"], @"target_language":item[@"target_language"],
+            @"timestamp":@((long long)[self unixTime])} error:nil];
+        if (!descriptor) { reply(nil); return; }
+        if ([self currentTime] >= _deadline) { [self finish]; return; }
+        _request = [self tencentRequestForDescriptor:descriptor completion:reply];
+    } else {
+        _request = [self requestForDescriptor:item[@"request"] completion:reply];
+    }
     [_request start];
 }
 - (void)finish {

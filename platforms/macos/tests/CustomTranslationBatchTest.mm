@@ -20,11 +20,16 @@
 
 @interface SyntheticTranslationBatch : MSIMECustomTranslationBatch
 @property(nonatomic) NSTimeInterval now;
+@property(nonatomic) NSTimeInterval wallTime;
 @property(nonatomic, strong) NSMutableArray<SyntheticTranslationRequest *> *requests;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *descriptors;
 @end
 @implementation SyntheticTranslationBatch
 - (NSTimeInterval)currentTime { return _now; }
+- (NSTimeInterval)unixTime { return _wallTime; }
+- (MSIMECloudCandidateRequest *)tencentRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    return [self requestForDescriptor:descriptor completion:completion];
+}
 - (MSIMECloudCandidateRequest *)requestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
     if (!_requests) _requests = [NSMutableArray array];
     if (!_descriptors) _descriptors = [NSMutableArray array];
@@ -174,6 +179,123 @@ static void TestBoundsAndEmptyResults() {
     assert(calls == 1);
     AssertReleased(invalidTransport);
 }
+static NSDictionary *TencentItem(NSString *text, NSString *key, NSString *source, NSString *target) {
+    return @{@"text":text, @"key":key, @"source_language":source, @"target_language":target};
+}
+static SyntheticTranslationBatch *TencentBatch(NSArray *items, void (^completion)(NSArray *)) {
+    return [[SyntheticTranslationBatch alloc] initWithTencentItems:items
+        config:@{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"ap-guangzhou"}
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+static NSData *TencentResponse(NSArray *texts) {
+    return [NSJSONSerialization dataWithJSONObject:@{@"Response":@{@"TargetTextList":texts}} options:0 error:nil];
+}
+static void TestTencentGroups() {
+    NSMutableString *original = [@"HELLO" mutableCopy];
+    NSMutableArray *items = [@[TencentItem(original, @"hello", @"en", @"zh"),
+        TencentItem(@"你好", @"你好", @"zh", @"ja"), TencentItem(@"World", @"world", @"en", @"zh")] mutableCopy];
+    __block NSUInteger calls = 0;
+    SyntheticTranslationBatch *batch = TencentBatch(items, ^(NSArray *results) {
+        assert(++calls == 1);
+        assert(([results isEqual:@[@{@"text":@"HELLO", @"translation":@"你好"},
+            @{@"text":@"你好", @"translation":@"こんにちは"}]]));
+    });
+    [original setString:@"mutated"]; [items removeAllObjects];
+    batch.wallTime = 1704067200;
+    [batch start];
+    assert(batch.requests.count == 1);
+    NSDictionary *first = batch.descriptors[0];
+    NSDictionary *body = [NSJSONSerialization JSONObjectWithData:[first[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    assert(([body[@"SourceTextList"] isEqual:@[@"hello", @"world"]]));
+    assert([body[@"Source"] isEqual:@"en"] && [body[@"Target"] isEqual:@"zh"]);
+    assert([first[@"headers"][@"X-TC-Timestamp"] isEqual:@"1704067200"]);
+    batch.wallTime += 2;
+    batch.requests[0].reply(TencentResponse(@[@"  你好  ", @""]));
+    assert(batch.requests.count == 2 && calls == 0);
+    assert([batch.descriptors[1][@"headers"][@"X-TC-Timestamp"] isEqual:@"1704067202"]);
+    batch.requests[0].reply(TencentResponse(@[@"stale", @"stale"]));
+    assert(batch.requests.count == 2);
+    batch.requests[1].reply(TencentResponse(@[@"こんにちは"]));
+    assert(calls == 1);
+    AssertReleased(batch);
+}
+static void TestTencentFailuresAndCancellation() {
+    NSArray *items = @[TencentItem(@"Hello", @"hello", @"en", @"zh"), TencentItem(@"你好", @"你好", @"zh", @"en")];
+    for (NSData *bad in @[TencentResponse(@[]), TencentResponse(@[@"one", @"two"]),
+        [@"{\"Response\":{\"Error\":{}}}" dataUsingEncoding:NSUTF8StringEncoding],
+        [@"malformed" dataUsingEncoding:NSUTF8StringEncoding]]) {
+        __block NSUInteger calls = 0;
+        SyntheticTranslationBatch *batch = TencentBatch(items, ^(NSArray *results) {
+            assert(++calls == 1 && results.count == 1);
+            assert([results[0][@"text"] isEqual:@"你好"]);
+        });
+        [batch start];
+        batch.requests[0].reply(bad);
+        batch.requests[1].reply(TencentResponse(@[@"hello"]));
+        assert(calls == 1);
+        AssertReleased(batch);
+    }
+    SyntheticTranslationBatch *cancelled = TencentBatch(items, ^(NSArray *results) { (void)results; assert(false); });
+    [cancelled start]; [cancelled cancel];
+    assert(cancelled.requests[0].cancelled);
+    cancelled.requests[0].reply(TencentResponse(@[@"late"]));
+    assert(cancelled.requests.count == 1);
+    AssertReleased(cancelled);
+    for (NSNumber *timerDriven in @[@NO, @YES]) {
+        __block NSUInteger calls = 0;
+        SyntheticTranslationBatch *batch = TencentBatch(items, ^(NSArray *results) { assert(++calls == 1 && results.count == 1); });
+        [batch start];
+        batch.requests[0].reply(TencentResponse(@[@"你好"]));
+        batch.now = 6;
+        if (timerDriven.boolValue) [[batch valueForKey:@"timer"] fire];
+        else batch.requests[1].reply(TencentResponse(@[@"late"]));
+        assert(calls == 1 && batch.requests[1].cancelled);
+        AssertReleased(batch);
+    }
+    for (NSArray *invalid in @[@[@1], @[TencentItem(@"", @"hello", @"en", @"zh")],
+        @[TencentItem(@"Hello", @"hello", @"invalid", @"zh")]]) {
+        __block NSUInteger calls = 0;
+        SyntheticTranslationBatch *batch = TencentBatch(invalid, ^(NSArray *results) { assert(++calls == 1 && results.count == 0); });
+        [batch start];
+        assert(calls == 1 && batch.requests.count == 0);
+        AssertReleased(batch);
+    }
+    NSMutableArray *ten = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 10; ++i) [ten addObject:items[0]];
+    __block NSUInteger calls = 0;
+    SyntheticTranslationBatch *oversized = TencentBatch(ten, ^(NSArray *results) { assert(++calls == 1 && results.count == 0); });
+    [oversized start];
+    assert(calls == 1 && oversized.requests.count == 0);
+    AssertReleased(oversized);
+    [ten removeLastObject];
+    __block BOOL nineDone = NO;
+    SyntheticTranslationBatch *nine = TencentBatch(ten, ^(NSArray *results) { assert(results.count == 9); nineDone = YES; });
+    [nine start];
+    assert(nine.requests.count == 1 && [nine.descriptors[0][@"expected_count"] isEqual:@9]);
+    nine.requests[0].reply(TencentResponse(@[@"一", @"二", @"三", @"四", @"五", @"六", @"七", @"八", @"九"]));
+    assert(nineDone);
+    AssertReleased(nine);
+    for (NSDictionary *config in @[@{}, @{@"enabled":@NO},
+        @{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"bad\nregion"}]) {
+        __block BOOL rejected = NO;
+        SyntheticTranslationBatch *invalidConfig = [[SyntheticTranslationBatch alloc] initWithTencentItems:items
+            config:config configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+            completion:^(NSArray *results) { assert(results.count == 0); rejected = YES; }];
+        [invalidConfig start];
+        assert(rejected && invalidConfig.requests.count == 0);
+        AssertReleased(invalidConfig);
+    }
+    __weak SyntheticTranslationBatch *weakBatch;
+    SyntheticTranslationRequest *request;
+    @autoreleasepool {
+        SyntheticTranslationBatch *released = TencentBatch(items, ^(NSArray *results) { (void)results; assert(false); });
+        weakBatch = released;
+        [released start];
+        request = released.requests[0];
+    }
+    assert(!weakBatch && request.cancelled);
+    request.reply(TencentResponse(@[@"late"]));
+}
 int main() {
     @autoreleasepool {
         TestSequentialResults();
@@ -181,6 +303,8 @@ int main() {
         TestCancellationAndLifetime();
         TestCopiedInput();
         TestBoundsAndEmptyResults();
+        TestTencentGroups();
+        TestTencentFailuresAndCancellation();
     }
     return 0;
 }

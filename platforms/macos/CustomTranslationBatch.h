@@ -8,6 +8,13 @@
 - (instancetype)initWithItems:(NSArray<NSDictionary *> *)items
                 configuration:(NSURLSessionConfiguration *)configuration
                    completion:(void (^)(NSArray<NSDictionary *> *translations))completion;
+/// Tencent plan items are {text, key, source_language, target_language}.
+/// Groups matching directions; signs each group immediately before transport.
+/// Copies inputs and retains no credentials after cancellation/completion.
+- (instancetype)initWithTencentItems:(NSArray<NSDictionary *> *)items
+                               config:(NSDictionary *)config
+                        configuration:(NSURLSessionConfiguration *)configuration
+                           completion:(void (^)(NSArray<NSDictionary *> *translations))completion;
 /// Single-use. A six-second whole-batch deadline returns completed partial results.
 - (void)start;
 /// Suppresses completion, aborts transport and releases credential-bearing inputs.
