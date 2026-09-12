@@ -91,6 +91,15 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     [preferences applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_neighbor": @NO}}];
     [preferences applySharedToolbarVisibility:NO];
     assert(!preferences.chinesePunctuation && !preferences.autocorrect && !preferences.shuangpinPreeditUsesRaw && !preferences.floatingToolbarEnabled);
+    NSDictionary *effective = [preferences cloudSettingsSnapshot];
+    assert(MSIMEValidateCloudAppearance(effective));
+    assert([effective[@"platform.macos.candidate_font_size"] isEqual:@12]);
+    assert([effective[@"platform.macos.candidate_page_size"] isEqual:@1]);
+    assert([effective[@"platform.macos.candidate_panel_style"] isEqual:@1]);
+    assert([effective[@"platform.macos.input_scheme"] isEqual:@2]);
+    for (NSString *key in @[@"autocorrect", @"chinese_punctuation", @"shuangpin_preedit_uses_raw", @"floating_toolbar"])
+        assert([effective[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
+    assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:original]);
     NSMutableDictionary *imported = [original mutableCopy];
     imported[@"platform.macos.candidate_skin"] = @"wechat";
     imported[@"platform.macos.candidate_font_size"] = @32;
@@ -114,6 +123,9 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:original]);
     assert([preferences applyCloudSettingsSnapshot:imported]);
     assert(notifications == 1);
+    assert([[preferences cloudSettingsSnapshot] isEqual:imported]);
+    assert(notifications == 1); // Export is read-only and must not schedule a save.
+    assert([effective[@"platform.macos.candidate_font_size"] isEqual:@12]); // Earlier snapshot stays immutable.
     assert(preferences.shuangpinPreeditUsesRaw && preferences.autocorrect && preferences.chinesePunctuation && preferences.floatingToolbarEnabled);
     assert([preferences.inputScheme isEqual:@"shuangpin"]);
     assert([preferences.fontFamily isEqual:@"Menlo"] && preferences.preeditFontSize == 28);
