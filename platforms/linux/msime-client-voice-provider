@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """User-session speech service. Audio, credentials and transcripts are never logged."""
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -15,6 +16,7 @@ import stat
 import struct
 import subprocess
 import threading
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -315,7 +317,7 @@ def stream_identity(stream):
     return (stream["index"], props.get("application.process.id"), props.get("application.name"))
 
 
-def pipewire_sink_inputs(wanted=None, session=None, excluded=None):
+def pipewire_sink_inputs(wanted=None, session=None, excluded=None, indices=None):
     nodes = json.loads(command(["pw-dump"], timeout=0.5))
     streams = []
     for node in nodes:
@@ -329,6 +331,8 @@ def pipewire_sink_inputs(wanted=None, session=None, excluded=None):
         index = node.get("id")
         if type(index) is not int or index < 0:
             continue
+        if indices is not None and index not in indices:
+            continue
         if wanted is not None and (index, props["object.serial"]) not in wanted:
             continue
         if excluded is not None and (index, props["object.serial"]) in excluded:
@@ -338,12 +342,16 @@ def pipewire_sink_inputs(wanted=None, session=None, excluded=None):
         try:
             volume = command(["wpctl", "get-volume", str(index)], timeout=0.5)
             if not volume.startswith(b"Volume:"):
+                if indices is not None:
+                    raise ValueError()
                 continue
             streams.append({"index": index, "properties": props,
                             "mute": b"[MUTED]" in volume})
         except Exception:
+            if indices is not None:
+                raise
             continue
-        if len(streams) >= (len(wanted) if wanted is not None else 32):
+        if len(streams) >= (len(wanted) if wanted is not None else len(indices) if indices is not None else 32):
             break
     return streams
 
@@ -352,6 +360,112 @@ def set_stream_mute(backend, index, muted):
     args = (["wpctl", "set-mute", str(index), str(int(muted))] if backend == "pipewire" else
             ["pactl", "set-sink-input-mute", str(index), str(int(muted))])
     command(args, timeout=0.5)
+
+
+class AudioMuteJournal:
+    """Private recovery metadata only; never store application names or audio."""
+    def __init__(self, path):
+        self.path = path
+        self.entries = {}
+        self.available = True
+        try:
+            self.boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as source:
+                info = os.fstat(source.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
+                        info.st_mode & 0o077 or info.st_size > 65536):
+                    raise ValueError()
+                document = json.loads(source.read(65537))
+            if document.get("version") != 1 or not isinstance(document.get("entries"), dict):
+                raise ValueError()
+            entries = document["entries"]
+            if len(entries) > 256:
+                raise ValueError()
+            for key, digest in entries.items():
+                backend, index = key.split(":", 1)
+                if (backend not in ("pulse", "pipewire") or not index.isascii() or not index.isdecimal()
+                        or len(index) > 10 or not isinstance(digest, str) or len(digest) != 64
+                        or any(c not in "0123456789abcdef" for c in digest)):
+                    raise ValueError()
+            self.entries = entries if document.get("boot") == self.boot else {}
+        except FileNotFoundError:
+            if not hasattr(self, "boot"):
+                self.available = False
+        except Exception:
+            # Preserve unreadable metadata and avoid additional unrecoverable mutes.
+            self.available = False
+
+    def fingerprint(self, backend, stream):
+        props = stream.get("properties", {})
+        pid = str(props.get("application.process.id", ""))
+        if not pid.isascii() or not pid.isdecimal() or len(pid) > 10:
+            raise ValueError()
+        # A reused stream index or PID must not restore an unrelated application.
+        process = Path("/proc") / pid
+        owner = process.stat().st_uid
+        start = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+        identity = [self.boot, backend, stream_identity(stream), owner, start]
+        return hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+
+    def persist(self):
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=self.path.parent, delete=False) as output:
+                temporary = Path(output.name)
+                json.dump({"version": 1, "boot": self.boot, "entries": self.entries}, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self.path)
+            directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def record(self, backend, stream):
+        if not self.available:
+            return False
+        key = backend + ":" + str(stream["index"])
+        try:
+            digest = self.fingerprint(backend, stream)
+            # Pending restoration is never overwritten by a new mute operation.
+            if key in self.entries or len(self.entries) >= 256:
+                return False
+            self.entries[key] = digest
+            self.persist()
+            return True
+        except Exception:
+            self.available = False
+            return False
+
+    def recover(self):
+        if not self.available or not self.entries:
+            return
+        for backend in ("pulse", "pipewire"):
+            keys = [key for key in self.entries if key.startswith(backend + ":")]
+            if not keys:
+                continue
+            try:
+                streams = (pipewire_sink_inputs(indices={int(key.split(":")[1]) for key in keys})
+                           if backend == "pipewire" else sink_inputs())
+                current = {backend + ":" + str(stream["index"]): stream for stream in streams}
+                for key in keys:
+                    stream = current.get(key)
+                    try:
+                        if stream is not None and self.fingerprint(backend, stream) == self.entries[key]:
+                            if stream.get("mute"):
+                                set_stream_mute(backend, stream["index"], False)
+                        del self.entries[key]
+                    except Exception:
+                        # Enumeration, identity or restore failures retain the entry.
+                        continue
+                self.persist()
+            except Exception:
+                continue
 
 
 def mute_audio(enabled, session, muted=None, seen=None):
@@ -385,6 +499,10 @@ def mute_audio(enabled, session, muted=None, seen=None):
                 if len(seen) >= 1024 or len(muted) >= 256:
                     break
                 if not stream.get("mute"):
+                    journal = getattr(session, "mute_journal", None)
+                    if journal is not None and not journal.record(backend, stream):
+                        seen.add(identity)
+                        continue
                     set_stream_mute(backend, stream["index"], True)
                     muted.append(identity)
                 seen.add(identity)
@@ -398,6 +516,7 @@ class AudioMuteWatch:
     def __init__(self, session, muted, seen):
         self.halted = threading.Event()
         self.session = session
+        self.mute_journal = getattr(session, "mute_journal", None)
         self.muted = muted
         self.seen = seen
         # Existing helpers only require a stopped event with is_set().
@@ -502,6 +621,8 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
         if session.stopped.is_set():
             return b"", 0
         seen_streams = set()
+        if getattr(session, "mute_journal", None) is not None:
+            session.mute_journal.recover()
         muted = mute_audio(options.get("mute_system_audio", False), session, seen=seen_streams)
         if options.get("mute_system_audio", False) and not session.stopped.is_set():
             mute_watch = AudioMuteWatch(session, muted, seen_streams)
@@ -583,6 +704,8 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
                         mute_watch.stop()
                 finally:
                     restore_audio(muted)
+                    if getattr(session, "mute_journal", None) is not None:
+                        session.mute_journal.recover()
             finally:
                 try:
                     cue(options, False)
@@ -681,6 +804,7 @@ class Handler(socketserver.StreamRequestHandler):
                     self.send(generation, ok=False)
                     return
                 session = Session()
+                session.mute_journal = self.server.mute_journal
                 pending = self.server.pending.pop(key, None)
                 if pending and pending[0] > time.monotonic():
                     session.control(pending[1])
@@ -893,6 +1017,8 @@ def main():
     except Exception:
         os.close(service_lock)
         raise
+    server.mute_journal = AudioMuteJournal(args.socket.with_name(args.socket.name + ".audio-mute.json"))
+    server.mute_journal.recover()
     server.config_path = args.config.absolute()
     server.capture_args = capture_args
     server.capture_backend = args.capture
