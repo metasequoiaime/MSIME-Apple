@@ -608,8 +608,7 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
         [candidateCodes addObject:StringFromUTF8(code)];
     }
 
-    NSMutableArray<NSString *> *candidateGlosses =
-        [NSMutableArray arrayWithCapacity:snapshot.candidate_glosses.size()];
+    NSMutableArray<NSString *> *candidateGlosses = [NSMutableArray arrayWithCapacity:snapshot.candidate_glosses.size()];
     for (const auto &gloss : snapshot.candidate_glosses)
     {
         [candidateGlosses addObject:StringFromUTF8(gloss)];
