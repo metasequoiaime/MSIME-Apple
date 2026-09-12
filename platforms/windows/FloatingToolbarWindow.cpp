@@ -5,7 +5,7 @@
 namespace msime::windows {
 namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar";
-constexpr int kWidth = 372;
+constexpr int kWidth = 516;
 constexpr int kHeight = 52;
 int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
@@ -128,8 +128,8 @@ void FloatingToolbarWindow::paint() {
     const wchar_t *labels[] = {label(value->chinese, L"\u4e2d", L"\u82f1"),
                                label(value->chinese_punctuation, L"\u3002", L"."),
                                label(value->fullwidth, L"\u5168", L"\u534a"),
-                               L"\u8bbe", L"😀"};
-    for (int i = 0; i < 5; ++i) {
+                               L"\u8bbe", L"😀", L"\u624b", L"⌨"};
+    for (int i = 0; i < 7; ++i) {
       const D2D1_RECT_F cell{8.0f * unit + static_cast<float>(i) * 72.0f * unit, 8.0f * unit,
                              (72.0f + static_cast<float>(i) * 72.0f) * unit, 44.0f * unit};
       target->DrawText(labels[i], static_cast<UINT32>(wcslen(labels[i])), format,
@@ -165,7 +165,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
       const int unit = dpi_scale(window, 1);
-      if (value && x >= 8 * unit && x < 368 * unit) {
+      if (value && x >= 8 * unit && x < 512 * unit) {
         const int slot = (x - 8 * unit) / (72 * unit);
         const WorkerMode modes[] = {WorkerMode::Chinese,
                                     WorkerMode::ChinesePunctuation,
@@ -173,6 +173,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         if (slot < 3) self->click_(ModeClick{value->lease, modes[slot]});
         else if (slot == 3 && self->settings_action_) self->settings_action_();
         else if (slot == 4 && self->emoji_action_) self->emoji_action_();
+        else if (slot == 5 && self->handwriting_action_) self->handwriting_action_();
+        else if (slot == 6 && self->keyboard_action_) self->keyboard_action_();
       }
       return 0;
     }

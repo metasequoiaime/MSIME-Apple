@@ -17,6 +17,8 @@ public:
   void set_palette(CandidatePalette palette);
   void set_settings_action(Action action) { settings_action_ = std::move(action); }
   void set_emoji_action(Action action) { emoji_action_ = std::move(action); }
+  void set_handwriting_action(Action action) { handwriting_action_ = std::move(action); }
+  void set_keyboard_action(Action action) { keyboard_action_ = std::move(action); }
   FloatingToolbarWindow(const FloatingToolbarWindow &) = delete;
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
   void refresh(bool enabled);
@@ -40,6 +42,8 @@ private:
   Click click_;
   Action settings_action_;
   Action emoji_action_;
+  Action handwriting_action_;
+  Action keyboard_action_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   bool failed_ = false;
