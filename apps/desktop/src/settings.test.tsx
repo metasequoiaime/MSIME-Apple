@@ -624,8 +624,11 @@ test("screen keyboard matches upstream Shift and Caps posting combinations", asy
     const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
     if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
     if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
-    const letter = panel.container.querySelectorAll(".keyboard-row")[2].querySelectorAll("button")[1];
-    expect(letter.textContent).toBe(shift ? "A" : "a");
+    // Find the key by what it types: the preview's row layout is presentation
+    // and has already been rearranged once.
+    const letter = Array.from(panel.container.querySelectorAll<HTMLButtonElement>(".keyboard-row button"))
+      .find(button => button.textContent === (shift ? "A" : "a"))!;
+    expect(letter).toBeDefined();
     expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
     fireEvent.click(letter);
     expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps || shift, include_sticky_modifiers: true }));
