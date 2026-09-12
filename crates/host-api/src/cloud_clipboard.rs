@@ -19,6 +19,7 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
                 .ok_or("invalid cloud clipboard request")?;
             if text.is_empty()
                 || text.len() > 4000
+                || text.encode_utf16().count() > 4000
                 || text.contains('\0')
                 || text.chars().any(|character| {
                     character.is_control() && !matches!(character, '\n' | '\r' | '\t')
@@ -62,6 +63,12 @@ mod tests {
         assert!(validate_request(&json!({"operation":"add","text":"line\nfeed"})).is_ok());
         assert!(validate_request(&json!({"operation":"delete","id":"entry-1"})).is_ok());
         assert!(validate_request(&json!({"operation":"set_enabled","enabled":true})).is_ok());
+    }
+
+    #[test]
+    fn enforces_utf16_clipboard_bound() {
+        assert!(validate_request(&json!({"operation":"add","text":"界".repeat(4000)})).is_ok());
+        assert!(validate_request(&json!({"operation":"add","text":"界".repeat(4001)})).is_err());
     }
 
     #[test]
