@@ -5,8 +5,10 @@ int main() {
   msime_client_key_event event{{1,2,3}, 0x41, 30, 0, 'a', false};
   assert(!adapter.accepts(event));
   adapter.set_lease(event.lease);
+  assert(adapter.check(event) == MSIME_CLIENT_KEY_SENT);
   assert(adapter.accepts(event));
   event.lease.epoch++;
+  assert(adapter.check(event) == MSIME_CLIENT_KEY_DEFINITELY_NOT_SENT);
   assert(!adapter.accepts(event));
   assert(!adapter.cancel(event.lease));
   event.lease.epoch--;
