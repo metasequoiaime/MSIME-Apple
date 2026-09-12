@@ -370,3 +370,20 @@ then run scripts/test-appearance-preview.py with --url, desktop --csp and option
 layouts, candidate count, preedit visibility and cleanup are checked. Native
 host parity, external-skin appearance-page previews, full upstream font controls
 and global theme selection remain unfinished.
+
+External skins now also render in the appearance preview, following the same
+pinned skin.ts candidate palette/decoration path already used on skin cards.
+The selected package is resolved through the host catalog on entry, selection
+or host changes, and manual refresh. Draft layout, size, count and visibility
+continue to update without writes. Palette validation, dimension bounds and the
+bounded image reader are shared with existing previews; no toolbar stylesheet
+is applied to the candidate-only appearance stage. Unsupported layouts/themes,
+missing packages and resource failures are explicit, not silent substitutions.
+
+Catalog generations discard late results when selection/host/page changes;
+refresh and leaving the page remove owned styles and discard pending image
+results. Unit tests cover lifecycle, retry, compatibility and failed images;
+the real settings Chromium fixture checks external colours, decoration geometry,
+decoded image pixels, draft layout updates and stylesheet cleanup under desktop
+CSP. This supersedes the appearance-page external-skin limitation above. Native
+host resource delivery, global theme and full typography controls remain open.

@@ -571,7 +571,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
     {busy && !draft && <p role="status">正在读取设置…</p>}
     {draft && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
-        <AppearanceCandidatePreview preferences={draft} />
+        <AppearanceCandidatePreview preferences={draft} scan={client.scanSkinCatalog} readImage={client.readSkinImage} active={page === "appearance"} revision={snapshot?.revision ?? 0} />
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>

@@ -1,7 +1,12 @@
 import type { Preferences } from "./index";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
+import { ExternalAppearancePreview } from "./external-appearance-preview";
+import type { SkinCatalog } from "./external-skins";
+import type { SkinImageReader } from "./skin-image";
 
-export function AppearanceCandidatePreview({ preferences }: { preferences: Preferences }) {
+export function AppearanceCandidatePreview({ preferences, scan, readImage, active = true, revision = 0 }: {
+  preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; active?: boolean; revision?: number;
+}) {
   const skin = preferences.candidate_skin ?? "fluent";
   const builtin = ["fluent", "wechat", "graphite", "willow_green"].includes(skin);
   const helpcode = preferences.scheme === "quanpin" ? preferences.quanpin_helpcode?.enabled ?? true :
@@ -12,6 +17,6 @@ export function AppearanceCandidatePreview({ preferences }: { preferences: Prefe
       data-font-size={preferences.candidate_font_size ?? 18} aria-hidden="true">
       <div className="skin-preview-stage"><SkinCandidatePreview orientation={preferences.candidate_layout ?? "vertical"}
         count={preferences.candidate_page_size} preedit={preferences.candidate_preedit_style !== "empty"} helpcode={helpcode} /></div>
-    </div> : <p className="skin-intro">外部皮肤请在“皮肤”页查看预览；此处暂不预览外部皮肤。</p>}
+    </div> : <ExternalAppearancePreview preferences={preferences} scan={scan} readImage={readImage} active={active} revision={revision} helpcode={helpcode} />}
   </section>;
 }

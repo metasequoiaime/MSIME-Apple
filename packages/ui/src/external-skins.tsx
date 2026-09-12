@@ -17,14 +17,14 @@ export type ExternalSkin = {
 };
 export type SkinCatalog = { directory: string; packages: ExternalSkin[]; issues: { folder: string; reason: string }[] };
 
-function dimension(value: number, maximum: number): number {
+export function dimension(value: number, maximum: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum ? value : 0;
 }
 
 // Same plain colour notations as the fixed Windows upstream. Never interpolate
 // arbitrary manifest strings into stylesheet rules or load URLs from a palette.
 const colorPattern = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|rgb\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*\)|rgba\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\/)\s*(0|1|0?\.\d+|\d{1,3}%)\s*\))$/i;
-function paletteCss(scope: string, palette: Palette): string[] {
+export function paletteCss(scope: string, palette: Palette): string[] {
   const rules: [keyof Palette, string, string][] = [
     ["accent", ".cursor", "background"], ["accent", ".first::before", "background"],
     ["selected", ".first", "background-color"], ["hover", ".cand:not(.first):hover", "background-color"],

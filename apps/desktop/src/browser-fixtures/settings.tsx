@@ -1,6 +1,6 @@
 // Synthetic, in-memory settings only. No native bridge or real user data.
 import { createRoot } from "react-dom/client";
-import { SettingsPage, type Snapshot } from "@msime/ui";
+import { SettingsPage, type Snapshot, type SkinCatalog } from "@msime/ui";
 import "../../../../packages/ui/src/styles.css";
 
 export function mount() {
@@ -9,6 +9,14 @@ export function mount() {
     learning: true, chinese_punctuation: true,
   } };
   const root = createRoot(document.getElementById("root")!);
-  root.render(<SettingsPage client={{ load: async () => snapshot, save: async (_revision, preferences) => ({ ...snapshot, preferences }) }} />);
+  const catalog: SkinCatalog = { directory: "/synthetic/skins", issues: [], packages: [{
+    id: "sample", name: "Synthetic external", version: "1", base: "fluent", author: null, description: null,
+    layouts: ["horizontal", "vertical"], themes: ["dark"], minWidthDip: 100, decorationTopDip: 24, decorationWidthDip: 100,
+    toolbarStylesheet: null, preview: "sample.svg", candidate: { dark: { surface: "#123456" }, light: {} },
+  }] };
+  root.render(<SettingsPage client={{ load: async () => snapshot, save: async (_revision, preferences) => ({ ...snapshot, preferences }),
+    scanSkinCatalog: async () => catalog,
+    readSkinImage: async () => ({ contentType: "image/svg+xml", bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="24"><rect width="100" height="24" fill="#abcdef"/></svg>')] }),
+  }} />);
   return () => root.unmount();
 }
