@@ -18,6 +18,10 @@ struct CandidateColor {
     return left.r == right.r && left.g == right.g && left.b == right.b &&
            left.a == right.a;
   }
+  friend bool operator!=(const CandidateColor &left,
+                         const CandidateColor &right) {
+    return !(left == right);
+  }
 };
 inline constexpr CandidateColor candidate_rgb(uint32_t rgb,
                                               float alpha = 1.0f) {

@@ -29,6 +29,9 @@ public:
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
   void refresh();
+  // Adopt resolved skin tokens. The next refresh repaints with them; the
+  // built-in theme stays in place until a package is actually resolved.
+  void set_palette(CandidatePalette palette);
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }

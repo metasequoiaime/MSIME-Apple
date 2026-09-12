@@ -1,4 +1,5 @@
 #include "PreviewConfig.h"
+#include "CandidateSkin.h"
 #include "CandidateWindow.h"
 #include "ModeWindow.h"
 #include "FloatingToolbarWindow.h"
@@ -8,8 +9,36 @@
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 namespace {
+// Resolve the configured skin through the shared catalog. Appearance is not
+// worth failing a running Server over, so an unreadable root or an unknown
+// package leaves the built-in theme in place.
+msime::windows::CandidatePalette
+resolve_palette(const msime::windows::PreviewConfig &config) {
+  const bool dark = config.dark_theme;
+  auto builtin = dark ? msime::windows::CandidatePalette{}
+                      : msime::windows::candidate_light_palette();
+  if (config.skin_directory.empty() || config.skin_id.empty())
+    return builtin;
+  try {
+    const auto root = config.skin_directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+        msime_client_skin_catalog(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!owned)
+      return builtin;
+    const auto document = nlohmann::json::parse(owned.get(), nullptr, false);
+    if (document.is_discarded() || !document.value("ok", false))
+      return builtin;
+    return msime::windows::candidate_skin_palette(
+        document.at("value"), config.skin_id, dark, "vertical");
+  } catch (const std::exception &) {
+    return builtin;
+  }
+}
 std::atomic<bool> stopping{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
@@ -113,7 +142,9 @@ int wmain(int argc, wchar_t **argv) {
     } click_shutdown{server, clicks, mode_clicks};
     CandidateWindow candidates(
         [&] { return server.candidate_view(); },
-        [&](const CandidateClick &click) { (void)clicks.submit(click); });
+        [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
+        std::nullopt, "Segoe UI", {}, config.dark_theme);
+    candidates.set_palette(resolve_palette(config));
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
     FloatingToolbarWindow toolbar(

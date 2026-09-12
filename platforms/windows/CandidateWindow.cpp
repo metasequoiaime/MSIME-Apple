@@ -165,6 +165,12 @@ CandidateWindow::~CandidateWindow() {
   if (window_)
     DestroyWindow(window_);
 }
+void CandidateWindow::set_palette(CandidatePalette palette) {
+  palette_ = std::move(palette);
+  painted_.reset();
+  if (window_)
+    InvalidateRect(window_, nullptr, FALSE);
+}
 void CandidateWindow::hide() {
   shown_.reset();
   painted_.reset();

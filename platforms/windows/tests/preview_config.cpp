@@ -115,6 +115,40 @@ int main() {
     reject(document);
     document["key_bindings"] = nullptr;
     reject(document);
+    document.erase("key_bindings");
+    // Appearance is optional; without it the presenters keep their built-ins.
+    require(good.skin_directory.empty() && good.skin_id.empty() &&
+            good.dark_theme);
+    const auto skins = (root / "skins").u8string();
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", "wechat"},
+                              {"dark_theme", false}};
+    const auto themed = PreviewConfig::parse(document.dump());
+    require(themed.skin_directory == std::filesystem::u8path(skins) &&
+            themed.skin_id == "wechat" && !themed.dark_theme);
+    document["appearance"] = {{"skin_directory", skins}};
+    const auto rooted = PreviewConfig::parse(document.dump());
+    require(rooted.skin_id.empty() && rooted.dark_theme);
+    // A skin root has to be absolute and named, like every other preview path.
+    document["appearance"] = {{"skin_directory", "skins"}};
+    reject(document);
+    document["appearance"] = nlohmann::json::object();
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"skin", 7}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", std::string(65, 'a')}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"dark_theme", "no"}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"skin", "wechat"},
+                              {"dark_theme", true},
+                              {"extra", 1}};
+    reject(document);
+    document["appearance"] = skins;
+    reject(document);
+    document.erase("appearance");
     std::cout
         << "Preview configuration: isolated names and strict fields passed\n";
   } catch (...) {
