@@ -1379,7 +1379,7 @@ async fn recognize_handwriting(
         result.validate().map_err(|_| HostActionError {
             code: "invalid_stroke",
         })?;
-        Ok(result)
+        return Ok(result);
     }
     let Some(model) = model else {
         return Err(HostActionError {
