@@ -76,6 +76,7 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView nineKeySpellingScroll;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
+    private JSONObject candidatePanelSnapshot;
     private ScrollView clipboardScroll;
     private LinearLayout clipboardPanel;
     private ScrollView schemeScroll;
@@ -2359,8 +2360,40 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button expandedCandidateButton(JSONObject candidate) {
+        JSONObject id = candidate.optJSONObject("id");
+        Button button = new Button(this);
+        String text = chineseOutput(candidate.optString("text"), view);
+        boolean highlighted = candidate.optBoolean("highlighted");
+        button.setAllCaps(false);
+        button.setText(text);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+        styleButton(button, false);
+        button.setSelected(highlighted);
+        long index = id == null ? -1 : id.optLong("index", -1);
+        button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "：" + text);
+        if (Build.VERSION.SDK_INT >= 30)
+            button.setStateDescription(highlighted ? "已选中" : "未选中");
+        if (id == null || index < 0) {
+            button.setEnabled(false);
+        } else {
+            button.setOnClickListener(ignored -> {
+                playFeedback(button);
+                if (session == 0 || id.optLong("session") != session) return;
+                candidatePanelOpen = false;
+                candidatePanelSnapshot = null;
+                try {
+                    apply(NativeClient.selectAnyCandidate(
+                        session, id.getLong("generation"), id.getLong("index")));
+                } catch (JSONException | LinkageError error) { fail(); }
+            });
+        }
+        return button;
+    }
+
     private void closeCandidatePanel() {
         candidatePanelOpen = false;
+        candidatePanelSnapshot = null;
         if (keyboardRoot != null && expandedCandidates != null) {
             expandedCandidates.setVisibility(View.GONE);
             if (expandedCandidateScroll != null)
@@ -2369,15 +2402,29 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void openCandidatePanel() {
-        if (view == null || view.optJSONArray("candidates") == null) return;
-        candidatePanelOpen = true;
-        renderExpandedCandidates();
+        if (session == 0 || view == null || view.optInt("page_count", 0) <= 1) return;
+        try {
+            JSONObject snapshot = value(NativeClient.allCandidates(session));
+            if (snapshot.optLong("session") != view.optLong("session")
+                    || snapshot.optLong("generation") != view.optLong("generation")) return;
+            JSONArray entries = snapshot.optJSONArray("candidates");
+            JSONArray visible = view.optJSONArray("candidates");
+            if (entries == null || visible == null || entries.length() <= visible.length()) return;
+            candidatePanelSnapshot = snapshot;
+            candidatePanelOpen = true;
+            renderExpandedCandidates();
+            applySkin();
+        } catch (JSONException | LinkageError error) { fail(); }
     }
 
     private void renderExpandedCandidates() {
         if (expandedCandidates == null || expandedCandidateScroll == null) return;
         expandedCandidates.removeAllViews();
-        if (!candidatePanelOpen || view == null) {
+        if (!candidatePanelOpen || view == null || candidatePanelSnapshot == null
+                || candidatePanelSnapshot.optLong("session") != view.optLong("session")
+                || candidatePanelSnapshot.optLong("generation") != view.optLong("generation")) {
+            candidatePanelOpen = false;
+            candidatePanelSnapshot = null;
             expandedCandidates.setVisibility(View.GONE);
             expandedCandidateScroll.setVisibility(View.GONE);
             return;
@@ -2385,10 +2432,21 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidateScroll.setVisibility(View.VISIBLE);
         expandedCandidates.setVisibility(View.VISIBLE);
         LinearLayout header = new LinearLayout(this);
-        TextView title = new TextView(this);
-        title.setText("候选面板 · 当前页");
-        title.setTextSize(18);
-        header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView composition = new TextView(this);
+        String compositionText = candidatePanelSnapshot.optString("preedit", "");
+        composition.setText(compositionText);
+        composition.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+        composition.setContentDescription("当前组合文本：" + compositionText);
+        header.addView(composition, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        JSONArray entries = candidatePanelSnapshot.optJSONArray("candidates");
+        int count = entries == null ? 0 : entries.length();
+        TextView countView = new TextView(this);
+        countView.setText(count + " 个候选");
+        countView.setContentDescription(count + " 个候选");
+        header.addView(countView, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         Button close = new Button(this);
         close.setAllCaps(false);
         close.setText("收起");
@@ -2400,33 +2458,20 @@ public final class MSIMEInputService extends InputMethodService {
         header.addView(close, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT));
         expandedCandidates.addView(header);
-        TextView spelling = new TextView(this);
-        spelling.setText("正在输入：" + view.optString("editing_text", ""));
-        spelling.setContentDescription("当前组合文本：" + view.optString("editing_text", ""));
-        expandedCandidates.addView(spelling);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        JSONArray entries = view.optJSONArray("candidates");
+        CandidateWrapLayout list = new CandidateWrapLayout(this, pixels(8));
+        list.setPadding(0, pixels(8), 0, 0);
+        list.setContentDescription("完整候选列表");
         if (entries != null) {
-            for (int slot = 0; slot < entries.length(); slot++) {
-                JSONObject candidate = entries.optJSONObject(slot);
+            for (int index = 0; index < entries.length(); index++) {
+                JSONObject candidate = entries.optJSONObject(index);
                 if (candidate == null) continue;
-                Button button = candidateButton(candidate, slot);
-                list.addView(button, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                Button button = expandedCandidateButton(candidate);
+                list.addView(button, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
             }
         }
         expandedCandidates.addView(list);
-        LinearLayout panelPaging = new LinearLayout(this);
-        panelPaging.setOrientation(LinearLayout.HORIZONTAL);
-        button(panelPaging, "上词", () -> command(103));
-        button(panelPaging, "下词", () -> command(102));
-        button(panelPaging, "上一页", () -> command(101));
-        button(panelPaging, "下一页", () -> command(100));
-        expandedCandidates.addView(panelPaging);
-        TextView hint = new TextView(this);
-        hint.setText("可在此面板直接翻页或选择候选");
-        expandedCandidates.addView(hint);
     }
 
     private boolean handwritingActive() {
@@ -3416,7 +3461,8 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (entries.length() > 1 && expandCandidates != null) expandCandidates.setVisibility(View.VISIBLE);
+            if (view.optInt("page_count", 0) > 1 && expandCandidates != null)
+                expandCandidates.setVisibility(View.VISIBLE);
         }
         if (candidatePaging != null) {
             button(candidatePaging, "上词", () -> command(103));
