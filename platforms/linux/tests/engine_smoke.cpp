@@ -365,6 +365,64 @@ int main(int argc, char **argv) {
     ibus_object_destroy(IBUS_OBJECT(engine));
     g_object_unref(engine);
     {
+      const auto socket = (root / "online.sock").string();
+      TranslationProviderFixture provider(socket);
+      auto online = options;
+      online.erase("preferences_directory");
+      online["online_provider_socket"] = socket;
+      online["preferences"]["cloud_candidates"] = true;
+      online["preferences"]["candidate_page_size"] = 9;
+      online["preferences"]["ai_assistant"]["enabled"] = false;
+      msime_preview_configure(online.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      auto settle_online = [&] {
+        const auto deadline = g_get_monotonic_time() + 1700000;
+        while (g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+      };
+      phrase();
+      settle_online();
+      require(provider.online_requests > 0, "Synthetic online provider received no request");
+      require(provider.online_requests == 1,
+              "Empty cloud result repeatedly requested the same input");
+      invoke("Reset");
+      phrase();
+      settle_online();
+      require(provider.online_requests == 2, "New input did not request cloud candidates");
+      invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_UNCHECKED));
+      invoke("Reset");
+      phrase();
+      settle_online();
+      require(provider.online_requests == 2,
+              "Disabled cloud and AI still dispatched an online request");
+      provider.return_online_candidate = true;
+      invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_CHECKED));
+      settle_online();
+      require(provider.online_requests == 3, "Re-enabled cloud candidates did not request input");
+      require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
+                          [](const std::string &text) { return text == "云端测试  云"; }),
+              "Cloud reply lost Engine identity when AI was disabled");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      provider.return_online_candidate = false;
+      online["preferences"]["cloud_candidates"] = false;
+      online["preferences"]["ai_assistant"]["enabled"] = true;
+      msime_preview_configure(online.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      for (char c : std::string("zaijian"))
+        require(key(c), "AI-only fixture input was not consumed");
+      settle_online();
+      require(provider.online_requests == 4, "Disabling cloud also disabled configured AI requests");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
       auto offline = options;
       offline.erase("preferences_directory");
       offline["preferences"]["candidate_translations"] = true;

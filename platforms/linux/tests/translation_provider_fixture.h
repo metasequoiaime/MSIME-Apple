@@ -14,8 +14,8 @@
 // Local synthetic translations; never contacts a network provider.
 class TranslationProviderFixture {
 public:
-  std::atomic<unsigned> requests{0}, english_greeting_requests{0};
-  std::atomic<bool> hold_responses{false};
+  std::atomic<unsigned> requests{0}, english_greeting_requests{0}, online_requests{0};
+  std::atomic<bool> hold_responses{false}, return_online_candidate{false};
   explicit TranslationProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -66,6 +66,12 @@ private:
         ++requests;
         while (hold_responses && !stopped_)
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        send(client, response.data(), response.size(), MSG_NOSIGNAL);
+      } else if (value.is_object() && value.value("kind", "") == "online") {
+        ++online_requests;
+        const std::string response = return_online_candidate
+            ? "{\"candidates\":[{\"text\":\"云端测试\",\"source\":0}]}\n"
+            : "{\"candidates\":[]}\n";
         send(client, response.data(), response.size(), MSG_NOSIGNAL);
       }
       close(client);
