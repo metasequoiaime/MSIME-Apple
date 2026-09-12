@@ -727,7 +727,8 @@ rust::Vec<rust::String> candidate_glosses_with_user(
         }
         return dictionary;
     };
-    auto dictionary = open_dictionary(database_path);
+    // An empty resource path requests only the user overlay, never cwd/english.db.
+    auto dictionary = resources.empty() ? std::unique_ptr<EnglishDictionary>() : open_dictionary(database_path);
     std::unique_ptr<EnglishDictionary> learned;
     if (!user_data.empty()) {
         const auto path = std::filesystem::u8path(std::string(user_data)) / "translation-glosses.db";
