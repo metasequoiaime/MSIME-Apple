@@ -64,6 +64,16 @@ const client: SettingsClient = {
   }, fuzzyPinyin: true, touchKeyboardSchemes: true, customTouchKeyboardSkins: true, customSkinLibrary: {
     load: () => invoke("load_custom_skin_library"),
     mutate: action => invoke("mutate_custom_skin_library", { action }),
+  }, account: {
+    status: () => invoke("account_status"),
+    providers: () => invoke("account_providers"),
+    requestCode: (provider, target) => invoke("account_request_code", { provider, target }),
+    login: (challengeId, code) => invoke("account_login", { challengeId, code }),
+    profile: () => invoke("account_profile"),
+    rename: displayName => invoke("account_rename", { displayName }),
+    logout: all => invoke("account_logout", { all }),
+    deleteAccount: () => invoke("account_delete"),
+    clearExpired: () => invoke("account_forget"),
   }, candidateEnglishGloss: true } : {}),
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {

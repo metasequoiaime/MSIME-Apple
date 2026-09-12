@@ -80,6 +80,8 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 SystemClock.sleep(100);
             } while (SystemClock.uptimeMillis() < deadline);
             if (web == null) throw new AssertionError("Tauri WebView not created");
+            awaitJs("!!Array.from(document.querySelectorAll('button')).find(button => "
+                + "button.textContent?.trim() === '我的')");
             awaitJs("!!(" + PUNCTUATION_CHECKBOX + ")");
             boolean before = "true".equals(js("(" + PUNCTUATION_CHECKBOX + ").checked"));
             stage = "React touch scheme settings";

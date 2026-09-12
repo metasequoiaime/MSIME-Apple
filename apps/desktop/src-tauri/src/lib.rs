@@ -4,6 +4,8 @@ mod linux_process;
 mod linux_audio_devices;
 #[cfg(target_os = "linux")]
 mod linux_clipboard;
+#[cfg(target_os = "android")]
+mod android_account;
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::custom_skin_library::{
@@ -3085,7 +3087,10 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android_account::init());
+    builder
         .setup(|app| {
             #[cfg(target_os = "android")]
             let directory = app.path().app_data_dir()?.join("files/bootstrap/state");
@@ -3298,7 +3303,25 @@ pub fn run() {
             cloud_clipboard_request,
             cloud_dictionary_request,
             load_emoji_catalog,
-            restart_input_method
+            restart_input_method,
+            #[cfg(target_os = "android")]
+            android_account::account_status,
+            #[cfg(target_os = "android")]
+            android_account::account_providers,
+            #[cfg(target_os = "android")]
+            android_account::account_request_code,
+            #[cfg(target_os = "android")]
+            android_account::account_login,
+            #[cfg(target_os = "android")]
+            android_account::account_profile,
+            #[cfg(target_os = "android")]
+            android_account::account_rename,
+            #[cfg(target_os = "android")]
+            android_account::account_logout,
+            #[cfg(target_os = "android")]
+            android_account::account_delete,
+            #[cfg(target_os = "android")]
+            android_account::account_forget
         ])
         .run(tauri::generate_context!())
         .expect("client application failed");

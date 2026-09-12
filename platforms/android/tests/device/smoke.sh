@@ -76,7 +76,7 @@ result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.ms
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key English acceptance failed" >&2; exit 1; }
 if [[ "$settings" == true ]]; then
-  for suite in SettingsDeviceSmoke SettingsLifecycleSmoke; do
+  for suite in SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke; do
     result=$("$adb" -s "$serial" shell am instrument -w "app.msime.client.test/app.msime.client.test.$suite")
     printf '%s\n' "$result"
     [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared settings acceptance failed" >&2; exit 1; }
