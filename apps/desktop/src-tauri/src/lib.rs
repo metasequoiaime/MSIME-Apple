@@ -1142,10 +1142,7 @@ fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
-fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
-    if matches!(target, PanelInputTarget::Ydotool) {
-        return run_ydotool(args);
-    }
+fn focus_wtype_target(target: &PanelInputTarget) -> Result<(), HostActionError> {
     if let PanelInputTarget::Sway(id) = target {
         let id = id.to_string();
         let status = std::process::Command::new("swaymsg")
@@ -1160,6 +1157,15 @@ fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActio
             });
         }
     }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_wtype(target: &PanelInputTarget, args: &[String]) -> Result<(), HostActionError> {
+    if matches!(target, PanelInputTarget::Ydotool) {
+        return run_ydotool(args);
+    }
+    focus_wtype_target(target)?;
     std::process::Command::new("wtype")
         .args(args)
         .status()
@@ -1330,18 +1336,26 @@ fn send_panel_text_to_target(
         .then_some(())
         .ok_or(HostActionError { code: "unavailable" });
     }
-    if let PanelInputTarget::Ydotool = target {
-        return run_ydotool(&[
-            "type".to_owned(),
-            "--escape".to_owned(),
-            "0".to_owned(),
-            "--key-delay".to_owned(),
-            "0".to_owned(),
-            "--".to_owned(),
-            text.to_owned(),
-        ]);
-    }
-    run_wtype(target, &["--".to_owned(), text.to_owned()])
+    let sent = if matches!(target, PanelInputTarget::Ydotool) {
+        // ydotool may hold each ASCII key for 20ms even with key-delay=0.
+        // Allow that per-character work while keeping stalls bounded.
+        let timeout = std::time::Duration::from_millis(3000 + text.len() as u64 * 30);
+        linux_process::write_input(
+            "ydotool",
+            &["type", "--escape", "0", "--key-delay", "0", "--file", "-"],
+            text.as_bytes(),
+            timeout,
+        )
+    } else {
+        focus_wtype_target(target)?;
+        linux_process::write_input(
+            "wtype",
+            &["-d", "0", "-"],
+            text.as_bytes(),
+            std::time::Duration::from_secs(3),
+        )
+    };
+    sent.then_some(()).ok_or(HostActionError { code: "unavailable" })
 }
 
 #[cfg(target_os = "linux")]

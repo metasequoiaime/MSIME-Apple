@@ -450,3 +450,5 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 X11 屏幕键盘及工具面板的 Ctrl+V 先通过 `windowactivate --sync` 激活目标，再通过 XTEST 发送按键，避免应用忽略 `--window` 的 XSendEvent 输入。激活和发送共用 3 秒期限，目标无法激活或进程失败时返回失败，不自动重放。依据 [xdotool 官方手册](https://raw.githubusercontent.com/jordansissel/xdotool/master/xdotool.pod) 的 SENDEVENT NOTES。
 
 X11 工具面板的单行文本提交也使用激活目标后的 XTEST 输入，文本经匿名管道送入 `xdotool type --file -`，不放进命令行或临时文件。激活、管道写入和输入共用 3 秒期限；超时终止并回收工具，不自动重放可能部分提交的文本。换行/制表符文本保留剪贴板粘贴路径。依据 [xdotool type 官方实现](https://raw.githubusercontent.com/jordansissel/xdotool/master/cmd_type.c)。
+
+Wayland 单行文本通过匿名管道传给 `wtype -` 或 `ydotool type --file -`，不进入进程参数。wtype 发送限时 3 秒；ydotool 为默认按键保持时间预留每个 ASCII 字符 30 毫秒并加 3 秒余量。超时终止并回收工具，不自动重发。Sway 先切回原目标；多行文本和 ydotool 非 ASCII 文本保留剪贴板粘贴。接口依据 [wtype](https://raw.githubusercontent.com/atx/wtype/master/README.md) 和 [ydotool](https://raw.githubusercontent.com/ReimuNotMoe/ydotool/master/manpage/ydotool.1.scd) 官方说明。
