@@ -1,0 +1,13 @@
+[Unit]
+Description=MSIME online candidate and translation provider
+
+[Service]
+Type=simple
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-provider-session" online
+UMask=0077
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

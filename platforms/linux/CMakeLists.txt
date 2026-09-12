@@ -71,7 +71,14 @@ install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dic
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS msime-client-ibus-launcher msime-client-online-provider msime-client-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS msime-client-ibus-launcher msime-client-online-provider msime-client-voice-provider msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
+foreach(MSIME_PROVIDER online voice)
+  configure_file(data/msime-client-${MSIME_PROVIDER}.service.in
+                 ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
+          DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
+endforeach()
 install(FILES msime_voice_doubao.py msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 if(MSIME_HANDWRITING_MODEL AND EXISTS "${MSIME_HANDWRITING_MODEL}")

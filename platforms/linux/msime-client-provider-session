@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Launch an installed provider with the current user's XDG configuration."""
+import argparse
+import os
+from pathlib import Path
+import stat
+
+
+def absolute_directory(variable, default=None):
+    value = os.environ.get(variable) or default
+    if not value or not Path(value).is_absolute():
+        raise ValueError("invalid XDG directory")
+    return Path(value)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("provider", choices=("online", "voice"))
+    args = parser.parse_args()
+    try:
+        runtime = absolute_directory("XDG_RUNTIME_DIR") / "msime-client"
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        info = runtime.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or
+                info.st_mode & 0o077):
+            raise ValueError("runtime directory must be private")
+        config = absolute_directory("XDG_CONFIG_HOME", str(Path.home() / ".config")) / "msime-client"
+        executable = Path(__file__).resolve().parent / ("msime-client-" + args.provider + "-provider")
+        command = [str(executable), str(runtime / (args.provider + ".sock"))]
+        if args.provider == "online":
+            for filename, option in (("ai-provider.json", "--ai-config"),
+                                     ("tencent-provider.json", "--tencent-config")):
+                path = config / filename
+                if path.exists() or path.is_symlink():
+                    command.extend([option, str(path)])
+        else:
+            command.extend(["--config", str(config / "voice-provider.json")])
+            for variable, option in (("MSIME_VOICE_CAPTURE", "--capture"),
+                                     ("MSIME_VOICE_CAPTURE_DEVICE", "--capture-device"),
+                                     ("MSIME_VOICE_MAX_RECORDING_SECONDS", "--max-recording-seconds")):
+                value = os.environ.get(variable)
+                if value:
+                    command.extend([option, value])
+        os.umask(0o077)
+        os.execv(command[0], command)
+    except (OSError, ValueError):
+        parser.error("cannot start provider: check private XDG runtime directory and installation")
+
+
+if __name__ == "__main__":
+    main()

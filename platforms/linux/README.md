@@ -265,3 +265,22 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 语音服务启动时持有同路径 `.lock` 进程锁。异常终止留下的 socket 在确认属于当前用户、连接被拒绝且 inode 未变化后自动清理，使服务可重新启动；活跃服务、普通文件、符号链接及无法确定状态的端点不会被替换。锁文件保留并由内核在进程退出时释放锁。
 
 在线候选/翻译 provider 与语音 provider 共用 socket 所有权和异常重启恢复逻辑：持有独立 `.lock` 进程锁，清理已确认无监听的残留 socket，并拒绝覆盖活跃服务或其他文件。共用模块 `msime_provider_runtime.py` 随服务一起安装。
+
+### 用户服务启动
+
+安装包提供 `msime-client-online.service` 和 `msime-client-voice.service`，不自动启用。服务通过 `msime-client-provider-session` 使用 `$XDG_RUNTIME_DIR/msime-client/online.sock` 和 `voice.sock`，与 IBus 自动发现路径一致。运行目录首次启动时创建为仅当前用户可访问；已有目录权限不合要求时直接报错。
+
+配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务需要 `voice-provider.json`。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
+
+按需启动服务：
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now msime-client-online.service
+# 准备语音配置后再启用：
+systemctl --user enable --now msime-client-voice.service
+```
+
+修改配置后使用 `systemctl --user restart msime-client-voice.service`；停止并取消登录自启使用 `systemctl --user disable --now msime-client-voice.service`。在线服务同理。异常退出会重启，配置错误不会循环重启。语音停止时留出录音退出和恢复静音的时间。
+
+可通过 `systemctl --user edit msime-client-voice.service` 的 `[Service]` 段设置 `Environment=MSIME_VOICE_CAPTURE=pipewire`、`Environment=MSIME_VOICE_CAPTURE_DEVICE=设备名` 和 `Environment=MSIME_VOICE_MAX_RECORDING_SECONDS=300`；凭据仍放在私有 JSON 中。无 systemd 的桌面可直接运行 `msime-client-provider-session online` 或 `voice`。自定义安装前缀可用 CMake 的 `MSIME_SYSTEMD_USER_UNIT_DIR` 指定用户服务搜索目录。

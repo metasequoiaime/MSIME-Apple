@@ -1,0 +1,17 @@
+[Unit]
+Description=MSIME voice input provider
+
+[Service]
+Type=simple
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-provider-session" voice
+UMask=0077
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+# Allow the provider to stop capture and restore muted playback before killing
+# remaining children if graceful shutdown fails.
+KillMode=mixed
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target
