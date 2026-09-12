@@ -130,9 +130,7 @@ struct MacEmojiView: View {
         palette: palette)
       if category == "clipboard" {
         if historyEnabled == false && loadedQuery == queryID {
-          Button("开启剪贴板历史") { enableHistory() }
-            .buttonStyle(.borderedProminent).disabled(enablingHistory)
-          Text("开启共享设置；已运行的桌面客户端可能按此设置保存复制的文本。").font(.caption)
+          MacEmojiClipboardDisabledView(palette: palette, enabling: enablingHistory, enable: enableHistory)
         }
         HStack {
           Text(clipboardService.status?.message ?? "正在检查剪贴板采集设置…").font(.caption)
