@@ -70,10 +70,6 @@ struct State {
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
-  std::optional<bool> local_unicode_override, local_date_time_override,
-      local_quick_phrase_override, local_emoji_override, local_kaomoji_override,
-      local_super_jianpin_override, local_temporary_english_override,
-      local_temporary_japanese_override;
   std::optional<bool> smart_punctuation_override, smart_repeat_override, paired_punctuation_override;
   std::optional<std::string> punctuation_lock_override;
   std::optional<uint8_t> candidate_page_size_override;
@@ -235,15 +231,6 @@ struct State {
     if (autocorrect_neighbor_override)
       quanpin["autocorrect_neighbor"] = *autocorrect_neighbor_override;
     if (frequency_mode_override) preferences["frequency"]["mode"] = *frequency_mode_override;
-    auto &local_modes = preferences["local_modes"];
-    if (local_unicode_override) local_modes["unicode"] = *local_unicode_override;
-    if (local_date_time_override) local_modes["date_time"] = *local_date_time_override;
-    if (local_quick_phrase_override) local_modes["quick_phrase"] = *local_quick_phrase_override;
-    if (local_emoji_override) local_modes["emoji"] = *local_emoji_override;
-    if (local_kaomoji_override) local_modes["kaomoji"] = *local_kaomoji_override;
-    if (local_super_jianpin_override) local_modes["super_jianpin"] = *local_super_jianpin_override;
-    if (local_temporary_english_override) local_modes["temporary_english"] = *local_temporary_english_override;
-    if (local_temporary_japanese_override) local_modes["temporary_japanese"] = *local_temporary_japanese_override;
     const auto active_scheme = preferences.value("scheme", "quanpin");
     if (active_scheme == "quanpin" || active_scheme == "shuangpin") {
       if (helpcode_override) preferences[active_scheme + "_helpcode"]["enabled"] = *helpcode_override;
@@ -1663,43 +1650,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(profile_menu, item);
   }
   ibus_property_set_sub_props(profile, profile_menu);
-  auto local_modes_property = ibus_property_new(
-      "LocalModes", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("本地模式"), "",
-      ibus_text_new_from_static_string("启用或停用本地快捷输入模式"),
-      s.focused && !s.blocked && s.input_enabled, TRUE, PROP_STATE_UNCHECKED,
-      nullptr);
-  auto local_modes_menu = ibus_prop_list_new();
-  const auto local_modes = configured.at("preferences").value("local_modes", Json::object());
-  const auto local_mode_enabled = [&](const std::optional<bool> &override_value,
-                                      const char *key) {
-    return override_value.value_or(local_modes.value(key, true));
-  };
-  const std::pair<const char *, const char *> local_mode_options[] = {
-      {"unicode", "Unicode"}, {"date_time", "日期时间"},
-      {"quick_phrase", "快捷短语"}, {"emoji", "Emoji"},
-      {"kaomoji", "颜文字"}, {"super_jianpin", "超级简拼"},
-      {"temporary_english", "临时英文"}, {"temporary_japanese", "临时日文"}};
-  for (const auto &[key, label] : local_mode_options) {
-    const auto &override_value =
-        std::string(key) == "unicode" ? s.local_unicode_override
-        : std::string(key) == "date_time" ? s.local_date_time_override
-        : std::string(key) == "quick_phrase" ? s.local_quick_phrase_override
-        : std::string(key) == "emoji" ? s.local_emoji_override
-        : std::string(key) == "kaomoji" ? s.local_kaomoji_override
-        : std::string(key) == "super_jianpin" ? s.local_super_jianpin_override
-        : std::string(key) == "temporary_english" ? s.local_temporary_english_override
-        : s.local_temporary_japanese_override;
-    auto item = ibus_property_new(
-        (std::string("LocalMode/") + key).c_str(), PROP_TYPE_TOGGLE,
-        ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("切换本地快捷输入模式"), TRUE, TRUE,
-        local_mode_enabled(override_value, key) ? PROP_STATE_CHECKED
-                                                 : PROP_STATE_UNCHECKED,
-        nullptr);
-    ibus_prop_list_append(local_modes_menu, item);
-  }
-  ibus_property_set_sub_props(local_modes_property, local_modes_menu);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, toolbar);
@@ -1731,7 +1681,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, number_row_property);
     ibus_prop_list_append(properties, nine_key_property);
     ibus_prop_list_append(properties, nine_key_spellings_property);
-    ibus_prop_list_append(properties, local_modes_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
     ibus_prop_list_append(properties, theme_property);
@@ -1770,7 +1719,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, number_row_property);
     ibus_engine_update_property(engine, nine_key_property);
     ibus_engine_update_property(engine, nine_key_spellings_property);
-    ibus_engine_update_property(engine, local_modes_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, theme_property);
@@ -2438,8 +2386,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "Scheme/Japanese" &&
        property_name != "Scheme/Quanpin" && property_name != "Scheme/Shuangpin" &&
        property_name != "Scheme/Wubi" &&
-       property_name.rfind("ShuangpinProfile/", 0) != 0 &&
-       property_name.rfind("LocalMode/", 0) != 0) ||
+       property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
     return;
@@ -2884,36 +2831,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           chinese = "quanpin";
         s.scheme_override = chinese;
       }
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
-      publish_mode(engine);
-      return;
-    }
-    if (property_name.rfind("LocalMode/", 0) == 0) {
-      const auto key = property_name.substr(std::string("LocalMode/").size());
-      std::optional<bool> *setting =
-          key == "unicode" ? &s.local_unicode_override
-          : key == "date_time" ? &s.local_date_time_override
-          : key == "quick_phrase" ? &s.local_quick_phrase_override
-          : key == "emoji" ? &s.local_emoji_override
-          : key == "kaomoji" ? &s.local_kaomoji_override
-          : key == "super_jianpin" ? &s.local_super_jianpin_override
-          : key == "temporary_english" ? &s.local_temporary_english_override
-          : key == "temporary_japanese" ? &s.local_temporary_japanese_override
-          : nullptr;
-      if (!setting)
-        return;
-      const auto current = setting->value_or(
-          configured.at("preferences").value("local_modes", Json::object())
-              .value(key, true));
-      const bool enabled = value == PROP_STATE_CHECKED;
-      if (current == enabled)
-        return;
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
-      *setting = enabled;
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
