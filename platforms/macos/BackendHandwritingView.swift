@@ -63,6 +63,8 @@ struct MacHandwritingCanvasView: View {
               Button(candidate) { onCandidate(candidate) }.font(.system(size: 24)).frame(maxWidth: .infinity, minHeight: 52)
             }
           }
+          Text(candidates.isEmpty ? "在左侧书写，松开鼠标后自动识别" : "点击候选结果即可复制")
+            .font(.footnote).foregroundStyle(.secondary)
         }
       }
       HStack { Button("↶  撤销") { _ = strokes.popLast(); onSubmit(strokes) }.disabled(strokes.isEmpty); Button("×  重写") { strokes.removeAll(); onSubmit([]) }.disabled(strokes.isEmpty); Spacer() }
