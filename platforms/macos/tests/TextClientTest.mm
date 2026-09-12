@@ -38,6 +38,29 @@ static void TestCustomTranslationHTTPBridge() {
     assert(![MSIMEClientSession customTranslationHTTPRequest:disabled error:&error] && !error);
 }
 
+static void TestTencentTranslationHTTPBridge() {
+    NSError *error = nil;
+    NSDictionary *request = @{@"config":@{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@""},
+        @"texts":@[@"测试"], @"source_language":@"zh", @"target_language":@"en", @"timestamp":@1704067200};
+    NSDictionary *descriptor = [MSIMEClientSession tencentTranslationHTTPRequest:request error:&error];
+    assert(descriptor && !error && [descriptor[@"url"] isEqual:@"https://tmt.tencentcloudapi.com"]);
+    assert([descriptor[@"headers"][@"Authorization"] containsString:@"/2024-01-01/tmt/tc3_request"]);
+    assert([descriptor[@"headers"][@"X-TC-Timestamp"] isEqual:@"1704067200"]);
+    assert([descriptor[@"headers"][@"X-TC-Region"] isEqual:@"ap-guangzhou"]);
+    NSData *payload = [descriptor[@"body_utf8"] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *body = [NSJSONSerialization JSONObjectWithData:payload options:0 error:&error];
+    assert(!error && [body[@"SourceTextList"] isEqual:@[@"测试"]]);
+    NSData *response = [@"{\"Response\":{\"TargetTextList\":[\" test \",\"\"]}}" dataUsingEncoding:NSUTF8StringEncoding];
+    assert(([[MSIMEClientSession parseTencentTranslationResponse:response expectedCount:2 error:&error] isEqual:@[@"test", NSNull.null]]));
+    assert(!error);
+    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:1 error:&error] && !error);
+    assert(![MSIMEClientSession parseTencentTranslationResponse:NSData.data expectedCount:1 error:&error] && !error);
+    assert(![MSIMEClientSession parseTencentTranslationResponse:response expectedCount:10 error:&error] && error);
+    error = nil;
+    NSMutableDictionary *disabled = [request mutableCopy]; disabled[@"config"] = @{@"enabled":@NO};
+    assert(![MSIMEClientSession tencentTranslationHTTPRequest:disabled error:&error] && !error);
+}
+
 static void TestEngineMaintenance() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
@@ -366,6 +389,7 @@ int main() {
         TestEngineEdges(client);
         TestEngineMaintenance();
         TestCustomTranslationHTTPBridge();
+        TestTencentTranslationHTTPBridge();
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);

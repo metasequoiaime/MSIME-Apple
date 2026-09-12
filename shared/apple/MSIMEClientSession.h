@@ -39,6 +39,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)translationQueryWithError:(NSError **)error;
 /// Pure descriptor construction. Contains optional credentials; never log it.
 + (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Signed Tencent descriptor. Send body_utf8 unchanged; never log credentials.
++ (nullable NSDictionary *)tencentTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Exact batch positions: NSString or NSNull. nil means an invalid response.
++ (nullable NSArray *)parseTencentTranslationResponse:(NSData *)body expectedCount:(NSUInteger)count error:(NSError **)error;
 /// Pure script/direction filtering for {target_language,candidates:[{text,source}]}.
 + (nullable NSArray<NSDictionary *> *)customTranslationPlan:(NSDictionary *)request error:(NSError **)error;
 /// Parse only a successful HTTP response; nil without error means no usable translation.

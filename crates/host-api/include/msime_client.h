@@ -136,6 +136,12 @@ char *msime_client_custom_translation_http_request(const uint8_t *request, size_
 /* Pure visible-page plan <=64 KiB: {target_language,candidates:[{text,source}]}.
  * Returns [{text,key,source_language,target_language}]; at most nine candidates. */
 char *msime_client_custom_translation_plan(const uint8_t *request, size_t length);
+/* Pure signed TMT descriptor <=64 KiB. Input: {config:{enabled,secret_id,
+ * secret_key,region},texts:[string],source_language,target_language,timestamp}.
+ * Send body_utf8 bytes unchanged. Never log this credential-bearing descriptor. */
+char *msime_client_tencent_translation_http_request(const uint8_t *request, size_t length);
+/* Returns [string|null] with exact expected count (1..9), or null for invalid body. */
+char *msime_client_parse_tencent_translation_response(const uint8_t *body, size_t length, size_t expected);
 /* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
  * malformed/no result. No session mutation; host validates original identity. */
 char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t length);
