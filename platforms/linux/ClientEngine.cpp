@@ -564,7 +564,8 @@ std::vector<std::string> clipboard_items(const std::string &path) {
     auto value = Json::parse(input);
     if (!value.is_array()) return items;
     for (const auto &entry : value) {
-      if (items.size() == 8 || !entry.is_string()) break;
+      if (items.size() == 50) break;
+      if (!entry.is_string()) continue;
       auto text = entry.get<std::string>();
       if (text.size() > 4096) continue;
       if (!text.empty()) items.push_back(std::move(text));
@@ -1175,6 +1176,7 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   if (request->generation != s.clipboard_generation || !s.focused || s.blocked ||
       request->path != s.clipboard_history_path) {
     delete items;
+    clipboard_schedule(IBUS_ENGINE(source));
     return;
   }
   if (!items)
@@ -1508,12 +1510,30 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto clipboard = ibus_property_new(
       "ClipboardHistory", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("剪贴板历史"), "",
-      ibus_text_new_from_static_string("提交最近一条历史文本"),
+      ibus_text_new_from_static_string("浏览、提交和管理最近 50 条历史文本"),
       s.focused && !s.blocked && s.input_enabled && !s.clipboard_history_path.empty(),
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto clipboard_menu = ibus_prop_list_new();
   const auto &items = s.clipboard_items_cache;
+  auto refresh_clipboard = ibus_property_new(
+      "ClipboardHistory/Refresh", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("刷新历史"), "",
+      ibus_text_new_from_static_string("重新加载本地历史列表"),
+      !s.clipboard_loading, TRUE, PROP_STATE_UNCHECKED, nullptr);
+  ibus_prop_list_append(clipboard_menu, refresh_clipboard);
+  IBusPropList *page = nullptr;
   for (size_t index = 0; index < items.size(); ++index) {
+    if (index % 10 == 0) {
+      page = ibus_prop_list_new();
+      const auto label = std::to_string(index + 1) + "–" +
+                         std::to_string(std::min(index + 10, items.size()));
+      auto group = ibus_property_new(
+          (std::string("ClipboardHistoryPage/") + std::to_string(index / 10)).c_str(),
+          PROP_TYPE_MENU, ibus_text_new_from_string(label.c_str()), "",
+          ibus_text_new_from_static_string("浏览这一组历史"), TRUE, TRUE,
+          PROP_STATE_UNCHECKED, page);
+      ibus_prop_list_append(clipboard_menu, group);
+    }
     auto preview = items[index];
     msime_clipboard_truncate(preview, 48);
     const auto label = std::to_string(index + 1) + ". " + preview;
@@ -1523,14 +1543,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
         PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()), "",
         ibus_text_new_from_static_string("提交历史文本"), TRUE, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
-    ibus_prop_list_append(clipboard_menu, item);
+    ibus_prop_list_append(page, item);
     auto remove = ibus_property_new(
         (std::string("ClipboardHistory/Remove/") + identity).c_str(),
         PROP_TYPE_NORMAL,
         ibus_text_new_from_string((std::string("删除 ") + std::to_string(index + 1)).c_str()),
         "", ibus_text_new_from_static_string("删除这一条历史文本"), TRUE, TRUE,
         PROP_STATE_UNCHECKED, nullptr);
-    ibus_prop_list_append(clipboard_menu, remove);
+    ibus_prop_list_append(page, remove);
   }
   auto clear_clipboard = ibus_property_new(
       "ClipboardHistory/Clear", PROP_TYPE_NORMAL,
@@ -2498,12 +2518,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     return;
   }
   const bool clipboard_item = property_name.rfind("ClipboardHistory/", 0) == 0 &&
+                               property_name != "ClipboardHistory/Refresh" &&
                                property_name != "ClipboardHistory/Latest" &&
                                property_name != "ClipboardHistory/Clear" &&
                                property_name.rfind("ClipboardHistory/Remove/", 0) != 0;
   const bool clipboard_remove = property_name.rfind("ClipboardHistory/Remove/", 0) == 0;
   if (!name ||
        (!(clipboard_item || clipboard_remove) && property_name != "ClipboardHistory/Clear" &&
+       property_name != "ClipboardHistory/Refresh" &&
        std::string(name) != "InputMode" &&
        std::string(name) != "VoiceInput" &&
        std::string(name) != "CloudCandidates" &&
@@ -2731,6 +2753,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
+      publish_mode(engine);
+      return;
+    }
+    if (property_name == "ClipboardHistory/Refresh") {
+      if (!s.input_enabled || s.clipboard_history_path.empty())
+        return;
+      ++s.clipboard_generation;
+      s.clipboard_items_cache.clear();
+      s.clipboard_loaded = false;
       publish_mode(engine);
       return;
     }
