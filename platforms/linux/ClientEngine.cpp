@@ -142,11 +142,17 @@ struct State {
   uint64_t clipboard_generation = 0;
   bool clipboard_loading = false, clipboard_loaded = false;
   bool online_loading = false, translation_loading = false;
+  guint online_delay_source = 0;
   bool cloud_candidates = true;
   bool candidate_translations = true;
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   void invalidate_providers() {
+    if (online_delay_source) {
+      const auto source = online_delay_source;
+      online_delay_source = 0;
+      g_source_remove(source);
+    }
     ++provider_epoch;
     online_loading = false;
     translation_loading = false;
@@ -939,7 +945,7 @@ bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
     return false;
   }
 }
-void online_schedule(IBusEngine *engine) {
+void online_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.online_provider_socket.empty() || s.online_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled)
@@ -976,6 +982,28 @@ void online_schedule(IBusEngine *engine) {
   } catch (...) {
     s.online_loading = false;
   }
+}
+// Match Windows cloud_ime's 500ms idle delay without sleeping on the
+// IBus input thread. Read the latest Engine query only when the timer fires.
+void online_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.online_delay_source) {
+    const auto source = s.online_delay_source;
+    s.online_delay_source = 0;
+    g_source_remove(source);
+  }
+  if (s.online_provider_socket.empty() || !s.session || !s.focused ||
+      s.blocked || !s.input_enabled)
+    return;
+  s.online_delay_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 500,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        state(engine).online_delay_source = 0;
+        online_dispatch(engine);
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
 }
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
