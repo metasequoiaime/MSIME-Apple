@@ -7,7 +7,7 @@ use serde_json::json;
 use std::ffi::c_char;
 use std::path::Path;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Kind {
     Pinyin,
@@ -37,6 +37,17 @@ impl From<Entry> for DictionaryEntry {
             key: entry.key,
             value: entry.value,
             weight: entry.weight,
+        }
+    }
+}
+
+impl From<Kind> for msime_engine_bridge::DictionaryKind {
+    fn from(kind: Kind) -> Self {
+        match kind {
+            Kind::Pinyin => Self::Pinyin,
+            Kind::Wubi => Self::Wubi,
+            Kind::QuickPhrase => Self::QuickPhrase,
+            Kind::English => Self::English,
         }
     }
 }
@@ -72,6 +83,18 @@ enum Operation {
         previous: Option<Entry>,
         replacement: Option<Entry>,
         request_id: String,
+    },
+    Import {
+        kind: Kind,
+        format: String,
+        text: String,
+        request_id: String,
+    },
+    Export {
+        kind: Kind,
+        format: String,
+        offset: usize,
+        limit: usize,
     },
 }
 
@@ -144,7 +167,172 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             )?;
             Ok(json!({ "applied": true }))
         }
+        Operation::Import {
+            kind,
+            format,
+            text,
+            request_id,
+        } => {
+            let entries = parse_import(&kind, &format, &text)?;
+            if request_id.is_empty() || request_id.len() > 120
+                || !request_id.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+                })
+            {
+                return Err("invalid dictionary request ID".into());
+            }
+            let _access = DictionaryAccess::try_maintenance(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            let mut applied = 0usize;
+            for (index, entry) in entries.iter().enumerate() {
+                let receipt = format!("{request_id}-{index}");
+                let result = msime_engine_bridge::edit_personal_dictionary(
+                    &options,
+                    None,
+                    Some(entry),
+                    &receipt,
+                );
+                if result.is_err() {
+                    return Err("dictionary import rejected".into());
+                }
+                applied += 1;
+            }
+            Ok(json!({ "applied": applied }))
+        }
+        Operation::Export {
+            kind,
+            format,
+            offset,
+            limit,
+        } => {
+            if !matches!(format.as_str(), "standard" | "windows")
+                || offset > 1_000_000
+                || !(1..=1000).contains(&limit)
+            {
+                return Err("invalid dictionary export".into());
+            }
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            let mut cursor = 0usize;
+            let mut matching = Vec::new();
+            let mut source_has_more = true;
+            while source_has_more && matching.len() < offset.saturating_add(limit) {
+                let page = msime_engine_bridge::dictionary_entries(&options, cursor, 1000)
+                    .map_err(|_| "dictionary read rejected")?;
+                if page.entries.is_empty() {
+                    source_has_more = false;
+                    break;
+                }
+                cursor = cursor.saturating_add(page.entries.len());
+                source_has_more = page.has_more;
+                matching.extend(
+                    page
+                        .entries
+                        .into_iter()
+                        .filter(|entry| entry.kind == kind.into()),
+                );
+                if cursor > 1_000_000 {
+                    break;
+                }
+            }
+            let has_more = matching.len() > offset.saturating_add(limit)
+                || (source_has_more && matching.len() >= offset.saturating_add(limit));
+            let text = matching
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .map(|entry| {
+                    if format == "windows" {
+                        format!("{}\t{}\t{}", entry.key, entry.value, entry.weight)
+                    } else {
+                        format!("{}\t{}\t{}", entry.value, entry.key, entry.weight)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = if text.is_empty() { text } else { format!("{text}\n") };
+            Ok(json!({ "text": text, "has_more": has_more }))
+        }
     }
+}
+
+fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryEntry>, String> {
+    if !matches!(format, "standard" | "windows")
+        || text.is_empty()
+        || text.len() > msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
+        || text.contains('\0')
+        || text
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err("invalid dictionary import".into());
+    }
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let columns: Vec<_> = line.split('\t').collect();
+        if !(2..=3).contains(&columns.len()) || entries.len() >= 1000 {
+            return Err("invalid dictionary import".into());
+        }
+        let (word, key) = if format == "windows" {
+            (columns[1].trim(), columns[0].trim())
+        } else {
+            (columns[0].trim(), columns[1].trim())
+        };
+        let weight = columns
+            .get(2)
+            .map(|value| value.trim().parse::<i64>())
+            .transpose()
+            .map_err(|_| "invalid dictionary import")?
+            .unwrap_or(100000);
+        let entry = DictionaryEntry {
+            kind: (*kind).into(),
+            key: key.to_owned(),
+            value: word.to_owned(),
+            weight,
+        };
+        let key_limit = match kind {
+            Kind::Pinyin => 256,
+            Kind::Wubi => 4,
+            Kind::QuickPhrase => 32,
+            Kind::English => 64,
+        };
+        let key_alphabet = match kind {
+            Kind::Pinyin => key.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'\''),
+            Kind::Wubi => key.bytes().all(|byte| byte.is_ascii_lowercase()),
+            Kind::QuickPhrase => key
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+            Kind::English => key.bytes().all(|byte| byte.is_ascii_alphabetic()),
+        };
+        if key.is_empty()
+            || key.len() > key_limit
+            || !key_alphabet
+            || word.is_empty()
+            || word.len() > 1024
+            || weight < 0
+            || key.chars().any(char::is_control)
+            || word.chars().any(char::is_control)
+        {
+            return Err("invalid dictionary import".into());
+        }
+        entries.push(entry);
+    }
+    if entries.is_empty() {
+        return Err("invalid dictionary import".into());
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -163,5 +351,31 @@ mod tests {
             dictionary_request_json(&vec![0u8; 65537]).unwrap_err(),
             "invalid dictionary buffer"
         );
+    }
+
+    #[test]
+    fn parses_standard_and_windows_rows_without_logging_content() {
+        let standard = parse_import(
+            &Kind::Pinyin,
+            "standard",
+            "你好\tni'hao\t7\n# comment\n西安\txi'an\n",
+        )
+        .unwrap();
+        assert_eq!(standard.len(), 2);
+        assert_eq!(standard[0].value, "你好");
+        assert_eq!(standard[0].key, "ni'hao");
+        assert_eq!(standard[1].weight, 100000);
+
+        let windows = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n").unwrap();
+        assert_eq!(windows[0].key, "wq");
+        assert_eq!(windows[0].value, "你好");
+    }
+
+    #[test]
+    fn rejects_unsupported_or_unbounded_import_rows() {
+        assert!(parse_import(&Kind::Pinyin, "hans", "你好\tni'hao").is_err());
+        assert!(parse_import(&Kind::Wubi, "windows", "abcde\t你好").is_err());
+        assert!(parse_import(&Kind::Pinyin, "standard", "你好\tni\t-1").is_err());
+        assert!(parse_import(&Kind::Pinyin, "standard", "# only comments\n").is_err());
     }
 }

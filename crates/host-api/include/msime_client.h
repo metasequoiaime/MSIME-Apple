@@ -42,6 +42,13 @@ char *msime_client_create(const uint8_t *options, size_t length);
 /* Management JSON (<=65536 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
+ * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"quick_phrase"|"english",
+ * format:"standard"|"windows",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
+ * Standard rows are word, code, weight; Windows rows are code, word, weight. Weight defaults
+ * to 100000. Import accepts at most 1000 rows and returns {applied}; rows are committed with
+ * deterministic receipt IDs derived from request_id so retries are safe.
+ * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns
+ * {text,has_more}; use pages of at most 1000 rows. Standard output is word, code, weight.
  * Entry:{kind:"pinyin"|"wubi"|"quick_phrase"|"english",key,value,weight}.
  * List returns {entries,has_more}; edit returns {applied:true}. Errors are redacted.
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
