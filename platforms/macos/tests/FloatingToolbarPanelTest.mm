@@ -104,6 +104,34 @@ int main() {
         assert(NSEqualSizes(panel.frame.size, configuredSize));
         [panel deactivateForDelegate:sizingDelegate];
         [panel applySizingPreferences:@{}];
+        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, settings];
+        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"settings"];
+        for (NSUInteger mask = 0; mask < 16; ++mask) {
+            NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
+            NSUInteger count = 1;
+            for (NSUInteger index = 0; index < keys.count; ++index) {
+                const BOOL enabled = (mask & (1u << index)) != 0;
+                components[keys[index]] = @(enabled);
+                if (enabled) ++count;
+            }
+            [panel applySizingPreferences:@{@"floating_toolbar": components}];
+            for (NSUInteger index = 0; index < keys.count; ++index)
+                assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
+            assert(!inputMode.hidden);
+            assert(panel.frame.size.width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
+            assert(inputMode.superview != nil);
+            CGFloat previousRight = 0;
+            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, settings]) {
+                if (button.hidden) continue;
+                const NSRect rect = [button convertRect:button.bounds toView:panel.contentView];
+                assert(NSMinX(rect) >= previousRight);
+                assert(NSMaxX(rect) <= panel.contentView.bounds.size.width);
+                previousRight = NSMaxX(rect);
+            }
+        }
+        [panel applySizingPreferences:@{}];
+        for (NSButton *button in optionalButtons) assert(!button.hidden && button.superview != nil);
+        assert(panel.frame.size.width == 272.0);
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
