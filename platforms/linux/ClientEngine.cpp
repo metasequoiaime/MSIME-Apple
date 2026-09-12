@@ -2608,6 +2608,19 @@ std::optional<char> keypad_punctuation(guint key) {
     return std::nullopt;
   }
 }
+bool microsoft_shuangpin_ing_key(const Json &view, guint key, guint modifiers) {
+  if (key != IBUS_semicolon || modifiers != 0 ||
+      !view.value("microsoft_shuangpin", false))
+    return false;
+  const auto editing_text = view.value("editing_text", std::string{});
+  const auto caret = std::min<std::size_t>(
+      view.value("caret_position", editing_text.size()), editing_text.size());
+  const auto separator = caret == 0
+                             ? std::string::npos
+                             : editing_text.rfind('\'', caret - 1);
+  const auto chunk_start = separator == std::string::npos ? 0 : separator + 1;
+  return (caret - chunk_start) % 2 == 1;
+}
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active)
@@ -2898,6 +2911,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = apply(engine, msime_client_punctuation(
             s.session, static_cast<uint8_t>(*keypad)));
       }
+      return;
+    }
+    if (microsoft_shuangpin_ing_key(s.view, key, modifiers)) {
+      handled = apply(engine, msime_client_character(s.session, ';', false));
       return;
     }
     if (s.chinese_punctuation && s.paired_punctuation &&
