@@ -102,6 +102,15 @@ def http_request_worker():
         if len(raw) > 262144:
             return 1
         request = json.loads(raw)
+        timeout = request.get("timeout")
+        if type(timeout) not in (int, float) or not 0 < timeout <= 7:
+            return 1
+        # The parent normally enforces the deadline and reaps this worker.
+        # Keep a process-local limit too, so a crashed parent cannot leave DNS
+        # or a slowly streaming HTTP response running indefinitely. The default
+        # signal action terminates even while native code is blocked.
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)
+        signal.setitimer(signal.ITIMER_REAL, timeout)
         body = request.get("body")
         request["body"] = base64.b64decode(body, validate=True) if body is not None else None
         response = fetch_direct(**request)
