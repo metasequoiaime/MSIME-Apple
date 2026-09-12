@@ -188,6 +188,7 @@ const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][
 ];
 export type FloatingToolbarPreferences = {
   enabled: boolean;
+  english_mode: boolean;
   fullwidth: boolean;
   punctuation: boolean;
   character_set: boolean;
@@ -199,6 +200,7 @@ export type FloatingToolbarPreferences = {
 };
 const defaultFloatingToolbar: FloatingToolbarPreferences = {
   enabled: true,
+  english_mode: true,
   fullwidth: true,
   punctuation: true,
   character_set: true,
@@ -208,7 +210,8 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
-const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "fullwidth" | "punctuation" | "character_set" | "emoji" | "screen_keyboard" | "settings">, string][] = [
+const floatingToolbarOptions: [keyof Pick<FloatingToolbarPreferences, "english_mode" | "fullwidth" | "punctuation" | "character_set" | "emoji" | "screen_keyboard" | "settings">, string][] = [
+  ["english_mode", "英文输入模式"],
   ["fullwidth", "全角 / 半角"],
   ["punctuation", "中英文标点"],
   ["character_set", "简繁切换"],
@@ -494,7 +497,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
-  const floatingToolbar = draft?.floating_toolbar ?? defaultFloatingToolbar;
+  const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;

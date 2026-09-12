@@ -333,6 +333,8 @@ impl Default for AiAssistantPreferences {
 pub struct FloatingToolbarPreferences {
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub english_mode: bool,
     #[serde(default = "default_toolbar_scale")]
     pub scale_percent: u16,
     #[serde(default = "default_toolbar_font_size")]
@@ -362,6 +364,7 @@ impl Default for FloatingToolbarPreferences {
     fn default() -> Self {
         Self {
             enabled: true,
+            english_mode: true,
             scale_percent: 100,
             font_size: 24,
             fullwidth: true,
@@ -1696,7 +1699,7 @@ mod tests {
     #[test]
     fn floating_toolbar_component_defaults_and_roundtrip() {
         let defaults = Preferences::default().floating_toolbar;
-        assert!(defaults.enabled && defaults.fullwidth && defaults.punctuation);
+        assert!(defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation);
         assert!(defaults.character_set && defaults.emoji && defaults.settings);
         assert!(!defaults.screen_keyboard);
         let json = serde_json::to_string(&Preferences::default()).unwrap();
@@ -1713,6 +1716,7 @@ mod tests {
             .remove("floating_toolbar");
         let restored: PreferencesSnapshot = serde_json::from_value(value).unwrap();
         assert!(restored.preferences.floating_toolbar.enabled);
+        assert!(restored.preferences.floating_toolbar.english_mode);
         assert!(restored.preferences.floating_toolbar.fullwidth);
         assert!(!restored.preferences.floating_toolbar.screen_keyboard);
     }

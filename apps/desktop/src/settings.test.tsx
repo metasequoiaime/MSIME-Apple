@@ -697,6 +697,7 @@ test("floating toolbar settings use Windows defaults and persist independently",
   expect(enabled.checked).toBe(true);
   expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
   expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
+  expect((screen.getByRole("checkbox", { name: "英文输入模式" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
@@ -704,10 +705,11 @@ test("floating toolbar settings use Windows defaults and persist independently",
   fireEvent.click(screen.getByRole("checkbox", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "英文输入模式" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, floating_toolbar: {
-    enabled: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
+    enabled: false, english_mode: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
     screen_keyboard: true, settings: true, scale_percent: 125, font_size: 28,
   } });
 });
