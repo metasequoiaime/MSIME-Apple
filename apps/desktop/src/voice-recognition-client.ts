@@ -13,6 +13,10 @@ export function createVoiceRecognitionClient(invoke: Invoke, subscribe: (listene
         if (activeRequest === request_id) activeRequest = undefined;
       }
     },
+    async stopVoice(): Promise<void> {
+      const requestId = activeRequest;
+      if (requestId) await invoke("stop_voice", { requestId });
+    },
     async cancelVoice(): Promise<void> {
       const requestId = activeRequest;
       activeRequest = undefined;

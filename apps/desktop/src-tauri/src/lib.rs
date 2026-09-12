@@ -1585,6 +1585,30 @@ async fn recognize_voice(
 }
 
 #[tauri::command]
+fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActionError> {
+    #[cfg(unix)]
+    {
+        let sessions = app.state::<voice_sessions::VoiceSessions>();
+        let Some(session) = sessions.active(&request_id) else {
+            return Ok(());
+        };
+        if UnixSocketProvider::new(session.path).voice_stop(session.generation) {
+            return Ok(());
+        }
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (app, request_id);
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
+}
+
+#[tauri::command]
 fn cancel_voice(app: tauri::AppHandle, request_id: Option<String>) -> Result<(), HostActionError> {
     #[cfg(unix)]
     {
@@ -2472,6 +2496,7 @@ pub fn run() {
             recognize_handwriting,
             recognize_voice,
             cancel_voice,
+            stop_voice,
             submit_handwriting_candidate,
             open_external_url,
             open_keyboard_panel,
