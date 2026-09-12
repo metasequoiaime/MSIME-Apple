@@ -150,7 +150,7 @@ Tauri commands 移入桌面与移动共用入口库，React 页面保持唯一�
 
 Debian bookworm arm64 容器构建真实共享 Rust/C++ 动态库和 IBus 1.5.27 宿主。独立 D-Bus 调用实际 Engine 对象，验证固定词库的预编辑/候选/提交信号、第二页候选点击、标点、数字小键盘、敏感字段和焦点边界；实际可执行文件经隔离 IBus daemon/factory 向独立输入上下文提交合成词语。Linux 共享核心/运行时/宿主共 25 项 Rust 测试通过，容器不连接宿主桌面，源码与词库只读挂载。
 
-目前仅用启动配置快照；Linux 设置自动重读、GTK/Qt 实际编辑器、X11/Wayland、panel 原生翻页按钮与安装打包仍待完成，不据此宣称 Linux 产品迁移完成。未复制相邻 Linux 仓库的未提交内容，CI 继续禁用。
+Linux IBus 宿主已支持设置文件自动重读；GTK/Qt 实际编辑器、X11/Wayland 焦点与选区、panel 原生翻页按钮和安装打包仍待完成，不据此宣称 Linux 产品迁移完成。未复制相邻 Linux 仓库的未提交内容，CI 继续禁用。
 
 ### 第二十三条功能：Windows Server 共享会话适配
 
