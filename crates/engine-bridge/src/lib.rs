@@ -172,6 +172,7 @@ mod ffi {
             cache: &str,
             content_id: &str,
         ) -> Result<EngineOptions>;
+        fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn apply_online_candidate(
@@ -271,6 +272,12 @@ pub fn dictionary_entries(
     limit: usize,
 ) -> Result<DictionaryPage, cxx::Exception> {
     ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Resolve a pure Han phrase to the highest-ranked canonical pinyin in the
+/// verified Engine dictionary for native dictionary import tooling.
+pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
+    ffi::hanzi_to_pinyin(options, text)
 }
 
 /// Atomically add, replace, or remove one personal-dictionary entry.

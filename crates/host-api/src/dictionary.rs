@@ -173,7 +173,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             text,
             request_id,
         } => {
-            let entries = parse_import(&kind, &format, &text)?;
+            let entries = if format == "hans" {
+                parse_hans_import(&kind, &text, &options)?
+            } else {
+                parse_import(&kind, &format, &text)?
+            };
             if request_id.is_empty()
                 || request_id.len() > 120
                 || !request_id
@@ -353,6 +357,60 @@ fn parse_import(kind: &Kind, format: &str, text: &str) -> Result<Vec<DictionaryE
         return Err("invalid dictionary import".into());
     }
     Ok(entries)
+}
+
+fn parse_hans_import(
+    kind: &Kind,
+    text: &str,
+    options: &msime_engine_bridge::EngineOptions,
+) -> Result<Vec<DictionaryEntry>, String> {
+    if !matches!(kind, Kind::Pinyin)
+        || text.is_empty()
+        || text.len() > msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
+        || text.contains('\0')
+        || text
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+    {
+        return Err("invalid dictionary import".into());
+    }
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        let word = line.trim();
+        if word.is_empty() || word.starts_with('#') {
+            continue;
+        }
+        if entries.len() >= 1000
+            || word.len() > 1024
+            || !word.chars().all(is_han_character)
+        {
+            return Err("invalid dictionary import".into());
+        }
+        let key = msime_engine_bridge::hanzi_to_pinyin(options, word);
+        if key.is_empty() || key.len() > 256 {
+            return Err("dictionary pinyin unavailable".into());
+        }
+        entries.push(DictionaryEntry {
+            kind: DictionaryKind::Pinyin,
+            key,
+            value: word.to_owned(),
+            weight: 10000,
+        });
+    }
+    if entries.is_empty() {
+        return Err("invalid dictionary import".into());
+    }
+    Ok(entries)
+}
+
+fn is_han_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xf900..=0xfaff
+            | 0x20000..=0x2fa1f
+    )
 }
 
 #[cfg(test)]

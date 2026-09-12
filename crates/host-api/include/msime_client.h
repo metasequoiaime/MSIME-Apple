@@ -43,10 +43,12 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
  * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"quick_phrase"|"english",
- * format:"standard"|"windows"|"rime",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
+ * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
  * Standard rows are word, code, weight; Windows rows are code, word, weight. Rime rows are
  * word, code, optional weight and may include YAML front matter between --- and ...; Rime's
  * metadata weights (for example c=3 d=0.12) use the default 10000. Omitted weights use 10000.
+ * The hans format is pinyin-only and accepts one pure Han phrase per line; Engine resolves
+ * each phrase to its highest-ranked canonical pinyin and uses weight 10000.
  * Import accepts at most 1000 rows and returns {applied}; rows are committed
  * with deterministic receipt IDs derived from request_id so retries are safe.
  * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns

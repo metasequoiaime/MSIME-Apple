@@ -3,6 +3,7 @@
 #include <metasequoia/personal_dictionary.h>
 #include <metasequoia/handwriting.h>
 #include <algorithm>
+#include <cstdint>
 #include <metasequoia/dictionary_state.h>
 #include <stdexcept>
 #include <type_traits>
@@ -10,6 +11,7 @@
 #include <filesystem>
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <memory>
 
@@ -20,6 +22,75 @@ metasequoia::RuntimePaths paths_for(const EngineOptions& value) {
             std::filesystem::u8path(std::string(value.user_data)),
             std::filesystem::u8path(std::string(value.cache)),
             std::filesystem::u8path(std::string(value.dictionaries))};
+}
+bool next_utf8(const std::string& text, std::size_t& offset, std::string& character,
+               std::uint32_t& codepoint) {
+    if (offset >= text.size()) return false;
+    const auto first = static_cast<unsigned char>(text[offset]);
+    std::size_t width = 0;
+    if (first <= 0x7f) width = 1;
+    else if (first >= 0xc2 && first <= 0xdf) width = 2;
+    else if (first >= 0xe0 && first <= 0xef) width = 3;
+    else if (first >= 0xf0 && first <= 0xf4) width = 4;
+    else return false;
+    if (offset + width > text.size()) return false;
+    codepoint = first & (width == 1 ? 0x7f : width == 2 ? 0x1f : width == 3 ? 0x0f : 0x07);
+    for (std::size_t index = 1; index < width; ++index) {
+        const auto byte = static_cast<unsigned char>(text[offset + index]);
+        if ((byte & 0xc0) != 0x80) return false;
+        codepoint = (codepoint << 6) | (byte & 0x3f);
+    }
+    if ((width == 3 && codepoint < 0x800) || (width == 4 && codepoint < 0x10000) ||
+        (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint > 0x10ffff)
+        return false;
+    character.assign(text, offset, width);
+    offset += width;
+    return true;
+}
+bool is_han(std::uint32_t codepoint) {
+    return (codepoint >= 0x3400 && codepoint <= 0x4dbf) ||
+           (codepoint >= 0x4e00 && codepoint <= 0x9fff) ||
+           (codepoint >= 0xf900 && codepoint <= 0xfaff) ||
+           (codepoint >= 0x20000 && codepoint <= 0x2fa1f);
+}
+std::unordered_map<std::string, std::string> single_hanzi_map(sqlite3* database) {
+    std::unordered_map<std::string, std::string> result;
+    for (char initial = 'a'; initial <= 'z'; ++initial) {
+        const auto table = std::string("tbl_1_") + initial;
+        const auto sql = "SELECT \"key\", \"value\" FROM \"" + table +
+                         "\" ORDER BY \"weight\" DESC, \"key\" ASC";
+        sqlite3_stmt* statement = nullptr;
+        if (sqlite3_prepare_v2(database, sql.c_str(), -1, &statement, nullptr) != SQLITE_OK)
+            continue;
+        while (sqlite3_step(statement) == SQLITE_ROW) {
+            const auto* key = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+            const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
+            if (key && value && result.find(value) == result.end()) result.emplace(value, key);
+        }
+        sqlite3_finalize(statement);
+    }
+    return result;
+}
+std::string exact_hanzi_pinyin(sqlite3* database, const std::string& word, std::size_t length) {
+    for (char initial = 'a'; initial <= 'z'; ++initial) {
+        const auto table = "tbl_" + std::to_string(length) + "_" + initial;
+        const auto sql = "SELECT \"key\" FROM \"" + table +
+                         "\" WHERE \"value\"=?1 ORDER BY \"weight\" DESC, \"key\" ASC LIMIT 1";
+        sqlite3_stmt* statement = nullptr;
+        if (sqlite3_prepare_v2(database, sql.c_str(), -1, &statement, nullptr) != SQLITE_OK)
+            continue;
+        sqlite3_bind_text(statement, 1, word.c_str(), static_cast<int>(word.size()), SQLITE_TRANSIENT);
+        if (sqlite3_step(statement) == SQLITE_ROW) {
+            const auto* key = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+            if (key) {
+                const std::string result(key);
+                sqlite3_finalize(statement);
+                return result;
+            }
+        }
+        sqlite3_finalize(statement);
+    }
+    return {};
 }
 void prepare_translation_sidecar(const EngineOptions& value) {
     const auto paths = paths_for(value);
@@ -264,6 +335,48 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     result.local_super_jianpin = true;
     result.local_temporary_english = true;
     result.local_temporary_japanese = true;
+    return result;
+}
+rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text) {
+    const std::string word(text);
+    if (word.empty()) return {};
+    std::size_t offset = 0;
+    std::size_t length = 0;
+    while (offset < word.size()) {
+        std::string character;
+        std::uint32_t codepoint = 0;
+        if (!next_utf8(word, offset, character, codepoint) || !is_han(codepoint)) return {};
+        ++length;
+    }
+    if (length == 0 || length > 128) return {};
+    const auto database_path = paths_for(options).dictionary(metasequoia::assets::main_dictionary);
+    sqlite3* database = nullptr;
+    if (sqlite3_open_v2(database_path.u8string().c_str(), &database,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+        if (database) sqlite3_close(database);
+        return {};
+    }
+    std::string result = exact_hanzi_pinyin(database, word, length);
+    if (result.empty()) {
+        const auto singles = single_hanzi_map(database);
+        offset = 0;
+        while (offset < word.size()) {
+            std::string character;
+            std::uint32_t codepoint = 0;
+            if (!next_utf8(word, offset, character, codepoint)) {
+                result.clear();
+                break;
+            }
+            const auto found = singles.find(character);
+            if (found == singles.end()) {
+                result.clear();
+                break;
+            }
+            if (!result.empty()) result.push_back('\'');
+            result += found->second;
+        }
+    }
+    sqlite3_close(database);
     return result;
 }
 EngineSnapshot EngineSession::snapshot() const {
