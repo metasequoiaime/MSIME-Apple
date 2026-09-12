@@ -162,6 +162,19 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 @end
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
+    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    assert([profiles.itemTitles isEqual:titles]);
+    for (NSUInteger index = 0; index < identifiers.count; ++index) {
+        [profiles selectItemAtIndex:index];
+        assert([NSApp sendAction:profiles.action to:profiles.target from:profiles]);
+        assert([appearance.shuangpinProfile isEqual:identifiers[index]]);
+        MSIMEAppearancePreferences *restored = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot];
+        assert([restored.shuangpinProfile isEqual:identifiers[index]]);
+        NSPopUpButton *restoredProfiles = (id)PreferenceControl(restored, @selector(profileChanged:));
+        assert([restoredProfiles.titleOfSelectedItem isEqual:titles[index]]);
+    }
     assert(!appearance.shuangpinKeymap);
     NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;

@@ -1,6 +1,7 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
 #import "SkinSettingsView.h"
+#include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
@@ -307,7 +308,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _schemeButton.target = self;
     _schemeButton.action = @selector(schemeChanged:);
     _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_profileButton addItemsWithTitles:@[@"小鹤", @"自然码", @"搜狗", @"微软"]];
+    for (const char *identifier : msime::mac::kShuangpinSchemaIdentifiers)
+        [_profileButton addItemWithTitle:[NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(identifier)]];
     _profileButton.target = self;
     _profileButton.action = @selector(profileChanged:);
     _preeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
