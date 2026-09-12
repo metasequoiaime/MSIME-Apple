@@ -1503,6 +1503,14 @@ fn voice_provider_options(document: &Value) -> Value {
     Value::Object(options)
 }
 
+#[cfg(unix)]
+fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
+    document.get("voice_provider_socket").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET").map(std::path::PathBuf::from).filter(|path| path.is_absolute()))
+        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).map(|dir| dir.join("msime-client/voice.sock")).filter(|path| path.is_socket()))
+}
+
 #[tauri::command]
 async fn recognize_voice(
     app: tauri::AppHandle,
@@ -1534,18 +1542,7 @@ async fn recognize_voice(
             .map(|document| document.clone())
             .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
-        let configured = document
-            .get("voice_provider_socket")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let path = configured
-            .or_else(|| {
-                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
+        let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
                 code: "unavailable",
             })?;
         let sessions = app.state::<voice_sessions::VoiceSessions>();
