@@ -161,6 +161,47 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
 
+@interface SuccessfulPageSession : ShortcutSession
+@property(nonatomic) NSUInteger pageSizeCalls;
+@end
+@implementation SuccessfulPageSession
+- (NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
+    (void)error;
+    self.requestedPageSize = size;
+    ++self.pageSizeCalls;
+    return @{@"view": @{@"editing_text": @"", @"candidates": @[]}};
+}
+@end
+
+static void TestPageSizeCache() {
+    NSString *suite = [@"msime.page-cache." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    SuccessfulPageSession *session = [SuccessfulPageSession new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller syncPageSize];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 9);
+    [controller applySharedToolbarPreferences:@{@"candidate_page_size": @5}];
+    // The shared snapshot changed Engine independently; a local return to 9
+    // must not be skipped just because the last direct request was also 9.
+    prefs.pageSize = 9;
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2 && session.requestedPageSize == 9);
+    [controller applySharedToolbarPreferences:@{@"candidate_page_size": @9}];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2);
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:[NSObject new]]];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2);
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:session]];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 3 && session.requestedPageSize == 9);
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestSharedPunctuation() {
     NSString *suite = [@"msime.punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -722,6 +763,7 @@ int main() {
         TestSharedInputPreferences();
         TestIndependentAssistancePreferences();
         TestSharedPunctuation();
+        TestPageSizeCache();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];

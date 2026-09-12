@@ -396,6 +396,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    _requestedPageSize = 0;
     _view = @{};
     [_panel orderOut:nil];
 }
@@ -407,6 +408,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         NSDictionary *options = [self runtimeOptions];
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
+            _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
@@ -468,6 +470,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    id pageSize = preferences[@"candidate_page_size"];
+    if ([pageSize isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)pageSize) != CFBooleanGetTypeID() &&
+        [pageSize doubleValue] == [pageSize integerValue] && [pageSize integerValue] >= 1 && [pageSize integerValue] <= 9 &&
+        [pageSize unsignedIntegerValue] != _requestedPageSize) _requestedPageSize = 0;
     [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     [_appearance applySharedAssistancePreferences:preferences];
