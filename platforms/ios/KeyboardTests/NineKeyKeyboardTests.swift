@@ -959,6 +959,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     })
   }
 
+  func testNineKeyGridSurvivesALatinFieldAndAStuckLocalMode() throws {
+    // 反馈 #419 的另一半:方案没变,但九宫格没了。The grid is hidden by exactly two things beyond the
+    // scheme -- English mode and an open local input mode -- so those are the two a keyboard can
+    // come back in. Either one looks to the user like the layout changed itself.
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let grid = try XCTUnwrap(button("nineKey6", in: controller).superview)
+    XCTAssertFalse(grid.isHidden, "九键应当是起始布局")
+
+    // 进一个只收拉丁字母的输入框,再回到普通输入框。
+    let latin = UUID(), ordinary = UUID()
+    controller.applyInputContext(keyboardType: .emailAddress, documentIdentifier: latin)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(grid.isHidden, "拉丁输入框应当切到英文 26 键")
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(grid.isHidden, "回到普通输入框应当恢复九键")
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey, "方案自始至终没变过")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
