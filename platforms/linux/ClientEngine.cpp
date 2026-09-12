@@ -4085,6 +4085,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // A router lease cannot be issued before engine construction completes.
   if (s.client_token == 0)
     return FALSE;
+  const msime_client_key_event routed_event = {{s.client_token, s.focus_epoch, s.session}, key, keycode,
+      static_cast<uint32_t>(flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)),
+      key <= 0xffffu ? key : 0u, false};
+  if (!msime_client_key_event_valid(&routed_event))
+    return FALSE;
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
