@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <vector>
 #include "voice_provider_fixture.h"
+#include "translation_provider_fixture.h"
 
 namespace {
 void require(bool condition, const char *message) {
@@ -361,6 +362,51 @@ int main(int argc, char **argv) {
     }
     ibus_object_destroy(IBUS_OBJECT(engine));
     g_object_unref(engine);
+    {
+      const auto socket = (root / "translation.sock").string();
+      TranslationProviderFixture provider(socket);
+      auto translated = options;
+      translated.erase("preferences_directory");
+      translated["translation_provider_socket"] = socket;
+      msime_preview_configure(translated.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      auto translated_page = [&] {
+        return !seen.candidates.empty() &&
+               seen.candidates.front().find("synthetic gloss") != std::string::npos;
+      };
+      auto wait_translation = [&] {
+        const auto deadline = g_get_monotonic_time() + 2000000;
+        while (!translated_page() && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        require(translated_page(), "Synthetic candidate translation did not render");
+      };
+      phrase();
+      wait_translation();
+      const auto settled = g_get_monotonic_time() + 1200000;
+      while (g_get_monotonic_time() < settled) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 1, "Unchanged translation page repeated provider requests");
+      invoke("PropertyActivate", g_variant_new("(su)", "TranslationLanguage/fr", PROP_STATE_CHECKED));
+      wait_translation();
+      require(provider.requests == 2, "Translation target change did not request a new page");
+      invoke("Reset");
+      phrase();
+      wait_translation();
+      require(provider.requests == 3, "New composition reused a stale translation request");
+      invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_UNCHECKED));
+      require(!translated_page(), "Disabling candidate translations left glosses visible");
+      invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_CHECKED));
+      wait_translation();
+      require(provider.requests == 4, "Re-enabling translation did not refresh the current page");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
     msime_preview_configure(options.dump());
     engine = create_engine();
     seen = Observation{};

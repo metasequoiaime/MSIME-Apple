@@ -263,6 +263,7 @@ struct State {
   bool translation_reset_pending = false;
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
+  std::string translation_dispatched_query;
   void invalidate_providers() {
     if (online_delay_source) {
       const auto source = online_delay_source;
@@ -277,6 +278,7 @@ struct State {
     ++provider_epoch;
     online_loading = false;
     translation_loading = false;
+    translation_dispatched_query.clear();
   }
   std::string surrounding_text;
   bool surrounding_utf16 = false;
@@ -1175,7 +1177,18 @@ void translation_dispatch(IBusEngine *engine) {
     auto query = response(msime_client_translation_query(s.session));
     if (query.is_null() || !query.is_object()) return;
     query["target_language"] = s.translation_target_language;
-    auto *task_data = new TranslationTask{s.session, s.provider_epoch, query.dump(), s.translation_provider_socket};
+    // The shared query carries candidate objects; the socket protocol takes
+    // the candidate texts, matching TranslationQuery in the host API.
+    auto texts = Json::array();
+    for (const auto &candidate : query.at("candidates"))
+      texts.push_back(candidate.at("text"));
+    query["candidates"] = std::move(texts);
+    const auto encoded = query.dump();
+    // Applying a gloss redraws the same generation. Do not start another
+    // provider request until the query or provider configuration changes.
+    if (encoded == s.translation_dispatched_query) return;
+    s.translation_dispatched_query = encoded;
+    auto *task_data = new TranslationTask{s.session, s.provider_epoch, encoded, s.translation_provider_socket};
     s.translation_loading = true;
     auto task = g_task_new(G_OBJECT(engine), nullptr, translation_complete, nullptr);
     g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
