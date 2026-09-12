@@ -546,6 +546,8 @@ struct State {
   }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
+    if (cloud_candidates_override)
+      preferences["cloud_candidates"] = *cloud_candidates_override;
     if (candidate_translations_override)
       preferences["candidate_translations"] = *candidate_translations_override;
     if (translation_target_language_override)
@@ -1139,8 +1141,27 @@ void online_dispatch(IBusEngine *engine) {
     return;
   try {
     auto query = response(msime_client_online_query(s.session));
-    if (query.is_object())
+    if (query.is_object()) {
       query["cloud_candidates"] = s.cloud_candidates;
+      if (s.applied_preferences_snapshot.is_object()) {
+        const auto desired = s.applied_preferences_snapshot.value("ai_assistant", Json::object());
+        const auto current = query.value("ai_assistant", Json::object());
+        bool matches = desired.value("enabled", false) && current.value("enabled", false);
+        // Engine preference application may be deferred until composition
+        // ends. Never launch another request with the superseded AI settings.
+        for (const auto *key : {"provider", "model", "endpoint", "candidate_limit",
+                                "prompt_id", "prompt", "prompt_custom_1",
+                                "prompt_custom_2", "prompt_custom_3"}) {
+          if (desired.contains(key) &&
+              (!current.contains(key) || desired.at(key) != current.at(key)))
+            matches = false;
+        }
+        if (!matches) {
+          query["ai_eligible"] = false;
+          query.erase("ai_assistant");
+        }
+      }
+    }
     if (!query.is_object() ||
         (!s.cloud_candidates && !query.value("ai_eligible", false)) ||
         (s.cloud_candidates &&
@@ -4124,6 +4145,12 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
       s.session, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
   ++s.applied_preferences_revision;
   if (s.applied_preferences_snapshot.is_object() &&
+      s.applied_preferences_snapshot.value("ai_assistant", Json(nullptr)) !=
+          preferences.value("ai_assistant", Json(nullptr))) {
+    s.invalidate_providers();
+    s.ai_context.clear();
+  }
+  if (s.applied_preferences_snapshot.is_object() &&
       s.applied_preferences_snapshot.value("custom_translation", Json(nullptr)) !=
           preferences.value("custom_translation", Json(nullptr))) {
     s.invalidate_providers();
@@ -4140,6 +4167,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   render(engine, s.view);
   publish_mode(engine);
   translation_schedule(engine);
+  online_schedule(engine);
 }
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
