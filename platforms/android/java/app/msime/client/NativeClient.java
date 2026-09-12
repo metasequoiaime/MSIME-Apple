@@ -24,6 +24,9 @@ public final class NativeClient {
     public static String setNineKeyMode(long session, boolean enabled) {
         return text(setNineKeyModeRaw(session, enabled));
     }
+    public static String setEnglishMode(long session, boolean enabled) {
+        return text(setEnglishModeRaw(session, enabled));
+    }
     public static String character(long session, int ascii, boolean shift) {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return text(characterRaw(session, ascii, shift));
@@ -60,6 +63,7 @@ public final class NativeClient {
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
+    private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);

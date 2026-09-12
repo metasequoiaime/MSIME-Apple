@@ -42,6 +42,14 @@ public final class NativeSmoke {
             if (!matcher.find()) throw new AssertionError(created);
             long handle = Long.parseLong(matcher.group(1));
             success(NativeClient.focus(handle, true));
+            success(NativeClient.setEnglishMode(handle, true));
+            String english = NativeClient.character(handle, 'H', true);
+            success(english);
+            if (!english.contains("\"editing_text\":\"H\"")) throw new AssertionError(english);
+            String englishCommit = NativeClient.command(handle, 1);
+            success(englishCommit);
+            if (!englishCommit.contains("\"commit\":\"H\"")) throw new AssertionError(englishCommit);
+            success(NativeClient.setEnglishMode(handle, false));
             String nineKey = NativeClient.setNineKeyMode(handle, true);
             success(nineKey);
             if (!nineKey.contains("\"nine_key\":true")) throw new AssertionError(nineKey);
@@ -80,7 +88,7 @@ public final class NativeSmoke {
             if (!punctuation.contains("\"handled\":false")) throw new AssertionError(punctuation);
             success(NativeClient.destroy(handle));
             if (!NativeClient.view(handle).contains("\"ok\":false")) throw new AssertionError("stale handle accepted");
-            System.out.println("JNI consumer: nine-key, UTF-8 paths, preferences CAS and input commit passed");
+            System.out.println("JNI consumer: English mode, nine-key, UTF-8 paths, preferences CAS and input commit passed");
         } finally {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
