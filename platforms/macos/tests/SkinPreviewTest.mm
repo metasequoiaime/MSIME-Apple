@@ -189,7 +189,16 @@ int main(int argc, const char **argv) {
         NSView *firstControl = [grid cellAtColumnIndex:1 rowIndex:0].contentView;
         [firstControl scrollRectToVisible:firstControl.bounds];
         assert(NSContainsRect(grid.visibleRect, firstControl.frame));
-        NSPopUpButton *preedit = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
+        NSPopUpButton *preedit = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if ([control isKindOfClass:NSPopUpButton.class] &&
+                ((NSPopUpButton *)control).action == NSSelectorFromString(@"preeditChanged:")) {
+                preedit = (NSPopUpButton *)control;
+                break;
+            }
+        }
+        assert(preedit);
         assert(preedit.indexOfSelectedItem == 1);
         [preedit selectItemAtIndex:0];
         [NSApp sendAction:preedit.action to:preedit.target from:preedit];
