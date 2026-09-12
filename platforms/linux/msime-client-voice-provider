@@ -14,6 +14,7 @@ import socket
 import socketserver
 import stat
 import struct
+import sys
 import subprocess
 import threading
 import tempfile
@@ -125,6 +126,46 @@ def post(config, body, content_type, timeout):
     return json.loads(raw)
 
 
+def polish_request(config, body):
+    # Windows uses CURLOPT_TIMEOUT_MS: bound the entire request, including
+    # DNS, TLS and a response that trickles bytes within each socket timeout.
+    deadline = time.monotonic() + 3
+    payload = json.dumps({"config": config, "body": body}, ensure_ascii=False).encode("utf-8")
+    if len(payload) > 131072:
+        raise ValueError("polishing request too large")
+    process = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--polish-request"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        output, _ = process.communicate(payload, timeout=max(0.001, deadline - time.monotonic()))
+        if process.returncode != 0:
+            raise ValueError("polishing request failed")
+        return json.loads(output)
+    finally:
+        # Terminating the helper closes network sockets as well as stopping
+        # work; timed-out requests cannot accumulate background threads.
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        process.stdin.close()
+        process.stdout.close()
+
+
+def polish_request_worker():
+    # Private request data travels only through anonymous pipes, never argv,
+    # environment, files or diagnostics. The parent owns the wall-clock limit.
+    try:
+        raw = sys.stdin.buffer.read(131073)
+        if len(raw) > 131072:
+            return 1
+        request = json.loads(raw)
+        result = post(request["config"], json.dumps(request["body"]).encode(), "application/json", 3)
+        sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode())
+        return 0
+    except Exception:
+        return 1
+
+
 def normalize_voice_language(value):
     if not isinstance(value, str) or len(value) > 64 or not value.isascii():
         raise ValueError("invalid recognition language")
@@ -215,7 +256,7 @@ def polish(text, config, options):
     elif config["provider"] == "deepseek":
         body["thinking"] = {"type": "disabled"}
     try:
-        result = post(config, json.dumps(body).encode(), "application/json", 3)
+        result = polish_request(config, body)
         return bounded_text(result["choices"][0]["message"]["content"]) or text
     except Exception:
         return text
@@ -1064,4 +1105,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--polish-request"]:
+        sys.exit(polish_request_worker())
     main()
