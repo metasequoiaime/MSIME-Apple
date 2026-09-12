@@ -203,7 +203,8 @@ export function aiCredentialOrigin(endpoint: string): string | null {
   } catch { return null; }
 }
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
-export type Snapshot = { format_version: number; revision: number; preferences: Preferences };
+export type ExternalSkinCatalog = { scanned: boolean; directory?: string; revision?: number; packages: Array<{ id: string; title: string; description?: string; valid?: boolean }> ; issues?: string[] };
+export type Snapshot = { format_version: number; revision: number; preferences: Preferences; candidate_skin_catalog?: ExternalSkinCatalog };
 export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 export type DictionaryEntry = { kind: LocalDictionaryKind; key: string; value: string; weight: number };
@@ -756,6 +757,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
         <div className="skin-intro">选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。</div>
+        {snapshot?.candidate_skin_catalog && <div className="skin-catalog-status" role="status">外部皮肤目录：{snapshot.candidate_skin_catalog.scanned ? `已扫描（${snapshot.candidate_skin_catalog.packages.length} 个）` : "尚未扫描"}{snapshot.candidate_skin_catalog.issues?.length ? `，${snapshot.candidate_skin_catalog.issues.length} 个问题` : ""}</div>}
         <div className="skin-grid">
           {skinOptions.map(([id, title, description]) => <article aria-label={title} className={`skin-card${(draft.candidate_skin ?? "fluent") === id ? " selected" : ""}`} key={id}>
             <div className="skin-card-header">
