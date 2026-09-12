@@ -718,18 +718,23 @@ rust::Vec<rust::String> candidate_glosses_with_user(
     rust::Str resources, rust::Str user_data, rust::Slice<const CandidateGlossInput> candidates) {
     const auto database_path = std::filesystem::u8path(std::string(resources)) /
                                metasequoia::assets::english_dictionary;
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(database_path, error))
-        throw std::runtime_error("Candidate gloss dictionary unavailable");
-    EnglishDictionary dictionary(database_path.u8string(), false);
-    if (!dictionary.ready())
-        throw std::runtime_error("Candidate gloss dictionary unavailable");
+    const auto open_dictionary = [](const std::filesystem::path& path) {
+        std::unique_ptr<EnglishDictionary> dictionary;
+        std::error_code error;
+        if (std::filesystem::is_regular_file(path, error)) {
+            dictionary = std::make_unique<EnglishDictionary>(path.u8string(), false);
+            if (!dictionary->ready()) dictionary.reset();
+        }
+        return dictionary;
+    };
+    auto dictionary = open_dictionary(database_path);
     std::unique_ptr<EnglishDictionary> learned;
     if (!user_data.empty()) {
         const auto path = std::filesystem::u8path(std::string(user_data)) / "translation-glosses.db";
-        if (std::filesystem::is_regular_file(path, error))
-            learned = std::make_unique<EnglishDictionary>(path.u8string(), false);
+        learned = open_dictionary(path);
     }
+    if (!dictionary && !learned)
+        throw std::runtime_error("Candidate gloss dictionary unavailable");
     rust::Vec<rust::String> output;
     output.reserve(candidates.size());
     for (const auto& candidate : candidates) {
@@ -741,9 +746,9 @@ rust::Vec<rust::String> candidate_glosses_with_user(
         }
         auto raw = learned ? (chinese_to_english ? learned->query_english_gloss(key)
                                                 : learned->query_chinese_gloss(key)) : std::string{};
-        if (raw.empty())
-            raw = chinese_to_english ? dictionary.query_english_gloss(key)
-                                     : dictionary.query_chinese_gloss(key);
+        if (raw.empty() && dictionary)
+            raw = chinese_to_english ? dictionary->query_english_gloss(key)
+                                     : dictionary->query_chinese_gloss(key);
         output.push_back(rust::String(candidate_gloss_display(raw)));
     }
     return output;

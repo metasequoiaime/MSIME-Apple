@@ -602,6 +602,71 @@ impl Session {
 mod tests {
     use super::*;
 
+    #[test]
+    fn learned_glosses_survive_unavailable_packaged_dictionary() {
+        let resources = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let resources_path = resources.path().to_str().unwrap();
+        let user_path = user.path().to_str().unwrap();
+        let candidates = vec![
+            ("测试".into(), 0),
+            ("Synthetic".into(), 4),
+            ("Missing".into(), 4),
+        ];
+        assert!(candidate_glosses_with_user(resources_path, user_path, &candidates).is_err());
+        assert!(save_candidate_gloss(
+            user_path,
+            true,
+            "测试",
+            "synthetic gloss"
+        ));
+        assert!(save_candidate_gloss(
+            user_path,
+            false,
+            "synthetic",
+            "合成释义"
+        ));
+        let expected = vec![
+            "synthetic gloss".to_owned(),
+            "合成释义".to_owned(),
+            String::new(),
+        ];
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            expected
+        );
+        let packaged = resources.path().join("english.db");
+        std::fs::write(&packaged, "synthetic damaged database").unwrap();
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            expected
+        );
+        assert!(candidate_glosses(resources_path, &candidates).is_err());
+        std::fs::remove_file(&packaged).unwrap();
+        let db = rusqlite::Connection::open(&packaged).unwrap();
+        db.execute_batch(
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+            CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);
+            CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT);
+            INSERT INTO en_zh_glosses VALUES('missing','发布释义');
+            INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');",
+        )
+        .unwrap();
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            vec!["synthetic gloss", "合成释义", "发布释义"]
+        );
+        std::fs::write(
+            user.path().join("translation-glosses.db"),
+            "synthetic damaged database",
+        )
+        .unwrap();
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            vec!["packaged gloss", "", "发布释义"]
+        );
+    }
+
     pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         let path = |name| {
             let path = root.join(name);
