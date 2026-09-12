@@ -1795,6 +1795,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
           !s.translation_provider_socket.empty() && !menu_save_pending,
       TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto translation_language_menu = ibus_prop_list_new();
+  const bool translation_available = s.focused && !s.blocked && s.input_enabled &&
+      s.session && !s.translation_provider_socket.empty() && !menu_save_pending;
   for (const auto &[value, label] : {std::pair{"en", "英语"},
                                      std::pair{"fr", "法语"},
                                      std::pair{"ja", "日语"},
@@ -1805,7 +1807,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("TranslationLanguage/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("切换候选翻译目标语言"), !menu_save_pending, TRUE,
+        ibus_text_new_from_static_string("切换候选翻译目标语言"), translation_available, TRUE,
         s.translation_target_language == value ? PROP_STATE_CHECKED
                                                 : PROP_STATE_UNCHECKED,
         nullptr);
