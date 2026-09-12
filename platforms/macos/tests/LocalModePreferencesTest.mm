@@ -54,24 +54,45 @@ int main() {
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error && [session setFocused:YES error:&error]);
-        assert([[[session typeASCII:'U' shift:YES error:&error][@"view"] objectForKey:@"local_mode"] isEqual:@"unicode"]);
-        [prefs setLocalMode:@"unicode" enabled:NO];
         NSDictionary *shared = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(shared && !error);
-        NSDictionary *snapshot = @{@"format_version": @1, @"revision": @1,
-            @"preferences": [prefs sharedPreferencesByMerging:shared[@"preferences"]]};
-        assert([[session updatePreferencesSnapshot:snapshot error:&error][@"deferred"] isEqual:@YES]);
-        assert([[session viewWithError:&error][@"local_mode"] isEqual:@"unicode"]);
-        assert([session command:MSIME_CANCEL error:&error]);
-        assert([[session updatePreferencesSnapshot:snapshot error:&error][@"deferred"] isEqual:@NO]);
-        assert(![[session typeASCII:'U' shift:YES error:&error][@"view"][@"local_mode"] isEqual:@"unicode"]);
-        assert([session command:MSIME_CANCEL error:&error]);
-        buttons[@"unicode"].state = NSControlStateValueOn;
-        [NSApp sendAction:buttons[@"unicode"].action to:buttons[@"unicode"].target from:buttons[@"unicode"]];
-        NSDictionary *restored = @{@"format_version": @1, @"revision": @2,
-            @"preferences": [prefs sharedPreferencesByMerging:shared[@"preferences"]]};
-        assert([[session updatePreferencesSnapshot:restored error:&error][@"deferred"] isEqual:@NO]);
-        assert([[session typeASCII:'U' shift:YES error:&error][@"view"][@"local_mode"] isEqual:@"unicode"]);
+        NSUInteger revision = 0;
+        NSArray<NSArray<NSString *> *> *modes = @[@[@"unicode", @"U"], @[@"date_time", @"T"],
+            @[@"quick_phrase", @"K"], @[@"emoji", @"E"], @[@"kaomoji", @"M"],
+            @[@"super_jianpin", @"J"], @[@"temporary_english", @"Y"], @[@"temporary_japanese", @"R"]];
+        for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+            prefs.inputScheme = scheme;
+            NSDictionary *(^snapshot)(NSUInteger) = ^(NSUInteger nextRevision) {
+                return @{@"format_version": @1, @"revision": @(nextRevision),
+                    @"preferences": [prefs sharedPreferencesByMerging:shared[@"preferences"]]};
+            };
+            for (NSArray<NSString *> *entry in modes) {
+                NSString *mode = entry[0];
+                uint8_t trigger = (uint8_t)[entry[1] characterAtIndex:0];
+                // Build each revision explicitly so both schemes exercise the same session.
+                NSDictionary *enabled = snapshot(++revision);
+                assert([[session updatePreferencesSnapshot:enabled error:&error][@"deferred"] isEqual:@NO]);
+                NSDictionary *before = [session typeASCII:trigger shift:YES error:&error][@"view"];
+                assert([before[@"local_mode"] isEqual:mode]);
+                assert([before[@"scheme"] isEqual:[scheme isEqual:@"quanpin"] ? @0 : @1]);
+                buttons[mode].state = NSControlStateValueOff;
+                [NSApp sendAction:buttons[mode].action to:buttons[mode].target from:buttons[mode]];
+                NSDictionary *disabled = snapshot(++revision);
+                assert([[session updatePreferencesSnapshot:disabled error:&error][@"deferred"] isEqual:@YES]);
+                assert([[session viewWithError:&error][@"editing_text"] isEqual:before[@"editing_text"]]);
+                assert([[session viewWithError:&error][@"local_mode"] isEqual:mode]);
+                assert([session command:MSIME_CANCEL error:&error]);
+                assert([[session updatePreferencesSnapshot:disabled error:&error][@"deferred"] isEqual:@NO]);
+                assert(![[session typeASCII:trigger shift:YES error:&error][@"view"][@"local_mode"] isEqual:mode]);
+                assert([session command:MSIME_CANCEL error:&error]);
+                buttons[mode].state = NSControlStateValueOn;
+                [NSApp sendAction:buttons[mode].action to:buttons[mode].target from:buttons[mode]];
+                NSDictionary *restored = snapshot(++revision);
+                assert([[session updatePreferencesSnapshot:restored error:&error][@"deferred"] isEqual:@NO]);
+                assert([[session typeASCII:trigger shift:YES error:&error][@"view"][@"local_mode"] isEqual:mode]);
+                assert([session command:MSIME_CANCEL error:&error]);
+            }
+        }
         assert([session closeWithError:&error] && !error);
         [NSNotificationCenter.defaultCenter removeObserver:observer];
         [defaults removePersistentDomainForName:suite];
