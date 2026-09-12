@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import { KeyboardPanel, SettingsPage, type Snapshot, type SkinCatalog } from "@msime/ui";
 import "../../../../packages/ui/src/styles.css";
 
-export function mountKeyboard() {
+export function mountKeyboard(theme: "dark" | "light" = "dark") {
   const root = createRoot(document.getElementById("root")!);
-  root.render(<KeyboardPanel client={{ close: async () => {} }} />);
+  root.render(<KeyboardPanel theme={theme} client={{ close: async () => {} }} />);
   return () => root.unmount();
 }
 

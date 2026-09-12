@@ -95,7 +95,7 @@ function isImeCommitKey(virtualKey: number) {
   return [0x20, 0x0d, 0x09, 0x08, 0x2e].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39);
 }
 
-export function KeyboardPanel({ client }: { client: PanelClient }) {
+export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("使用鼠标或触控方式输入文字与快捷按键");
   useEffect(() => {
@@ -125,7 +125,7 @@ export function KeyboardPanel({ client }: { client: PanelClient }) {
     if (client.sendKey) void client.sendKey(request).then(() => setNotice(`已发送：${description}`)).catch(() => setNotice(`发送失败：${description}`));
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
-  return <main className="native-panel keyboard-panel" aria-label="屏幕键盘">
+  return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} aria-label="屏幕键盘">
     <header className="native-panel-header"><span>水杉屏幕键盘</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-panel-notice" role="status">{notice}</div>
