@@ -1165,6 +1165,16 @@ int main() {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
+                    appearance.candidateTextColor = @"#1234AB";
+                    [controller refreshCandidateSkin];
+                    NSColor *override = [appearance candidateTextColorWithDefault:NSColor.blackColor];
+                    assert([unselected.titleColor isEqual:override]);
+                    assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
+                    for (NSView *child in chrome.subviews)
+                        if ([child.identifier isEqual:@"candidate-preedit"]) assert([((NSTextField *)child).textColor isEqual:override]);
+                    appearance.candidateTextColor = nil;
+                    [controller refreshCandidateSkin];
+                    assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
                     assert([unselected.numberColor isEqual:SkinColor(tokens.number)]);
                     assert(selected.showSelectedBar == tokens.showSelectedBar);
                     NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];

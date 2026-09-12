@@ -855,11 +855,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     content.lineWidth = tokens.borderWidth;
     for (MSIMECandidateButton *button in content.subviews) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
-            ((NSTextField *)(id)button).textColor = SkinColor(tokens.text);
+            ((NSTextField *)(id)button).textColor = [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
         button.fillColor = SkinColor(tokens.selected);
-        button.titleColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.text);
+        button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
         button.numberColor = SkinColor(button.candidateHighlighted ? tokens.selectedText : tokens.number);
         button.barColor = SkinColor(tokens.accent);
         button.showSelectedBar = tokens.showSelectedBar;
