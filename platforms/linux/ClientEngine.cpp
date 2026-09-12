@@ -3890,12 +3890,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
       s.voice_hotkey_consumed_key = key;
-      if (s.voice_active)
-        voice_stop(engine);
-      else {
+      // Hold shortcuts start/continue recording; only a locked recording
+      // turns their next press into Stop. Ctrl+F9 always toggles recording.
+      if (s.voice_active) {
+        if (key == IBUS_F9 || s.voice_space_locked)
+          voice_stop(engine);
+      } else {
         voice_start(engine);
-        s.voice_requires_control = key != IBUS_F9 && (modifiers & IBUS_CONTROL_MASK);
       }
+      // A hold chord may take over a recording started from the menu or
+      // Ctrl+F9. Releasing its Ctrl must stop just like releasing Win/RAlt.
+      s.voice_requires_control = key != IBUS_F9 && (modifiers & IBUS_CONTROL_MASK);
       handled = true;
       return;
     }
