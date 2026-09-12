@@ -235,6 +235,10 @@ char *msime_client_voice_provider_stream(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
     size_t socket_length, msime_client_voice_update_callback callback,
     void *context);
+/* Request cancellation of a provider capture session by generation. */
+char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
+                                         size_t socket_length,
+                                         uint64_t generation);
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,

@@ -138,10 +138,15 @@ struct State {
     close();
   }
   void close() {
+    if (voice_active && !voice_provider_socket.empty())
+      msime_client_string_free(msime_client_voice_provider_cancel(
+          reinterpret_cast<const uint8_t *>(voice_provider_socket.data()),
+          voice_provider_socket.size(), voice_generation));
     if (voice_active && session)
       msime_client_string_free(msime_client_voice_cancel(session));
     voice_active = false;
     voice_generation = 0;
+    voice_preedit.clear();
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
     pure_shift_candidate = false;
@@ -1815,6 +1820,10 @@ Json voice_provider_options(const Json &preferences) {
 }
 void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
+  if (s.voice_active && !s.voice_provider_socket.empty())
+    msime_client_string_free(msime_client_voice_provider_cancel(
+        reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
+        s.voice_provider_socket.size(), s.voice_generation));
   if (s.voice_active && s.session)
     msime_client_string_free(msime_client_voice_cancel(s.session));
   s.voice_active = false;
