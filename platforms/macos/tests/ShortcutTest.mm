@@ -2,7 +2,49 @@
 #import "../InputSourceRegistration.h"
 #include <cassert>
 #include <fstream>
+#import <objc/runtime.h>
 
+static NSUInteger missingKeyFontCalls;
+static IMP originalMonospacedFont;
+static NSFont *MissingKeyFont(id cls, SEL selector, CGFloat size, NSFontWeight weight) {
+    if (size == 11.0 && weight == NSFontWeightBold) {
+        ++missingKeyFontCalls;
+        return nil;
+    }
+    return ((NSFont *(*)(id, SEL, CGFloat, NSFontWeight))originalMonospacedFont)(cls, selector, size, weight);
+}
+
+static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL action) {
+    NSScrollView *scroll = (id)preferences.window.contentView.subviews.firstObject;
+    assert([scroll isKindOfClass:NSScrollView.class]);
+    NSGridView *grid = (id)scroll.documentView;
+    for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+        NSView *view = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+        if ([view isKindOfClass:NSControl.class] && [(NSControl *)view action] == action) return (id)view;
+    }
+    assert(false && "Missing preference action");
+    return nil;
+}
+
+static void CheckMenu(NSMenu *menu, id controller) {
+    NSArray<NSString *> *actions = @[
+        @"selectChineseMode:", @"selectEnglishMode:", @"",
+        @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
+        @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
+        @"showAppearance:", @"showDictionary:", @"showAccount:",
+        @"showCloudClipboard:", @"showHandwriting:", @"prepareDictionary:", @"",
+        @"checkForUpdates:", @"openWebsite:", @"toggleVoiceInput:", @"showVoiceSettings:"
+    ];
+    assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
+    for (NSUInteger index = 0; index < actions.count; ++index) {
+        NSMenuItem *item = [menu itemAtIndex:index];
+        if (actions[index].length == 0) assert(item.separatorItem);
+        else {
+            assert(item.action == NSSelectorFromString(actions[index]));
+            assert(item.target == controller && [controller respondsToSelector:item.action]);
+        }
+    }
+}
 
 @interface ShortcutSession : NSObject
 @property(nonatomic) uint32_t lastCommand;
@@ -120,8 +162,7 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.shuangpinKeymap);
-    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
-    NSButton *toggle = (id)[grid cellAtColumnIndex:1 rowIndex:9].contentView;
+    NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;
     [NSApp sendAction:toggle.action to:toggle.target from:toggle];
     assert(appearance.shuangpinKeymap);
@@ -168,12 +209,19 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"keymapPanel"];
     [controller setValue:[ShortcutSession new] forKey:@"session"];
-    NSDictionary *view = @{@"scheme": @1, @"shuangpin_profile": @"microsoft", @"preedit": @"b;", @"candidates": @[]};
+    NSDictionary *view = @{@"scheme": @1, @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
     [controller setValue:view forKey:@"view"];
     [controller updateKeymapPanel];
     assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     assert(panel.clearance == (appearance.vertical ? 24 : appearance.fontSize + 42));
-    for (NSDictionary *excluded in @[@{}, @{@"scheme": @0}, @{@"scheme": @3}, @{@"preedit": @""}, @{@"shuangpin_profile": @""}]) {
+    for (NSString *display in @[@"b;", @"bing", @""]) {
+        NSMutableDictionary *next = [view mutableCopy];
+        next[@"preedit"] = display;
+        [controller setValue:next forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
+    }
+    for (NSDictionary *excluded in @[@{}, @{@"scheme": @0}, @{@"scheme": @3}, @{@"editing_text": @""}, @{@"editing_text": NSNull.null}, @{@"editing_text": @42}, @{@"shuangpin_profile": @""}]) {
         NSMutableDictionary *next = [view mutableCopy];
         [next addEntriesFromDictionary:excluded];
         if (!excluded.count) [next removeObjectForKey:@"scheme"];
@@ -226,8 +274,7 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
 
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.fullWidthInput);
-    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
-    NSButton *control = (id)[grid cellAtColumnIndex:1 rowIndex:8].contentView;
+    NSButton *control = (id)PreferenceControl(appearance, @selector(fullWidthChanged:));
     control.state = NSControlStateValueOn;
     [NSApp sendAction:control.action to:control.target from:control];
     assert(appearance.fullWidthInput);
@@ -301,8 +348,7 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
 
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.englishMode && appearance.inputModeShortcut);
-    NSGridView *grid = (id)appearance.window.contentView.subviews[0];
-    NSButton *shortcut = (id)[grid cellAtColumnIndex:1 rowIndex:7].contentView;
+    NSButton *shortcut = (id)PreferenceControl(appearance, @selector(inputModeShortcutChanged:));
     shortcut.state = NSControlStateValueOff;
     [NSApp sendAction:shortcut.action to:shortcut.target from:shortcut];
     MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot];
@@ -317,7 +363,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:panel forKey:@"panel"];
     [controller setValue:session forKey:@"session"];
     NSMenu *menu = controller.menu;
-    assert(menu.numberOfItems == 13 && !menu.autoenablesItems);
+    CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
     assert([[menu itemAtIndex:6].title isEqual:@"表情与符号…"]);
@@ -428,8 +474,7 @@ show_selected_bar = true
     assert(image);
     assert([[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / "decoration.png").c_str()) atomically:YES]);
     MSIMEAppearancePreferences *external = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
-    NSGridView *grid = (id)external.window.contentView.subviews.firstObject;
-    NSPopUpButton *control = (id)[grid cellAtColumnIndex:1 rowIndex:4].contentView;
+    NSPopUpButton *control = (id)PreferenceControl(external, @selector(skinChanged:));
     assert(control.numberOfItems == 5 && [control.lastItem.title isEqual:@"Synthetic Skin"]);
     [control selectItemAtIndex:4];
     [NSApp sendAction:control.action to:control.target from:control];
@@ -464,7 +509,7 @@ show_selected_bar = true
     std::filesystem::remove_all(root / "synthetic");
     [controller renderCandidates];
     assert([external resolvedSkinForDark:NO].id == "synthetic" && external.decorationImage);
-    NSButton *reload = (id)[grid cellAtColumnIndex:1 rowIndex:5].contentView;
+    NSButton *reload = (id)PreferenceControl(external, @selector(reloadSkinsFromButton:));
     [NSApp sendAction:reload.action to:reload.target from:reload];
     assert([external.skinID isEqual:@"synthetic"]);
     assert([external resolvedSkinForDark:NO].id == "fluent" && !external.decorationImage);
@@ -496,12 +541,11 @@ int main() {
         assert(appearance.pageShortcut == 0);
         appearance.fontSize = 99;
         assert(appearance.fontSize == 18);
-        NSGridView *grid = (id)appearance.window.contentView.subviews.firstObject;
-        NSPopUpButton *layoutControl = (id)[grid cellAtColumnIndex:1 rowIndex:0].contentView;
-        NSPopUpButton *fontControl = (id)[grid cellAtColumnIndex:1 rowIndex:1].contentView;
-        NSPopUpButton *shortcutControl = (id)[grid cellAtColumnIndex:1 rowIndex:2].contentView;
-        NSPopUpButton *sizeControl = (id)[grid cellAtColumnIndex:1 rowIndex:3].contentView;
-        NSPopUpButton *skinControl = (id)[grid cellAtColumnIndex:1 rowIndex:4].contentView;
+        NSPopUpButton *layoutControl = (id)PreferenceControl(appearance, @selector(layoutChanged:));
+        NSPopUpButton *fontControl = (id)PreferenceControl(appearance, @selector(fontChanged:));
+        NSPopUpButton *shortcutControl = (id)PreferenceControl(appearance, @selector(pageShortcutChanged:));
+        NSPopUpButton *sizeControl = (id)PreferenceControl(appearance, @selector(pageSizeChanged:));
+        NSPopUpButton *skinControl = (id)PreferenceControl(appearance, @selector(skinChanged:));
         assert(([skinControl.itemTitles isEqual:@[@"Fluent", @"微信绿", @"石墨 Graphite", @"杨柳青"]]));
         NSArray<NSString *> *skinIDs = @[@"fluent", @"wechat", @"graphite", @"willow_green"];
         for (NSInteger option = 0; option < 4; ++option) {
@@ -739,7 +783,7 @@ int main() {
             uint32_t expected = key.unsignedShortValue == 123 ? MSIME_PREVIOUS_CANDIDATE : key.unsignedShortValue == 124 ? MSIME_NEXT_CANDIDATE : UINT32_MAX;
             assert(session.lastCommand == expected);
         }
-        assert([controller menu].numberOfItems == 13);
+        CheckMenu([controller menu], controller);
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
@@ -831,6 +875,12 @@ int main() {
         TestFullWidth(defaults, appearance);
         TestPunctuation(defaults, appearance);
         TestKeymap(defaults, appearance);
+        Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
+        assert(fontMethod);
+        originalMonospacedFont = method_setImplementation(fontMethod, (IMP)MissingKeyFont);
+        TestKeymap(defaults, appearance);
+        method_setImplementation(fontMethod, originalMonospacedFont);
+        assert(missingKeyFontCalls > 0);
         [defaults removePersistentDomainForName:suite];
     }
     return 0;
