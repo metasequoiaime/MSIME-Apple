@@ -3795,6 +3795,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         save_menu_preference(engine, MenuPreference::InputScheme, selected);
         return;
       }
+      // Scheme-specific session overrides must not leak into the newly
+      // selected scheme. Shared preferences remain intact and are reloaded
+      // by the recreated Engine session.
+      s.helpcode_override.reset();
+      s.helpcode_schema_override.reset();
+      s.autocorrect_transposition_override.reset();
+      s.autocorrect_neighbor_override.reset();
+      s.nine_key_override.reset();
+      s.shuangpin_profile_override.reset();
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
