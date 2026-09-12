@@ -1468,7 +1468,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto skin_property = ibus_property_new(
       "CandidateSkin", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选皮肤"), "",
-      ibus_text_new_from_static_string("选择候选窗口内置皮肤"),
+      ibus_text_new_from_static_string("选择候选窗口皮肤"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto skin_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> skin_options[] = {
@@ -1478,7 +1478,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidateSkin/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选窗口内置皮肤"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择候选窗口皮肤"), TRUE, TRUE,
         skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
