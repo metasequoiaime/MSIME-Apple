@@ -1,4 +1,4 @@
-"""Doubao streaming transport, based on MSIME-Windows b21a1671.
+"""Doubao streaming transport, based on MSIME-Windows 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
 
 No request, audio, transcript, credential, or remote error body is logged.
 """
@@ -145,6 +145,7 @@ class DoubaoStream:
         self.worker.join(timeout=12)
 
     def run(self):
+        received_final = threading.Event()
         try:
             connection_type, connect = websocket_dependency()
             headers = {"X-Api-Resource-Id": self.config["resource_id"],
@@ -176,39 +177,70 @@ class DoubaoStream:
                 if self.cancelled.is_set() or self.closed.is_set():
                     return
                 websocket.send(packet(1, 1, 1, self.initial))
+                receiver_stopped = threading.Event()
+
+                def receive():
+                    last_response = time.monotonic()
+                    try:
+                        while not receiver_stopped.is_set() and not self.closed.is_set() and not self.cancelled.is_set():
+                            try:
+                                message = websocket.recv(timeout=0.1)
+                            except TimeoutError:
+                                if time.monotonic() - last_response >= 30:
+                                    raise TimeoutError("Doubao response timeout")
+                                continue
+                            text, final = parse_response(message)
+                            last_response = time.monotonic()
+                            if text:
+                                with self.lock:
+                                    self.text = text
+                            if final:
+                                received_final.set()
+                                return
+                    except Exception:
+                        if not receiver_stopped.is_set() and not self.closed.is_set() and not self.cancelled.is_set():
+                            with self.lock:
+                                self.failed = True
+                    finally:
+                        receiver_stopped.set()
+                        # A final reply or failed receive must also release a
+                        # sender blocked in upload backpressure.
+                        try:
+                            self.transport.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+
+                receiver = threading.Thread(target=receive, daemon=True)
+                receiver.start()
                 sequence = 2
                 finish_deadline = None
-                last_response = time.monotonic()
-                while not self.closed.is_set() and not self.cancelled.is_set():
-                    if finish_deadline is None:
+                try:
+                    # Like the Windows duplex transport, one receiver remains
+                    # active independently of audio sends and their backpressure.
+                    while (not receiver_stopped.is_set() and not self.closed.is_set()
+                           and not self.cancelled.is_set()):
+                        if finish_deadline is not None:
+                            if time.monotonic() >= finish_deadline:
+                                raise TimeoutError("Doubao final response timeout")
+                            receiver_stopped.wait(0.05)
+                            continue
                         try:
                             chunk, final = self.audio.get(timeout=0.05)
                         except queue.Empty:
-                            pass
-                        else:
-                            websocket.send(packet(2, 3 if final else 1, -sequence if final else sequence, chunk))
-                            sequence += 1
-                            if final:
-                                finish_deadline = time.monotonic() + 30
-                    # Drain replies while recording instead of waiting until
-                    # the final audio frame, preserving live inline preedit.
-                    for _ in range(8):
-                        try:
-                            message = websocket.recv(timeout=0.05 if finish_deadline else 0)
-                        except TimeoutError:
-                            break
-                        text, final = parse_response(message)
-                        last_response = time.monotonic()
-                        if text:
-                            with self.lock:
-                                self.text = text
+                            continue
+                        websocket.send(packet(2, 3 if final else 1, -sequence if final else sequence, chunk))
+                        sequence += 1
                         if final:
-                            return
-                    now = time.monotonic()
-                    if (finish_deadline is not None and now >= finish_deadline) or now - last_response >= 30:
-                        raise TimeoutError("Doubao response timeout")
+                            finish_deadline = time.monotonic() + 30
+                finally:
+                    receiver_stopped.set()
+                    try:
+                        self.transport.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                    receiver.join()
         except Exception:
-            if not self.cancelled.is_set() and not self.closed.is_set():
+            if not received_final.is_set() and not self.cancelled.is_set() and not self.closed.is_set():
                 with self.lock:
                     self.failed = True
         finally:
