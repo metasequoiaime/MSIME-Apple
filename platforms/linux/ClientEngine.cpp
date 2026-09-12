@@ -28,6 +28,34 @@ struct MsimePreviewEngine;
 namespace {
 Json configured;
 uint64_t configuration_generation = 0;
+Json skin_display_preferences(Json preferences) {
+  const auto selected = preferences.value("candidate_skin", "fluent");
+  if (selected == "fluent" || selected == "wechat" || selected == "graphite" ||
+      selected == "willow_green")
+    return preferences;
+  const auto catalog = configured.find("candidate_skin_catalog");
+  if (catalog == configured.end() || !catalog->is_object())
+    return preferences;
+  const auto packages = catalog->find("packages");
+  if (packages == catalog->end() || !packages->is_array())
+    return preferences;
+  for (const auto &package : *packages) {
+    if (!package.is_object() || package.value("id", std::string{}) != selected)
+      continue;
+    const auto candidate = package.value("candidate", Json::object());
+    if (!candidate.is_object()) break;
+    const auto theme = preferences.value("candidate_theme", "follow") == "dark" ? "dark" : "light";
+    const auto palette = candidate.value(theme, Json::object());
+    if (!palette.is_object()) break;
+    if (!preferences.value("candidate_text_color", Json(nullptr)).is_string() &&
+        palette.contains("text"))
+      preferences["candidate_text_color"] = palette["text"];
+    if (palette.contains("surface"))
+      preferences["candidate_background_color"] = palette["surface"];
+    break;
+  }
+  return preferences;
+}
 std::optional<bool> global_input_enabled;
 void register_properties(IBusEngine *engine);
 Json response(char *raw) {
@@ -187,6 +215,7 @@ struct State {
   bool clipboard_loading = false, clipboard_loaded = false;
   bool clipboard_enabled = true;
   uint64_t applied_preferences_revision = 0;
+  uint64_t applied_display_generation = 0;
   Json applied_preferences_snapshot;
   GFileMonitor *clipboard_monitor = nullptr;
   GFile *clipboard_watch_file = nullptr;
@@ -287,29 +316,6 @@ struct State {
     number_row_selection = number_row_override.value_or(
         options.value("preferences", Json::object()).value("number_row_selection", true));
     auto &preferences = options["preferences"];
-    // External skin manifests may provide a candidate palette. Apply the
-    // selected package before the lookup table is rendered; built-ins remain
-    // handled by the existing preference mapping.
-    const auto selected_skin = preferences.value("candidate_skin", "fluent");
-    if (selected_skin != "fluent" && selected_skin != "wechat" &&
-        selected_skin != "graphite" && selected_skin != "willow_green") {
-      if (const auto catalog = options.find("candidate_skin_catalog");
-          catalog != options.end() && catalog->is_object()) {
-        if (const auto packages = catalog->find("packages");
-            packages != catalog->end() && packages->is_array()) {
-          for (const auto &package : *packages) {
-            if (package.value("id", std::string{}) != selected_skin) continue;
-            const auto theme = preferences.value("candidate_theme", "follow") == "dark" ? "dark" : "light";
-            const auto palette = package.value("candidate", Json::object()).value(theme, Json::object());
-            if (palette.is_object()) {
-              if (palette.contains("text")) preferences["candidate_text_color"] = palette["text"];
-              if (palette.contains("surface")) preferences["candidate_background_color"] = palette["surface"];
-            }
-            break;
-          }
-        }
-      }
-    }
     if (paired_punctuation_override) preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override) preferences["punctuation_lock"] = *punctuation_lock_override;
     if (scheme_override) preferences["scheme"] = *scheme_override;
@@ -387,6 +393,7 @@ struct State {
       local_modes[key] = value;
     if (private_input)
       options["preferences"]["learning"] = false;
+    options.erase("candidate_skin_catalog");
     auto encoded = options.dump();
     auto bindings =
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
@@ -412,10 +419,9 @@ struct State {
       chinese_punctuation = true;
     else if (punctuation_lock == "english")
       chinese_punctuation = false;
-    candidate_text_color =
-        ::candidate_text_color(options.at("preferences"));
-    candidate_background_color =
-        ::candidate_background_color(options.at("preferences"));
+    const auto display_preferences = skin_display_preferences(options.at("preferences"));
+    candidate_text_color = ::candidate_text_color(display_preferences);
+    candidate_background_color = ::candidate_background_color(display_preferences);
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
     preedit_style = ::preedit_style(options.at("preferences"));
     candidate_preedit_style =
@@ -493,6 +499,7 @@ struct State {
       display_preferences["candidate_theme"] = *theme_override;
     if (skin_override)
       display_preferences["candidate_skin"] = *skin_override;
+    display_preferences = skin_display_preferences(std::move(display_preferences));
     candidate_text_color = ::candidate_text_color(display_preferences);
     candidate_background_color = ::candidate_background_color(display_preferences);
     candidate_orientation = ::candidate_orientation(display_preferences);
@@ -4167,6 +4174,12 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   const auto &preferences = snapshot.at("preferences");
   if (preferences == s.applied_preferences_snapshot) {
     sync_global_input_mode(engine);
+    if (s.applied_display_generation != configuration_generation) {
+      s.refresh_host_preferences(preferences);
+      render(engine, s.view);
+      publish_mode(engine);
+      s.applied_display_generation = configuration_generation;
+    }
     return;
   }
   // Store revisions belong to the store. The runtime needs an increasing
@@ -4190,6 +4203,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   }
   s.applied_preferences_snapshot = preferences;
   s.refresh_host_preferences(preferences);
+  s.applied_display_generation = configuration_generation;
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
     voice_cancel(engine);
