@@ -2472,6 +2472,59 @@ bool modifier(guint key) {
          key == IBUS_Scroll_Lock || key == IBUS_Mode_switch ||
          key == IBUS_ISO_Level3_Shift || key == IBUS_ISO_Level5_Shift;
 }
+std::optional<size_t> candidate_digit_slot(guint key, guint flags,
+                                           const Json &view) {
+  if (!view.is_object() ||
+      view.value("local_mode", std::string("none")) == "unknown")
+    return std::nullopt;
+  const auto modifiers = flags &
+      (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK |
+       IBUS_SUPER_MASK | IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const bool unicode = view.value("local_mode", std::string("none")) == "unicode";
+  const bool shifted = (modifiers & IBUS_SHIFT_MASK) != 0;
+  // Windows uses Shift+the physical number row for Unicode candidates, while
+  // ordinary modes use the unmodified row. IBus exposes the shifted symbols
+  // as key values, so map those symbols back to their physical slots.
+  if (modifiers != (unicode ? IBUS_SHIFT_MASK : 0))
+    return std::nullopt;
+  if (!unicode) {
+    if (key >= IBUS_1 && key <= IBUS_9)
+      return static_cast<size_t>(key - IBUS_1);
+    if (key == IBUS_0)
+      return 9;
+    if (key >= IBUS_KP_1 && key <= IBUS_KP_9)
+      return static_cast<size_t>(key - IBUS_KP_1);
+    if (key == IBUS_KP_0)
+      return 9;
+    return std::nullopt;
+  }
+  if (!shifted)
+    return std::nullopt;
+  switch (key) {
+  case '!': return 0;
+  case '@': return 1;
+  case '#': return 2;
+  case '$': return 3;
+  case '%': return 4;
+  case '^': return 5;
+  case '&': return 6;
+  case '*': return 7;
+  case '(': return 8;
+  case ')': return 9;
+  // Some X11 layouts keep keypad keysyms unchanged with Shift.
+  case IBUS_KP_1: return 0;
+  case IBUS_KP_2: return 1;
+  case IBUS_KP_3: return 2;
+  case IBUS_KP_4: return 3;
+  case IBUS_KP_5: return 4;
+  case IBUS_KP_6: return 5;
+  case IBUS_KP_7: return 6;
+  case IBUS_KP_8: return 7;
+  case IBUS_KP_9: return 8;
+  case IBUS_KP_0: return 9;
+  default: return std::nullopt;
+  }
+}
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active)
@@ -2730,6 +2783,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
       return;
     }
+    if (s.number_row_selection && !s.view.value("nine_key", false) &&
+        !s.view.at("candidates").empty()) {
+      if (const auto index = candidate_digit_slot(key, flags, s.view)) {
+        if (*index >= s.view.at("candidates").size()) return;
+        const auto &candidate = s.view.at("candidates").at(*index);
+        const auto &id = candidate.at("id");
+        if (id.at("session").get<uint64_t>() != s.session) return;
+        handled = apply(engine, msime_client_select(
+            s.session, id.at("generation").get<uint64_t>(),
+            id.at("index").get<size_t>()));
+        return;
+      }
+    }
     if (s.chinese_punctuation && s.paired_punctuation &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
         s.view.at("editing_text").get<std::string>().empty() &&
@@ -2793,21 +2859,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint, guint flags) {
           s.session, static_cast<uint8_t>(ascii)));
       if (is_smart_punctuation_key(key))
         s.smart_punctuation_rejected = 0;
-      return;
-    }
-    if (s.number_row_selection && !s.view.value("nine_key", false) &&
-        !s.view.at("candidates").empty() && modifiers == 0 &&
-        ((key >= IBUS_0 && key <= IBUS_9) || (key >= IBUS_KP_0 && key <= IBUS_KP_9))) {
-      const bool keypad = key >= IBUS_KP_0 && key <= IBUS_KP_9;
-      const size_t index = keypad ? (key == IBUS_KP_0 ? 9 : key - IBUS_KP_1)
-                                  : (key == IBUS_0 ? 9 : key - IBUS_1);
-      if (index >= s.view.at("candidates").size()) return;
-      const auto &candidate = s.view.at("candidates").at(index);
-      const auto &id = candidate.at("id");
-      if (id.at("session").get<uint64_t>() != s.session) return;
-      handled = apply(engine, msime_client_select(
-          s.session, id.at("generation").get<uint64_t>(),
-          id.at("index").get<size_t>()));
       return;
     }
     if (!s.view.at("candidates").empty() &&
