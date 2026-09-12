@@ -166,7 +166,9 @@ struct MacEmojiView: View {
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
           MacEmojiScroll(resetID: scrollID) {
-            if category == "kaomoji" {
+            if loadedQuery == queryID && items.isEmpty && category != "clipboard" {
+              MacEmojiEmptyStateView(category: category, search: search, group: group, palette: palette)
+            } else if category == "kaomoji" {
               if loadedQuery == queryID && (!items.isEmpty || search.isEmpty) {
               MacEmojiDetailSection(title: "All", palette: palette) {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
