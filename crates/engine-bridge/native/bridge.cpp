@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <limits>
+#include <filesystem>
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_set>
@@ -19,6 +20,30 @@ metasequoia::RuntimePaths paths_for(const EngineOptions& value) {
             std::filesystem::u8path(std::string(value.user_data)),
             std::filesystem::u8path(std::string(value.cache)),
             std::filesystem::u8path(std::string(value.dictionaries))};
+}
+void prepare_translation_sidecar(const EngineOptions& value) {
+    const auto paths = paths_for(value);
+    const auto name = std::filesystem::path("custom_translations.txt");
+    const auto target = paths.dictionary(name);
+    auto source = paths.user(name);
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(source, error)) {
+        error.clear();
+        source = paths.resource(name);
+    }
+    if (std::filesystem::is_regular_file(source, error)) {
+        error.clear();
+        std::filesystem::create_directories(target.parent_path(), error);
+        if (!error)
+            std::filesystem::copy_file(source, target,
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       error);
+        if (error)
+            throw std::runtime_error("Unable to prepare custom translation sidecar");
+    } else {
+        error.clear();
+        std::filesystem::remove(target, error);
+    }
 }
 metasequoia::PersonalDictionaryEntry entry_for(const DictionaryEntry& value) {
     using Kind = metasequoia::PersonalDictionaryKind;
@@ -45,6 +70,7 @@ DictionaryEntry entry_for(const metasequoia::PersonalDictionaryEntry& value) {
     return {kind, value.key, value.value, value.weight};
 }
 metasequoia::SessionOptions options_for(const EngineOptions& value) {
+    prepare_translation_sidecar(value);
     metasequoia::SessionOptions options;
     options.paths = paths_for(value);
     switch (value.scheme) {
