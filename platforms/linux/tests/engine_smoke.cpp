@@ -310,6 +310,31 @@ int main(int argc, char **argv) {
     mode(PROP_STATE_CHECKED);
     require(seen.input_enabled, "Input mode did not recover");
     seen.committed.clear();
+    // A visible incremental candidate list must not turn editing into cancel
+    // or make Enter select a candidate instead of committing raw spelling.
+    phrase();
+    require(key(IBUS_BackSpace) && seen.preedit == "niha" &&
+                seen.preedit_visible && seen.committed.empty(),
+            "Backspace cancelled incremental composition instead of deleting one key");
+    invoke("Reset");
+    for (guint delete_key : {IBUS_Delete, IBUS_KP_Delete}) {
+      phrase();
+      require(key(IBUS_Left) && key(delete_key) && seen.preedit == "niha" &&
+                  seen.preedit_visible && seen.committed.empty(),
+              "Forward delete cancelled incremental composition instead of editing at caret");
+      invoke("Reset");
+    }
+    for (guint enter_key : {IBUS_Return, IBUS_KP_Enter}) {
+      phrase();
+      require(key(enter_key) && seen.committed == "nihao" &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Enter selected an incremental candidate instead of raw spelling");
+      seen.committed.clear();
+    }
+    for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
+                           IBUS_Return, IBUS_KP_Enter})
+      require(!key(idle_key) && seen.committed.empty(),
+              "Idle composition edit key was intercepted");
     phrase();
     require(seen.preedit_visible && seen.preedit == "nihao",
             "Preedit signal missing");

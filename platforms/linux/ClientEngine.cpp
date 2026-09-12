@@ -3708,11 +3708,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
-      command = candidate_active ? MSIME_CANCEL : MSIME_BACKSPACE;
+      // Incremental candidates remain visible while Engine edits spelling.
+      command = MSIME_BACKSPACE;
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
-      command = candidate_active ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW;
+      command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
       command = MSIME_CANCEL;
@@ -3743,7 +3744,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
-      command = candidate_active ? MSIME_CANCEL : MSIME_DELETE_FORWARD;
+      command = MSIME_DELETE_FORWARD;
       break;
     }
     if (command != UINT32_MAX)
