@@ -4,6 +4,7 @@ struct MacEmojiHomeKey: Hashable {
   let category: String
   let text: String
   let group: String
+  var occurrence: Int = 0
 }
 
 struct MacEmojiHomeEntry {
@@ -14,6 +15,11 @@ struct MacEmojiHomeEntry {
 }
 
 enum MacEmojiHomeNavigation {
+  static func key(category: String, items: [MacEmojiCatalogItem], index: Int) -> MacEmojiHomeKey {
+    let item = items[index]
+    let occurrence = items.prefix(index).filter { $0.text == item.text && $0.group == item.group }.count
+    return MacEmojiHomeKey(category: category, text: item.text, group: item.group, occurrence: occurrence)
+  }
   /// Reset selects the first visible item, including before asynchronous catalog arrival.
   /// A removed explicit selection stays stale: activation must not copy a different item.
   static func selection(_ selected: MacEmojiHomeKey?, sections: [MacEmojiHomeSection]) -> MacEmojiHomeKey? {
@@ -35,7 +41,7 @@ enum MacEmojiHomeNavigation {
       for (index, item) in section.items.enumerated() {
         if flow && !flowCells.indices.contains(index) { continue }
         result.append(MacEmojiHomeEntry(
-          key: MacEmojiHomeKey(category: section.category, text: item.text, group: item.group),
+          key: key(category: section.category, items: section.items, index: index),
           item: item, row: row + (flow ? flowCells[index].row : index / columns),
           center: flow ? Double(flowCells[index].rect.midX) : (Double(index % columns) + 0.5) / Double(columns)))
       }
