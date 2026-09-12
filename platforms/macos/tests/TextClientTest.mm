@@ -47,7 +47,9 @@ static void TestEngineMaintenance() {
     NSDictionary *englishTyped = [session typeASCII:'e' shift:NO error:&error];
     assert(!error && [englishTyped[@"view"][@"dedicated_english"] isEqual:@YES]);
     assert([englishTyped[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
-    assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"hello"]);
+    assert([[session setCharacterWidthFull:YES error:&error][@"character_width"] isEqual:@"Fullwidth"]);
+    assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"ｈｅｌｌｏ"]);
+    assert([[session setCharacterWidthFull:NO error:&error][@"character_width"] isEqual:@"Halfwidth"]);
     for (NSNumber *enabled in @[@YES, @NO, @YES]) {
         assert([session setEnglishMode:enabled.boolValue error:&error] && !error);
         __block NSUInteger replacements = 0;

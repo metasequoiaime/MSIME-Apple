@@ -70,9 +70,14 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) NSUInteger punctuationCalls;
 @property(nonatomic, copy) NSDictionary *punctuationView;
+@property(nonatomic) BOOL fullwidth;
+@property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
+    (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
+}
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
     return @{@"focused":@NO, @"editing_text":@"", @"candidates":@[], @"dedicated_english":@(self.dedicatedEnglish)};
@@ -709,18 +714,36 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:session forKey:@"session"];
     const NSEventModifierFlags chord = NSEventModifierFlagOption | NSEventModifierFlagShift;
+    [controller prepareSession];
+    assert(session.fullwidth && session.widthCalls > 0);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert(!appearance.fullWidthInput);
     assert([controller handleEvent:ModeKey(4, chord, YES) client:client]);
     assert(!appearance.fullWidthInput);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert(appearance.fullWidthInput && session.asciiCalls == 0);
+    const NSEventModifierFlags windowsChord = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
+    assert(!appearance.fullWidthInput);
+    [controller appearanceChanged:nil];
+    assert(!session.fullwidth);
+    NSUInteger widthCalls = session.widthCalls;
+    assert([controller handleEvent:ModeKey(49, windowsChord, YES) client:client]);
+    assert(!appearance.fullWidthInput && session.widthCalls == widthCalls);
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
+    [controller appearanceChanged:nil];
+    assert(appearance.fullWidthInput && session.fullwidth);
+    for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagOption})
+        assert(!msime::mac::IsFullWidthInputToggle(49, windowsChord | extra));
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagControl}) {
         assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
         assert(appearance.fullWidthInput);
     }
     appearance.englishMode = YES;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
+    assert(!appearance.fullWidthInput && appearance.englishMode);
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
     assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
     assert(appearance.fullWidthInput);
     appearance.englishMode = NO;
@@ -809,14 +832,16 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(!appearance.englishMode);
     assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, YES) client:client]);
     assert(!appearance.englishMode);
+    const BOOL beforeWidth = appearance.fullWidthInput;
     for (NSUInteger mask = 1; mask < 8; ++mask) {
         NSEventModifierFlags flags = NSEventModifierFlagShift;
         if (mask & 1) flags |= NSEventModifierFlagCommand;
         if (mask & 2) flags |= NSEventModifierFlagControl;
         if (mask & 4) flags |= NSEventModifierFlagOption;
-        assert(![controller handleEvent:ModeKey(49, flags, NO) client:client]);
+        assert([controller handleEvent:ModeKey(49, flags, NO) client:client] == (mask == 2));
         assert(!appearance.englishMode);
     }
+    appearance.fullWidthInput = beforeWidth;
     appearance.inputModeShortcut = NO;
     [controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client];
     assert(!appearance.englishMode && session.lastCommand == MSIME_COMMIT_CANDIDATE);

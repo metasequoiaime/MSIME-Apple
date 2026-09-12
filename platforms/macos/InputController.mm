@@ -203,6 +203,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     [self syncPageSize];
     [self syncPunctuation];
+    [self syncCharacterWidth];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
@@ -259,6 +260,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)syncPunctuation {
     if (!_session) return;
     NSDictionary *view = [_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil];
+    if (view) [self apply:@{@"view":view}];
+}
+- (void)syncCharacterWidth {
+    if (!_session) return;
+    NSDictionary *view = [_session setCharacterWidthFull:_appearance.fullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
 - (NSMenu *)menu {
@@ -563,6 +569,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self syncPageSize];
     if (_session) {
         [self syncPunctuation];
+        [self syncCharacterWidth];
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
     }
@@ -718,11 +725,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
-    if (_appearance.englishMode) return NO;
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags)) {
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags) && (!_appearance.englishMode || event.keyCode == 49)) {
         if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
         return YES;
     }
+    if (_appearance.englishMode) return NO;
     if (!_session) [self prepareSession];
     if (!_session) return NO;
     if (_focusPending) [self prepareSession];

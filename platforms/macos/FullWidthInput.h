@@ -9,6 +9,9 @@ namespace msime::mac
 {
 inline bool IsFullWidthInputToggle(unsigned short keyCode, NSEventModifierFlags modifiers)
 {
+    const NSEventModifierFlags allModifiers = NSEventModifierFlagCommand | NSEventModifierFlagControl |
+        NSEventModifierFlagOption | NSEventModifierFlagShift;
+    if (keyCode == kVK_Space && (modifiers & allModifiers) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) return true;
     const NSEventModifierFlags competingModifiers =
         modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl);
     return keyCode == kVK_ANSI_H && (modifiers & NSEventModifierFlagOption) != 0 &&
