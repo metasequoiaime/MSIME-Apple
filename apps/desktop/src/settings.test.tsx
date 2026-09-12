@@ -46,6 +46,69 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   confirm.mockRestore();
 });
 
+const touchSchemeLabels = ["全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "高情商回复"];
+const touchSchemeIds = ["quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi", "japanese_nine_key", "japanese", "handwriting", "thoughtful_reply"];
+
+test("Android touch schemes follow Apple order and stay absent on hosts without the capability", async () => {
+  const enabled = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const group = screen.getByRole("group", { name: "输入方案" });
+  expect(within(group).getAllByRole("button").map(button => button.textContent?.replace("✓", ""))).toEqual(touchSchemeLabels);
+  expect(within(group).getAllByRole("checkbox")).toHaveLength(11);
+  enabled.unmount();
+  render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
+});
+
+test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
+  expect(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("checkbox", { name: "显示输入方案 全拼 9 键" }));
+  expect(screen.getByRole("button", { name: "设为当前输入方案 全拼 26 键" }).getAttribute("aria-pressed")).toBe("true");
+  for (const label of touchSchemeLabels.slice(1)) {
+    const toggle = screen.getByRole("checkbox", { name: `显示输入方案 ${label}` }) as HTMLInputElement;
+    if (toggle.checked) fireEvent.click(toggle);
+  }
+  const last = screen.getByRole("checkbox", { name: "显示输入方案 全拼 26 键" }) as HTMLInputElement;
+  expect(last.checked).toBe(true);
+  expect(last.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    scheme: "quanpin",
+    last_chinese_scheme: "quanpin",
+    touch_keyboard_layout: "twenty_six_key",
+    touch_keyboard_schemes: { enabled: ["quanpin"], selected: "quanpin" },
+  }));
+});
+
+test("Android selecting nine-key saves the shared selected scheme and matching engine layout", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
+    scheme: "quanpin",
+    touch_keyboard_layout: "nine_key",
+    touch_keyboard_schemes: { enabled: touchSchemeIds, selected: "nine_key" },
+  }));
+});
+
+test("Android touch schemes display the first enabled fallback for a valid selection-less snapshot", async () => {
+  const snapshot = { ...initial, preferences: { ...initial.preferences,
+    touch_keyboard_schemes: { enabled: ["wubi" as const] } } };
+  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.getByRole("button", { name: "设为当前输入方案 86 五笔" }).getAttribute("aria-pressed")).toBe("true");
+  expect((screen.getByRole("checkbox", { name: "显示输入方案 86 五笔" }) as HTMLInputElement).disabled).toBe(true);
+});
+
 test("window SVGs follow host state and retain accessible controls", async () => {
   let publish: (maximized: boolean) => void = () => {};
   const windowControl = vi.fn().mockResolvedValue(undefined);
@@ -866,27 +929,33 @@ test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)("appearance pre
   expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
 });
 
-test("touch keyboard spacing mirrors Apple defaults and persists tenths", async () => {
+test("touch keyboard geometry mirrors Apple defaults and persists height and spacing", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save }} />);
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
+  const height = screen.getByRole("slider", { name: "键盘高度" }) as HTMLInputElement;
   const keys = screen.getByRole("slider", { name: "按键间距" }) as HTMLInputElement;
   const rows = screen.getByRole("slider", { name: "行间距" }) as HTMLInputElement;
+  expect(height.value).toBe("0");
   expect(keys.value).toBe("60");
   expect(rows.value).toBe("70");
+  expect(screen.getByText("0 dp")).toBeDefined();
   expect(screen.getByText("6.0 dp")).toBeDefined();
   expect(screen.getByText("7.0 dp")).toBeDefined();
   const voice = screen.getByRole("checkbox", { name: "顶部语音入口" }) as HTMLInputElement;
   expect(voice.checked).toBe(false);
+  fireEvent.change(height, { target: { value: "24" } });
   fireEvent.change(keys, { target: { value: "35" } });
   fireEvent.change(rows, { target: { value: "95" } });
   fireEvent.click(voice);
+  expect(screen.getByText("+24 dp")).toBeDefined();
   expect(screen.getByText("3.5 dp")).toBeDefined();
   expect(screen.getByText("9.5 dp")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
+    touch_keyboard_height_adjustment: 24,
     touch_key_spacing_tenths: 35,
     touch_row_spacing_tenths: 95,
     touch_voice_shortcut: true,

@@ -12,6 +12,7 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
 }
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var failLogout = false
+  static var omittedPreferenceKey: String?
   private static var preferenceRevision = 1
   private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
   private static var clipboardEnabled = false
@@ -33,9 +34,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
     case ("GET", "/v1/users/me/preferences/schema"):
-      body = json(["fields": ["platform.macos.candidate_skin": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
+      body = json(["fields": ["platform.macos.candidate_skin": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
     case ("GET", "/v1/users/me/preferences"):
-      body = json(["revision":Self.preferenceRevision, "settings":Self.preferences])
+      body = json(["revision":Self.preferenceRevision, "settings":Self.preferences.filter { $0.key != Self.omittedPreferenceKey }])
     case ("PUT", "/v1/users/me/preferences"):
       if values?["revision"] as? Int == Self.preferenceRevision, let settings = values?["settings"] as? [String: Any] {
         Self.preferenceRevision += 1; Self.preferences = settings
@@ -145,24 +146,39 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
     try require(windowClosures == 0)
-    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_skin": .string("wechat"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false)]
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_skin": .string("wechat"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
-      guard values.count == 3 else { throw Failure() }
+      guard values.count == 4 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
     try require(settings.preview?["platform.macos.candidate_skin"] == .string("wechat"))
+    try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
+    AccountFixture.omittedPreferenceKey = "platform.macos.candidate_font_size"
+    settings.download(); try await finished(settings)
+    try require(settings.preview == nil && settings.message != nil)
+    AccountFixture.omittedPreferenceKey = nil
+    settings.download(); try await finished(settings)
     localSettings["platform.macos.candidate_font_size"] = .integer(20)
     settings.apply(); try await finished(settings)
     try require(settings.message != nil && localSettings["platform.macos.candidate_font_size"] == .integer(20))
     settings.download(); try await finished(settings)
     settings.apply(); try await finished(settings)
     try require(localSettings["platform.macos.candidate_font_size"] == .integer(18))
+    try require(localSettings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
+    // A cloud-supported explicit value must win over the local fallback on restore.
+    localSettings["platform.macos.shuangpin_preedit_uses_raw"] = .boolean(true)
     settings.upload(); try await finished(settings)
     let credentials = try await session.credentials()
     let savedPreferences = try await client.preferences(token: credentials.token)
     try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
     try require(savedPreferences.settings["platform.macos.candidate_skin"] == .string("wechat"))
+    try require(savedPreferences.settings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
+    localSettings["platform.macos.shuangpin_preedit_uses_raw"] = .boolean(false)
+    settings.download(); try await finished(settings)
+    try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
+    settings.apply(); try await finished(settings)
+    try require(localSettings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
     _ = try await client.putPreferences(savedPreferences, token: credentials.token)
     settings.upload(); try await finished(settings)
     try require(settings.message != nil)

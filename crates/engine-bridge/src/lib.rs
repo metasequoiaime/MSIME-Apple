@@ -61,6 +61,7 @@ mod ffi {
         pub autocorrect_neighbor: bool,
         pub fuzzy_pinyin_rules: u32,
         pub helpcode: bool,
+        pub show_helpcode: bool,
         pub helpcode_schema: String,
         pub chinese_punctuation: bool,
         pub paired_punctuation: bool,
@@ -84,6 +85,7 @@ mod ffi {
     #[derive(Debug)]
     pub struct EngineSnapshot {
         pub local_mode: String,
+        pub dedicated_english: bool,
         pub nine_key: bool,
         pub nine_key_spellings: Vec<String>,
         pub microsoft_shuangpin: bool,
@@ -538,6 +540,7 @@ mod tests {
             autocorrect_neighbor: true,
             fuzzy_pinyin_rules: 0,
             helpcode: false,
+            show_helpcode: true,
             helpcode_schema: "ziranma".into(),
             chinese_punctuation: true,
             paired_punctuation: true,

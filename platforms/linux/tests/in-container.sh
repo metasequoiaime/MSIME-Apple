@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
+python3 platforms/linux/tests/panel_keymap.py
 cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
@@ -57,3 +58,7 @@ echo "Linux clipboard clear acceptance passed"
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")
 dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options"
+
+GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/gtk_smoke.py
+
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh /build/ibus/msime-client-ibus "$options" platforms/linux/tests/qt_smoke.py

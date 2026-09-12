@@ -42,6 +42,19 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
+std::string provider_socket_fallback(const Json &options, const char *option,
+                                      const char *environment, const char *filename) {
+  auto value = options.value(option, std::string{});
+  if (!value.empty())
+    return value;
+  if (const auto *socket = g_getenv(environment); socket && *socket)
+    return socket;
+  const auto *runtime = g_get_user_runtime_dir();
+  if (!runtime || !*runtime)
+    return {};
+  const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
+  return std::filesystem::exists(candidate) ? candidate.string() : std::string{};
+}
 struct State;
 bool script_conversion_applies(const Json &context);
 std::string traditional_display(const State &s, const Json &context,
@@ -88,6 +101,20 @@ struct State {
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
+  bool shift_down = false;
+  bool ctrl_down = false;
+  bool right_ctrl_down = false;
+  bool left_ctrl_down = false;
+  gint64 modifier_toggle_deadline = 0;
+  void reset_mode_modifiers() {
+    pure_shift_candidate = false;
+    pure_ctrl_candidate = false;
+    shift_down = false;
+    ctrl_down = false;
+    right_ctrl_down = false;
+    left_ctrl_down = false;
+    modifier_toggle_deadline = 0;
+  }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
   bool mode_ctrl_alt_space_enabled = true;
@@ -134,6 +161,8 @@ struct State {
   bool voice_space_consumed = false;
   bool voice_space_locked = false;
   bool voice_active = false;
+  bool voice_stopping = false;
+  bool voice_requires_control = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
   std::shared_ptr<std::atomic_bool> alive =
@@ -178,8 +207,7 @@ struct State {
     voice_hotkey_consumed_key = 0;
     voice_space_consumed = false;
     voice_space_locked = false;
-    pure_shift_candidate = false;
-    pure_ctrl_candidate = false;
+    reset_mode_modifiers();
     mode_chord_held = false;
     voice_worker.cancel_async();
     invalidate_providers();
@@ -267,11 +295,8 @@ struct State {
       show_helpcode_in_candidate_window = true;
     }
     clipboard_history_path = options.value("clipboard_history_path", std::string{});
-    online_provider_socket = options.value("online_provider_socket", std::string{});
-    if (online_provider_socket.empty()) {
-      if (const auto *socket = g_getenv("MSIME_ONLINE_PROVIDER_SOCKET"))
-        online_provider_socket = socket;
-    }
+    online_provider_socket = provider_socket_fallback(
+        options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     translation_provider_socket =
         options.value("translation_provider_socket", std::string{});
     if (translation_provider_socket.empty()) {
@@ -280,11 +305,8 @@ struct State {
     }
     if (translation_provider_socket.empty())
       translation_provider_socket = online_provider_socket;
-    voice_provider_socket = options.value("voice_provider_socket", std::string{});
-    if (voice_provider_socket.empty()) {
-      if (const auto *socket = g_getenv("MSIME_VOICE_PROVIDER_SOCKET"))
-        voice_provider_socket = socket;
-    }
+    voice_provider_socket = provider_socket_fallback(
+        options, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const auto voice_preferences = preferences.value("voice_input", Json::object());
     voice_enabled = voice_preferences.value("enabled", true);
     voice_language = voice_preferences.value("language", std::string("zh-cn"));
@@ -604,6 +626,7 @@ void commit_text(IBusEngine *engine, const std::string &text) {
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
+void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
@@ -1805,9 +1828,11 @@ void sync_global_input_mode(IBusEngine *engine) {
   if (!s.mode_scope_global || !global_input_enabled ||
       s.input_enabled == *global_input_enabled)
     return;
+  if (!*global_input_enabled && s.voice_active)
+    voice_cancel(engine);
   s.invalidate_providers();
   if (!*global_input_enabled && s.session)
-    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+    apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = *global_input_enabled;
   s.open();
   if (s.session)
@@ -1872,7 +1897,7 @@ void render(IBusEngine *engine, const Json &view) {
     ibus_engine_update_preedit_text_with_mode(
         engine,
         ibus_text_new_from_string(state(engine).voice_preedit.c_str()),
-        static_cast<guint>(state(engine).voice_preedit.size()), TRUE,
+        static_cast<guint>(g_utf8_strlen(state(engine).voice_preedit.c_str(), -1)), TRUE,
         IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
     ibus_engine_hide_auxiliary_text(engine);
@@ -2074,7 +2099,7 @@ void voice_cancel(IBusEngine *engine) {
 }
 void voice_stop(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.voice_active || s.voice_provider_socket.empty())
+  if (!s.voice_active || s.voice_stopping || s.voice_provider_socket.empty())
     return;
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       msime_client_voice_provider_stop(
@@ -2093,6 +2118,7 @@ void voice_stop(IBusEngine *engine) {
   if (!stopped)
     voice_cancel(engine);
   else {
+    s.voice_stopping = true;
     s.voice_space_consumed = false;
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -2112,6 +2138,8 @@ void voice_start(IBusEngine *engine) {
   const auto started = response(msime_client_voice_start(s.session));
   const auto generation = started.get<uint64_t>();
   s.voice_active = true;
+  s.voice_stopping = false;
+  s.voice_requires_control = false;
   s.voice_generation = generation;
   s.voice_space_consumed = false;
   s.voice_space_locked = false;
@@ -2159,8 +2187,8 @@ void voice_start(IBusEngine *engine) {
           return;
         auto *result = new VoiceResult{engine, alive, generation,
                                        std::move(text), false};
-        g_main_context_invoke(
-            nullptr,
+        g_idle_add_full(
+            G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
               std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
               if (!result->alive->load())
@@ -2177,12 +2205,12 @@ void voice_start(IBusEngine *engine) {
                   TRUE, IBUS_ENGINE_PREEDIT_CLEAR);
               return G_SOURCE_REMOVE;
             },
-            result);
+            result, nullptr);
       },
       [engine, alive, generation](std::string text) {
         auto *result = new VoiceResult{engine, alive, generation, std::move(text)};
-        g_main_context_invoke(
-            nullptr,
+        g_idle_add_full(
+            G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
               std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
               if (!result->alive->load())
@@ -2238,7 +2266,7 @@ void voice_start(IBusEngine *engine) {
               }
               return G_SOURCE_REMOVE;
             },
-            result);
+            result, nullptr);
       });
   publish_mode(engine);
 }
@@ -2246,7 +2274,7 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
     return s.voice_hotkey_ctrl_f9;
   if (key == IBUS_Alt_R && modifiers == (IBUS_MOD1_MASK | IBUS_CONTROL_MASK))
-    return s.voice_hotkey_rctrl_ralt;
+    return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
   if (key == IBUS_Alt_R && modifiers == IBUS_MOD1_MASK)
     return s.voice_hotkey_ralt;
   if ((key == IBUS_Super_L || key == IBUS_Super_R) &&
@@ -2297,6 +2325,7 @@ void focus_out(IBusEngine *engine) {
     voice_cancel(engine);
     s.voice_hotkey_consumed_key = 0;
     s.focused = false;
+    s.reset_mode_modifiers();
     s.ai_context.clear();
     s.invalidate_providers();
     s.surrounding_text.clear();
@@ -2948,10 +2977,12 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (enabled != s.input_enabled) {
+      if (!enabled && s.voice_active)
+        voice_cancel(engine);
       s.invalidate_providers();
       if (!enabled && s.session)
         apply(engine,
-              msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+              msime_client_command(s.session, MSIME_COMMIT_RAW));
       if (s.mode_scope_global)
         global_input_enabled = enabled;
       s.input_enabled = enabled;
@@ -3021,11 +3052,11 @@ std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
   if (modifiers != (unicode ? IBUS_SHIFT_MASK : 0))
     return std::nullopt;
   if (!unicode) {
-    // IBus keycode is the XKB hardware code on both X11 and Wayland. The
-    // standard number row is 10..19 (1..9,0); using it preserves physical-key
+    // IBus clients send evdev codes (GTK subtracts 8 from XKB hardware
+    // codes). The number row is 2..11 (1..9,0); this preserves physical-key
     // selection when the active layout produces symbols such as '&' or 'é'.
-    if (keycode >= 10 && keycode <= 19)
-      return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
+    if (keycode >= 2 && keycode <= 11)
+      return keycode == 11 ? 9 : static_cast<size_t>(keycode - 2);
     if (key >= IBUS_1 && key <= IBUS_9)
       return static_cast<size_t>(key - IBUS_1);
     if (key == IBUS_0)
@@ -3038,8 +3069,8 @@ std::optional<size_t> candidate_digit_slot(guint key, guint keycode,
   }
   if (!shifted)
     return std::nullopt;
-  if (keycode >= 10 && keycode <= 19)
-    return keycode == 19 ? 9 : static_cast<size_t>(keycode - 10);
+  if (keycode >= 2 && keycode <= 11)
+    return keycode == 11 ? 9 : static_cast<size_t>(keycode - 2);
   switch (key) {
   case '!': return 0;
   case '@': return 1;
@@ -3110,8 +3141,9 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.voice_active)
     voice_cancel(engine);
   s.invalidate_providers();
+  // Windows mode switching commits the reading string, not the candidate.
   if (s.input_enabled && s.session)
-    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+    apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = !s.input_enabled;
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
@@ -3126,18 +3158,24 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  const bool repeated_modifier = !release &&
+      ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
+  if (shift_key) s.shift_down = !release;
+  if (key == IBUS_Control_R) s.right_ctrl_down = !release;
+  if (key == IBUS_Control_L) s.left_ctrl_down = !release;
+  if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;
+
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
        IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
   if (shift_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_shift_candidate || chord_modifiers) {
+    if (!s.pure_shift_candidate || chord_modifiers ||
+        g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_shift_candidate = false;
       return FALSE;
     }
     s.pure_shift_candidate = false;
     if (!s.focused || s.blocked)
-      return FALSE;
-    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
       return FALSE;
     guarded(engine, "process_key", [&] {
       toggle_input_mode(engine);
@@ -3145,6 +3183,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
+    if (repeated_modifier) return FALSE;
+    s.modifier_toggle_deadline = g_get_monotonic_time() + 500000;
+    s.pure_ctrl_candidate = false;
     // A modifier already held when Shift arrives makes this a chord.
     // Ignore Caps/Num Lock; IBus includes Shift in the modifier mask for
     // the Shift key event itself.
@@ -3153,23 +3194,33 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return FALSE;
   }
   if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
-    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK)) {
+    if (s.voice_active && s.voice_requires_control && s.voice_hotkey_consumed_key &&
+        !s.voice_space_locked &&
+        (s.voice_hotkey_consumed_key == IBUS_Alt_R ? !s.right_ctrl_down : !s.ctrl_down)) {
+      s.pure_ctrl_candidate = false;
+      guarded(engine, "voice_control_release", [&] { voice_stop(engine); });
+      return FALSE;
+    }
+    if (!s.pure_ctrl_candidate || (chord_modifiers & ~IBUS_CONTROL_MASK) ||
+        (flags & IBUS_SHIFT_MASK) ||
+        g_get_monotonic_time() >= s.modifier_toggle_deadline) {
       s.pure_ctrl_candidate = false;
       return FALSE;
     }
     s.pure_ctrl_candidate = false;
     if (!s.focused || s.blocked)
       return FALSE;
-    if (!s.view.is_null() && !s.view.at("editing_text").get<std::string>().empty())
-      return FALSE;
     guarded(engine, "process_key", [&] { toggle_input_mode(engine); });
     return TRUE;
   }
   if (ctrl_key && !(flags & IBUS_RELEASE_MASK)) {
+    if (repeated_modifier) return FALSE;
+    s.modifier_toggle_deadline = g_get_monotonic_time() + 500000;
     s.pure_shift_candidate = false;
     s.pure_ctrl_candidate =
         s.mode_ctrl_enabled && s.focused && !s.blocked &&
-        (chord_modifiers & ~IBUS_CONTROL_MASK) == 0;
+        (chord_modifiers & ~IBUS_CONTROL_MASK) == 0 &&
+        (flags & IBUS_SHIFT_MASK) == 0;
     return FALSE;
   }
   if (key == IBUS_space && release && s.mode_chord_held) {
@@ -3190,7 +3241,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (s.voice_hotkey_consumed_key == key) {
       s.voice_hotkey_consumed_key = 0;
       if (s.voice_active && !s.voice_space_locked &&
-          voice_hold_hotkey(s, key, chord_modifiers))
+          key != IBUS_F9)
         guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
       return TRUE;
     }
@@ -3260,7 +3311,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // recognition is active. With the option disabled, Space follows the
   // regular editor/Engine path.
   if (s.voice_active && s.voice_hotkey_hold_space_lock && key == IBUS_space &&
-      modifiers == 0) {
+      (modifiers == 0 || voice_hold_hotkey(s, s.voice_hotkey_consumed_key, modifiers))) {
     s.voice_space_consumed = true;
     s.voice_space_locked = true;
     return TRUE;
@@ -3315,7 +3366,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
-  if (modifier(key))
+  if (modifier(key) &&
+      !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
     return FALSE;
   if (key == IBUS_BackSpace) {
     if (s.last_smart_punctuation != 0) {
@@ -3375,8 +3427,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.voice_hotkey_consumed_key = key;
       if (s.voice_active)
         voice_stop(engine);
-      else
+      else {
         voice_start(engine);
+        s.voice_requires_control = key != IBUS_F9 && (modifiers & IBUS_CONTROL_MASK);
+      }
       handled = true;
       return;
     }
@@ -3708,11 +3762,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
-      command = candidate_active ? MSIME_CANCEL : MSIME_BACKSPACE;
+      // Incremental candidates remain visible while Engine edits spelling.
+      command = MSIME_BACKSPACE;
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
-      command = candidate_active ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW;
+      command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
       command = MSIME_CANCEL;
@@ -3743,7 +3798,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Delete:
     case IBUS_KP_Delete:
-      command = candidate_active ? MSIME_CANCEL : MSIME_DELETE_FORWARD;
+      command = MSIME_DELETE_FORWARD;
       break;
     }
     if (command != UINT32_MAX)

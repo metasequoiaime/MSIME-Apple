@@ -69,10 +69,10 @@ final class MacSettingsModel: ObservableObject {
       _ = try await self.authorize()
       self.cloud = cloud; self.schema = schema
       var values = cloud.settings.filter { before[$0.key] != nil }
-      // Older cloud revisions predate skin sync; retain the device's skin while
-      // still restoring the complete previously supported desktop settings.
-      if values["platform.macos.candidate_skin"] == nil {
-        values["platform.macos.candidate_skin"] = before["platform.macos.candidate_skin"]
+      // Preserve device choices for fields added after the original snapshot format.
+      // Missing original fields must still reject an incomplete restore.
+      for key in ["platform.macos.candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
+        values[key] = before[key]
       }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
@@ -141,10 +141,14 @@ struct MacCloudSettingsView: View {
     } message: { Text(action == .upload ? "更新云端 macOS 设置，并保留其他平台的设置。" : "应用这份已预览的设置。本机或云端设置发生变化时会拒绝本次替换，请重新下载确认。") }
   }
   private func label(_ key: String) -> String {
+    if key == "platform.macos.shuangpin_preedit_uses_raw" { return "双拼预编辑" }
     let names = ["candidate_skin":"候选窗皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"本地扩展模式"]
     return names[String(key.dropFirst("platform.macos.".count))] ?? "桌面设置"
   }
   private func display(_ value: BackendPreferenceValue, key: String) -> String {
+    if key == "platform.macos.shuangpin_preedit_uses_raw", case .boolean(let raw) = value {
+      return raw ? "原始双拼显示" : "全拼显示"
+    }
     if key == "platform.macos.candidate_skin", case .string(let id) = value {
       return ["fluent":"Fluent", "wechat":"微信绿", "graphite":"石墨 Graphite", "willow_green":"杨柳青"][id] ?? id
     }

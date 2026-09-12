@@ -27,6 +27,67 @@ pub enum TouchKeyboardLayout {
     Handwriting,
 }
 
+/// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyboardScheme {
+    Quanpin,
+    NineKey,
+    Xiaohe,
+    Ziranma,
+    Microsoft,
+    Shoudao,
+    Wubi,
+    JapaneseNineKey,
+    Japanese,
+    Handwriting,
+    ThoughtfulReply,
+}
+
+impl TouchKeyboardScheme {
+    pub const ALL: [Self; 11] = [
+        Self::Quanpin,
+        Self::NineKey,
+        Self::Xiaohe,
+        Self::Ziranma,
+        Self::Microsoft,
+        Self::Shoudao,
+        Self::Wubi,
+        Self::JapaneseNineKey,
+        Self::Japanese,
+        Self::Handwriting,
+        Self::ThoughtfulReply,
+    ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchKeyboardSchemePreferences {
+    #[serde(default = "default_touch_keyboard_schemes")]
+    pub enabled: BTreeSet<TouchKeyboardScheme>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<TouchKeyboardScheme>,
+}
+
+fn default_touch_keyboard_schemes() -> BTreeSet<TouchKeyboardScheme> {
+    TouchKeyboardScheme::ALL.into_iter().collect()
+}
+
+impl Default for TouchKeyboardSchemePreferences {
+    fn default() -> Self {
+        Self {
+            enabled: default_touch_keyboard_schemes(),
+            selected: None,
+        }
+    }
+}
+
+impl TouchKeyboardSchemePreferences {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
@@ -121,12 +182,21 @@ pub struct Preferences {
     pub scheme: InputScheme,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
+    /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
+    #[serde(
+        default,
+        skip_serializing_if = "TouchKeyboardSchemePreferences::is_default"
+    )]
+    pub touch_keyboard_schemes: TouchKeyboardSchemePreferences,
     /// Horizontal key gap in tenths of a density-independent pixel.
     #[serde(default = "default_touch_key_spacing_tenths")]
     pub touch_key_spacing_tenths: u8,
     /// Vertical row gap in tenths of a density-independent pixel.
     #[serde(default = "default_touch_row_spacing_tenths")]
     pub touch_row_spacing_tenths: u8,
+    /// Touch-keyboard height adjustment in density-independent pixels.
+    #[serde(default)]
+    pub touch_keyboard_height_adjustment: i8,
     /// Show a direct voice-result entry in touch-keyboard toolbars.
     #[serde(default)]
     pub touch_voice_shortcut: bool,
@@ -683,8 +753,10 @@ impl Default for Preferences {
             candidate_follow_cursor: true,
             scheme: InputScheme::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
+            touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
+            touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
@@ -915,8 +987,17 @@ impl Preferences {
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
             || !(40..=100).contains(&self.touch_row_spacing_tenths)
+            || !(-12..=48).contains(&self.touch_keyboard_height_adjustment)
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
+        }
+        if self.touch_keyboard_schemes.enabled.is_empty()
+            || self
+                .touch_keyboard_schemes
+                .selected
+                .is_some_and(|selected| !self.touch_keyboard_schemes.enabled.contains(&selected))
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSchemes);
         }
         if !(12..=32).contains(&self.candidate_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
@@ -1001,6 +1082,10 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error(
+        "at least one touch keyboard scheme must be enabled and the selection must be visible"
+    )]
+    InvalidTouchKeyboardSchemes,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
@@ -1674,6 +1759,64 @@ mod tests {
     }
 
     #[test]
+    fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(dir.path());
+        let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+        fs::write(store.path(), &legacy).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(
+            loaded.preferences.touch_keyboard_schemes.enabled,
+            TouchKeyboardScheme::ALL.into_iter().collect()
+        );
+        assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
+        assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+        let visible = [
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Handwriting,
+        ]
+        .into_iter()
+        .collect();
+        let saved = store
+            .save(
+                0,
+                Preferences {
+                    touch_keyboard_schemes: TouchKeyboardSchemePreferences {
+                        enabled: visible,
+                        selected: Some(TouchKeyboardScheme::Handwriting),
+                    },
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+
+        for value in [
+            serde_json::json!({"enabled": [], "selected": null}),
+            serde_json::json!({"enabled": ["nine_key"], "selected": "handwriting"}),
+        ] {
+            let mut invalid = serde_json::to_value(&saved).unwrap();
+            invalid["preferences"]["touch_keyboard_schemes"] = value;
+            let bytes = serde_json::to_vec(&invalid).unwrap();
+            fs::write(store.path(), &bytes).unwrap();
+            assert!(matches!(
+                store.save(1, Preferences::default()),
+                Err(PreferencesError::InvalidTouchKeyboardSchemes)
+            ));
+            assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        }
+
+        let mut unknown = serde_json::to_value(&saved).unwrap();
+        unknown["preferences"]["touch_keyboard_schemes"]["enabled"] =
+            serde_json::json!(["nine_key", "future_scheme"]);
+        let bytes = serde_json::to_vec(&unknown).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    }
+
+    #[test]
     fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(dir.path());
@@ -1681,6 +1824,7 @@ mod tests {
         for key in [
             "touch_key_spacing_tenths",
             "touch_row_spacing_tenths",
+            "touch_keyboard_height_adjustment",
             "touch_voice_shortcut",
         ] {
             legacy["preferences"].as_object_mut().unwrap().remove(key);
@@ -1690,6 +1834,7 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded.preferences.touch_key_spacing_tenths, 60);
         assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
+        assert_eq!(loaded.preferences.touch_keyboard_height_adjustment, 0);
         assert!(!loaded.preferences.touch_voice_shortcut);
         assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
@@ -1699,6 +1844,7 @@ mod tests {
                 Preferences {
                     touch_key_spacing_tenths: 35,
                     touch_row_spacing_tenths: 95,
+                    touch_keyboard_height_adjustment: 24,
                     touch_voice_shortcut: true,
                     ..Preferences::default()
                 },
@@ -1706,6 +1852,7 @@ mod tests {
             .unwrap();
         assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
         assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
+        assert_eq!(saved.preferences.touch_keyboard_height_adjustment, 24);
         assert!(saved.preferences.touch_voice_shortcut);
 
         for (key, value) in [
@@ -1719,6 +1866,15 @@ mod tests {
                 "touch_key_spacing_tenths" => invalid.touch_key_spacing_tenths = value,
                 _ => invalid.touch_row_spacing_tenths = value,
             }
+            assert!(matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSpacing)
+            ));
+        }
+
+        for value in [-13, 49] {
+            let mut invalid = saved.preferences.clone();
+            invalid.touch_keyboard_height_adjustment = value;
             assert!(matches!(
                 invalid.validate(),
                 Err(PreferencesError::InvalidTouchKeyboardSpacing)

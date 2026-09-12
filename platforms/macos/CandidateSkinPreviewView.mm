@@ -8,6 +8,12 @@ static NSColor *PreviewColor(msime::mac::Rgba color) {
 
 namespace
 {
+CGFloat PreviewPreeditHeight(CGFloat candidateFontSize)
+{
+    NSFont *font = [NSFont systemFontOfSize:MAX(11.0, candidateFontSize - 3.0) weight:NSFontWeightRegular];
+    return MAX(22.0, ceil(font.ascender - font.descender + font.leading) + 6.0);
+}
+
 void DrawSkinChrome(NSRect rect, const msime::mac::SkinTokens &tokens)
 {
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:tokens.radius yRadius:tokens.radius];
@@ -49,7 +55,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
     metrics.sectionGap = 10.0;
     metrics.top = 10.0;
     metrics.bottom = 14.0;
-    metrics.preeditHeight = 22.0;
+    metrics.preeditHeight = PreviewPreeditHeight(metrics.fontSize);
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     metrics.horizontalHeight = 6.0 + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + 6.0;
@@ -74,7 +80,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     metrics.sectionGap = 0.0;
     metrics.top = 10.0;
     metrics.bottom = 14.0;
-    metrics.preeditHeight = 22.0;
+    metrics.preeditHeight = PreviewPreeditHeight(metrics.fontSize);
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const NSInteger visibleRows = panelStyle == 1 ? MIN(MAX(pageSize, (NSInteger)1), (NSInteger)5) : 1;
@@ -152,7 +158,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
     const CGFloat pad = 6.0;
-    const CGFloat preeditHeight = 22.0;
+    const CGFloat preeditHeight = PreviewPreeditHeight(fontSize);
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);

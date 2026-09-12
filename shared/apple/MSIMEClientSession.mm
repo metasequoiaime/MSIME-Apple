@@ -163,6 +163,11 @@ static NSDictionary *decode(char *response, NSError **error) {
         NSData *restore = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:nil];
         NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
         session->_handle = [view[@"session"] unsignedLongLongValue];
+        if (session->_handle != 0) {
+            // Recovery creates a fresh session too; the host must clear the
+            // destroyed composition and restore focus even though activation failed.
+            [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
+        }
         return NO;
     }
     NSData *options = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:error];
@@ -229,14 +234,17 @@ static NSDictionary *decode(char *response, NSError **error) {
     self = [super init];
     if (!self) return nil;
     if (![NSJSONSerialization isValidJSONObject:options]) { setError(error, @"输入会话配置必须是 JSON 对象"); return nil; }
-    _hostOptions = [options copy];
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:error];
     if (!data) return nil;
+    // Retain the exact immutable configuration sent to the host, not mutable
+    // nested dictionaries owned by the caller and reused during recovery.
+    _hostOptions = [NSJSONSerialization JSONObjectWithData:data options:0 error:error];
+    if (!_hostOptions) return nil;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(data.bytes), data.length), error);
     if (!view) return nil;
     _handle = [view[@"session"] unsignedLongLongValue];
     if (!_handle) { setError(error, @"输入会话句柄无效"); return nil; }
-    gActiveSession = self;
+    if (!gActiveSession) gActiveSession = self;
     return self;
 }
 
@@ -248,7 +256,11 @@ static NSDictionary *decode(char *response, NSError **error) {
 
 - (nullable NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
-    return decode(msime_client_focus(_handle, focused), error);
+    NSDictionary *result = decode(msime_client_focus(_handle, focused), error);
+    // Keep the last focused session available while a dictionary/settings window
+    // has focus; constructing an unrelated session must not steal its target.
+    if (result && focused) gActiveSession = self;
+    return result;
 }
 - (nullable NSDictionary *)setEnglishMode:(BOOL)enabled error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
@@ -287,7 +299,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好快照必须是 JSON 对象"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
     if (!data) return nil;
-    return decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    NSDictionary *result = decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    if (result) {
+        // Keep the accepted desired configuration for snapshot replacement/recovery.
+        // Decode our serialized input to avoid retaining caller-owned mutable data.
+        NSDictionary *accepted = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        NSMutableDictionary *options = [_hostOptions mutableCopy];
+        options[@"preferences"] = accepted[@"preferences"];
+        _hostOptions = [options copy];
+    }
+    return result;
 }
 - (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
 - (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
@@ -297,6 +318,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSDictionary *result = decode(msime_client_destroy(_handle), error);
     if (!result) return NO;
     _handle = 0;
+    if (gActiveSession == self) gActiveSession = nil;
     return YES;
 }
 - (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary *, NSError *))completion {

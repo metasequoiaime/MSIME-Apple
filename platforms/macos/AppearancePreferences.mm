@@ -1,12 +1,27 @@
 #import "AppearancePreferences.h"
 #import "CandidateSkinPreviewView.h"
 #import "SkinSettingsView.h"
+#include "ShuangpinProfileNames.h"
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
+static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
+static NSArray<NSArray<NSString *> *> *LocalModeControls() {
+    return @[@[@"quick_phrase", @"快捷短语（K 模式）"], @[@"date_time", @"日期与时间（T 模式）"],
+             @[@"unicode", @"Unicode 录入（U 模式）"], @[@"emoji", @"Emoji（E 模式）"],
+             @[@"kaomoji", @"颜文字（M 模式）"], @[@"super_jianpin", @"超级简拼（J 模式）"],
+             @[@"temporary_english", @"临时英文（Y 模式）"], @[@"temporary_japanese", @"临时日语（R 模式）"]];
+}
+static BOOL KnownLocalMode(NSString *mode) {
+    for (NSArray *entry in LocalModeControls()) if ([entry[0] isEqual:mode]) return YES;
+    return NO;
+}
+static BOOL LocalModeBoolean(id value) {
+    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
+}
 static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const PageShortcutKey = @"MSIMEClientCandidatePageShortcut";
 static NSString *const PageSizeKey = @"MSIMEClientCandidatePageSize";
@@ -17,6 +32,14 @@ static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
+static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
+static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"]; }
+static BOOL ValidHelpcodeOption(NSString *key, id value) {
+    return [key isEqual:@"schema"] ? [HelpcodeSchemas() containsObject:value] :
+        ([key isEqual:@"show_in_candidate_window"] && LocalModeBoolean(value));
+}
+static NSString *const QuanpinHelpcodeKey = @"MSIMEClientQuanpinHelpcodeEnabled";
+static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnabled";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
@@ -25,6 +48,21 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSMutableDictionary *_sharedHelpcodeOptions;
+    NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
+    NSMutableDictionary<NSString *, NSButton *> *_helpcodeDisplayButtons;
+    NSNumber *_sharedChinesePunctuation;
+    NSNumber *_sharedAutocorrect;
+    NSNumber *_sharedQuanpinHelpcode;
+    NSNumber *_sharedShuangpinHelpcode;
+    NSNumber *_sharedVertical;
+    NSNumber *_sharedFontSize;
+    NSNumber *_sharedPageSize;
+    NSString *_sharedInputScheme;
+    NSString *_sharedShuangpinProfile;
+    NSNumber *_sharedShuangpinPreeditUsesRaw;
+    NSMutableDictionary *_sharedLocalModes;
+    NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
     NSPopUpButton *_schemeButton;
     NSPopUpButton *_profileButton;
@@ -48,7 +86,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSButton *_punctuationButton;
     NSButton *_toolbarButton;
     NSButton *_autocorrectButton;
-    NSButton *_helpcodeButton;
+    NSButton *_quanpinHelpcodeButton;
+    NSButton *_shuangpinHelpcodeButton;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -78,11 +117,19 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    qh[@"enabled"] = @(self.helpcodeEnabled);
+    qh[@"enabled"] = @(self.quanpinHelpcodeEnabled);
     merged[@"quanpin_helpcode"] = qh;
     NSMutableDictionary *sh = [merged[@"shuangpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
-    sh[@"enabled"] = @(self.helpcodeEnabled);
+    sh[@"enabled"] = @(self.shuangpinHelpcodeEnabled);
     merged[@"shuangpin_helpcode"] = sh;
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSDictionary *stored = [_defaults dictionaryForKey:HelpcodeOptionsKey][scheme];
+        if (![stored isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *target = merged[[scheme stringByAppendingString:@"_helpcode"]];
+        NSDictionary *effective = [self helpcodeOptionsForScheme:scheme];
+        for (NSString *key in @[@"schema", @"show_in_candidate_window"])
+            if (ValidHelpcodeOption(key, stored[key])) target[key] = effective[key];
+    }
     merged[@"candidate_page_size"] = @(self.pageSize);
     merged[@"candidate_font_size"] = @(self.fontSize);
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
@@ -95,7 +142,42 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
     merged[@"floating_toolbar"] = toolbar;
+    NSDictionary *stored = [_defaults dictionaryForKey:LocalModesKey];
+    NSMutableDictionary *modes = [merged[@"local_modes"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    for (NSArray *entry in LocalModeControls()) {
+        NSString *mode = entry[0];
+        if (LocalModeBoolean(stored[mode])) modes[mode] = @([self localModeEnabled:mode]);
+    }
+    if (modes.count) merged[@"local_modes"] = modes;
     return merged;
+}
+- (BOOL)localModeEnabled:(NSString *)mode {
+    if (!KnownLocalMode(mode)) return NO;
+    NSNumber *value = _sharedLocalModes[mode] ?: [_defaults dictionaryForKey:LocalModesKey][mode];
+    return LocalModeBoolean(value) ? value.boolValue : YES;
+}
+- (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled {
+    if (!KnownLocalMode(mode)) return;
+    NSMutableDictionary *stored = [[_defaults dictionaryForKey:LocalModesKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    stored[mode] = @(enabled);
+    [_defaults setObject:stored forKey:LocalModesKey];
+    if (!_sharedLocalModes) _sharedLocalModes = [NSMutableDictionary dictionary];
+    _sharedLocalModes[mode] = @(enabled);
+    [self preferencesChanged];
+}
+- (void)applySharedLocalModes:(NSDictionary *)modes {
+    if (![modes isKindOfClass:NSDictionary.class]) return;
+    if (!_sharedLocalModes) _sharedLocalModes = [NSMutableDictionary dictionary];
+    for (NSArray *entry in LocalModeControls()) {
+        id value = modes[entry[0]];
+        if (LocalModeBoolean(value))
+            _sharedLocalModes[entry[0]] = value;
+    }
+    for (NSButton *button in _localModeButtons)
+        button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
+}
+- (void)localModeChanged:(NSButton *)sender {
+    [self setLocalMode:sender.identifier enabled:sender.state == NSControlStateValueOn];
 }
 - (NSImage *)decorationImage { return _decorationImage; }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
@@ -114,21 +196,91 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
     }
 }
-- (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
-- (BOOL)autocorrect { return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
-- (void)setAutocorrect:(BOOL)value { [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
+- (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
+- (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
-- (void)setHelpcodeEnabled:(BOOL)value { [_defaults setBool:value forKey:HelpcodeKey]; [self preferencesChanged]; }
-- (NSString *)inputScheme { NSString *value = [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
-- (NSString *)shuangpinProfile { NSString *value = [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
-- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
-- (BOOL)shuangpinPreeditUsesRaw { return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
-- (void)setShuangpinPreeditUsesRaw:(BOOL)value { [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (void)setHelpcodeEnabled:(BOOL)value {
+    _sharedQuanpinHelpcode = nil;
+    _sharedShuangpinHelpcode = nil;
+    [_defaults setBool:value forKey:HelpcodeKey];
+    [_defaults setBool:value forKey:QuanpinHelpcodeKey];
+    [_defaults setBool:value forKey:ShuangpinHelpcodeKey];
+    [self preferencesChanged];
+}
+- (BOOL)quanpinHelpcodeEnabled { if (_sharedQuanpinHelpcode) return _sharedQuanpinHelpcode.boolValue; return [_defaults objectForKey:QuanpinHelpcodeKey] ? [_defaults boolForKey:QuanpinHelpcodeKey] : self.helpcodeEnabled; }
+- (BOOL)shuangpinHelpcodeEnabled { if (_sharedShuangpinHelpcode) return _sharedShuangpinHelpcode.boolValue; return [_defaults objectForKey:ShuangpinHelpcodeKey] ? [_defaults boolForKey:ShuangpinHelpcodeKey] : self.helpcodeEnabled; }
+- (void)setQuanpinHelpcodeEnabled:(BOOL)value { _sharedQuanpinHelpcode = nil; [_defaults setBool:value forKey:QuanpinHelpcodeKey]; [self preferencesChanged]; }
+- (void)setShuangpinHelpcodeEnabled:(BOOL)value { _sharedShuangpinHelpcode = nil; [_defaults setBool:value forKey:ShuangpinHelpcodeKey]; [self preferencesChanged]; }
+- (void)applySharedAssistancePreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id autocorrect = preferences[@"autocorrect"];
+    id quanpin = preferences[@"quanpin_helpcode"];
+    id shuangpin = preferences[@"shuangpin_helpcode"];
+    if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
+    if ([quanpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(quanpin[@"enabled"])) _sharedQuanpinHelpcode = quanpin[@"enabled"];
+    if ([shuangpin isKindOfClass:NSDictionary.class] && LocalModeBoolean(shuangpin[@"enabled"])) _sharedShuangpinHelpcode = shuangpin[@"enabled"];
+    if (!_sharedHelpcodeOptions) _sharedHelpcodeOptions = [NSMutableDictionary dictionary];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        id shared = preferences[[scheme stringByAppendingString:@"_helpcode"]];
+        if (![shared isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *values = [_sharedHelpcodeOptions[scheme] mutableCopy] ?: [NSMutableDictionary dictionary];
+        for (NSString *key in @[@"schema", @"show_in_candidate_window"])
+            if (ValidHelpcodeOption(key, shared[key])) values[key] = shared[key];
+        _sharedHelpcodeOptions[scheme] = values;
+    }
+    [self refreshControls];
+}
+- (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme {
+    NSMutableDictionary *values = [@{@"schema": @"ziranma", @"show_in_candidate_window": @YES} mutableCopy];
+    id stored = [_defaults dictionaryForKey:HelpcodeOptionsKey][scheme];
+    if ([stored isKindOfClass:NSDictionary.class])
+        for (NSString *key in values.allKeys) if (ValidHelpcodeOption(key, stored[key])) values[key] = stored[key];
+    [values addEntriesFromDictionary:_sharedHelpcodeOptions[scheme] ?: @{}];
+    return values;
+}
+- (void)setHelpcodeOption:(NSString *)key value:(id)value scheme:(NSString *)scheme {
+    if (![@[@"quanpin", @"shuangpin"] containsObject:scheme] || !ValidHelpcodeOption(key, value)) return;
+    NSMutableDictionary *all = [[_defaults dictionaryForKey:HelpcodeOptionsKey] mutableCopy] ?: [NSMutableDictionary dictionary];
+    id existing = all[scheme];
+    NSMutableDictionary *values = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+    values[key] = value;
+    all[scheme] = values;
+    [_defaults setObject:all forKey:HelpcodeOptionsKey];
+    if (!_sharedHelpcodeOptions) _sharedHelpcodeOptions = [NSMutableDictionary dictionary];
+    NSMutableDictionary *shared = [_sharedHelpcodeOptions[scheme] mutableCopy] ?: [NSMutableDictionary dictionary];
+    shared[key] = value;
+    _sharedHelpcodeOptions[scheme] = shared;
+    [self preferencesChanged];
+}
+- (void)helpcodeSchemaChanged:(NSPopUpButton *)sender {
+    [self setHelpcodeOption:@"schema" value:sender.selectedItem.representedObject scheme:sender.identifier];
+}
+- (void)helpcodeDisplayChanged:(NSButton *)sender {
+    [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
+}
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value] ? value : @"quanpin"; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
+- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
+- (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
+- (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (void)applySharedInputPreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id punctuation = preferences[@"chinese_punctuation"];
+    if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
+    id scheme = preferences[@"scheme"];
+    id profile = preferences[@"shuangpin_profile"];
+    id raw = preferences[@"shuangpin_preedit_uses_raw"];
+    if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
+    if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    [self refreshControls];
+}
 - (BOOL)englishMode { return [_defaults boolForKey:EnglishKey]; }
 - (BOOL)traditionalOutput { return [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
-- (BOOL)chinesePunctuation { return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
+- (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }
@@ -144,6 +296,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)setChinesePunctuation:(BOOL)value {
+    _sharedChinesePunctuation = nil;
     [_defaults setBool:value forKey:ChinesePunctuationKey];
     [self preferencesChanged];
 }
@@ -163,15 +316,17 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)setVertical:(BOOL)value {
+    _sharedVertical = nil;
     [_defaults setInteger:value ? 1 : 0 forKey:LayoutKey];
     [self preferencesChanged];
 }
 - (NSUInteger)fontSize {
-    NSInteger size = [_defaults integerForKey:FontKey];
-    return size == 16 || size == 20 ? size : 18;
+    NSInteger size = _sharedFontSize ? _sharedFontSize.integerValue : [_defaults integerForKey:FontKey];
+    return size >= 12 && size <= 32 ? size : 18;
 }
 - (void)setFontSize:(NSUInteger)value {
-    [_defaults setInteger:value == 16 || value == 20 ? value : 18 forKey:FontKey];
+    _sharedFontSize = nil;
+    [_defaults setInteger:value >= 12 && value <= 32 ? value : 18 forKey:FontKey];
     [self preferencesChanged];
 }
 - (void)preferencesChanged {
@@ -192,25 +347,45 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (NSUInteger)pageSize {
-    NSInteger value = [_defaults integerForKey:PageSizeKey];
-    return value == 5 || value == 7 ? value : 9;
+    NSInteger value = _sharedPageSize ? _sharedPageSize.integerValue : [_defaults integerForKey:PageSizeKey];
+    return value >= 1 && value <= 9 ? value : 9;
 }
 - (void)setPageSize:(NSUInteger)value {
-    [_defaults setInteger:value == 5 || value == 7 ? value : 9 forKey:PageSizeKey];
+    _sharedPageSize = nil;
+    [_defaults setInteger:value >= 1 && value <= 9 ? value : 9 forKey:PageSizeKey];
     [self preferencesChanged];
+}
+- (void)applySharedCandidatePreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id layout = preferences[@"candidate_layout"];
+    if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
+    id font = preferences[@"candidate_font_size"];
+    id page = preferences[@"candidate_page_size"];
+    // Match the shared integer ranges; booleans and fractions are not sizes.
+    if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
+    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9) _sharedPageSize = page;
+    [self refreshControls];
 }
 - (void)setPageShortcut:(NSInteger)value {
     [_defaults setInteger:value == 1 || value == 2 ? value : 0 forKey:PageShortcutKey];
     [self preferencesChanged];
 }
 - (void)refreshControls {
+    for (NSString *scheme in _helpcodeSchemaButtons) {
+        NSDictionary *values = [self helpcodeOptionsForScheme:scheme];
+        [_helpcodeSchemaButtons[scheme] selectItemAtIndex:[HelpcodeSchemas() indexOfObject:values[@"schema"]]];
+        _helpcodeDisplayButtons[scheme].state = [values[@"show_in_candidate_window"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+    }
     _fullWidthButton.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapButton.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiButton.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationButton.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarButton.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _autocorrectButton.state = self.autocorrect ? NSControlStateValueOn : NSControlStateValueOff;
-    _helpcodeButton.state = self.helpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _quanpinHelpcodeButton.state = self.quanpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _shuangpinHelpcodeButton.state = self.shuangpinHelpcodeEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    for (NSButton *button in _localModeButtons)
+        button.state = [self localModeEnabled:button.identifier] ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeShortcutButton.state = self.inputModeShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2};
@@ -218,9 +393,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
-    [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
+    [_fontButton selectItemAtIndex:self.fontSize - 12];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
-    [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
+    [_pageSizeButton selectItemAtIndex:self.pageSize - 1];
     [_skinButton removeAllItems];
     for (const auto &entry : _skins) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@(entry.name.c_str()) action:nil keyEquivalent:@""];
@@ -254,7 +429,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _schemeButton.target = self;
     _schemeButton.action = @selector(schemeChanged:);
     _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_profileButton addItemsWithTitles:@[@"小鹤", @"自然码", @"搜狗", @"微软"]];
+    for (const char *identifier : msime::mac::kShuangpinSchemaIdentifiers)
+        [_profileButton addItemWithTitle:[NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(identifier)]];
     _profileButton.target = self;
     _profileButton.action = @selector(profileChanged:);
     _preeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -262,7 +438,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _preeditButton.target = self;
     _preeditButton.action = @selector(preeditChanged:);
     _fontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_fontButton addItemsWithTitles:@[@"小（16 pt）", @"标准（18 pt）", @"大（20 pt）"]];
+    for (NSUInteger size = 12; size <= 32; ++size)
+        [_fontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
@@ -272,7 +449,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _pageShortcutButton.target = self;
     _pageShortcutButton.action = @selector(pageShortcutChanged:);
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_pageSizeButton addItemsWithTitles:@[@"5 个", @"7 个", @"9 个"]];
+    for (NSUInteger size = 1; size <= 9; ++size)
+        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个", (unsigned long)size]];
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);
@@ -289,7 +467,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _punctuationButton = [NSButton checkboxWithTitle:@"中文标点" target:self action:@selector(punctuationChanged:)];
     _toolbarButton = [NSButton checkboxWithTitle:@"显示浮动工具栏" target:self action:@selector(toolbarChanged:)];
     _autocorrectButton = [NSButton checkboxWithTitle:@"自动纠错" target:self action:@selector(autocorrectChanged:)];
-    _helpcodeButton = [NSButton checkboxWithTitle:@"启用辅助码" target:self action:@selector(helpcodeChanged:)];
+    _quanpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用全拼辅助码" target:self action:@selector(quanpinHelpcodeChanged:)];
+    _shuangpinHelpcodeButton = [NSButton checkboxWithTitle:@"启用双拼辅助码" target:self action:@selector(shuangpinHelpcodeChanged:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
         @[[NSTextField labelWithString:@"输入方案"], _schemeButton],
         @[[NSTextField labelWithString:@"双拼键盘"], _profileButton],
@@ -308,9 +487,36 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         @[[NSTextField labelWithString:@"标点输入"], _punctuationButton],
         @[[NSTextField labelWithString:@"工具栏"], _toolbarButton],
         @[[NSTextField labelWithString:@"输入辅助"], _autocorrectButton],
-        @[[NSTextField labelWithString:@"辅助码"], _helpcodeButton]
+        @[[NSTextField labelWithString:@"全拼辅助码"], _quanpinHelpcodeButton],
+        @[[NSTextField labelWithString:@"双拼辅助码"], _shuangpinHelpcodeButton]
     ]];
     grid.rowSpacing = 16;
+    _helpcodeSchemaButtons = [NSMutableDictionary dictionary];
+    _helpcodeDisplayButtons = [NSMutableDictionary dictionary];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
+        NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]];
+        for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
+            [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
+        schemas.identifier = scheme;
+        schemas.target = self;
+        schemas.action = @selector(helpcodeSchemaChanged:);
+        schemas.accessibilityLabel = [name stringByAppendingString:@"辅助码方案"];
+        NSButton *display = [NSButton checkboxWithTitle:[NSString stringWithFormat:@"在候选窗口中显示%@辅助码", name] target:self action:@selector(helpcodeDisplayChanged:)];
+        display.identifier = scheme;
+        _helpcodeSchemaButtons[scheme] = schemas;
+        _helpcodeDisplayButtons[scheme] = display;
+        [grid addRowWithViews:@[[NSTextField labelWithString:schemas.accessibilityLabel], schemas]];
+        [grid addRowWithViews:@[[NSTextField labelWithString:[name stringByAppendingString:@"辅助码显示"]], display]];
+    }
+    _localModeButtons = [NSMutableArray array];
+    for (NSArray<NSString *> *entry in LocalModeControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
+        button.identifier = entry[0];
+        [_localModeButtons addObject:button];
+        [grid addRowWithViews:@[[NSTextField labelWithString:@"扩展输入"], button]];
+    }
     grid.columnSpacing = 20;
     grid.translatesAutoresizingMaskIntoConstraints = NO;
     NSScrollView *settingsScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
@@ -359,7 +565,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 }
 - (void)layoutChanged:(NSPopUpButton *)sender { self.vertical = sender.indexOfSelectedItem == 1; }
 - (void)autocorrectChanged:(NSButton *)sender { self.autocorrect = sender.state == NSControlStateValueOn; }
-- (void)helpcodeChanged:(NSButton *)sender { self.helpcodeEnabled = sender.state == NSControlStateValueOn; }
+- (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
+- (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi"][sender.indexOfSelectedItem]; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
@@ -399,11 +606,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)showWindow:(id)sender { [self reloadSkins]; [super showWindow:sender]; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)pageSizeChanged:(NSPopUpButton *)sender {
-    self.pageSize = sender.indexOfSelectedItem == 0 ? 5 : sender.indexOfSelectedItem == 1 ? 7 : 9;
+    self.pageSize = sender.indexOfSelectedItem + 1;
 }
 - (void)fontChanged:(NSPopUpButton *)sender {
-    const NSUInteger sizes[] = {16, 18, 20};
     NSInteger index = sender.indexOfSelectedItem;
-    self.fontSize = index >= 0 && index < 3 ? sizes[index] : 18;
+    self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
 @end

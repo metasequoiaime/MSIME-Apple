@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
@@ -446,11 +448,11 @@ async fn cloud_clipboard_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_clipboard(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -500,11 +502,11 @@ async fn cloud_dictionary_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_dictionary(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -834,7 +836,40 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0x0d => 28,
         0x20 => 57,
         0x2e => 111,
+        0x13 => 119,
+        0x10 => 42,
+        0x11 => 29,
+        0x12 => 56,
+        0xa1 => 54,
+        0xa3 => 97,
+        0xa5 => 100,
         0x14 => 58,
+        0x1b => 1,
+        0x21 => 104,
+        0x22 => 109,
+        0x23 => 107,
+        0x24 => 102,
+        0x25 => 105,
+        0x26 => 103,
+        0x27 => 106,
+        0x28 => 108,
+        0x2c => 99,
+        0x2d => 110,
+        0x5b => 125,
+        0x5c => 126,
+        0x5d => 127,
+        0x70..=0x79 => virtual_key - 0x70 + 59,
+        0x7a => 87,
+        0x7b => 88,
+        0x60..=0x69 => [82, 79, 80, 81, 75, 76, 77, 71, 72, 73][(virtual_key - 0x60) as usize],
+        0x6a => 55,
+        0x6b => 78,
+        0x6c => 121,
+        0x6d => 74,
+        0x6e => 83,
+        0x6f => 98,
+        0x90 => 69,
+        0x91 => 70,
         0xc0 => 41,
         0xbd => 12,
         0xbb => 13,
@@ -846,6 +881,7 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0xbc => 51,
         0xbe => 52,
         0xbf => 53,
+        0xe2 => 86,
         0x30 => 11,
         0x31 => 2,
         0x32 => 3,
@@ -910,7 +946,38 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0x0d => "Return",
         0x20 => "space",
         0x2e => "Delete",
+        0x13 => "Pause",
+        0x10 => "Shift_L",
+        0x11 => "Control_L",
+        0x12 => "Alt_L",
+        0xa1 => "Shift_R",
+        0xa3 => "Control_R",
+        0xa5 => "Alt_R",
         0x14 => "Caps_Lock",
+        0x1b => "Escape",
+        0x21 => "Prior",
+        0x22 => "Next",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x2c => "Print",
+        0x2d => "Insert",
+        0x5b => "Super_L",
+        0x5c => "Super_R",
+        0x5d => "Menu",
+        0x60..=0x69 => return Some(format!("KP_{}", virtual_key - 0x60)),
+        0x6a => "KP_Multiply",
+        0x6b => "KP_Add",
+        0x6c => "KP_Separator",
+        0x6d => "KP_Subtract",
+        0x6e => "KP_Decimal",
+        0x6f => "KP_Divide",
+        0x90 => "Num_Lock",
+        0x91 => "Scroll_Lock",
+        0x70..=0x7b => return Some(format!("F{}", virtual_key - 0x70 + 1)),
         0xc0 => "grave",
         0xbd => "minus",
         0xbb => "equal",
@@ -922,6 +989,7 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0xbc => "comma",
         0xbe => "period",
         0xbf => "slash",
+        0xe2 => "less",
         0x30..=0x39 => return char::from_u32(virtual_key as u32).map(|value| value.to_string()),
         0x41..=0x5a => {
             return char::from_u32(virtual_key as u32)
@@ -1503,6 +1571,30 @@ fn voice_provider_options(document: &Value) -> Value {
     Value::Object(options)
 }
 
+#[cfg(unix)]
+fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
+    document
+        .get("voice_provider_socket")
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+        })
+        .or_else(|| {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(std::path::PathBuf::from)
+                .map(|dir| dir.join("msime-client/voice.sock"))
+                .filter(|path| {
+                    path.metadata()
+                        .map(|metadata| metadata.file_type().is_socket())
+                        .unwrap_or(false)
+                })
+        })
+}
+
 #[tauri::command]
 async fn recognize_voice(
     app: tauri::AppHandle,
@@ -1534,20 +1626,9 @@ async fn recognize_voice(
             .map(|document| document.clone())
             .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
-        let configured = document
-            .get("voice_provider_socket")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let path = configured
-            .or_else(|| {
-                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
+        let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
+            code: "unavailable",
+        })?;
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let session = sessions
             .begin(request.request_id, path)
@@ -1586,7 +1667,7 @@ async fn recognize_voice(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        return Ok(VoiceRecognitionResult { text });
+        Ok(VoiceRecognitionResult { text })
     }
     #[cfg(not(unix))]
     {
@@ -2118,6 +2199,13 @@ fn linux_clipboard_text() -> Result<String, HostActionError> {
                 .ok()
                 .filter(|output| output.status.success())
         })
+        .or_else(|| {
+            std::process::Command::new("xsel")
+                .args(["--clipboard", "--output"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+        })
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
@@ -2149,14 +2237,21 @@ fn write_linux_clipboard(text: &str) -> bool {
             return true;
         }
     }
-    let Ok(child) = std::process::Command::new("xclip")
+    if let Ok(child) = std::process::Command::new("xclip")
         .args(["-selection", "clipboard"])
         .stdin(std::process::Stdio::piped())
         .spawn()
-    else {
-        return false;
-    };
-    write_with(child, text)
+    {
+        if write_with(child, text) {
+            return true;
+        }
+    }
+    std::process::Command::new("xsel")
+        .args(["--clipboard", "--input"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map(|child| write_with(child, text))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "linux")]

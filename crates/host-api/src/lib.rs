@@ -110,8 +110,17 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
+        options.local_unicode = snapshot.preferences.local_modes.unicode;
+        options.local_date_time = snapshot.preferences.local_modes.date_time;
+        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
+        options.local_emoji = snapshot.preferences.local_modes.emoji;
+        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
+        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
+        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
+        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
+        options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         options.paired_punctuation = snapshot.preferences.paired_punctuation;
@@ -296,6 +305,7 @@ impl HostOptions {
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: self.preferences.chinese_punctuation,
             paired_punctuation: self.preferences.paired_punctuation,
@@ -845,6 +855,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             local_temporary_english: options.preferences.local_modes.temporary_english,
             local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
             paired_punctuation: options.preferences.paired_punctuation,
@@ -1424,7 +1435,8 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
         Ok(UnixSocketProvider::new(path)
             .query_candidates(query)
             .map(|candidates| {
-                let rows: Vec<_> = candidates.into_iter()
+                let rows: Vec<_> = candidates
+                    .into_iter()
                     .map(|(text, source)| json!({"text": text, "source": source}))
                     .collect();
                 // Preserve the single-result fields for older CLI consumers.
@@ -1438,6 +1450,10 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
 
 /// Forward one account-backed dictionary operation to a user-owned Linux
 /// provider. The request is validated before it crosses the Unix socket.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
@@ -1475,6 +1491,10 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
 
 /// Forward one validated account-backed cloud clipboard operation to a
 /// user-owned Linux provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
@@ -1585,6 +1605,10 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
 /// Run the Engine's optional offline handwriting recognizer against a trusted
 /// packaged model. The model path is supplied by the native host, never by a
 /// webview or remote provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_handwriting_local_request(
@@ -2331,7 +2355,7 @@ mod tests {
             quanpin_helpcode: HelpcodePreferences {
                 enabled: false,
                 schema: HelpcodeSchema::Xiaohe,
-                show_in_candidate_window: true,
+                show_in_candidate_window: false,
             },
             shuangpin_helpcode: HelpcodePreferences {
                 enabled: true,
@@ -2347,11 +2371,13 @@ mod tests {
         SESSIONS.with(|sessions| {
             assert!(!sessions.borrow()[&handle].options.helpcode);
             assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
+            assert!(!sessions.borrow()[&handle].options.show_helpcode);
         });
         preferences.scheme = InputScheme::Shuangpin;
         assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
         SESSIONS.with(|sessions| {
             assert!(sessions.borrow()[&handle].options.helpcode);
+            assert!(sessions.borrow()[&handle].options.show_helpcode);
             assert_eq!(
                 sessions.borrow()[&handle].options.helpcode_schema,
                 "shouyou2_0"
@@ -2682,12 +2708,18 @@ mod tests {
     #[test]
     fn shuangpin_preedit_mode_is_applied_after_composition() {
         let dir = tempfile::tempdir().unwrap();
-        let raw = Preferences { scheme: InputScheme::Shuangpin, ..Preferences::default() };
+        let raw = Preferences {
+            scheme: InputScheme::Shuangpin,
+            ..Preferences::default()
+        };
         let handle = test_host_preferences(dir.path(), raw.clone());
         read(msime_client_focus(handle, true));
         read(msime_client_character(handle, b'h', false));
         let before = read(msime_client_character(handle, b'k', false))["value"]["view"].clone();
-        let expanded = Preferences { shuangpin_preedit_uses_raw: false, ..raw.clone() };
+        let expanded = Preferences {
+            shuangpin_preedit_uses_raw: false,
+            ..raw.clone()
+        };
         let queued = update(handle, 1, &expanded);
         assert_eq!(queued["value"]["deferred"], true);
         assert_eq!(queued["value"]["view"], before);
@@ -2939,10 +2971,13 @@ mod tests {
         let enabled = read(msime_client_set_english_mode(handle, true));
         assert_eq!(enabled["ok"], true);
         assert_eq!(enabled["value"]["focused"], true);
-        assert_eq!(
-            read(msime_client_set_english_mode(handle, false))["ok"],
-            true
-        );
+        assert_eq!(enabled["value"]["dedicated_english"], true);
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["dedicated_english"], true);
+        assert_eq!(typed["value"]["view"]["local_mode"], "none");
+        let disabled = read(msime_client_set_english_mode(handle, false));
+        assert_eq!(disabled["ok"], true);
+        assert_eq!(disabled["value"]["dedicated_english"], false);
         read(msime_client_destroy(handle));
     }
 

@@ -161,7 +161,249 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
 
+@interface SuccessfulPageSession : ShortcutSession
+@property(nonatomic) NSUInteger pageSizeCalls;
+@end
+@implementation SuccessfulPageSession
+- (NSDictionary *)setCandidatePageSize:(uint8_t)size error:(NSError **)error {
+    (void)error;
+    self.requestedPageSize = size;
+    ++self.pageSizeCalls;
+    return @{@"view": @{@"editing_text": @"", @"candidates": @[]}};
+}
+@end
+
+static void TestPageSizeCache() {
+    NSString *suite = [@"msime.page-cache." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    SuccessfulPageSession *session = [SuccessfulPageSession new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller syncPageSize];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 9);
+    [controller applySharedToolbarPreferences:@{@"candidate_page_size": @5}];
+    // The shared snapshot changed Engine independently; a local return to 9
+    // must not be skipped just because the last direct request was also 9.
+    prefs.pageSize = 9;
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2 && session.requestedPageSize == 9);
+    [controller applySharedToolbarPreferences:@{@"candidate_page_size": @9}];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2);
+    ShortcutClient *client = [ShortcutClient new];
+    client.marked = @"synthetic";
+    [controller setValue:client forKey:@"activeClient"];
+    HiddenKeymapPanel *keymap = [[HiddenKeymapPanel alloc] init];
+    keymap.requestedVisible = YES;
+    [controller setValue:keymap forKey:@"keymapPanel"];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    panel.requestedVisible = YES;
+    [controller setValue:panel forKey:@"panel"];
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:[NSObject new]]];
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 2 && [client.marked isEqual:@"synthetic"] && keymap.requestedVisible && panel.requestedVisible);
+    [controller snapshotSessionReplaced:[NSNotification notificationWithName:@"synthetic" object:session]];
+    assert(client.marked.length == 0 && client.committed == nil && !keymap.requestedVisible && !panel.requestedVisible);
+    assert([[controller valueForKey:@"focusPending"] boolValue]);
+    [controller syncPageSize];
+    assert(session.pageSizeCalls == 3 && session.requestedPageSize == 9);
+    [controller prepareSession];
+    assert(session.focusCalls == 1 && ![[controller valueForKey:@"focusPending"] boolValue]);
+    [defaults removePersistentDomainForName:suite];
+}
+
+static void TestSharedPunctuation() {
+    NSString *suite = [@"msime.punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    MSIMEFloatingToolbarPanel *toolbar = [[MSIMEFloatingToolbarPanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(punctuationChanged:));
+    NSButton *toolbarToggle = [toolbar valueForKey:@"punctuationButton"];
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    for (NSNumber *enabled in @[@NO, @YES, @NO]) {
+        [controller applySharedToolbarPreferences:@{@"chinese_punctuation": enabled}];
+        assert(prefs.chinesePunctuation == enabled.boolValue && toggle.state == (enabled.boolValue ? NSControlStateValueOn : NSControlStateValueOff));
+        assert([toolbarToggle.title isEqual:enabled.boolValue ? @"。" : @"."]);
+        assert([toolbarToggle.accessibilityLabel isEqual:enabled.boolValue ? @"切换到西文标点" : @"切换到中文标点"]);
+        assert([[prefs sharedPreferencesByMerging:@{}][@"chinese_punctuation"] isEqual:enabled] && saves == 0);
+    }
+    assert([defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    for (id invalid in @[NSNull.null, @1, @"true"]) {
+        [controller applySharedToolbarPreferences:@{@"chinese_punctuation": invalid}];
+        assert(!prefs.chinesePunctuation && [toolbarToggle.title isEqual:@"."] && saves == 0);
+    }
+    [controller floatingToolbarDidRequestTogglePunctuation:toolbar];
+    assert(prefs.chinesePunctuation && toggle.state == NSControlStateValueOn && [toolbarToggle.title isEqual:@"。"] && saves == 1);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(reopened.chinesePunctuation);
+    [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @NO}];
+    assert(!prefs.chinesePunctuation && saves == 1);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
+static void TestIndependentAssistancePreferences() {
+    NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    NSButton *quanpin = (id)PreferenceControl(prefs, @selector(quanpinHelpcodeChanged:));
+    NSButton *shuangpin = (id)PreferenceControl(prefs, @selector(shuangpinHelpcodeChanged:));
+    NSButton *autocorrect = (id)PreferenceControl(prefs, @selector(autocorrectChanged:));
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    NSDictionary *shared = @{@"autocorrect": @NO, @"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
+    [controller applySharedToolbarPreferences:shared];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    assert(quanpin.state == NSControlStateValueOn && shuangpin.state == NSControlStateValueOff && autocorrect.state == NSControlStateValueOff);
+    for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
+    [controller applySharedToolbarPreferences:@{@"autocorrect": @1, @"quanpin_helpcode": @{@"enabled": @0}, @"shuangpin_helpcode": NSNull.null}];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    quanpin.state = NSControlStateValueOff;
+    [NSApp sendAction:quanpin.action to:quanpin.target from:quanpin];
+    assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 1);
+    shuangpin.state = NSControlStateValueOn;
+    [NSApp sendAction:shuangpin.action to:shuangpin.target from:shuangpin];
+    autocorrect.state = NSControlStateValueOn;
+    [NSApp sendAction:autocorrect.action to:autocorrect.target from:autocorrect];
+    assert(!prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled && prefs.autocorrect && saves == 3);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!reopened.quanpinHelpcodeEnabled && reopened.shuangpinHelpcodeEnabled && reopened.autocorrect);
+    NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
+    assert([edited[@"quanpin_helpcode"][@"enabled"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"enabled"] isEqual:@YES]);
+    assert([edited[@"quanpin_helpcode"][@"auto_display"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"future_field"] isEqual:@7]);
+    [controller applySharedToolbarPreferences:shared];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 3);
+    NSScrollView *scroll = (id)prefs.window.contentView.subviews.firstObject;
+    NSGridView *grid = (id)scroll.documentView;
+    NSMutableDictionary *schemaControls = [NSMutableDictionary dictionary];
+    NSMutableDictionary *displayControls = [NSMutableDictionary dictionary];
+    for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+        NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
+        if (control.action == @selector(helpcodeSchemaChanged:)) schemaControls[control.identifier] = control;
+        if (control.action == @selector(helpcodeDisplayChanged:)) displayControls[control.identifier] = control;
+    }
+    assert(schemaControls.count == 2 && displayControls.count == 2);
+    NSDictionary *options = @{@"quanpin_helpcode": @{@"schema": @"shouyou2_0", @"show_in_candidate_window": @NO}, @"shuangpin_helpcode": @{@"schema": @"xiaohe", @"show_in_candidate_window": @YES}};
+    [prefs applySharedAssistancePreferences:options];
+    assert(saves == 3 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
+    assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
+    assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSPopUpButton *schemas = schemaControls[scheme];
+        NSButton *display = displayControls[scheme];
+        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"];
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]]));
+        for (NSUInteger index = 0; index < identifiers.count; ++index) {
+            [schemas selectItemAtIndex:index];
+            [NSApp sendAction:schemas.action to:schemas.target from:schemas];
+            display.state = index % 2 ? NSControlStateValueOn : NSControlStateValueOff;
+            [NSApp sendAction:display.action to:display.target from:display];
+            NSDictionary *merged = [prefs sharedPreferencesByMerging:options][[scheme stringByAppendingString:@"_helpcode"]];
+            assert([merged[@"schema"] isEqual:identifiers[index]] && [merged[@"show_in_candidate_window"] boolValue] == (index % 2 == 1));
+            MSIMEAppearancePreferences *restored = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert([[restored helpcodeOptionsForScheme:scheme][@"schema"] isEqual:identifiers[index]]);
+            assert([[restored helpcodeOptionsForScheme:scheme][@"show_in_candidate_window"] boolValue] == (index % 2 == 1));
+        }
+    }
+    NSUInteger beforeRefresh = saves;
+    [prefs applySharedAssistancePreferences:options];
+    [prefs applySharedAssistancePreferences:@{@"quanpin_helpcode": @{@"schema": @"invalid", @"show_in_candidate_window": @1}}];
+    assert(saves == beforeRefresh);
+    assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
+    assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
+static void TestSharedInputPreferences() {
+    NSString *suite = [@"msime.shared-input." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.inputScheme = @"quanpin";
+    prefs.shuangpinProfile = @"xiaohe";
+    prefs.shuangpinPreeditUsesRaw = YES;
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    NSDictionary *shared = @{@"scheme": @"shuangpin", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO};
+    [controller applySharedToolbarPreferences:shared];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw);
+    NSPopUpButton *scheme = (id)PreferenceControl(prefs, @selector(schemeChanged:));
+    NSPopUpButton *profile = (id)PreferenceControl(prefs, @selector(profileChanged:));
+    NSPopUpButton *preedit = (id)PreferenceControl(prefs, @selector(preeditChanged:));
+    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0);
+    assert(saves == 0);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
+    for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
+    [controller applySharedToolbarPreferences:@{@"scheme": NSNull.null, @"shuangpin_profile": @42, @"shuangpin_preedit_uses_raw": @1}];
+    [controller applySharedToolbarPreferences:@{}];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw && saves == 0);
+    [scheme selectItemAtIndex:2];
+    [NSApp sendAction:scheme.action to:scheme.target from:scheme];
+    [profile selectItemAtIndex:2];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    [preedit selectItemAtIndex:1];
+    [NSApp sendAction:preedit.action to:preedit.target from:preedit];
+    NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
+    assert([edited[@"scheme"] isEqual:@"wubi"] && [edited[@"shuangpin_profile"] isEqual:@"shoudao"] && [edited[@"shuangpin_preedit_uses_raw"] isEqual:@YES] && saves == 3);
+    [controller applySharedToolbarPreferences:shared];
+    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0 && saves == 3);
+    NSPopUpButton *layout = (id)PreferenceControl(prefs, @selector(layoutChanged:));
+    NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
+    NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
+    for (NSUInteger size = 12; size <= 32; ++size) {
+        for (NSUInteger count = 1; count <= 9; ++count) {
+            NSDictionary *candidate = @{@"candidate_layout": count % 2 ? @"vertical" : @"horizontal", @"candidate_font_size": @(size), @"candidate_page_size": @(count)};
+            [controller applySharedToolbarPreferences:candidate];
+            assert(prefs.vertical == (count % 2 == 1) && prefs.fontSize == size && prefs.pageSize == count);
+            assert(layout.indexOfSelectedItem == (NSInteger)(count % 2) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)count - 1);
+            for (NSString *key in candidate) assert([[prefs sharedPreferencesByMerging:candidate][key] isEqual:candidate[key]]);
+        }
+    }
+    assert(saves == 3 && [defaults objectForKey:@"MSIMEClientCandidateFontSize"] == nil);
+    for (id invalid in @[NSNull.null, @YES, @0, @99, @1.5, @"18"]) {
+        [controller applySharedToolbarPreferences:@{@"candidate_layout": invalid, @"candidate_font_size": invalid, @"candidate_page_size": invalid}];
+        assert(prefs.vertical && prefs.fontSize == 32 && prefs.pageSize == 9 && saves == 3);
+    }
+    [layout selectItemAtIndex:0];
+    [NSApp sendAction:layout.action to:layout.target from:layout];
+    [font selectItemAtIndex:1];
+    [NSApp sendAction:font.action to:font.target from:font];
+    [page selectItemAtIndex:1];
+    [NSApp sendAction:page.action to:page.target from:page];
+    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 2 && saves == 6);
+    NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
+    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@2]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+    NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
+    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    assert([profiles.itemTitles isEqual:titles]);
+    for (NSUInteger index = 0; index < identifiers.count; ++index) {
+        [profiles selectItemAtIndex:index];
+        assert([NSApp sendAction:profiles.action to:profiles.target from:profiles]);
+        assert([appearance.shuangpinProfile isEqual:identifiers[index]]);
+        MSIMEAppearancePreferences *restored = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot];
+        assert([restored.shuangpinProfile isEqual:identifiers[index]]);
+        NSPopUpButton *restoredProfiles = (id)PreferenceControl(restored, @selector(profileChanged:));
+        assert([restoredProfiles.titleOfSelectedItem isEqual:titles[index]]);
+    }
     assert(!appearance.shuangpinKeymap);
     NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;
@@ -210,7 +452,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"keymapPanel"];
     [controller setValue:[ShortcutSession new] forKey:@"session"];
-    NSDictionary *view = @{@"scheme": @1, @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
+    NSDictionary *view = @{@"scheme": @1, @"local_mode": @"none", @"dedicated_english": @NO, @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
     [controller setValue:view forKey:@"view"];
     [controller updateKeymapPanel];
     assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
@@ -222,6 +464,29 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         [controller updateKeymapPanel];
         assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     }
+    for (id mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"unknown", @"", NSNull.null, @1]) {
+        NSMutableDictionary *next = [view mutableCopy];
+        next[@"local_mode"] = mode;
+        [controller setValue:next forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(!panel.requestedVisible);
+        [controller setValue:view forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
+    }
+    NSMutableDictionary *missingMode = [view mutableCopy];
+    missingMode[@"dedicated_english"] = @YES;
+    [controller setValue:missingMode forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
+    [controller setValue:view forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(panel.requestedVisible);
+    missingMode[@"dedicated_english"] = @NO;
+    [missingMode removeObjectForKey:@"local_mode"];
+    [controller setValue:missingMode forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
     for (NSDictionary *excluded in @[@{}, @{@"scheme": @0}, @{@"scheme": @3}, @{@"editing_text": @""}, @{@"editing_text": NSNull.null}, @{@"editing_text": @42}, @{@"shuangpin_profile": @""}]) {
         NSMutableDictionary *next = [view mutableCopy];
         [next addEntriesFromDictionary:excluded];
@@ -546,6 +811,10 @@ int main() {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        TestSharedInputPreferences();
+        TestIndependentAssistancePreferences();
+        TestSharedPunctuation();
+        TestPageSizeCache();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -555,7 +824,7 @@ int main() {
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.skinID = @"../invalid";
         assert([appearance.skinID isEqual:@"fluent"]);
-        appearance.pageSize = 6;
+        appearance.pageSize = 10;
         assert(appearance.pageSize == 9);
         appearance.pageShortcut = 99;
         assert(appearance.pageShortcut == 0);
@@ -575,12 +844,13 @@ int main() {
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }
         appearance.skinID = @"fluent";
-        assert(([sizeControl.itemTitles isEqual:@[@"5 个", @"7 个", @"9 个"]]));
-        for (NSInteger option = 0; option < 3; ++option) {
+        assert(sizeControl.numberOfItems == 9);
+        for (NSInteger option = 0; option < 9; ++option) {
+            assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%ld 个", option + 1]]));
             [sizeControl selectItemAtIndex:option];
             [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];
             MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-            assert(loaded.pageSize == (option == 0 ? 5 : option == 1 ? 7 : 9));
+            assert(loaded.pageSize == (NSUInteger)option + 1);
         }
         assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
         for (NSInteger option = 0; option < 3; ++option) {
@@ -593,7 +863,15 @@ int main() {
         assert(([layoutControl.itemTitles isEqual:@[@"横向排列", @"纵向列表"]]));
         [layoutControl selectItemAtIndex:1];
         [NSApp sendAction:layoutControl.action to:layoutControl.target from:layoutControl];
-        [fontControl selectItemAtIndex:0];
+        assert(fontControl.numberOfItems == 21);
+        for (NSInteger option = 0; option < 21; ++option) {
+            [fontControl selectItemAtIndex:option];
+            [NSApp sendAction:fontControl.action to:fontControl.target from:fontControl];
+            MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert(loaded.fontSize == (NSUInteger)option + 12);
+            assert(([fontControl.titleOfSelectedItem isEqual:[NSString stringWithFormat:@"%ld pt", option + 12]]));
+        }
+        [fontControl selectItemAtIndex:4];
         [NSApp sendAction:fontControl.action to:fontControl.target from:fontControl];
         MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         assert(reopened.vertical && reopened.fontSize == 16);
@@ -871,7 +1149,7 @@ int main() {
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
         NSUInteger contextIndex = 0;
-        for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{}]) {
+        for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none"}, @{@"scheme": @1, @"local_mode": @"quick_phrase"}, @{@"scheme": @3, @"local_mode": @"none"}, @{@"scheme": @0, @"local_mode": @"unicode"}, @{@"scheme": @0, @"local_mode": @"temporary_japanese"}, @{@"scheme": @1, @"local_mode": @"temporary_japanese"}, @{}]) {
             BOOL convert = contextIndex++ < 2;
             assert(MSIMEScriptConversionApplies(context) == convert);
             NSMutableDictionary *candidateView = [scriptView mutableCopy];
@@ -887,6 +1165,16 @@ int main() {
             assert([client.committed isEqual:convert ? @"漢語" : @"汉语"]);
             assert([transition[@"commit"] isEqual:@"汉语"]);
         }
+        NSMutableDictionary *japaneseView = [scriptView mutableCopy];
+        japaneseView[@"local_mode"] = @"temporary_japanese";
+        japaneseView[@"candidates"] = @[@{@"text": @"日本国", @"highlighted": @YES, @"id": word[@"id"]}];
+        [controller setValue:japaneseView forKey:@"view"];
+        [controller renderCandidates];
+        assert([PageButton(layoutPanel.contentView, 0).toolTip isEqual:@"日本国"]);
+        assert([PageButton(layoutPanel.contentView, 0).candidateID isEqual:word[@"id"]]);
+        [controller apply:@{@"commit": @"日本国", @"commit_context": @{@"scheme": @0, @"local_mode": @"temporary_japanese"},
+                            @"view": @{@"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"candidates": @[]}}];
+        assert([client.committed isEqual:@"日本国"]);
         [controller selectSimplifiedOutput:nil];
         assert([controller.menu itemAtIndex:3].state == NSControlStateValueOn);
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none"}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
