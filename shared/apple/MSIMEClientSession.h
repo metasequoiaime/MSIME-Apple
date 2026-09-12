@@ -35,6 +35,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSString *)cloudRequestURLForQuery:(NSDictionary *)query error:(NSError **)error;
 /// Shared bounded parser and stale-query guard; returns {applied,view}.
 - (nullable NSDictionary *)applyCloudResponse:(NSData *)body query:(NSDictionary *)query error:(NSError **)error;
+/// Apply a copied cloud (source=0) or AI (source=1) string batch on the session thread.
+/// Engine validates candidate limit, eligibility and query identity. No network I/O.
+- (nullable NSDictionary *)applyOnlineCandidates:(NSArray<NSString *> *)candidates source:(NSUInteger)source
+                                           query:(NSDictionary *)query error:(NSError **)error;
 /// Copied enabled translation query, or nil when no candidates are eligible.
 /// May contain custom/Tencent credentials for native transport; never log it.
 - (nullable NSDictionary *)translationQueryWithError:(NSError **)error;

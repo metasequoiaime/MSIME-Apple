@@ -71,6 +71,26 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_translation_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
+- (NSDictionary *)applyOnlineCandidates:(NSArray<NSString *> *)candidates source:(NSUInteger)source
+                                  query:(NSDictionary *)query error:(NSError **)error {
+    if (source > 1 || ![candidates isKindOfClass:NSArray.class] || candidates.count > 10 ||
+        ![query isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:query]) {
+        setError(error, @"在线候选格式错误"); return nil;
+    }
+    for (id candidate in candidates) {
+        if (![candidate isKindOfClass:NSString.class] || ![candidate length] ||
+            [candidate lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 4096) {
+            setError(error, @"在线候选格式错误"); return nil;
+        }
+    }
+    NSData *queryData = [NSJSONSerialization dataWithJSONObject:query options:0 error:error];
+    NSData *candidateData = [NSJSONSerialization dataWithJSONObject:candidates options:0 error:error];
+    if (!queryData || !candidateData || queryData.length > 16384 || candidateData.length > 16384) {
+        setError(error, @"在线候选请求过大"); return nil;
+    }
+    return decode(msime_client_apply_online_candidates(_handle, (const uint8_t *)queryData.bytes, queryData.length,
+        (const uint8_t *)candidateData.bytes, candidateData.length, (uint8_t)source), error);
+}
 + (NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"自定义翻译请求格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];

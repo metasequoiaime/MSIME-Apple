@@ -1766,6 +1766,50 @@ static void TestCloudCandidateScheduling() {
     method_setImplementation(base, original);
 }
 
+static void TestAiCandidateEngineDelivery() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"learning":@NO,
+        @"candidate_page_size":@5, @"chinese_punctuation":@YES,
+        @"ai_assistant":@{@"enabled":@YES, @"provider":@"openai", @"candidate_limit":@3}}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    [session setFocused:YES error:&error];
+    for (char byte : std::string("nihaoshijie")) [session typeASCII:byte shift:NO error:&error];
+    NSDictionary *query = [session onlineQueryWithError:&error];
+    assert(!error && [query[@"ai_eligible"] boolValue]);
+    NSDictionary *applied = [session applyOnlineCandidates:@[@"合成候选甲", @"合成候选乙"] source:1 query:query error:&error];
+    assert(!error && [applied[@"applied"] boolValue]);
+    NSArray *candidates = applied[@"view"][@"candidates"];
+    assert(candidates.count >= 2 && [candidates[0][@"text"] isEqual:@"合成候选甲"] && [candidates[1][@"text"] isEqual:@"合成候选乙"]);
+    assert([candidates[0][@"source"] isEqual:@3] && [candidates[1][@"source"] isEqual:@3]);
+    assert([applied[@"view"][@"editing_text"] isEqual:@"nihaoshijie"]);
+    [session typeASCII:'a' shift:NO error:&error];
+    applied = [session applyOnlineCandidates:@[@"过期候选"] source:1 query:query error:&error];
+    assert(!error && ![applied[@"applied"] boolValue]);
+    query = [session onlineQueryWithError:&error];
+    applied = [session applyOnlineCandidates:@[@"甲", @"乙", @"丙", @"丁"] source:1 query:query error:&error];
+    assert(!error && ![applied[@"applied"] boolValue]); // Configured limit, not just ABI limit.
+    assert(![session applyOnlineCandidates:(id)@[@1] source:1 query:query error:&error] && error);
+    error = nil;
+    assert(![session applyOnlineCandidates:@[@"合成"] source:2 query:query error:&error] && error);
+    error = nil;
+    NSString *oversized = [@"x" stringByPaddingToLength:4097 withString:@"x" startingAtIndex:0];
+    assert(![session applyOnlineCandidates:@[oversized] source:1 query:query error:&error] && error);
+    error = nil;
+    NSMutableDictionary *largeQuery = [query mutableCopy];
+    largeQuery[@"synthetic"] = [@"x" stringByPaddingToLength:16385 withString:@"x" startingAtIndex:0];
+    assert(![session applyOnlineCandidates:@[@"合成"] source:1 query:largeQuery error:&error] && error);
+    error = nil;
+    applied = [session applyOnlineCandidates:@[] source:1 query:query error:&error];
+    assert(!error && ![applied[@"applied"] boolValue]);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+}
 static void TestCloudCandidateEngineDelivery() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":@"quanpin", @"candidate_page_size":@5, @"chinese_punctuation":@YES, @"cloud_candidates":@YES, @"learning":@NO}} mutableCopy];
@@ -2457,6 +2501,7 @@ int main() {
         [NSApplication sharedApplication];
         TestCloudCandidateScheduling();
         TestCloudCandidateEngineDelivery();
+        TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestCustomTranslationController();
