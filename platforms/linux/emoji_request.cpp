@@ -7,6 +7,10 @@
 #include <string>
 
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--help") {
+    std::cout << "Usage: msime-client-emoji [--local] <socket-or-resources>\n";
+    return 0;
+  }
   const bool local = argc == 3 && std::string(argv[1]) == "--local";
   if ((!local && argc != 2) || (local ? argv[2][0] != '/' : argv[1][0] != '/'))
     return 2;
