@@ -40,6 +40,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSNumber *_sharedToolbarEnabled;
+    NSNumber *_sharedVertical;
+    NSNumber *_sharedFontSize;
+    NSNumber *_sharedPageSize;
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
@@ -169,7 +172,7 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_lightSkin.decorationPath.c_str())];
     }
 }
-- (BOOL)vertical { return [_defaults integerForKey:LayoutKey] == 1; }
+- (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)autocorrect { return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
 - (void)setAutocorrect:(BOOL)value { [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
@@ -228,15 +231,17 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (void)setVertical:(BOOL)value {
+    _sharedVertical = nil;
     [_defaults setInteger:value ? 1 : 0 forKey:LayoutKey];
     [self preferencesChanged];
 }
 - (NSUInteger)fontSize {
-    NSInteger size = [_defaults integerForKey:FontKey];
-    return size == 16 || size == 20 ? size : 18;
+    NSInteger size = _sharedFontSize ? _sharedFontSize.integerValue : [_defaults integerForKey:FontKey];
+    return size >= 12 && size <= 32 ? size : 18;
 }
 - (void)setFontSize:(NSUInteger)value {
-    [_defaults setInteger:value == 16 || value == 20 ? value : 18 forKey:FontKey];
+    _sharedFontSize = nil;
+    [_defaults setInteger:value >= 12 && value <= 32 ? value : 18 forKey:FontKey];
     [self preferencesChanged];
 }
 - (void)preferencesChanged {
@@ -257,12 +262,24 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     [self preferencesChanged];
 }
 - (NSUInteger)pageSize {
-    NSInteger value = [_defaults integerForKey:PageSizeKey];
-    return value == 5 || value == 7 ? value : 9;
+    NSInteger value = _sharedPageSize ? _sharedPageSize.integerValue : [_defaults integerForKey:PageSizeKey];
+    return value >= 1 && value <= 9 ? value : 9;
 }
 - (void)setPageSize:(NSUInteger)value {
-    [_defaults setInteger:value == 5 || value == 7 ? value : 9 forKey:PageSizeKey];
+    _sharedPageSize = nil;
+    [_defaults setInteger:value >= 1 && value <= 9 ? value : 9 forKey:PageSizeKey];
     [self preferencesChanged];
+}
+- (void)applySharedCandidatePreferences:(NSDictionary *)preferences {
+    if (![preferences isKindOfClass:NSDictionary.class]) return;
+    id layout = preferences[@"candidate_layout"];
+    if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);
+    id font = preferences[@"candidate_font_size"];
+    id page = preferences[@"candidate_page_size"];
+    // Match the shared integer ranges; booleans and fractions are not sizes.
+    if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
+    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9) _sharedPageSize = page;
+    [self refreshControls];
 }
 - (void)setPageShortcut:(NSInteger)value {
     [_defaults setInteger:value == 1 || value == 2 ? value : 0 forKey:PageShortcutKey];
@@ -285,9 +302,9 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
-    [_fontButton selectItemAtIndex:self.fontSize == 16 ? 0 : self.fontSize == 20 ? 2 : 1];
+    [_fontButton selectItemAtIndex:self.fontSize - 12];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
-    [_pageSizeButton selectItemAtIndex:self.pageSize == 5 ? 0 : self.pageSize == 7 ? 1 : 2];
+    [_pageSizeButton selectItemAtIndex:self.pageSize - 1];
     [_skinButton removeAllItems];
     for (const auto &entry : _skins) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@(entry.name.c_str()) action:nil keyEquivalent:@""];
@@ -330,7 +347,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _preeditButton.target = self;
     _preeditButton.action = @selector(preeditChanged:);
     _fontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_fontButton addItemsWithTitles:@[@"小（16 pt）", @"标准（18 pt）", @"大（20 pt）"]];
+    for (NSUInteger size = 12; size <= 32; ++size)
+        [_fontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
     _fontButton.accessibilityLabel = @"候选字号";
     _fontButton.target = self;
     _fontButton.action = @selector(fontChanged:);
@@ -340,7 +358,8 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
     _pageShortcutButton.target = self;
     _pageShortcutButton.action = @selector(pageShortcutChanged:);
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_pageSizeButton addItemsWithTitles:@[@"5 个", @"7 个", @"9 个"]];
+    for (NSUInteger size = 1; size <= 9; ++size)
+        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个", (unsigned long)size]];
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);
@@ -474,11 +493,10 @@ static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled"
 - (void)showWindow:(id)sender { [self reloadSkins]; [super showWindow:sender]; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)pageSizeChanged:(NSPopUpButton *)sender {
-    self.pageSize = sender.indexOfSelectedItem == 0 ? 5 : sender.indexOfSelectedItem == 1 ? 7 : 9;
+    self.pageSize = sender.indexOfSelectedItem + 1;
 }
 - (void)fontChanged:(NSPopUpButton *)sender {
-    const NSUInteger sizes[] = {16, 18, 20};
     NSInteger index = sender.indexOfSelectedItem;
-    self.fontSize = index >= 0 && index < 3 ? sizes[index] : 18;
+    self.fontSize = index >= 0 && index <= 20 ? index + 12 : 18;
 }
 @end

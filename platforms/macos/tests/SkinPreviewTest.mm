@@ -68,9 +68,9 @@ int main(int argc, const char **argv) {
             preferences.skinID = skin;
             for (NSNumber *vertical in @[@NO, @YES]) {
                 preferences.vertical = vertical.boolValue;
-                for (NSNumber *size in @[@5, @7, @9]) {
+                for (NSNumber *size in @[@1, @2, @5, @7, @9]) {
                     preferences.pageSize = size.unsignedIntegerValue;
-                    for (NSNumber *font in @[@16, @18, @20]) {
+                    for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;
                         assert(preview.previewSkin.id == skin.UTF8String);
                         NSString *expected = [NSString stringWithFormat:@"%@，%@ 个候选，%@ pt", vertical.boolValue ? @"纵向列表" : @"横向排列", size, font];

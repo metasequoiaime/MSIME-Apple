@@ -42,6 +42,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 - (void)applySharedLocalModes:(NSDictionary *)modes;
 /// Cache input choices from shared storage without saving them back.
 - (void)applySharedInputPreferences:(NSDictionary *)preferences;
+- (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

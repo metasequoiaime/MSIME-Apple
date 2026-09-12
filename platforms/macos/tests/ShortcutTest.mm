@@ -195,6 +195,32 @@ static void TestSharedInputPreferences() {
     assert([edited[@"scheme"] isEqual:@"wubi"] && [edited[@"shuangpin_profile"] isEqual:@"shoudao"] && [edited[@"shuangpin_preedit_uses_raw"] isEqual:@YES] && saves == 3);
     [controller applySharedToolbarPreferences:shared];
     assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0 && saves == 3);
+    NSPopUpButton *layout = (id)PreferenceControl(prefs, @selector(layoutChanged:));
+    NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
+    NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
+    for (NSUInteger size = 12; size <= 32; ++size) {
+        for (NSUInteger count = 1; count <= 9; ++count) {
+            NSDictionary *candidate = @{@"candidate_layout": count % 2 ? @"vertical" : @"horizontal", @"candidate_font_size": @(size), @"candidate_page_size": @(count)};
+            [controller applySharedToolbarPreferences:candidate];
+            assert(prefs.vertical == (count % 2 == 1) && prefs.fontSize == size && prefs.pageSize == count);
+            assert(layout.indexOfSelectedItem == (NSInteger)(count % 2) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)count - 1);
+            for (NSString *key in candidate) assert([[prefs sharedPreferencesByMerging:candidate][key] isEqual:candidate[key]]);
+        }
+    }
+    assert(saves == 3 && [defaults objectForKey:@"MSIMEClientCandidateFontSize"] == nil);
+    for (id invalid in @[NSNull.null, @YES, @0, @99, @1.5, @"18"]) {
+        [controller applySharedToolbarPreferences:@{@"candidate_layout": invalid, @"candidate_font_size": invalid, @"candidate_page_size": invalid}];
+        assert(prefs.vertical && prefs.fontSize == 32 && prefs.pageSize == 9 && saves == 3);
+    }
+    [layout selectItemAtIndex:0];
+    [NSApp sendAction:layout.action to:layout.target from:layout];
+    [font selectItemAtIndex:1];
+    [NSApp sendAction:font.action to:font.target from:font];
+    [page selectItemAtIndex:1];
+    [NSApp sendAction:page.action to:page.target from:page];
+    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 2 && saves == 6);
+    NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
+    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@2]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     [defaults removePersistentDomainForName:suite];
 }
@@ -630,7 +656,7 @@ int main() {
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.skinID = @"../invalid";
         assert([appearance.skinID isEqual:@"fluent"]);
-        appearance.pageSize = 6;
+        appearance.pageSize = 10;
         assert(appearance.pageSize == 9);
         appearance.pageShortcut = 99;
         assert(appearance.pageShortcut == 0);
@@ -650,12 +676,13 @@ int main() {
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }
         appearance.skinID = @"fluent";
-        assert(([sizeControl.itemTitles isEqual:@[@"5 个", @"7 个", @"9 个"]]));
-        for (NSInteger option = 0; option < 3; ++option) {
+        assert(sizeControl.numberOfItems == 9);
+        for (NSInteger option = 0; option < 9; ++option) {
+            assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%ld 个", option + 1]]));
             [sizeControl selectItemAtIndex:option];
             [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];
             MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-            assert(loaded.pageSize == (option == 0 ? 5 : option == 1 ? 7 : 9));
+            assert(loaded.pageSize == (NSUInteger)option + 1);
         }
         assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
         for (NSInteger option = 0; option < 3; ++option) {
@@ -668,7 +695,15 @@ int main() {
         assert(([layoutControl.itemTitles isEqual:@[@"横向排列", @"纵向列表"]]));
         [layoutControl selectItemAtIndex:1];
         [NSApp sendAction:layoutControl.action to:layoutControl.target from:layoutControl];
-        [fontControl selectItemAtIndex:0];
+        assert(fontControl.numberOfItems == 21);
+        for (NSInteger option = 0; option < 21; ++option) {
+            [fontControl selectItemAtIndex:option];
+            [NSApp sendAction:fontControl.action to:fontControl.target from:fontControl];
+            MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+            assert(loaded.fontSize == (NSUInteger)option + 12);
+            assert(([fontControl.titleOfSelectedItem isEqual:[NSString stringWithFormat:@"%ld pt", option + 12]]));
+        }
+        [fontControl selectItemAtIndex:4];
         [NSApp sendAction:fontControl.action to:fontControl.target from:fontControl];
         MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         assert(reopened.vertical && reopened.fontSize == 16);
