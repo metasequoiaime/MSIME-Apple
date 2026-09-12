@@ -1264,16 +1264,23 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
         const stop = await client.clipboard?.onChanged?.(refresh);
         if (!active) { stop?.(); return; }
         unsubscribe = stop;
-      } catch { /* Fall back to visible-page polling below. */ }
+      } catch { /* Keep polling if host notification registration fails. */ }
       if (!active) return;
+      // Close the gap between the initial snapshot and subscription setup.
       refresh();
-      if (!unsubscribe && page === "clipboard") {
-        // Windows polls history every 400 ms. Prefer host notifications here,
-        // but keep live updates when a Linux host cannot subscribe.
-        poll = setInterval(pollVisible, 400);
-        document.addEventListener("visibilitychange", pollVisible);
+      if (unsubscribe && poll !== undefined) {
+        clearInterval(poll);
+        poll = undefined;
+        document.removeEventListener("visibilitychange", pollVisible);
       }
     };
+    // Listing must not wait for a slow or stalled notification registration.
+    // Use Windows' 400 ms interval until the host subscription is ready.
+    refresh();
+    if (page === "clipboard") {
+      poll = setInterval(pollVisible, 400);
+      document.addEventListener("visibilitychange", pollVisible);
+    }
     void start();
     return () => {
       active = false;
