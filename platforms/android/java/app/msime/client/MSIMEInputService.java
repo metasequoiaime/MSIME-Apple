@@ -83,6 +83,8 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout schemePanel;
     private ScrollView layoutSettingsScroll;
     private LinearLayout layoutSettingsPanel;
+    private ScrollView moreToolsScroll;
+    private LinearLayout moreToolsPanel;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
     private Switch voiceShortcutSwitch;
@@ -334,6 +336,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
         closeSchemePicker();
         closeLayoutSettings();
+        closeMoreTools();
         closeVoiceResult();
         closeAiPolish();
         closeReplyKeyboard();
@@ -912,6 +915,8 @@ public final class MSIMEInputService extends InputMethodService {
             schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (layoutSettingsPanel != null)
             layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        if (moreToolsPanel != null)
+            moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (voiceResultPanel != null)
             voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
         if (aiPolishPanel != null)
@@ -982,6 +987,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void closeLayoutSettings() {
         if (layoutSettingsScroll != null) layoutSettingsScroll.setVisibility(View.GONE);
+    }
+
+    private void closeMoreTools() {
+        if (moreToolsScroll != null) moreToolsScroll.setVisibility(View.GONE);
     }
 
     private void closeVoiceResult() {
@@ -2205,64 +2214,158 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void showFeedbackMenu() {
-        if (moreButton == null) return;
-        PopupMenu popup = new PopupMenu(this, moreButton);
-        Menu menu = popup.getMenu();
-        MenuItem clipboard = menu.add("剪贴板历史");
-        clipboard.setEnabled(clipboardHistoryEnabled);
-        MenuItem voiceInput = menu.add("语音输入");
-        voiceInput.setEnabled(voiceInputEnabled && VoiceRecognitionActivity.available(this));
-        MenuItem voiceResult = menu.add("语音结果");
-        MenuItem aiPolish = menu.add("AI 润色");
-        aiPolish.setEnabled(aiPolishConfiguration != null && aiPolishReady());
-        MenuItem sound = menu.add("按键音");
-        sound.setCheckable(true).setChecked(soundEnabled);
-        MenuItem haptics = menu.add("按键振动");
-        haptics.setCheckable(true).setChecked(hapticsEnabled);
-        menu.setGroupCheckable(1, true, true);
-        MenuItem light = menu.add(1, 1, Menu.NONE, "振动强度：轻");
-        MenuItem medium = menu.add(1, 2, Menu.NONE, "振动强度：中");
-        MenuItem strong = menu.add(1, 3, Menu.NONE, "振动强度：强");
-        light.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.LIGHT);
-        medium.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.MEDIUM);
-        strong.setCheckable(true).setChecked(hapticStrength == KeyboardFeedbackPreferences.HapticStrength.STRONG);
-        android.view.SubMenu local = menu.addSubMenu("本地输入");
-        for (LocalInputMode mode : LocalInputMode.values()) {
-            MenuItem item = local.add(2, 100 + mode.ordinal(), Menu.NONE, mode.title());
-            item.setEnabled(supportsLocalTools() && localModeEnabled(mode));
-        }
-        popup.setOnMenuItemClickListener(item -> {
-            if (item == clipboard) {
-                showClipboardHistory();
-                return true;
-            }
-            if (item == voiceInput) {
-                startVoiceRecognition();
-                return true;
-            }
-            if (item == voiceResult) {
-                showVoiceResult();
-                return true;
-            }
-            if (item == aiPolish) {
-                showAiPolish();
-                return true;
-            }
-            if (item == sound) soundEnabled = !soundEnabled;
-            else if (item == haptics) hapticsEnabled = !hapticsEnabled;
-            else if (item == light) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.LIGHT;
-            else if (item == medium) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
-            else if (item == strong) hapticStrength = KeyboardFeedbackPreferences.HapticStrength.STRONG;
-            else if (item.getGroupId() == 2 && item.getItemId() >= 100
-                    && item.getItemId() < 100 + LocalInputMode.values().length) {
-                openLocalInputMode(LocalInputMode.values()[item.getItemId() - 100]);
-                return true;
-            }
-            else return false;
-            saveFeedbackPreferences();
-            return true;
+        if (moreButton == null || moreToolsPanel == null || moreToolsScroll == null) return;
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeLayoutSettings();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        renderMoreTools();
+        moreToolsScroll.setVisibility(View.VISIBLE);
+        moreToolsScroll.requestFocus();
+    }
+
+    private Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
+                                 boolean enabled, boolean playBeforeAction, Runnable action) {
+        Button card = new Button(this);
+        card.setAllCaps(false);
+        String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
+        if (section == MoreToolsLayout.Section.TOOLS) card.setText(title + "  ›");
+        else if (section == MoreToolsLayout.Section.FEEDBACK) card.setText(title + "\n" + state);
+        else card.setText(title);
+        card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        card.setGravity(section == MoreToolsLayout.Section.TOOLS
+            ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
+        card.setPadding(pixels(12), pixels(5), pixels(12), pixels(5));
+        card.setContentDescription(title);
+        card.setSelected(active);
+        card.setEnabled(enabled);
+        if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
+        styleButton(card, true);
+        card.setOnClickListener(ignored -> {
+            if (playBeforeAction) playFeedback(card);
+            action.run();
         });
-        popup.show();
+        return card;
+    }
+
+    private void appendMoreToolsSection(MoreToolsLayout.Section section, Button... cards) {
+        if (!section.title().isEmpty()) {
+            TextView label = new TextView(this);
+            label.setText(section.title());
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            label.setGravity(Gravity.CENTER_VERTICAL);
+            moreToolsPanel.addView(label, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, pixels(20)));
+        }
+        int columns = section.columns();
+        for (int start = 0; start < cards.length; start += columns) {
+            LinearLayout row = new LinearLayout(this);
+            row.setWeightSum(columns);
+            for (int column = 0; column < columns; column++) {
+                int index = start + column;
+                View child = index < cards.length ? cards[index] : new View(this);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    0, pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
+                if (column > 0) params.setMarginStart(pixels(MoreToolsLayout.CARD_SPACING_DP));
+                row.addView(child, params);
+            }
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, pixels(MoreToolsLayout.CARD_HEIGHT_DP));
+            rowParams.bottomMargin = pixels(MoreToolsLayout.ROW_SPACING_DP);
+            moreToolsPanel.addView(row, rowParams);
+        }
+    }
+
+    private void toggleSoundFromMoreTools() {
+        soundEnabled = !soundEnabled;
+        saveFeedbackPreferences();
+        if (soundEnabled) playFeedback(moreButton);
+        renderMoreTools();
+    }
+
+    private void toggleHapticsFromMoreTools() {
+        hapticsEnabled = !hapticsEnabled;
+        saveFeedbackPreferences();
+        if (hapticsEnabled) playFeedback(moreButton);
+        renderMoreTools();
+    }
+
+    private void selectHapticStrength(KeyboardFeedbackPreferences.HapticStrength strength) {
+        hapticStrength = strength;
+        saveFeedbackPreferences();
+        if (hapticsEnabled) playFeedback(moreButton);
+        renderMoreTools();
+    }
+
+    private void renderMoreTools() {
+        if (moreToolsPanel == null) return;
+        moreToolsPanel.removeAllViews();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        Button close = button(header, "返回", this::closeMoreTools);
+        close.setContentDescription("返回键盘");
+        close.setLayoutParams(new LinearLayout.LayoutParams(
+            pixels(84), pixels(MoreToolsLayout.HEADER_HEIGHT_DP)));
+        TextView title = new TextView(this);
+        title.setText("工具");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        title.setGravity(Gravity.CENTER);
+        header.addView(title, new LinearLayout.LayoutParams(
+            0, pixels(MoreToolsLayout.HEADER_HEIGHT_DP), 1));
+        View balance = new View(this);
+        header.addView(balance, new LinearLayout.LayoutParams(
+            pixels(84), pixels(MoreToolsLayout.HEADER_HEIGHT_DP)));
+        moreToolsPanel.addView(header);
+
+        appendMoreToolsSection(MoreToolsLayout.Section.TOOLS,
+            moreToolsCard("剪贴板历史", MoreToolsLayout.Section.TOOLS, false,
+                clipboardHistoryEnabled, true, () -> {
+                    closeMoreTools();
+                    showClipboardHistory();
+                }),
+            moreToolsCard("AI 润色", MoreToolsLayout.Section.TOOLS, false,
+                aiPolishConfiguration != null && aiPolishReady(), true, () -> {
+                    closeMoreTools();
+                    showAiPolish();
+                }),
+            moreToolsCard("语音结果", MoreToolsLayout.Section.TOOLS, false,
+                true, true, () -> {
+                    closeMoreTools();
+                    showVoiceResult();
+                }));
+        appendMoreToolsSection(MoreToolsLayout.Section.FEEDBACK,
+            moreToolsCard("按键音", MoreToolsLayout.Section.FEEDBACK, soundEnabled,
+                true, false, this::toggleSoundFromMoreTools),
+            moreToolsCard("按键振动", MoreToolsLayout.Section.FEEDBACK, hapticsEnabled,
+                true, false, this::toggleHapticsFromMoreTools));
+        appendMoreToolsSection(MoreToolsLayout.Section.HAPTIC_STRENGTH,
+            moreToolsCard("轻", MoreToolsLayout.Section.HAPTIC_STRENGTH,
+                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.LIGHT,
+                true, false, () -> selectHapticStrength(
+                    KeyboardFeedbackPreferences.HapticStrength.LIGHT)),
+            moreToolsCard("中", MoreToolsLayout.Section.HAPTIC_STRENGTH,
+                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.MEDIUM,
+                true, false, () -> selectHapticStrength(
+                    KeyboardFeedbackPreferences.HapticStrength.MEDIUM)),
+            moreToolsCard("强", MoreToolsLayout.Section.HAPTIC_STRENGTH,
+                hapticStrength == KeyboardFeedbackPreferences.HapticStrength.STRONG,
+                true, false, () -> selectHapticStrength(
+                    KeyboardFeedbackPreferences.HapticStrength.STRONG)));
+        LocalInputMode[] modes = LocalInputMode.values();
+        Button[] localCards = new Button[modes.length];
+        for (int index = 0; index < modes.length; index++) {
+            LocalInputMode mode = modes[index];
+            localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
+                false, supportsLocalTools() && localModeEnabled(mode), false, () -> {
+                    closeMoreTools();
+                    openLocalInputMode(mode);
+                });
+        }
+        appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT, localCards);
+        applySkin();
     }
 
     private boolean candidateManagementEnabled() {
@@ -3314,6 +3417,18 @@ public final class MSIMEInputService extends InputMethodService {
         replyKeyboard.setVisibility(View.GONE);
         keyboardRoot.addView(replyKeyboard, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        moreToolsPanel = new LinearLayout(this);
+        moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
+        moreToolsPanel.setPadding(pixels(12), 0, pixels(12), pixels(10));
+        moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        moreToolsScroll = new ScrollView(this);
+        moreToolsScroll.setFillViewport(true);
+        moreToolsScroll.setVerticalScrollBarEnabled(false);
+        moreToolsScroll.setContentDescription("更多工具");
+        moreToolsScroll.addView(moreToolsPanel);
+        moreToolsScroll.setVisibility(View.GONE);
+        keyboardRoot.addView(moreToolsScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
         synchronizeReplyKeyboard();
@@ -3482,6 +3597,8 @@ public final class MSIMEInputService extends InputMethodService {
             button(candidatePaging, "下一页", () -> command(100));
         }
         renderExpandedCandidates();
+        if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
+            renderMoreTools();
         applySkin();
     }
 }

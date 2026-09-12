@@ -3,12 +3,12 @@ package app.msime.client;
 /** Apple-compatible local input mode shortcuts exposed by the shared Engine. */
 public enum LocalInputMode {
     UNICODE("U", "Unicode 码点", "unicode"),
-    DATE_TIME("T", "日期与时间", "date_time"),
-    QUICK_PHRASE("K", "快捷短语", "quick_phrase"),
-    EMOJI("E", "Emoji", "emoji"),
-    KAOMOJI("M", "颜文字", "kaomoji"),
+    DATE_TIME("T", "日期时间", "date_time"),
     SUPER_JIANPIN("J", "超级简拼", "super_jianpin"),
-    TEMPORARY_ENGLISH("Y", "临时英文", "temporary_english"),
+    QUICK_PHRASE("K", "快捷短语", "quick_phrase"),
+    TEMPORARY_ENGLISH("Y", "英文补全", "temporary_english"),
+    EMOJI("E", "表情", "emoji"),
+    KAOMOJI("M", "颜文字", "kaomoji"),
     TEMPORARY_JAPANESE("R", "临时日语", "temporary_japanese");
 
     private final String trigger;
