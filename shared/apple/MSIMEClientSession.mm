@@ -78,6 +78,13 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_custom_translation_http_request((const uint8_t *)data.bytes, data.length), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
++ (NSArray<NSDictionary *> *)customTranslationPlan:(NSDictionary *)request error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"翻译计划格式错误"); return nil; }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 65536) { setError(error, @"翻译计划过大"); return nil; }
+    id value = decodeValue(msime_client_custom_translation_plan((const uint8_t *)data.bytes, data.length), error);
+    return [value isKindOfClass:NSArray.class] ? value : nil;
+}
 + (NSString *)parseCustomTranslationResponse:(NSData *)body error:(NSError **)error {
     if (![body isKindOfClass:NSData.class] || body.length > 1048576) { setError(error, @"自定义翻译响应格式错误或过大"); return nil; }
     // NSData may expose a null bytes pointer for an empty buffer.

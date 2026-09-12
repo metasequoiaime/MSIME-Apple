@@ -133,6 +133,9 @@ char *msime_client_voice_apply(uint64_t session, uint64_t generation,
  * Descriptor can contain credentials: never log it. Host enforces timeout/size,
  * rejects redirects and checks HTTP status before parsing. Text <=40 scalars. */
 char *msime_client_custom_translation_http_request(const uint8_t *request, size_t length);
+/* Pure visible-page plan <=64 KiB: {target_language,candidates:[{text,source}]}.
+ * Returns [{text,key,source_language,target_language}]; at most nine candidates. */
+char *msime_client_custom_translation_plan(const uint8_t *request, size_t length);
 /* Provider body <=1 MiB. Returns translation string <=4096 bytes or null when
  * malformed/no result. No session mutation; host validates original identity. */
 char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t length);

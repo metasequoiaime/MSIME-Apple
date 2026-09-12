@@ -39,6 +39,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)translationQueryWithError:(NSError **)error;
 /// Pure descriptor construction. Contains optional credentials; never log it.
 + (nullable NSDictionary *)customTranslationHTTPRequest:(NSDictionary *)request error:(NSError **)error;
+/// Pure script/direction filtering for {target_language,candidates:[{text,source}]}.
++ (nullable NSArray<NSDictionary *> *)customTranslationPlan:(NSDictionary *)request error:(NSError **)error;
 /// Parse only a successful HTTP response; nil without error means no usable translation.
 + (nullable NSString *)parseCustomTranslationResponse:(NSData *)body error:(NSError **)error;
 /// Offline dictionary lookup; may run on a worker with copied {generation,candidates:[{text,source}]}.
