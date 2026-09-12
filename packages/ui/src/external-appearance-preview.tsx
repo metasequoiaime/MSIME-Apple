@@ -8,15 +8,15 @@ import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateTextStyle } from "./candidate-text-color";
 import { candidateFamilyStyle } from "./candidate-font-family";
 
-function LoadedPreview({ skin, preferences, readImage, helpcode }: {
-  skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean;
+function LoadedPreview({ skin, preferences, readImage, helpcode, theme }: {
+  skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean; theme: "dark" | "light";
 }) {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
-    try { const remove = installSkinPalette(paletteCss(scope, skin.candidate.dark)); setPaletteFailed(false); return remove; }
+    try { const remove = installSkinPalette(paletteCss(scope, skin.candidate[theme])); setPaletteFailed(false); return remove; }
     catch { setPaletteFailed(true); }
-  }, [scope, skin.candidate]);
+  }, [scope, skin.candidate, theme]);
   const top = dimension(skin.decorationTopDip, 500), width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
   const image = useSkinImage(readImage, skin.id, decorated ? skin.preview : null, 0);
@@ -33,7 +33,7 @@ function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   } as CSSProperties;
   return <div className={decorated ? "external-skin-decorated" : undefined}>
     <div className={`skin-card-preview appearance-candidate-preview skin-${base} ${scope}`} style={geometry}
-      data-preview-theme="dark" data-font-size={candidateFontSize(preferences.candidate_font_size)} aria-hidden="true">
+      data-preview-theme={theme} data-font-size={candidateFontSize(preferences.candidate_font_size)} aria-hidden="true">
       <div className="skin-preview-stage"><SkinCandidatePreview orientation={preferences.candidate_layout ?? "vertical"}
         count={preferences.candidate_page_size} preedit={preferences.candidate_preedit_style !== "empty"} helpcode={helpcode}
         decorated={decorated} image={decodeFailed ? undefined : image?.url} onImageError={() => setDecodeFailed(true)} /></div>
@@ -44,8 +44,8 @@ function LoadedPreview({ skin, preferences, readImage, helpcode }: {
   </div>;
 }
 
-export function ExternalAppearancePreview({ preferences, scan, readImage, active, revision, helpcode }: {
-  preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; active: boolean; revision: number; helpcode: boolean;
+export function ExternalAppearancePreview({ preferences, scan, readImage, active, revision, helpcode, theme }: {
+  preferences: Preferences; scan?: () => Promise<SkinCatalog>; readImage?: SkinImageReader; active: boolean; revision: number; helpcode: boolean; theme: "dark" | "light";
 }) {
   const [refresh, setRefresh] = useState(0);
   const id = preferences.candidate_skin;
@@ -65,12 +65,12 @@ export function ExternalAppearancePreview({ preferences, scan, readImage, active
   if (!scan) return <p role="status">当前宿主不支持扫描外部皮肤，无法预览所选皮肤。</p>;
   const current = result?.key === key ? result : undefined;
   const skin = current?.skin;
-  const compatible = skin?.layouts.includes(preferences.candidate_layout ?? "vertical") && skin.themes.includes("dark");
+  const compatible = skin?.layouts.includes(preferences.candidate_layout ?? "vertical") && skin.themes.includes(theme);
   return <>
     <button type="button" className="skin-preview-switch" disabled={!current} onClick={() => setRefresh(value => value + 1)}>刷新预览</button>
     {!current ? <p role="status">正在读取所选皮肤。</p> : current.failed ? <p role="status">读取所选皮肤失败，请刷新预览重试。</p> : !skin ?
       <p role="status">未找到所选皮肤，请检查皮肤目录后刷新预览。</p> : !compatible ?
-      <p role="status">所选皮肤不支持当前布局或深色模式。</p> :
-      <LoadedPreview skin={skin} preferences={preferences} readImage={readImage} helpcode={helpcode} />}
+      <p role="status">所选皮肤不支持当前布局或{theme === "dark" ? "深色" : "浅色"}模式。</p> :
+      <LoadedPreview skin={skin} preferences={preferences} readImage={readImage} helpcode={helpcode} theme={theme} />}
   </>;
 }

@@ -15,6 +15,37 @@ const catalog: SkinCatalog = { directory: "/synthetic/skins", issues: [], packag
 }] };
 const image = { contentType: "image/svg+xml", bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')] };
 
+test("theme changes replace external palette without rescanning or reloading images", async () => {
+  const scan = vi.fn().mockResolvedValue({ ...catalog, packages: [{ ...catalog.packages[0], themes: ["dark", "light"],
+    candidate: { dark: { surface: "#123456" }, light: { surface: "#abcdef" } } }] });
+  const readImage = vi.fn().mockResolvedValue(image);
+  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />);
+  await waitFor(() => expect(view.container.querySelector("img")).not.toBeNull());
+  for (const candidate_theme of ["light", "dark", "light"] as const) {
+    view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme }} scan={scan} readImage={readImage} />);
+    expect(view.container.querySelector(".appearance-candidate-preview")?.getAttribute("data-preview-theme")).toBe(candidate_theme);
+    expect(document.adoptedStyleSheets).toHaveLength(1);
+    expect(document.adoptedStyleSheets[0].cssRules[0].cssText).toContain(candidate_theme === "light" ? "rgb(171, 205, 239)" : "rgb(18, 52, 86)");
+  }
+  expect(scan).toHaveBeenCalledTimes(1);
+  expect(readImage).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+});
+
+test("unsupported light mode removes dark preview and recovers on switching back", async () => {
+  const scan = vi.fn().mockResolvedValue(catalog);
+  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
+  await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
+  view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme: "light" }} scan={scan} />);
+  expect(screen.getByText(/不支持当前布局或浅色模式/)).not.toBeNull();
+  expect(view.container.querySelector(".candidate")).toBeNull();
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+  view.rerender(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
+  expect(view.container.querySelector(".candidate")).not.toBeNull();
+  expect(scan).toHaveBeenCalledTimes(1);
+});
+
 test("external appearance loads palette/image, updates draft, refreshes and cleans up", async () => {
   const scan = vi.fn().mockResolvedValue(catalog), readImage = vi.fn().mockResolvedValue(image);
   const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />);
