@@ -158,9 +158,21 @@ export type VoiceInputPreferences = {
   end_sound?: boolean;
   mute_system_audio?: boolean;
   polish_enabled?: boolean;
+  polish_text?: boolean;
+  asr_model?: string;
+  commit_mode?: "tsf" | "sendinput" | "ctrl_v";
+  polish_provider?: string;
+  polish_model?: string;
+  polish_prompt_id?: string;
+  polish_prompt?: string;
+  doubao_enable_itn?: boolean;
+  doubao_enable_punc?: boolean;
+  doubao_enable_ddc?: boolean;
+  doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
 const defaultAiAssistant: AiAssistantPreferences = { enabled: false, provider: "deepseek", model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3, token: "", tokens: {}, prompt_id: "custom_1", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "" };
+const defaultVoiceInput: VoiceInputPreferences = { enabled: true, language: "zh-CN", asr_provider: "local_whisper" };
 
 export function aiCredentialOrigin(endpoint: string): string | null {
   if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
@@ -511,6 +523,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
+  const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
+  const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
+    if (draft) setDraft({ ...draft, voice_input: { ...voiceInput, ...patch } });
+  };
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const smartPunctuation = draft?.smart_punctuation ?? true;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
@@ -902,9 +918,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
         <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>录音和识别由已配置的 Linux provider 服务完成</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div><p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p></div>
-        <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={draft.voice_input?.enabled ?? true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: event.target.checked, language: draft.voice_input?.language ?? "zh-CN" } })} /></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(draft.voice_input?.asr_provider ?? "local_whisper")} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: event.target.value, language: draft.voice_input?.language ?? "zh-CN" } })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
-        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={draft.voice_input?.language ?? "zh-CN"} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, asr_provider: draft.voice_input?.asr_provider ?? "local_whisper", language: event.target.value } })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ asr_provider: event.target.value })}><option value="local_whisper">本地 Whisper</option><option value="cloud">云端服务</option><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option></select></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别语言</span><input aria-label="识别语言" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>
         <div className="section"><div className="section-title">Linux provider 行为<small>这些选项会随请求传给用户管理的语音服务，不包含凭据</small></div>
           {([[
             "sound_enabled", "语音提示音", true,
@@ -914,9 +931,17 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
             "end_sound", "结束录音提示音", true,
           ], [
             "mute_system_audio", "录音时静音其他音频", false,
-          ], [
-            "polish_enabled", "识别结果润色", false,
-          ]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? draft.voice_input?.[key] !== false : draft.voice_input?.[key] === true} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
+          ]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? voiceInput[key] !== false : voiceInput[key] === true} onChange={event => updateVoice({ [key]: event.target.checked })} /></label>)}
+        </div>
+        {voiceInput.asr_provider === "doubao" && <div className="section"><div className="section-title">豆包识别选项<small>由 Linux provider 服务应用</small></div>
+          {([['doubao_enable_itn', '数字格式化', true], ['doubao_enable_punc', '标点预测', true], ['doubao_enable_ddc', '语义顺滑', false]] as const).map(([key, label, enabledByDefault]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={enabledByDefault ? voiceInput[key] !== false : voiceInput[key] === true} onChange={event => updateVoice({ [key]: event.target.checked })} /></label>)}
+          <label className="section-header"><span className="section-title">热词表 ID</span><input aria-label="热词表 ID" value={voiceInput.doubao_boosting_table_id ?? ""} onChange={event => updateVoice({ doubao_boosting_table_id: event.target.value })} /></label>
+        </div>}
+        <div className="section"><div className="section-title">文本润色 provider<small>识别结果可交给用户管理的服务润色</small></div>
+          <label className="section-header"><span className="section-title">启用润色</span><input aria-label="启用文本润色" className="toggle" type="checkbox" checked={voiceInput.polish_text === true || voiceInput.polish_enabled === true} onChange={event => updateVoice({ polish_text: event.target.checked, polish_enabled: event.target.checked })} /></label>
+          <label className="section-header"><span className="section-title">服务提供商</span><select aria-label="文本润色服务提供商" value={voiceInput.polish_provider ?? "siliconflow"} onChange={event => updateVoice({ polish_provider: event.target.value })}><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option></select></label>
+          <label className="section-header"><span className="section-title">模型</span><input aria-label="文本润色模型" value={voiceInput.polish_model ?? ""} onChange={event => updateVoice({ polish_model: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">润色提示词</span><textarea aria-label="润色提示词" value={voiceInput.polish_prompt ?? ""} onChange={event => updateVoice({ polish_prompt: event.target.value })} /></label>
         </div>
         <div className="section"><div className="section-title">Linux IBus 快捷键<small>在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入</small></div>
           {([[

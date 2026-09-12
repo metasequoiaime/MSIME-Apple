@@ -202,6 +202,8 @@ pub struct VoiceInputPreferences {
     #[serde(default)]
     pub polish_enabled: bool,
     #[serde(default)]
+    pub polish_text: bool,
+    #[serde(default)]
     pub polish_provider: String,
     #[serde(default)]
     pub polish_token: String,
@@ -249,6 +251,7 @@ impl Default for VoiceInputPreferences {
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
             polish_enabled: false,
+            polish_text: false,
             polish_provider: "siliconflow".into(),
             polish_token: String::new(),
             polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
