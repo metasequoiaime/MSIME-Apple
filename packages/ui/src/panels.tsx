@@ -210,13 +210,25 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const recognitionRevision = useRef(0);
+  const submissionRevision = useRef(0);
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const activeStroke = useRef<{ pointerId: number; canvas: SVGSVGElement; points: Point[] } | null>(null);
   function releaseStroke() {
     const active = activeStroke.current;
     activeStroke.current = null;
     if (active?.canvas.hasPointerCapture?.(active.pointerId)) active.canvas.releasePointerCapture(active.pointerId);
   }
-  useEffect(() => () => { recognitionRevision.current++; releaseStroke(); }, [client]);
+  useEffect(() => {
+    submittingRef.current = false;
+    setSubmitting(false);
+    return () => {
+      recognitionRevision.current++;
+      submissionRevision.current++;
+      submittingRef.current = false;
+      releaseStroke();
+    };
+  }, [client]);
   async function recognize(nextStrokes: InkStroke[]) {
     const revision = ++recognitionRevision.current;
     setCandidates([]);
@@ -278,16 +290,37 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     recognizeRemaining(nextStrokes);
   }
   function clear() { recognitionRevision.current++; releaseStroke(); setStrokes([]); setDrawing([]); setCandidates([]); setNotice("请在左侧书写，松开鼠标后自动识别"); }
-  function chooseCandidate(candidate: string) {
+  async function chooseCandidate(candidate: string) {
+    if (submittingRef.current || !candidates.includes(candidate)) return;
     if (!client.submitHandwritingCandidate) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
-    void client.submitHandwritingCandidate(candidate).then(() => setNotice(`已提交：${candidate}`)).catch(() => setNotice(`提交失败：${candidate}`));
+    const revision = ++submissionRevision.current;
+    const inkRevision = recognitionRevision.current;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setNotice("正在提交候选…");
+    try {
+      await client.submitHandwritingCandidate(candidate);
+      if (revision === submissionRevision.current && inkRevision === recognitionRevision.current) {
+        setNotice(`已提交：${candidate}`);
+      }
+    } catch {
+      if (revision === submissionRevision.current && inkRevision === recognitionRevision.current) {
+        setNotice("提交失败，候选和笔画已保留，请重试");
+      }
+    } finally {
+      if (revision === submissionRevision.current) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
+    }
   }
+
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
   return <main className="native-panel handwriting-panel" data-panel-theme={theme} aria-label="手写识别板">
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo}>↶ 撤销</button><button type="button" onClick={clear}>× 重写</button></div></section>
-      <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} onClick={() => chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
+      <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <button type="button" key={candidate} disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
 }
