@@ -25,6 +25,8 @@ int main(int argc, const char *argv[]) {
         assert(session && !error && [session setFocused:YES error:&error]);
         for (NSNumber *enabled in @[@YES, @NO]) {
             assert([session setDedicatedEnglishEnabled:enabled.boolValue error:&error] && !error);
+            assert([session setChinesePunctuationEnabled:!enabled.boolValue error:&error] && !error);
+            assert([session setCharacterWidthFull:!enabled.boolValue error:&error] && !error);
             uint64_t oldSession = [[session viewWithError:&error][@"session"] unsignedLongLongValue];
             NSString *version = [MSIMEClientSession snapshotVersionForOptions:options error:&error];
             assert(version && !error);
@@ -46,6 +48,7 @@ int main(int argc, const char *argv[]) {
             id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEClientSessionDidReplaceSnapshotNotification object:session queue:nil usingBlock:^(NSNotification *note) {
                 assert(note.object == session && NSThread.isMainThread);
                 assert([[session viewWithError:nil][@"dedicated_english"] isEqual:enabled]);
+                assert([[session viewWithError:nil][@"character_width"] isEqual:enabled.boolValue ? @"Halfwidth" : @"Fullwidth"]);
                 ++notifications;
             }];
             BOOL activated = [MSIMEClientSession applySnapshotHandle:[prepared[@"handle"] unsignedLongLongValue] expectedVersion:version error:&error];
@@ -63,6 +66,13 @@ int main(int argc, const char *argv[]) {
                 assert([[[session viewWithError:&error][@"candidates"] firstObject][@"text"] isEqual:text]);
                 assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:text]);
             }
+            // Isolate punctuation behavior from the restored English/width modes.
+            assert([session setDedicatedEnglishEnabled:NO error:&error]);
+            assert([session setCharacterWidthFull:NO error:&error]);
+            NSDictionary *punctuation = [session typeASCII:',' shift:NO error:&error];
+            assert(punctuation && !error && [punctuation[@"handled"] boolValue] == !enabled.boolValue);
+            if (!enabled.boolValue) assert([punctuation[@"commit"] isEqual:@"，"]);
+            else assert(![punctuation[@"commit"] isKindOfClass:NSString.class]);
         }
         assert([session closeWithError:&error] && !error);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);

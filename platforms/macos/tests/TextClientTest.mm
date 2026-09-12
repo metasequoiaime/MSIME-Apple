@@ -49,7 +49,7 @@ static void TestEngineMaintenance() {
     assert([englishTyped[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
     assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"hello"]);
     for (NSNumber *enabled in @[@YES, @NO, @YES]) {
-        assert([session setDedicatedEnglishEnabled:enabled.boolValue error:&error] && !error);
+        assert([session setEnglishMode:enabled.boolValue error:&error] && !error);
         __block NSUInteger replacements = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEClientSessionDidReplaceSnapshotNotification object:session queue:nil usingBlock:^(NSNotification *notification) {
             assert(notification.object == session);
