@@ -41,6 +41,7 @@ static void TestEnginePreedit(FakeTextClient *client) {
         MSIMEApplyTransition(typed, client);
         assert([client.marked isEqual:typed[@"view"][@"preedit"]] && client.selection.location == client.marked.length);
         preferences[@"shuangpin_preedit_uses_raw"] = @(!raw.boolValue);
+        assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"shuangpin_preedit_uses_raw"] isEqual:raw]);
         NSDictionary *pending = @{@"format_version": @1, @"revision": @(++revision), @"preferences": preferences};
         NSDictionary *deferred = [session updatePreferencesSnapshot:pending error:&error];
         assert([deferred[@"deferred"] isEqual:@YES] && !error);
@@ -59,6 +60,9 @@ static void TestEnginePreedit(FakeTextClient *client) {
         MSIMEApplyTransition([session command:MSIME_CANCEL error:&error], client);
         assert(!error && client.marked.length == 0);
     }
+    NSError *staleError = nil;
+    assert((![session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @0, @"preferences": shared[@"preferences"]} error:&staleError]));
+    assert(staleError && [[MSIMEClientSession activeHostOptions][@"preferences"][@"shuangpin_preedit_uses_raw"] isEqual:@NO]);
     assert([session typeASCII:'b' shift:NO error:&error]);
     __block NSUInteger replacements = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEClientSessionDidReplaceSnapshotNotification object:session queue:nil usingBlock:^(NSNotification *note) {
@@ -78,6 +82,10 @@ static void TestEnginePreedit(FakeTextClient *client) {
     assert(afterRecovery && !error && [afterRecovery[@"view"][@"editing_text"] isEqual:@"b"]);
     MSIMEApplyTransition(afterRecovery, client);
     assert([client.marked isEqual:afterRecovery[@"view"][@"preedit"]]);
+    NSDictionary *expandedAfterRecovery = [session typeASCII:';' shift:NO error:&error];
+    assert(expandedAfterRecovery && !error);
+    // The last accepted preference was formatted display, not the raw startup value.
+    assert([expandedAfterRecovery[@"view"][@"preedit"] isEqual:@"bing"]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     assert([session closeWithError:&error] && !error);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);

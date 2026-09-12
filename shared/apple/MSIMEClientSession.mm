@@ -292,7 +292,16 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好快照必须是 JSON 对象"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
     if (!data) return nil;
-    return decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    NSDictionary *result = decode(msime_client_update_preferences(_handle, static_cast<const uint8_t *>(data.bytes), data.length), error);
+    if (result) {
+        // Keep the accepted desired configuration for snapshot replacement/recovery.
+        // Decode our serialized input to avoid retaining caller-owned mutable data.
+        NSDictionary *accepted = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        NSMutableDictionary *options = [_hostOptions mutableCopy];
+        options[@"preferences"] = accepted[@"preferences"];
+        _hostOptions = [options copy];
+    }
+    return result;
 }
 - (NSDictionary *)startVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return nil; return decode(msime_client_voice_start(_handle), error); }
 - (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
