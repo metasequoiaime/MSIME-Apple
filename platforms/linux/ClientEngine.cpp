@@ -44,6 +44,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
+void voice_cancel(IBusEngine *engine);
 std::string provider_socket_fallback(const Json &options, const char *option,
                                       const char *environment, const char *filename) {
   auto value = options.value(option, std::string{});
@@ -55,7 +56,8 @@ std::string provider_socket_fallback(const Json &options, const char *option,
   if (!runtime || !*runtime)
     return {};
   const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
-  return std::filesystem::exists(candidate) ? candidate.string() : std::string{};
+  std::error_code error;
+  return std::filesystem::is_socket(candidate, error) ? candidate.string() : std::string{};
 }
 struct State;
 bool script_conversion_applies(const Json &context);
@@ -486,7 +488,7 @@ struct State {
     character_set_shortcut_enabled =
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
   }
-  bool refresh_provider_sockets() {
+  bool refresh_provider_sockets(IBusEngine *engine) {
     const auto online = provider_socket_fallback(
         configured, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     const auto translation = [&] {
@@ -500,13 +502,18 @@ struct State {
     const auto voice = provider_socket_fallback(
         configured, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const bool voice_changed = voice != voice_provider_socket;
-    if (online != online_provider_socket ||
-        translation != translation_provider_socket)
+    const bool online_changed = online != online_provider_socket ||
+                                translation != translation_provider_socket;
+    // Cancel against the old endpoint before replacing it, so the previous
+    // provider does not keep recording after an environment/config change.
+    if (voice_changed && voice_active)
+      voice_cancel(engine);
+    if (online_changed)
       invalidate_providers();
     online_provider_socket = online;
     translation_provider_socket = translation;
     voice_provider_socket = voice;
-    return voice_changed;
+    return voice_changed || online_changed;
   }
   void apply_session_overrides(Json &options) const {
     auto &preferences = options["preferences"];
@@ -4047,6 +4054,12 @@ gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
   watch_clipboard_history(engine);
+  guarded(engine, "provider_discovery", [&] {
+    if (s.refresh_provider_sockets(engine) && s.focused && !s.blocked) {
+      publish_mode(engine);
+      online_schedule(engine);
+    }
+  });
   if (s.preferences_loading)
     return G_SOURCE_CONTINUE;
   const auto directory = configured.find("preferences_directory");
@@ -4075,8 +4088,6 @@ gboolean reload_preferences(gpointer data) {
                              if (snapshot.is_null())
                                return;
                              configured["preferences"] = snapshot.at("preferences");
-                             const bool voice_socket_changed =
-                                 s.refresh_provider_sockets();
                              if (request->session == 0 ||
                                  s.session != request->session || !s.focused ||
                                  s.blocked)
@@ -4084,8 +4095,6 @@ gboolean reload_preferences(gpointer data) {
                              s.apply_session_overrides(snapshot);
                              s.refresh_host_preferences(snapshot.at("preferences"));
                              sync_global_input_mode(IBUS_ENGINE(source));
-                             if (voice_socket_changed && s.voice_active)
-                               voice_cancel(IBUS_ENGINE(source));
                              if (s.voice_active && !s.voice_enabled)
                                voice_cancel(IBUS_ENGINE(source));
                              const auto encoded = snapshot.dump();
