@@ -1709,6 +1709,9 @@ void render(IBusEngine *engine, const Json &view) {
     case 3: value += "  AI"; break;
     default: break;
     }
+    const auto fixed_position = candidate.value("fixed_position", 0);
+    if (fixed_position >= 1 && fixed_position <= 5)
+      value += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
     if (!annotation.empty() && state(engine).show_helpcode_in_candidate_window) {
       value += "  ";
