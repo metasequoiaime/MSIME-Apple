@@ -2465,6 +2465,9 @@ void voice_cancel(IBusEngine *engine) {
   if (s.voice_active && s.session)
     msime_client_string_free(msime_client_voice_cancel(s.session));
   s.voice_active = false;
+  s.voice_stopping = false;
+  s.voice_phase = "正在录音…";
+  s.voice_level.reset();
   s.voice_generation = 0;
   s.voice_preedit.clear();
   s.voice_space_locked = false;
@@ -2491,9 +2494,12 @@ void voice_stop(IBusEngine *engine) {
       stopped = false;
     }
   }
-  if (!stopped)
+  if (!stopped) {
     voice_cancel(engine);
-  else {
+    ibus_engine_update_auxiliary_text(engine,
+        ibus_text_new_from_static_string(
+            "结束录音失败，本次语音已取消，请检查语音服务后重试"), TRUE);
+  } else {
     s.voice_stopping = true;
     s.voice_phase = "正在识别…";
     render(engine, s.view);
@@ -2501,7 +2507,7 @@ void voice_stop(IBusEngine *engine) {
     publish_mode(engine);
   }
 }
-void voice_start(IBusEngine *engine) {
+void voice_start_impl(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || s.voice_active)
@@ -2687,6 +2693,18 @@ void voice_start(IBusEngine *engine) {
       });
   render(engine, s.view);
   publish_mode(engine);
+}
+void voice_start(IBusEngine *engine) {
+  try {
+    voice_start_impl(engine);
+  } catch (...) {
+    // Configuration and Host API errors may contain private values. Only
+    // show a fixed message after dropping any partially started generation.
+    voice_cancel(engine);
+    ibus_engine_update_auxiliary_text(engine,
+        ibus_text_new_from_static_string(
+            "无法启动语音输入，请检查语音设置后重试"), TRUE);
+  }
 }
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
