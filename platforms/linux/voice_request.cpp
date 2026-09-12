@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "provider_socket_cli.h"
 
 #include <array>
 #include <iostream>
@@ -18,19 +19,22 @@ void print_stream_update(const uint8_t *text, size_t length, bool final,
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-voice [--stream] <provider-socket>\n";
+    std::cout << "Usage: msime-client-voice [--stream] [provider-socket]\n"
+                 "Defaults to MSIME_VOICE_PROVIDER_SOCKET, then "
+                 "$XDG_RUNTIME_DIR/msime/voice.sock.\n";
     return 0;
   }
-  const bool stream = argc == 3 && std::string(argv[1]) == "--stream";
-  const int socket_argument = stream ? 2 : 1;
-  if ((stream ? argc != 3 : argc != 2) || argv[socket_argument][0] != '/')
+  const bool stream = argc >= 2 && std::string(argv[1]) == "--stream";
+  const auto socket_path = msime_cli_provider_socket(
+      argc - (stream ? 1 : 0), argv + (stream ? 1 : 0),
+      "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
+  if (socket_path.empty())
     return 2;
   std::array<char, 16385> buffer;
   std::cin.read(buffer.data(), buffer.size());
   const auto length = static_cast<size_t>(std::cin.gcount());
   if (std::cin.bad() || length == 0 || length > 16384)
     return 2;
-  const std::string socket_path = argv[socket_argument];
   if (stream) {
     std::unique_ptr<char, decltype(&msime_client_string_free)> result(
         msime_client_voice_provider_stream(
