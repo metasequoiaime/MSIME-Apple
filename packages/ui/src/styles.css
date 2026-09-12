@@ -593,3 +593,5 @@ html[data-theme="light"] .window-close:active .window-icon { filter: none; }
 
 .ink-canvas:focus-visible { outline: 2px solid #d88bde; outline-offset: -3px; }
 .handwriting-actions { flex-wrap: wrap; }
+
+.emoji-panel-catalog-status { flex: 0 0 auto; padding: 6px 24px; font-size: 12px; }

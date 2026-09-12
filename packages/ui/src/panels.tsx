@@ -88,6 +88,7 @@ export interface EmojiPanelClient extends PanelClient {
     emoji: EmojiCatalogGroup[];
     kaomoji: EmojiCatalogGroup[];
     symbols: EmojiCatalogGroup[];
+    unavailable?: ("emoji" | "kaomoji" | "symbols")[];
   }>;
 }
 
@@ -1181,6 +1182,9 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const [notice, setNoticeText] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+  const [catalogUnavailable, setCatalogUnavailable] = useState<("emoji" | "kaomoji" | "symbols")[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogRetry, setCatalogRetry] = useState(0);
 
   function setNotice(message: string, temporary = false) {
     if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
@@ -1231,11 +1235,28 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [client]);
 
   useEffect(() => {
-    if (!client.loadCatalog) return;
-    let active = true;
-    void client.loadCatalog().then(next => { if (active) setCatalog(next); }).catch(() => { if (active) setNotice("目录不可用，已使用内置目录"); });
-    return () => { active = false; };
+    setCatalog({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+    setCatalogUnavailable([]);
   }, [client]);
+
+  useEffect(() => {
+    if (!client.loadCatalog) { setCatalogLoading(false); return; }
+    let active = true;
+    setCatalogLoading(true);
+    void Promise.resolve().then(() => client.loadCatalog!()).then(next => {
+      if (!active) return;
+      const unavailable = next.unavailable ?? [];
+      setCatalog(current => ({
+        emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
+        kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
+        symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
+      }));
+      setCatalogUnavailable(unavailable);
+    }).catch(() => {
+      if (active) setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
+    }).finally(() => { if (active) setCatalogLoading(false); });
+    return () => { active = false; };
+  }, [client, catalogRetry]);
 
   useEffect(() => {
     if (!client.clipboard?.list) { setClipboardLoadFailed(false); return; }
@@ -1478,6 +1499,10 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       {emojiPages.map(item => <button type="button" key={item.id} className={page === item.id ? "active" : ""} aria-label={item.label} aria-pressed={page === item.id} onClick={() => selectPage(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}
     </nav>
     {isDetail && <div className="emoji-panel-back"><button type="button" aria-label="返回" onClick={() => selectPage("home")}>‹ 返回</button></div>}
+    {page !== "clipboard" && page !== "sticker" && page !== "gif" && catalogUnavailable.length > 0 && <div className="emoji-panel-toolbar emoji-panel-catalog-status" role="status" aria-busy={catalogLoading}>
+      <span>{catalogUnavailable.map(kind => ({ emoji: "Emoji", kaomoji: "颜文字", symbols: "符号" })[kind]).join("、")}目录加载失败，暂用已有目录</span>
+      <button type="button" disabled={catalogLoading || clipboardBusy} onClick={() => { setCatalogLoading(true); setCatalogRetry(value => value + 1); }}>{catalogLoading ? "正在加载…" : "重新加载"}</button>
+    </div>
     {page !== "clipboard" && page !== "sticker" && page !== "gif" && canCopy && client.sendText && <div className="emoji-panel-activation" role="group" aria-label="点击项目时的操作">
       <span>点击项目：</span><button type="button" aria-pressed={effectiveMode === "copy"} disabled={clipboardBusy} onClick={() => { setActivationMode("copy"); setNotice("点击项目即可复制"); }}>复制</button><button type="button" aria-pressed={effectiveMode === "input"} disabled={clipboardBusy} onClick={() => { setActivationMode("input"); setNotice("点击项目即可输入到原应用"); }}>输入到原应用</button>
     </div>}

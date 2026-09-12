@@ -698,6 +698,7 @@ struct EmojiCatalogResponse {
     emoji: Vec<EmojiCatalogGroup>,
     kaomoji: Vec<EmojiCatalogGroup>,
     symbols: Vec<EmojiCatalogGroup>,
+    unavailable: Vec<&'static str>,
 }
 
 #[cfg(unix)]
@@ -842,16 +843,21 @@ async fn load_emoji_catalog(
             .and_then(Value::as_str)
             .filter(|value| std::path::Path::new(value).is_absolute())
             .ok_or(CommandError { code: "storage" })?;
+        let mut unavailable = Vec::new();
+        let mut read = |category, name| {
+            read_local_emoji_groups(resources, category).unwrap_or_else(|_| {
+                unavailable.push(name);
+                Vec::new()
+            })
+        };
+        let emoji = read("", "emoji");
+        let kaomoji = read("kaomoji", "kaomoji");
+        let symbols = read("symbols", "symbols");
         Ok(EmojiCatalogResponse {
-            emoji: read_local_emoji_groups(resources, "").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
-            kaomoji: read_local_emoji_groups(resources, "kaomoji").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
-            symbols: read_local_emoji_groups(resources, "symbols").map_err(|_| CommandError {
-                code: "unavailable",
-            })?,
+            emoji,
+            kaomoji,
+            symbols,
+            unavailable,
         })
     })
     .await
