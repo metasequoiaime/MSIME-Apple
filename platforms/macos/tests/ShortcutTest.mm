@@ -210,7 +210,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"keymapPanel"];
     [controller setValue:[ShortcutSession new] forKey:@"session"];
-    NSDictionary *view = @{@"scheme": @1, @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
+    NSDictionary *view = @{@"scheme": @1, @"local_mode": @"none", @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"candidates": @[]};
     [controller setValue:view forKey:@"view"];
     [controller updateKeymapPanel];
     assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
@@ -222,6 +222,21 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         [controller updateKeymapPanel];
         assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     }
+    for (id mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"unknown", @"", NSNull.null, @1]) {
+        NSMutableDictionary *next = [view mutableCopy];
+        next[@"local_mode"] = mode;
+        [controller setValue:next forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(!panel.requestedVisible);
+        [controller setValue:view forKey:@"view"];
+        [controller updateKeymapPanel];
+        assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
+    }
+    NSMutableDictionary *missingMode = [view mutableCopy];
+    [missingMode removeObjectForKey:@"local_mode"];
+    [controller setValue:missingMode forKey:@"view"];
+    [controller updateKeymapPanel];
+    assert(!panel.requestedVisible);
     for (NSDictionary *excluded in @[@{}, @{@"scheme": @0}, @{@"scheme": @3}, @{@"editing_text": @""}, @{@"editing_text": NSNull.null}, @{@"editing_text": @42}, @{@"shuangpin_profile": @""}]) {
         NSMutableDictionary *next = [view mutableCopy];
         [next addEntriesFromDictionary:excluded];

@@ -652,8 +652,10 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSString *editing = MSIMEShuangpinKeymapEditingText(_view);
     NSNumber *scheme = _view[@"scheme"];
     NSString *profile = _view[@"shuangpin_profile"];
+    NSString *mode = _view[@"local_mode"];
     if (!_session || !_activeClient || _appearance.englishMode ||
         ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"none"] ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
         !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, editing.length > 0)) {
         [_keymapPanel orderOut:nil];
