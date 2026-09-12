@@ -16,6 +16,7 @@
 #include <tuple>
 #include <cstdlib>
 #include <stdexcept>
+#include <string_view>
 #include <sys/file.h>
 #include <unistd.h>
 #include <vector>
@@ -675,6 +676,57 @@ const char *smart_punctuation_pair(char value) {
   case '<': return "〈"; case '>': return "〉"; default: return nullptr;
   }
 }
+const char *paired_punctuation_closing(std::string_view text) {
+  for (const auto &[opening, closing] : {
+           std::pair<std::string_view, const char *> {"（", "）"},
+           {"【", "】"},
+           {"《", "》"},
+           {"〈", "〉"}}) {
+    if (text.size() >= opening.size() &&
+        text.compare(text.size() - opening.size(), opening.size(), opening) == 0)
+      return closing;
+  }
+  return nullptr;
+}
+enum class PunctuationPairMode {
+  None,
+  Bracket,
+  Brace,
+  DoubleQuote,
+  SingleQuote
+};
+bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mode) {
+  if (mode == PunctuationPairMode::None)
+    return false;
+  if (mode == PunctuationPairMode::Brace) {
+    if (!text.empty() && text.back() == '{') {
+      text.push_back('}');
+      return true;
+    }
+    return false;
+  }
+  if (mode == PunctuationPairMode::Bracket) {
+    if (const auto *closing = paired_punctuation_closing(text)) {
+      text += closing;
+      return true;
+    }
+    return false;
+  }
+  const std::string_view opening =
+      mode == PunctuationPairMode::DoubleQuote ? "“" : "‘";
+  const std::string_view closing =
+      mode == PunctuationPairMode::DoubleQuote ? "”" : "’";
+  for (const auto suffix : {opening, closing}) {
+    if (text.size() < suffix.size() ||
+        text.compare(text.size() - suffix.size(), suffix.size(), suffix) != 0)
+      continue;
+    text.erase(text.size() - suffix.size());
+    text += opening;
+    text += closing;
+    return true;
+  }
+  return false;
+}
 bool is_smart_punctuation_key(guint key) {
   return key == IBUS_comma || key == IBUS_period || key == IBUS_colon;
 }
@@ -723,7 +775,8 @@ struct TranslationTask {
   std::string query;
   std::string socket;
 };
-bool apply(IBusEngine *engine, char *raw);
+bool apply(IBusEngine *engine, char *raw,
+           PunctuationPairMode pair_mode = PunctuationPairMode::None);
 void render(IBusEngine *engine, const Json &view);
 void translation_complete(GObject *source, GAsyncResult *result, gpointer);
 bool translation_request_is_stale(IBusEngine *engine, const std::string &encoded) {
@@ -1664,7 +1717,7 @@ void render(IBusEngine *engine, const Json &view) {
   }
   ibus_engine_update_lookup_table(engine, table, TRUE);
 }
-bool apply(IBusEngine *engine, char *raw) {
+bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
@@ -1672,6 +1725,7 @@ bool apply(IBusEngine *engine, char *raw) {
     auto &s = state(engine);
     text = traditional_display(
         s, result.value("commit_context", Json(nullptr)), std::move(text));
+    normalize_punctuation_pair(text, pair_mode);
     if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
@@ -2928,13 +2982,41 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = apply(engine, msime_client_character(s.session, '+', true));
       return;
     }
+    const auto &editing_text = s.view.at("editing_text").get<std::string>();
     if (s.chinese_punctuation && s.paired_punctuation &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
-        s.view.at("editing_text").get<std::string>().empty() &&
-        (key == IBUS_quotedbl || key == IBUS_apostrophe)) {
-      const char *pair = key == IBUS_quotedbl ? "“”" : "‘’";
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(pair));
-      handled = true;
+        (key == IBUS_quotedbl ||
+         (key == IBUS_apostrophe && editing_text.empty()))) {
+      const auto pair_mode = key == IBUS_quotedbl
+                                 ? PunctuationPairMode::DoubleQuote
+                                 : PunctuationPairMode::SingleQuote;
+      handled = apply(engine, msime_client_punctuation(
+                                   s.session, static_cast<uint8_t>(key)),
+                               pair_mode);
+      if (handled)
+        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
+      return;
+    }
+    if (s.chinese_punctuation && s.paired_punctuation &&
+        !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
+        (key == '(' || key == '[' || key == '<' || key == '{')) {
+      const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
+                                        : PunctuationPairMode::Bracket;
+      handled = apply(
+          engine,
+          key == '{'
+              ? msime_client_punctuation_ascii(s.session, static_cast<uint8_t>(key))
+              : msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
+          pair_mode);
+      if (!handled && key == '{') {
+        auto text = std::string("{}");
+        if (s.fullwidth)
+          text = fullwidth_text(std::move(text));
+        ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
+        handled = true;
+      }
+      if (handled)
+        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
     }
     if (s.smart_punctuation_repeat && s.paired_punctuation && s.last_smart_punctuation == key &&
