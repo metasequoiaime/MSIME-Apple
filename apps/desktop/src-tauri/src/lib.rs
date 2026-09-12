@@ -938,6 +938,35 @@ fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f
 }
 
 #[cfg(target_os = "linux")]
+fn sway_workspace_for_container(
+    value: &serde_json::Value,
+    id: u64,
+    workspace: Option<(f64, f64, f64, f64)>,
+) -> Option<(f64, f64, f64, f64)> {
+    let workspace = if value.get("type").and_then(serde_json::Value::as_str) == Some("workspace") {
+        value.get("rect").and_then(|rect| Some((
+            rect.get("x")?.as_f64()?, rect.get("y")?.as_f64()?,
+            rect.get("width")?.as_f64()?, rect.get("height")?.as_f64()?,
+        )))
+    } else {
+        workspace
+    };
+    if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+        return workspace;
+    }
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(serde_json::Value::as_array) {
+            for node in nodes {
+                if let Some(rect) = sway_workspace_for_container(node, id, workspace) {
+                    return Some(rect);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
 fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
     let mut fields = std::collections::HashMap::new();
     for line in value.lines() {
@@ -953,12 +982,13 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn panel_position(state: &PanelInputState, width: f64, _height: f64) -> Option<tauri::Position> {
+fn panel_position(state: &PanelInputState, width: f64, height: f64) -> Option<tauri::Position> {
     let target = state.0.lock().ok()?.clone()?;
     let physical = matches!(&target, PanelInputTarget::X11(_));
     let read = |program: &str, arguments: &[&str], limit: usize| {
         linux_process::read_text(program, arguments, limit, std::time::Duration::from_secs(1))
     };
+    let mut logical_workspace = None;
     let rect = match target {
         PanelInputTarget::X11(window) => read(
             "xdotool", &["getwindowgeometry", "--shell", window.as_str()], 4096,
@@ -966,7 +996,10 @@ fn panel_position(state: &PanelInputState, width: f64, _height: f64) -> Option<t
             .and_then(|output| parse_xdotool_geometry(&output)),
         PanelInputTarget::Sway(id) => read("swaymsg", &["-t", "get_tree", "-r"], 1024 * 1024)
             .and_then(|output| serde_json::from_str::<serde_json::Value>(&output).ok())
-            .and_then(|tree| sway_rect_for_container(&tree, id)),
+            .and_then(|tree| {
+                logical_workspace = sway_workspace_for_container(&tree, id, None);
+                sway_rect_for_container(&tree, id)
+            }),
         PanelInputTarget::Wayland | PanelInputTarget::Ydotool => None,
     }?;
     if ![rect.0, rect.1, rect.2, rect.3].iter().all(|value| value.is_finite())
@@ -974,8 +1007,16 @@ fn panel_position(state: &PanelInputState, width: f64, _height: f64) -> Option<t
     {
         return None;
     }
-    let x = rect.0 + (rect.2 - width) / 2.0;
-    let y = rect.1 + rect.3 + 16.0;
+    let mut x = rect.0 + (rect.2 - width) / 2.0;
+    let mut y = rect.1 + rect.3 + 16.0;
+    if let Some((left, top, workspace_width, workspace_height)) = logical_workspace {
+        if [left, top, workspace_width, workspace_height].iter().all(|value| value.is_finite())
+            && workspace_width > 0.0 && workspace_height > 0.0
+        {
+            x = x.clamp(left, left + (workspace_width - width).max(0.0));
+            y = y.clamp(top, top + (workspace_height - height).max(0.0));
+        }
+    }
     if !x.is_finite() || !y.is_finite() {
         return None;
     }
