@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
 
 export interface KeyboardInputRequest {
@@ -15,6 +15,7 @@ export interface HandwritingRecognitionResult { candidates: string[]; }
 
 export interface PanelClient {
   close(): Promise<void>;
+  beginWindowDrag?(): Promise<void>;
   rememberInputTarget?(): Promise<void>;
   sendKey?(request: KeyboardInputRequest): Promise<void>;
   sendText?(text: string): Promise<void>;
@@ -96,6 +97,12 @@ function isImeCommitKey(virtualKey: number) {
 }
 
 export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
+  const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    const reset = () => { pendingDrag.current = null; };
+    window.addEventListener("blur", reset);
+    return () => { reset(); window.removeEventListener("blur", reset); };
+  }, [client]);
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
   useEffect(() => {
@@ -126,7 +133,27 @@ export function KeyboardPanel({ client, theme = "dark" }: { client: PanelClient;
     if (shift) setActiveModifiers(current => { const next = new Set(current); next.delete("Shift"); return next; });
   }
   return <main className="native-panel keyboard-panel" data-keyboard-theme={theme} aria-label="屏幕键盘">
-    <header className="native-panel-header"><span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <header className="native-panel-header"
+      onPointerDown={event => {
+        pendingDrag.current = null;
+        if (!client.beginWindowDrag || event.button !== 0 || (event.target as Element).closest("button")) return;
+        pendingDrag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      }}
+      onPointerMove={event => {
+        const pending = pendingDrag.current;
+        if (!pending || pending.id !== event.pointerId) return;
+        if (event.buttons !== 1) { pendingDrag.current = null; return; }
+        if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2) return;
+        pendingDrag.current = null;
+        void (async () => {
+          try { await client.beginWindowDrag?.(); }
+          catch { setNotice("无法移动窗口，请重试。"); }
+        })();
+      }}
+      onPointerUp={() => { pendingDrag.current = null; }}
+      onPointerCancel={() => { pendingDrag.current = null; }}
+      onPointerLeave={() => { pendingDrag.current = null; }}>
+      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="keyboard-panel-body">
       <div className="keyboard-layout">
         {keyboardRows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {

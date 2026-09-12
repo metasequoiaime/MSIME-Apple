@@ -5,6 +5,7 @@ import minimizeIcon from "../../../packages/ui/src/assets/minimize.svg";
 import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
+import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
 import { CloudClipboardPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -545,6 +546,47 @@ test("automatic color swatch follows candidate theme without persisting a color 
   expect(preview.style.getPropertyValue("--cand-text")).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
+});
+
+test("screen keyboard header drag is bounded and separate from close and keys", async () => {
+  expect(keyboardCapability.windows).toEqual(["keyboard-panel"]);
+  expect(keyboardCapability.permissions).toEqual(["core:window:allow-start-dragging", "core:event:allow-listen", "core:event:allow-unlisten"]);
+  const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+  const close = vi.fn().mockResolvedValue(undefined);
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  const view = render(<KeyboardPanel client={{ close, beginWindowDrag, sendKey }} />);
+  const header = view.container.querySelector(".native-panel-header")!;
+  titlebarPointer(header, "pointerdown", 100, 14);
+  titlebarPointer(header, "pointermove", 101, 14);
+  expect(beginWindowDrag).not.toHaveBeenCalled();
+  titlebarPointer(header, "pointermove", 103, 14);
+  titlebarPointer(header, "pointermove", 110, 14);
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  for (const target of [screen.getByRole("button", { name: "关闭" }), screen.getByRole("button", { name: "a" })]) {
+    titlebarPointer(target, "pointerdown", 100, 14);
+    titlebarPointer(target, "pointermove", 110, 14);
+  }
+  expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  expect(close).not.toHaveBeenCalled();
+  expect(sendKey).not.toHaveBeenCalled();
+  for (const reason of ["pointerup", "pointercancel", "pointerout", "blur"]) {
+    titlebarPointer(header, "pointerdown", 100, 14);
+    if (reason === "blur") fireEvent(window, new Event("blur"));
+    else titlebarPointer(header, reason, 100, 14);
+    titlebarPointer(header, "pointermove", 110, 14);
+    expect(beginWindowDrag).toHaveBeenCalledTimes(1);
+  }
+});
+
+test.each([false, true])("keyboard drag reports host failure (synchronous=%s)", async synchronous => {
+  const view = render(<KeyboardPanel client={{ close: async () => {}, beginWindowDrag: () => {
+    if (synchronous) throw new Error("synthetic");
+    return Promise.reject(new Error("synthetic"));
+  } }} />);
+  const header = view.container.querySelector(".native-panel-header")!;
+  titlebarPointer(header, "pointerdown", 100, 14);
+  titlebarPointer(header, "pointermove", 110, 14);
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("无法移动窗口，请重试。"));
 });
 
 test("screen keyboard matches upstream Shift and Caps posting combinations", async () => {
