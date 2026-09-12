@@ -243,5 +243,35 @@ with sync_playwright() as playwright:
       if (document.fonts.size !== initialFonts) throw Error('capped fonts leaked');
       return {inlineBlocked:true, scopedPalette:true, lightOverride:true, cleanup:true, toolbarScope:true, toolbarConditions:true, nestedOrder:true, nestedPseudo:true, nestedFiltering:true, cssImages:true, imageDedup:true, imageDecode:true, escapedImages:true, escapedContent:true, escapedTraversalBlocked:true, imageSet:true, imageSetVariables:true, imageSetRemoteBlocked:true, escapedImageSets:true, unsafeEscapedSetsBlocked:true, isolatedAnimations:true, animationPlayback:true, animationNames:true, animationImages:true, animationCleanup:true, animationVariables:true, animationVariableFallback:true, animationVariableIsolation:true, animationLonghandOverrides:true, animationPriority:true, fontRendering:true, fontIsolation:true, fontCleanup:true, fontLimits:true};
     }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
+    page.set_viewport_size({"width": 400, "height": 600})
+    page.evaluate(r"""async fontBase64 => {
+      const {prepareToolbarFonts} = await import('/toolbar-fonts.js');
+      const {installToolbarCss} = await import('/skin-toolbar-css.js');
+      const bytes = Uint8Array.from(atob(fontBase64), c => c.charCodeAt(0)).buffer;
+      const reads = [];
+      const prepared = await prepareToolbarFonts('@supports (font-family:serif) {@media (min-width:800px) {@font-face{font-family:Conditional;src:url(fonts/test.ttf)}}} @supports (msime-unsupported:yes) {@font-face{font-family:Unused;src:url(fonts/unused.ttf)}} .sample{font-family:Conditional,monospace;font-size:20px}', async path => { reads.push(path); return bytes; });
+      if (prepared.partial || reads.join(',') !== 'fonts/test.ttf') throw Error('conditional preparation failed');
+      const initial = document.fonts.size;
+      const remove = prepared.install(), style = installToolbarCss('card1', prepared.css);
+      if (style.partial || document.fonts.size !== initial) throw Error('inactive font registered');
+      window.conditionalFontFixture = {initial, remove: () => {remove(); style.remove();}};
+    }""", json.loads(Path(__file__).with_name("skin-font-fixture.json").read_text())["base64"])
+    page.set_viewport_size({"width": 1000, "height": 600})
+    page.wait_for_function("() => document.fonts.size === window.conditionalFontFixture.initial + 1")
+    page.evaluate("""() => {
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.font = '20px ' + getComputedStyle(document.querySelector('.card1 .sample')).fontFamily;
+      if (Math.abs(ctx.measureText('A').width - 20) > .01) throw Error('conditional font not rendered');
+    }""")
+    page.set_viewport_size({"width": 400, "height": 600})
+    page.wait_for_function("() => document.fonts.size === window.conditionalFontFixture.initial")
+    page.evaluate("window.conditionalFontFixture.remove()")
+    page.set_viewport_size({"width": 1000, "height": 600})
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+    page.evaluate("""() => {
+      if (document.fonts.size !== window.conditionalFontFixture.initial || document.adoptedStyleSheets.length) throw Error('conditional cleanup leaked');
+      delete window.conditionalFontFixture;
+    }""")
+    result["conditionalFonts"] = True
     print(result)
     browser.close()
