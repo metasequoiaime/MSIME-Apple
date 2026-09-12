@@ -148,3 +148,12 @@ ctest --test-dir target/macos --output-on-failure
 从仓库根目录让设置页写入同一份隔离配置：`MSIME_CLIENT_STATE_DIR="$PWD/target/macos-state" pnpm --filter @msime/desktop tauri dev`。保存后活跃宿主通常在下一次轮询收到快照，当前组词结束后生效；无需 Tauri 常驻。此为代码和原生桥接层已验证的链路，尚未验证系统安装后的设置窗口到编辑器全程交互。
 
 文本适配测试验证提交、ASCII 光标和清除预编辑；它不是系统输入源安装后在编辑器中的验收。系统级焦点、候选位置和键盘输入仍需真实宿主验证后才能标为完成。
+
+完整词库快照激活集成测试需显式运行，不自动下载资源或触发 CI：
+
+```sh
+cmake --build target/macos --target snapshot-activation-test
+target/macos/snapshot-activation-test /absolute/path/to/verified-desktop-resources
+```
+
+资源必须匹配 `resources/desktop-dictionary.lock.json`，测试通过生产校验器检查文件。它在新建临时目录中准备用户数据和暂存快照，验证真实激活、英文模式开启/关闭的保留、导入词条候选与提交；成功后删除测试状态，不修改传入的资源目录或实际用户词库。此测试不替代已安装 IMK 宿主验证。

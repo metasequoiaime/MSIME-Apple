@@ -204,6 +204,18 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     for (current, replacement) in pairs {
         let current = Path::new(current);
         let replacement = Path::new(replacement);
+        // Engine's production layout stores dictionaries under user_data. A
+        // matching subtree is already swapped with its parent; moving it again
+        // would fail because the staged subtree no longer exists.
+        if pairs.iter().any(|(parent, staged_parent)| {
+            let parent = Path::new(parent);
+            current != parent
+                && current.strip_prefix(parent).ok().is_some_and(|relative| {
+                    replacement.strip_prefix(staged_parent).ok() == Some(relative)
+                })
+        }) {
+            continue;
+        }
         let backup = current.with_file_name(format!(
             "{}{}",
             current
