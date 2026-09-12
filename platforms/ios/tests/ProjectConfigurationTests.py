@@ -35,6 +35,22 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_no_unapplied_character_set_membership_predicate(self):
+        # 把 CharacterSet.contains 当方法引用传进 contains(where:),在 iOS 26 上会把普通汉字
+        # 判成控制字符。Each scalar of 青瓷庭院 tests false on its own; the same predicate handed
+        # to contains(where:) says the string holds one, so every AI design with a Chinese name was
+        # rejected as malformed. A closure, or the scalar's own Unicode category, answers correctly.
+        roots = [IOS_ROOT, IOS_ROOT.parents[0] / "macos"]
+        offenders = []
+        for root in roots:
+            for path in root.rglob("*.swift"):
+                if "Pods" in path.parts:
+                    continue
+                if re.search(r"CharacterSet\.\w+\.contains\s*\)", path.read_text()):
+                    offenders.append(str(path.relative_to(IOS_ROOT.parents[0])))
+        self.assertEqual(sorted(offenders), [],
+                         "pass a closure instead of CharacterSet.contains as a method reference")
+
     def test_brand_logo_is_a_template_without_a_baked_in_background(self):
         # 启动页、欢迎页和关于页共用这一张图。It was exported as RGB, so the white it was drawn on
         # travelled with it and showed as a white tile on the launch screen's grouped background --
