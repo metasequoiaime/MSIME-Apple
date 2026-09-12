@@ -255,7 +255,8 @@ struct State {
     clipboard_history_path = std::move(path);
     clipboard_enabled = enabled;
   }
-  bool online_loading = false, translation_loading = false;
+  unsigned online_loading = 0;
+  bool translation_loading = false;
   guint online_delay_source = 0;
   guint translation_delay_source = 0;
   bool cloud_candidates = true;
@@ -277,7 +278,7 @@ struct State {
       g_source_remove(source);
     }
     ++provider_epoch;
-    online_loading = false;
+    online_loading = 0;
     translation_loading = false;
     translation_dispatched_query.clear();
     online_dispatched_query.clear();
@@ -1132,6 +1133,8 @@ struct OnlineTask {
   uint64_t epoch;
   std::string query;
   std::string socket;
+  std::string provider_query;
+  uint8_t source;
 };
 struct TranslationTask {
   uint64_t session;
@@ -1313,25 +1316,43 @@ void online_dispatch(IBusEngine *engine) {
     // Empty replies also redraw the page. Dispatch each input/configuration
     // once instead of polling the same provider every idle interval.
     if (encoded == s.online_dispatched_query) return;
+    // Keep the original Engine identity for application, while each transport
+    // request enables only one source. Fast cloud results need not wait for AI.
+    std::vector<std::unique_ptr<OnlineTask>> requests;
+    for (uint8_t source = 0; source < 2; ++source) {
+      if (source == 0 && !(s.cloud_candidates && query.value("cloud_eligible", false))) continue;
+      if (source == 1 && !ai_requested) continue;
+      auto provider_query = query;
+      if (source == 0) {
+        provider_query.erase("ai_assistant");
+        provider_query.erase("ai_context");
+      } else {
+        provider_query["cloud_candidates"] = false;
+      }
+      requests.push_back(std::make_unique<OnlineTask>(OnlineTask{
+          s.session, s.provider_epoch, encoded, s.online_provider_socket,
+          provider_query.dump(), source}));
+    }
     s.online_dispatched_query = encoded;
-    auto *task_data = new OnlineTask{s.session, s.provider_epoch, encoded, s.online_provider_socket};
-    s.online_loading = true;
-    auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
-    g_task_set_task_data(task, task_data, [](gpointer value) {
-      delete static_cast<OnlineTask *>(value);
-    });
-    g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
-      auto &request = *static_cast<OnlineTask *>(data);
-      auto *raw = msime_client_online_provider_request(
-          reinterpret_cast<const uint8_t *>(request.query.data()), request.query.size(),
-          reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
-      g_task_return_pointer(task, raw, [](gpointer value) {
-        msime_client_string_free(static_cast<char *>(value));
+    s.online_loading = static_cast<unsigned>(requests.size());
+    for (auto &request : requests) {
+      auto task = g_task_new(G_OBJECT(engine), nullptr, online_complete, nullptr);
+      g_task_set_task_data(task, request.release(), [](gpointer value) {
+        delete static_cast<OnlineTask *>(value);
       });
-    });
-    g_object_unref(task);
+      g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+        auto &request = *static_cast<OnlineTask *>(data);
+        auto *raw = msime_client_online_provider_request(
+            reinterpret_cast<const uint8_t *>(request.provider_query.data()), request.provider_query.size(),
+            reinterpret_cast<const uint8_t *>(request.socket.data()), request.socket.size());
+        g_task_return_pointer(task, raw, [](gpointer value) {
+          msime_client_string_free(static_cast<char *>(value));
+        });
+      });
+      g_object_unref(task);
+    }
   } catch (...) {
-    s.online_loading = false;
+    s.online_loading = 0;
   }
 }
 // Match Windows cloud_ime's 500ms idle delay without sleeping on the
@@ -1422,7 +1443,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
       g_task_get_task_data(G_TASK(result)));
   if (!request || request->session != s.session || request->epoch != s.provider_epoch)
     return;
-  s.online_loading = false;
+  if (s.online_loading) --s.online_loading;
   if (!s.session || !s.focused || s.blocked || !s.input_enabled)
     return;
   if (online_request_is_stale(engine, request->query)) {
@@ -1442,7 +1463,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     for (const auto &item : candidates) {
       const auto candidate = item.value("text", std::string{});
       const auto source = item.value("source", 255);
-      if (candidate.empty() || source < 0 || source > 1 ||
+      if (candidate.empty() || source != request->source ||
           (!s.cloud_candidates && source == 0)) continue;
       groups[source].push_back(candidate);
     }
