@@ -26,6 +26,7 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
         dictionaries: base.join("dictionaries").to_str().unwrap().into(),
         scheme: 0,
         shuangpin_profile: 0,
+        shuangpin_preedit_uses_raw: true,
         learning: false,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
