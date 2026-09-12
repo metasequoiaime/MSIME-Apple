@@ -7,6 +7,9 @@ import java.nio.charset.StandardCharsets;
  * maps handled/commit/view to InputConnection and UI, and destroys its session.
  */
 public final class NativeClient {
+    private static final int EMOJI_QUERY_LIMIT = 16_384;
+    private static final int EMOJI_RESOURCES_LIMIT = 4_096;
+    private static final int EMOJI_RESPONSE_LIMIT = 1_048_576;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -17,6 +20,17 @@ public final class NativeClient {
     /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
+    }
+    /** Reads one bounded page from the verified packaged emoji catalog. Call on a worker. */
+    public static String emojiCatalog(String query, String resources) {
+        byte[] queryBytes = query.getBytes(StandardCharsets.UTF_8);
+        byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+        if (queryBytes.length > EMOJI_QUERY_LIMIT || resourcesBytes.length > EMOJI_RESOURCES_LIMIT)
+            throw new IllegalArgumentException("Emoji catalog request is too large");
+        byte[] result = emojiCatalogRaw(queryBytes, resourcesBytes);
+        if (result == null || result.length > EMOJI_RESPONSE_LIMIT)
+            throw new IllegalStateException("Emoji catalog response is too large");
+        return text(result);
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
@@ -73,6 +87,7 @@ public final class NativeClient {
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
+    private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);

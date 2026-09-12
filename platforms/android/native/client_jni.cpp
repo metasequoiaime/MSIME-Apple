@@ -39,6 +39,26 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_typingStatistics
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
+    if (!query || !resources) {
+        return response(env, msime_client_emoji_catalog_request(nullptr, 0, nullptr, 0));
+    }
+    jsize query_length = env->GetArrayLength(query);
+    jbyte *query_bytes = env->GetByteArrayElements(query, nullptr);
+    if (!query_bytes) return nullptr;
+    jsize resources_length = env->GetArrayLength(resources);
+    jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
+    if (!resources_bytes) {
+        env->ReleaseByteArrayElements(query, query_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    char *result = msime_client_emoji_catalog_request(
+        reinterpret_cast<const uint8_t *>(query_bytes), static_cast<size_t>(query_length),
+        reinterpret_cast<const uint8_t *>(resources_bytes), static_cast<size_t>(resources_length));
+    env->ReleaseByteArrayElements(resources, resources_bytes, JNI_ABORT);
+    env->ReleaseByteArrayElements(query, query_bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
