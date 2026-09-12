@@ -49,7 +49,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             "quick" => code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
             "wubi" => code.bytes().all(|b| b.is_ascii_lowercase()),
             "english" => code.bytes().all(|b| b.is_ascii_alphabetic()),
-            _ => code.bytes().all(|b| b.is_ascii_lowercase() || b == b''' || b == b' '),
+            _ => code.bytes().all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
         };
         code_alphabet_ok
             && !code.is_empty()

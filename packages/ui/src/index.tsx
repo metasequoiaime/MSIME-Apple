@@ -443,6 +443,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage));
+  const [communityMine, setCommunityMine] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
@@ -829,7 +830,7 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     <nav className="sidebar" aria-label="设置分类">
       <div className="sidebar-header"><img src={logo} alt="" /><span>水杉 IME</span></div>
       {availablePages.map(item => <button key={item.id} type="button" className={`item${page === item.id ? " active" : ""}`}
-        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => setPage(item.id)}>
+        aria-current={page === item.id ? "page" : undefined} aria-controls="settings-content" onClick={() => { setPage(item.id); if (item.id === "community") setCommunityMine(false); }}>
         <span className="icon"><img src={item.icon} alt="" /></span>{item.title}
       </button>)}
       <p className="preview-label">客户端预览版</p>
@@ -839,8 +840,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && !draft && <p role="status">正在读取设置…</p>}
-    {client.account && page === "account" && <AccountPage client={client.account} />}
-    {client.communitySkins && page === "community" && <CommunitySkinsPage client={client.communitySkins} theme={keyboardPreviewTheme} />}
+    {client.account && page === "account" && <AccountPage client={client.account} onOpenPublishedSkins={() => { setCommunityMine(true); setPage("community"); }} />}
+    {client.communitySkins && page === "community" && <CommunitySkinsPage key={communityMine ? "mine" : "all"} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityMine} />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} />}
     {draft && page !== "typing-statistics" && page !== "account" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">

@@ -273,7 +273,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
 fn validate_entry(entry: &Entry) -> Result<(), String> {
     let key_limit = match entry.kind { Kind::Pinyin => 256, Kind::Wubi => 4, Kind::QuickPhrase => 32, Kind::English => 64 };
     let key_valid = match entry.kind {
-        Kind::Pinyin => entry.key.bytes().all(|b| b.is_ascii_lowercase() || b == b''' || b == b' '),
+        Kind::Pinyin => entry.key.bytes().all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
         Kind::Wubi | Kind::QuickPhrase => entry.key.bytes().all(|b| b.is_ascii_lowercase() || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())),
         Kind::English => entry.key.bytes().all(|b| b.is_ascii_alphabetic()),
     };

@@ -79,6 +79,8 @@ const client: SettingsClient = {
     detail: id => invoke<CommunitySkin>("community_skin_detail", { id }),
     download: (id, name) => invoke<CommunitySkinDownload>("community_skin_download", { id, name }),
     rate: (id, stars) => invoke("community_skin_rate", { id, stars }),
+    publish: (id, name, description, design) => invoke("community_skin_publish", { id, name, description, design }),
+    unpublish: id => invoke("community_skin_unpublish", { id }),
     finishTrial: (id, keep) => invoke("community_skin_finish_trial", { id, keep }),
   }, candidateEnglishGloss: true } : {}),
 };

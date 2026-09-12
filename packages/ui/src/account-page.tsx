@@ -60,7 +60,10 @@ function providerName(provider: string): string {
   return provider;
 }
 
-export function AccountPage({ client }: { client: AccountClient }) {
+export function AccountPage({ client, onOpenPublishedSkins }: {
+  client: AccountClient;
+  onOpenPublishedSkins?: () => void;
+}) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -261,6 +264,10 @@ export function AccountPage({ client }: { client: AccountClient }) {
           </div>
         </div>}
       </section>
+      {onOpenPublishedSkins && <section className="section account-community-actions">
+        <div><h2>我的创作</h2><p>查看和管理你已经公开发布的键盘皮肤。</p></div>
+        <button type="button" className="secondary" disabled={busy} onClick={onOpenPublishedSkins}>我发布的皮肤</button>
+      </section>}
     </> : <section className="section account-login">
       <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>
       {!channel ? <>

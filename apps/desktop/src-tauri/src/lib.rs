@@ -3382,6 +3382,10 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::community_skin_rate,
             #[cfg(target_os = "android")]
+            android_account::community_skin_publish,
+            #[cfg(target_os = "android")]
+            android_account::community_skin_unpublish,
+            #[cfg(target_os = "android")]
             android_account::community_skin_finish_trial,
         ])
         .run(tauri::generate_context!())

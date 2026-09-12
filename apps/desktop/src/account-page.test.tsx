@@ -99,6 +99,14 @@ test("account errors are stable and never expose backend text", async () => {
   expect(screen.queryByText(/private backend detail/)).toBeNull();
 });
 
+test("logged-in accounts can open their published skin list", async () => {
+  const openPublishedSkins = vi.fn();
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} onOpenPublishedSkins={openPublishedSkins} />);
+  fireEvent.click(await screen.findByRole("button", { name: "我发布的皮肤" }));
+  expect(openPublishedSkins).toHaveBeenCalledTimes(1);
+});
+
 const preferences: Snapshot = {
   format_version: 1,
   revision: 1,

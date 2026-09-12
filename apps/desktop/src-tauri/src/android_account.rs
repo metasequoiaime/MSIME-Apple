@@ -11,6 +11,7 @@ use msime_client_core::custom_skin_library::{
 use msime_client_core::keyboard_skin_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
+use msime_client_core::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -179,12 +180,14 @@ fn community_error(error: AccountError) -> super::CommandError {
     super::CommandError {
         code: match error {
             AccountError::Invalid => "community_invalid",
-            AccountError::Unauthorized | AccountError::Forbidden => "community_unauthorized",
+            AccountError::Unauthorized => "community_unauthorized",
+            AccountError::Forbidden => "community_forbidden",
             AccountError::NotFound => "community_not_found",
             AccountError::RateLimited => "community_rate_limited",
             AccountError::Cancelled => "community_cancelled",
             AccountError::Storage => "community_storage",
-            AccountError::Conflict | AccountError::Unavailable => "community_unavailable",
+            AccountError::Conflict => "community_conflict",
+            AccountError::Unavailable => "community_unavailable",
         },
     }
 }
@@ -303,6 +306,34 @@ pub async fn community_skin_rate(
         code: "community_invalid",
     })?;
     community_call(state, move |service| service.rate(id, stars)).await
+}
+
+#[tauri::command]
+pub async fn community_skin_publish(
+    state: State<'_, AccountState>,
+    id: String,
+    name: String,
+    description: String,
+    design: TouchKeyboardSkinDesign,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| {
+        service.publish(id, &name, &description, &design)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn community_skin_unpublish(
+    state: State<'_, AccountState>,
+    id: String,
+) -> Result<(), super::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+        code: "community_invalid",
+    })?;
+    community_call(state, move |service| service.unpublish(id)).await
 }
 
 #[tauri::command]

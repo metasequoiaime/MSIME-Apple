@@ -50,6 +50,26 @@ struct CommunitySkinRating {
     stars: u8,
 }
 
+#[derive(Serialize)]
+struct CommunitySkinPublishRequest<'a> {
+    id: Uuid,
+    name: &'a str,
+    description: &'a str,
+    design: &'a TouchKeyboardSkinDesign,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommunitySkinPublishResponse {
+    id: Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommunitySkinUnpublishResponse {
+    deleted: bool,
+}
+
 pub trait CommunitySkinApi: Send + Sync + 'static {
     fn community_skins(
         &self,
@@ -64,6 +84,15 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
         token: &str,
     ) -> Result<TouchKeyboardSkinDesign, AccountError>;
     fn rate_community_skin(&self, id: Uuid, stars: u8, token: &str) -> Result<(), AccountError>;
+    fn publish_community_skin(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: &str,
+        design: &TouchKeyboardSkinDesign,
+        token: &str,
+    ) -> Result<(), AccountError>;
+    fn unpublish_community_skin(&self, id: Uuid, token: &str) -> Result<(), AccountError>;
 }
 
 impl CommunitySkinApi for BackendAccountClient {
@@ -127,6 +156,47 @@ impl CommunitySkinApi for BackendAccountClient {
         }
         Ok(())
     }
+
+    fn publish_community_skin(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: &str,
+        design: &TouchKeyboardSkinDesign,
+        token: &str,
+    ) -> Result<(), AccountError> {
+        validate_publish(id, name, description, design)?;
+        let path = "/v1/community/skins";
+        let result = self.json::<CommunitySkinPublishResponse, _>(
+            Method::POST,
+            path,
+            Some(token),
+            Some(&CommunitySkinPublishRequest {
+                id,
+                name,
+                description,
+                design,
+            }),
+        )?;
+        if result.id != id {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(())
+    }
+
+    fn unpublish_community_skin(&self, id: Uuid, token: &str) -> Result<(), AccountError> {
+        let path = format!("/v1/community/skins/{}", id.hyphenated());
+        let result = self.json::<CommunitySkinUnpublishResponse, ()>(
+            Method::DELETE,
+            &path,
+            Some(token),
+            None,
+        )?;
+        if !result.deleted {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(())
+    }
 }
 
 pub struct BackendCommunitySkinService<A: AccountApi, S: AccountSessionStorage> {
@@ -171,6 +241,31 @@ where
         })
     }
 
+    pub fn publish(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: &str,
+        design: &TouchKeyboardSkinDesign,
+    ) -> Result<(), AccountError> {
+        validate_publish(id, name, description, design)?;
+        self.request(true, |api, token| {
+            api.publish_community_skin(
+                id,
+                name,
+                description,
+                design,
+                token.ok_or(AccountError::Unauthorized)?,
+            )
+        })
+    }
+
+    pub fn unpublish(&self, id: Uuid) -> Result<(), AccountError> {
+        self.request(true, |api, token| {
+            api.unpublish_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
+        })
+    }
+
     fn request<T>(
         &self,
         authenticated: bool,
@@ -209,6 +304,23 @@ fn validate_query(offset: usize, search: &str) -> Result<(), AccountError> {
     if offset > MAXIMUM_OFFSET
         || search.chars().count() > MAXIMUM_SEARCH_CHARACTERS
         || search.chars().any(char::is_control)
+    {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_publish(
+    id: Uuid,
+    name: &str,
+    description: &str,
+    design: &TouchKeyboardSkinDesign,
+) -> Result<(), AccountError> {
+    if id.is_nil()
+        || !valid_text(name, 1, 32, false)
+        || name.trim() != name
+        || !valid_text(description, 0, 280, true)
+        || !design.validate()
     {
         return Err(AccountError::Invalid);
     }
@@ -279,7 +391,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{mpsc, Mutex};
+    use std::sync::{Mutex, mpsc};
 
     fn token(byte: u8) -> String {
         std::iter::repeat_n(char::from(byte), 64).collect()
@@ -406,6 +518,23 @@ mod tests {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+
+        fn publish_community_skin(
+            &self,
+            _: Uuid,
+            _: &str,
+            _: &str,
+            _: &TouchKeyboardSkinDesign,
+            _: &str,
+        ) -> Result<(), AccountError> {
+            self.skin_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn unpublish_community_skin(&self, _: Uuid, _: &str) -> Result<(), AccountError> {
+            self.skin_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
     }
 
     #[test]
@@ -456,6 +585,16 @@ mod tests {
         assert_eq!(api.skin_calls.load(Ordering::SeqCst), 2);
         service.rate(skin().id, 5).unwrap();
         assert_eq!(api.skin_calls.load(Ordering::SeqCst), 3);
+        service
+            .publish(
+                skin().id,
+                "发布皮肤",
+                "公开说明",
+                &TouchKeyboardSkinDesign::default(),
+            )
+            .unwrap();
+        service.unpublish(skin().id).unwrap();
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 5);
     }
 
     #[test]
@@ -465,6 +604,24 @@ mod tests {
             Err(AccountError::Invalid)
         );
         assert_eq!(validate_query(0, "bad\nquery"), Err(AccountError::Invalid));
+        assert_eq!(
+            validate_publish(
+                Uuid::nil(),
+                "名称",
+                "说明",
+                &TouchKeyboardSkinDesign::default()
+            ),
+            Err(AccountError::Invalid)
+        );
+        assert_eq!(
+            validate_publish(
+                Uuid::new_v4(),
+                "名称\n",
+                "说明",
+                &TouchKeyboardSkinDesign::default()
+            ),
+            Err(AccountError::Invalid)
+        );
         let mut value = skin();
         value.rating_average = f64::NAN;
         assert_eq!(validate_skin(&value), Err(AccountError::Unavailable));
@@ -505,10 +662,12 @@ mod tests {
         let client = BackendAccountClient::loopback(&origin).unwrap();
         let page = client.community_skins(7, "C++ 星", None).unwrap();
         assert_eq!(page.skins.len(), 1);
-        assert!(received
-            .recv()
-            .unwrap()
-            .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1"));
+        assert!(
+            received
+                .recv()
+                .unwrap()
+                .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1")
+        );
     }
 
     #[test]
@@ -559,5 +718,37 @@ mod tests {
             id.hyphenated()
         )));
         assert!(request.ends_with("\r\n\r\n{\"stars\":4}"));
+
+        let (origin, received) =
+            server(serde_json::to_vec(&serde_json::json!({ "id": id })).unwrap());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        client
+            .publish_community_skin(
+                id,
+                "发布皮肤",
+                "公开说明",
+                &TouchKeyboardSkinDesign::default(),
+                &token(b'c'),
+            )
+            .unwrap();
+        let request = received.recv().unwrap();
+        assert!(request.starts_with("POST /v1/community/skins HTTP/1.1"));
+        assert!(request.contains("authorization: Bearer "));
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(body["id"], id.to_string());
+        assert_eq!(body["name"], "发布皮肤");
+        assert_eq!(body["description"], "公开说明");
+        assert!(body["design"].is_object());
+
+        let (origin, received) = server(br#"{"deleted":true}"#.to_vec());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        client.unpublish_community_skin(id, &token(b'd')).unwrap();
+        let request = received.recv().unwrap();
+        assert!(request.starts_with(&format!(
+            "DELETE /v1/community/skins/{} HTTP/1.1",
+            id.hyphenated()
+        )));
+        assert!(request.contains("authorization: Bearer "));
     }
 }

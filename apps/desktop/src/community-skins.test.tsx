@@ -61,6 +61,8 @@ function client(overrides: Partial<CommunitySkinClient> = {}): CommunitySkinClie
     detail: vi.fn().mockImplementation(async id => skin(id, "详情皮肤")),
     download: vi.fn().mockResolvedValue({ skin: skin("10000000-0000-4000-8000-000000000099", "下载皮肤"), trial: { id: "trial", name: "下载皮肤" } }),
     rate: vi.fn().mockResolvedValue(undefined),
+    publish: vi.fn().mockResolvedValue(undefined),
+    unpublish: vi.fn().mockResolvedValue(undefined),
     finishTrial: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -217,4 +219,64 @@ test("rating refreshes detail while owned skins omit rating controls", async () 
   fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${owned.name}` }));
   await screen.findByRole("heading", { name: owned.name });
   expect(screen.queryByRole("button", { name: "评 4 星" })).toBeNull();
+});
+
+test("publishes a selected local design only after explicit rights confirmation", async () => {
+  const local = { id: "30000000-0000-4000-8000-000000000001", name: "我的森林", design };
+  const publish = vi.fn().mockResolvedValue(undefined);
+  const list = vi.fn().mockResolvedValue({ skins: [], has_more: false });
+  render(<CommunitySkinsPage client={client({ list, publish })} theme="light" localSkinLibrary={{
+    load: vi.fn().mockResolvedValue([local]),
+    mutate: vi.fn(),
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的设计" }));
+  expect(await screen.findByRole("dialog", { name: "发布我的皮肤" })).not.toBeNull();
+  const submit = screen.getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  fireEvent.click(submit);
+  await waitFor(() => expect(publish).toHaveBeenCalledWith(
+    expect.stringMatching(/^[0-9a-f-]{36}$/), "我的森林", "", design,
+  ));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布我的皮肤" })).toBeNull());
+});
+
+test("keeps the publication id for retries but changes it when metadata changes", async () => {
+  const local = { id: "30000000-0000-4000-8000-000000000002", name: "可重试设计", design };
+  const publish = vi.fn().mockRejectedValue(new Error("temporary failure"));
+  render(<CommunitySkinsPage client={client({ publish })} theme="light" localSkinLibrary={{
+    load: vi.fn().mockResolvedValue([local]),
+    mutate: vi.fn(),
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的设计" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  const submit = screen.getByRole("button", { name: "公开发布" });
+  fireEvent.click(submit);
+  await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+  fireEvent.click(submit);
+  await waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+  expect(publish.mock.calls[1][0]).toBe(publish.mock.calls[0][0]);
+
+  fireEvent.change(screen.getByRole("textbox", { name: "发布皮肤名称" }), { target: { value: "另一款设计" } });
+  fireEvent.click(submit);
+  await waitFor(() => expect(publish).toHaveBeenCalledTimes(3));
+  expect(publish.mock.calls[2][0]).not.toBe(publish.mock.calls[0][0]);
+});
+
+test("my works scope filters owned skins and can unpublish with confirmation", async () => {
+  const mine = { ...skin("40000000-0000-4000-8000-000000000001", "我的公开皮肤"), owned: true };
+  const publicSkin = skin("40000000-0000-4000-8000-000000000002", "别人的皮肤");
+  const list = vi.fn().mockResolvedValue({ skins: [mine, publicSkin], has_more: false });
+  const detail = vi.fn().mockResolvedValue(mine);
+  const unpublish = vi.fn().mockResolvedValue(undefined);
+  render(<CommunitySkinsPage client={client({ list, detail, unpublish })} theme="dark" />);
+  fireEvent.click(await screen.findByRole("button", { name: "我的作品" }));
+  expect(await screen.findByRole("button", { name: "查看皮肤 我的公开皮肤" })).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "查看皮肤 别人的皮肤" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "查看皮肤 我的公开皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "下架这款皮肤" }));
+  expect(screen.getByRole("alertdialog", { name: "确认下架皮肤" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "确认下架" }));
+  await waitFor(() => expect(unpublish).toHaveBeenCalledWith(mine.id));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
 });
