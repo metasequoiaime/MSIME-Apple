@@ -35,6 +35,26 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
+        # The effect assumes edges hold empty space. Keyboard panels are a few rows tall, so the
+        # gradient lands on the content: it smudged the candidate chips and sat over the first line
+        # of text in the service panels. It is on by default, so each new scroll view reintroduces
+        # it, and it looks like a rendering glitch rather than a setting anyone chose.
+        roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]
+        sources = sorted(path for root in roots for path in root.glob("*.swift"))
+        self.assertTrue(sources)
+        uikit, swiftui = [], []
+        for path in sources:
+            if path.name == "ScrollEdgeEffects.swift":
+                continue
+            text = path.read_text()
+            if re.search(r"= UIScrollView\(\)|: UIScrollView \{", text) and "disableEdgeEffects()" not in text:
+                uikit.append(path.name)
+            if re.search(r"^\s*ScrollView \{", text, re.M) and "disablingScrollEdgeEffects()" not in text:
+                swiftui.append(path.name)
+        self.assertEqual(uikit, [], "UIKit scroll views must call disableEdgeEffects()")
+        self.assertEqual(swiftui, [], "SwiftUI scroll views must call disablingScrollEdgeEffects()")
+
     def test_voice_recording_deep_link_scheme_is_registered(self):
         # The keyboard sends the user to the app to record, because an extension is denied the
         # microphone. If the plist and the URL in the code drift apart the button silently fails --

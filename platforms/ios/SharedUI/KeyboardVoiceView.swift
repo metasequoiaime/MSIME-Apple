@@ -36,6 +36,7 @@ struct KeyboardVoiceView: View {
             }
           }
         }
+        .disablingScrollEdgeEffects()
         .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
       }
       if entry != nil {
@@ -56,6 +57,8 @@ struct KeyboardVoiceView: View {
     }
     .padding(.horizontal, 12)
     .buttonStyle(KeyboardPanelButtonStyle())
-    .background(Color(uiColor: .secondarySystemBackground))
+    // Into the bottom safe area as well: the panel is sized to the whole keyboard, and leaving the
+    // inset unpainted let the host app's own tab bar show through under the last button.
+    .background(Color(uiColor: .secondarySystemBackground).ignoresSafeArea(edges: .bottom))
   }
 }

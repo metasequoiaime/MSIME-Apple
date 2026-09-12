@@ -30,10 +30,7 @@ final class KeyboardMorePickerView: UIView {
     scroll.showsVerticalScrollIndicator = false
     scroll.alwaysBounceVertical = false
     // This panel already sits below its own header; a system edge veil obscures the first tool.
-    if #available(iOS 26.0, *) {
-      scroll.topEdgeEffect.isHidden = true
-      scroll.bottomEdgeEffect.isHidden = true
-    }
+    scroll.disableEdgeEffects()
     for child in [header, close, scroll] {
       child.translatesAutoresizingMaskIntoConstraints = false
       addSubview(child)
