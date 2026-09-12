@@ -30,6 +30,7 @@ struct MacEmojiView: View {
   @State private var historyEnabled: Bool?
   @State private var enablingHistory = false
   @State private var enableNotice = ""
+  @State private var captureStatus: MacClipboardMonitor.Status?
   @State private var deletingHistory = false
   @State private var deletionNotice = ""
   @State private var loadedQuery: [String] = []
@@ -61,7 +62,7 @@ struct MacEmojiView: View {
         try await Task.detached { try MacEmojiClipboardHistory.enable(directory: directory) }.value
         guard requestedID == queryID else { return }
         historyRevision += 1
-        enableNotice = "已开启共享历史设置；此面板目前只读取已有记录"
+        enableNotice = "已开启共享历史设置，将采集之后的复制操作"
       } catch {
         guard requestedID == queryID else { return }
         enableNotice = "无法开启剪贴板历史，设置可能已变更，请重试"
@@ -124,7 +125,7 @@ struct MacEmojiView: View {
         }
         if !enableNotice.isEmpty { Text(enableNotice).font(.caption) }
         HStack {
-          Text("仅显示已保存记录，不采集系统剪贴板").font(.caption)
+          Text(captureStatus?.message ?? "正在检查剪贴板采集设置…").font(.caption)
           Spacer()
           Button("刷新") { historyRevision += 1 }
         }
@@ -191,6 +192,10 @@ struct MacEmojiView: View {
       .onChange(of: category) { _ in offset = 0; group = ""; parent = ""; clipboardNotice = "" }
       .onChange(of: parent) { _ in offset = 0; group = "" }
       .onChange(of: group) { _ in offset = 0 }
+      .task(id: preferencesDirectory) {
+        captureStatus = nil
+        await MacClipboardMonitor.run(directory: preferencesDirectory) { captureStatus = $0 }
+      }
       .task(id: category) {
         groupsCategory = nil
         groups = []
