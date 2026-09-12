@@ -86,6 +86,62 @@ int main() {
   require(scaled.width > stacked.width && scaled.height > stacked.height);
   require(near(scaled.width, 120.0 + 24.0 + 8.0 + 12.0 + 14.0));
 
+  // Rows come from the same metrics the sizing used, so drawing and hit
+  // testing cannot drift apart.
+  const auto metrics = candidate_card_metrics(16.0, 16.0, true);
+  require(near(metrics.candidate_row, 16.0 * 1.45 + 6.0) &&
+          near(metrics.preedit_row, 16.0 * 1.4 + 6.0) &&
+          near(metrics.number_and_bar, 16.0 + 8.0));
+  require(near(candidate_card_metrics(16.0, 16.0, false).preedit_row, 0.0));
+  for (double font : {11.0, 33.0}) {
+    bool caught = false;
+    try {
+      candidate_card_metrics(font, 16.0, true);
+    } catch (const std::invalid_argument &) {
+      caught = true;
+    }
+    require(caught);
+  }
+
+  const double card_width = stacked.width;
+  const auto first = candidate_row_bounds(0, 3, card_width, metrics, false);
+  const auto second = candidate_row_bounds(1, 3, card_width, metrics, false);
+  require(near(first.top, metrics.pad_y + metrics.preedit_row));
+  require(near(first.bottom, first.top + metrics.candidate_row));
+  require(near(second.top, first.bottom) && near(second.left, first.left));
+  require(near(first.right, card_width - metrics.pad_x / 2.0));
+  const auto column = candidate_row_bounds(1, 3, card_width, metrics, true);
+  require(near(column.top, first.top) && near(column.bottom, first.bottom));
+  require(near(column.right - column.left,
+               (card_width - metrics.pad_x) / 3.0));
+  for (auto invalid : {std::make_pair(size_t{3}, size_t{3}),
+                       std::make_pair(size_t{0}, size_t{10})}) {
+    bool caught = false;
+    try {
+      candidate_row_bounds(invalid.first, invalid.second, card_width, metrics,
+                           false);
+    } catch (const std::invalid_argument &) {
+      caught = true;
+    }
+    require(caught);
+  }
+
+  // Clicks land on the row that was drawn; the preedit band selects nothing.
+  const double card_height = stacked.height;
+  auto row_of = [&](double x, double y) {
+    return candidate_card_hit(x, y, card_width, card_height, 3, metrics, false);
+  };
+  require(row_of(20.0, first.top + 1.0) == std::optional<size_t>(0));
+  require(row_of(20.0, second.top + 1.0) == std::optional<size_t>(1));
+  require(!row_of(20.0, metrics.pad_y + 1.0));
+  require(!row_of(20.0, card_height - 1.0));
+  require(!row_of(-1.0, first.top + 1.0) && !row_of(card_width, first.top + 1.0));
+  require(!candidate_card_hit(20.0, first.top + 1.0, card_width, card_height, 0,
+                              metrics, false));
+  require(candidate_card_hit(column.left + 1.0, column.top + 1.0, card_width,
+                             card_height, 3, metrics,
+                             true) == std::optional<size_t>(1));
+
   // Untrusted measurements and font sizes are rejected before any arithmetic.
   CandidateCardInput invalid;
   invalid.item_widths.assign(10, 10.0);

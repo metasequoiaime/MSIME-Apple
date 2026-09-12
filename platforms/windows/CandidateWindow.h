@@ -1,5 +1,7 @@
 #pragma once
+#include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
+#include "CandidateLayout.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include <functional>
@@ -33,6 +35,8 @@ public:
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
+  CandidateBounds card_bounds(const CandidatePresentation &value,
+                              const RECT &work, unsigned dpi);
   void paint();
   std::optional<CandidateClick> hit(int x, int y);
   Reader reader_;

@@ -71,6 +71,28 @@ std::wstring wide(const std::string &text) {
     throw std::invalid_argument("Invalid window text");
   return result;
 }
+// Text width in device independent pixels. DirectWrite is the same engine the
+// renderer draws with, so the card cannot be sized for a different shaping.
+double measured_width(msimeui::DeviceResources &device, const std::wstring &text,
+                      const std::wstring &family, float size) {
+  if (text.empty() || size <= 0.0f)
+    return 0.0;
+  auto *factory = device.GetDWriteFactory();
+  auto *format = device.GetTextFormat(
+      family, size, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+      DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+  Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+  DWRITE_TEXT_METRICS metrics{};
+  if (factory && format &&
+      SUCCEEDED(factory->CreateTextLayout(text.c_str(),
+                                          static_cast<UINT32>(text.size()),
+                                          format, 8192.0f, size * 4.0f,
+                                          layout.GetAddressOf())) &&
+      layout && SUCCEEDED(layout->GetMetrics(&metrics)))
+    return metrics.widthIncludingTrailingWhitespace;
+  // Without a usable factory the card is still sized, just less precisely.
+  return static_cast<double>(text.size()) * static_cast<double>(size) * 0.92;
+}
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -186,15 +208,49 @@ void CandidateWindow::refresh() {
       throw std::runtime_error("Candidate monitor move failed");
   }
   const auto dpi = GetDpiForWindow(window_);
-  const auto bounds =
-      candidate_bounds(value->x, value->y, work.left, work.top, work.right,
-      work.bottom, dpi, value->candidates.size(), font_size_, horizontal_);
+  const auto bounds = card_bounds(*value, work, dpi);
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
   shown_ = value;
   shown_dpi_ = dpi;
   InvalidateRect(window_, nullptr, FALSE);
+}
+// Measure the page, size the card from the shared geometry and keep it inside
+// the work area. Half the work area caps each axis, as the shipped card does.
+CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
+                                             const RECT &work, unsigned dpi) {
+  const int64_t available_width = int64_t(work.right) - work.left;
+  const int64_t available_height = int64_t(work.bottom) - work.top;
+  if (available_width <= 0 || available_height <= 0)
+    throw std::invalid_argument("Invalid candidate work area");
+  device_.EnsureFactories();
+  const double scale = static_cast<double>(dpi) / 96.0;
+  CandidateCardInput input;
+  input.horizontal = horizontal_;
+  input.preedit_visible = show_preedit_;
+  input.font_size = font_size_;
+  input.preedit_font_size = preedit_font_size_;
+  input.max_width = static_cast<double>(available_width) / scale / 2.0;
+  input.max_height = static_cast<double>(available_height) / scale / 2.0;
+  if (show_preedit_)
+    input.preedit_width = measured_width(device_, wide(value.preedit),
+                                         font_family_,
+                                         static_cast<float>(preedit_font_size_));
+  for (const auto &candidate : value.candidates)
+    input.item_widths.push_back(measured_width(
+        device_, wide(candidate.text), font_family_,
+        static_cast<float>(font_size_)));
+  const auto card = candidate_card_size(input);
+  const auto width =
+      (std::min)(static_cast<int64_t>(card.width * scale + 0.5), available_width);
+  const auto height =
+      (std::min)(static_cast<int64_t>(card.height * scale + 0.5), available_height);
+  return {static_cast<int>((std::clamp)(int64_t(value.x), int64_t(work.left),
+                                        int64_t(work.right) - width)),
+          static_cast<int>((std::clamp)(int64_t(value.y), int64_t(work.top),
+                                        int64_t(work.bottom) - height)),
+          static_cast<int>(width), static_cast<int>(height)};
 }
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
@@ -215,9 +271,8 @@ void CandidateWindow::paint() {
     throw std::runtime_error("Candidate render target unavailable");
   // DrawText goes through the windows.h macro so the call matches whichever
   // name the Direct2D declaration picked up for this target.
-  // The window rect is still sized in physical pixels, so lay the card out in
-  // the same units the rect was derived from, expressed at 96 dpi.
-  const auto metrics = candidate_metrics(96, font_size_);
+  const auto metrics = candidate_card_metrics(font_size_, preedit_font_size_,
+                                              show_preedit_);
   const auto size = target->GetSize();
   auto brush = [&](const CandidateColor &color) {
     auto *value = device_.GetSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a));
@@ -234,8 +289,6 @@ void CandidateWindow::paint() {
       throw std::runtime_error("Candidate text format unavailable");
     return value;
   };
-  const float pad = static_cast<float>(metrics.padding);
-  const float row = static_cast<float>(metrics.row);
   const float inset = palette_.border_width / 2.0f;
   // The configured text color still wins over the skin token.
   const CandidateColor text_color =
@@ -252,37 +305,35 @@ void CandidateWindow::paint() {
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
   if (show_preedit_) {
-    const D2D1_RECT_F rect{pad * 2.0f, pad, size.width - pad, pad + row};
+    const D2D1_RECT_F rect{static_cast<float>(metrics.pad_x),
+                           static_cast<float>(metrics.pad_y),
+                           size.width - static_cast<float>(metrics.pad_x / 2.0),
+                           static_cast<float>(metrics.pad_y + metrics.preedit_row)};
     const auto text = wide(value->preedit);
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                       rect, brush(text_color));
   }
-  // Reserve the selection number column and its separator bar, matching the
-  // shipped card, so candidates start on one vertical line.
-  const float number = static_cast<float>(metrics.font) * 0.8f;
-  const float gutter = number + static_cast<float>(metrics.font) * 0.2f + 8.0f;
+  // The selection number keeps its own column so candidates start on one
+  // vertical line, as the shipped card does.
+  const float number = static_cast<float>(font_size_) * 0.8f;
+  const float gutter = static_cast<float>(metrics.number_and_bar);
   const size_t count = value->candidates.size();
-  auto candidate_rect = [&](size_t index) {
-    if (!horizontal_)
-      return D2D1_RECT_F{pad, pad + static_cast<float>(index + 1) * row,
-                         size.width - pad,
-                         pad + static_cast<float>(index + 2) * row};
-    const float column =
-        (size.width - 2.0f * pad) / static_cast<float>((std::max)(count, size_t{1}));
-    return D2D1_RECT_F{pad + static_cast<float>(index) * column, pad + row,
-                       pad + static_cast<float>(index + 1) * column,
-                       pad + 2.0f * row};
-  };
   for (size_t i = 0; i < count; ++i) {
-    const auto rect = candidate_rect(i);
+    const auto row = candidate_row_bounds(i, count, size.width, metrics,
+                                          horizontal_);
+    const D2D1_RECT_F rect{
+        static_cast<float>(row.left), static_cast<float>(row.top),
+        static_cast<float>(row.right), static_cast<float>(row.bottom)};
     if (value->candidates[i].highlighted) {
       const D2D1_ROUNDED_RECT selection{rect, palette_.item_radius,
                                         palette_.item_radius};
       target->FillRoundedRectangle(selection, brush(palette_.selected));
       if (palette_.show_selected_bar) {
-        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f, rect.top + row * 0.25f,
-                                     rect.left + 5.0f, rect.bottom - row * 0.25f},
+        const float inset_y =
+            static_cast<float>(metrics.candidate_row) * 0.25f;
+        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f, rect.top + inset_y,
+                                     rect.left + 5.0f, rect.bottom - inset_y},
                                     1.5f, 1.5f};
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
@@ -318,9 +369,12 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   RECT bounds{};
   if (!GetClientRect(window_, &bounds))
     return std::nullopt;
-  const auto row = candidate_hit(x, y, bounds.right, bounds.bottom,
-                                 painted_dpi_, painted_->candidates.size(),
-                                 font_size_, horizontal_);
+  const double scale = painted_dpi_ ? painted_dpi_ / 96.0 : 1.0;
+  const auto row = candidate_card_hit(
+      x / scale, y / scale, bounds.right / scale, bounds.bottom / scale,
+      painted_->candidates.size(),
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_),
+      horizontal_);
   if (!row)
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];
