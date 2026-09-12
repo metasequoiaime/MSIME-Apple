@@ -726,4 +726,4 @@ Linux IBus 候选操作菜单现在读取 Engine 返回的固定位置元数据�
 
 ### Linux 整句候选学习
 
-同步固定 Engine 的整句 fallback 修复：全拼和双拼的 Google/词库整句候选现在携带完整规范拼音。Linux IBus 通过共享 Engine 完成造词时，选中整句作为最后一段也能写入用户词库，保留原有候选顺序、代次校验和平台输入边界；候选没有规范读音时仍按 Engine 原有规则只上屏而不落库。
+同步固定 Engine 的整句 fallback 修复：全拼和双拼的 Google/词库整句候选现在携带完整规范拼音。Linux IBus 通过共享 Engine 完成造词时，选中带规范读音的 `Generated` 或 `Fallback` 整句作为最后一段也能写入用户词库，保留原有候选顺序、代次校验和平台输入边界；候选没有规范读音时仍按 Engine 原有规则只上屏而不落库。
