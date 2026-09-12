@@ -84,6 +84,12 @@ static NSDictionary *decode(char *response, NSError **error) {
         static_cast<const uint8_t *>(data.bytes), data.length), &error);
     return result ?: @{ @"error": @YES };
 }
++ (NSDictionary *)clipboardCaptureEnabledRequest:(NSString *)directory {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return @{ @"error": @YES };
+    NSDictionary *snapshot = [self loadPreferencesInDirectory:directory error:nil];
+    id enabled = snapshot[@"preferences"][@"clipboard_history"];
+    return [enabled isKindOfClass:NSNumber.class] ? @{ @"enabled": enabled } : @{ @"error": @YES };
+}
 + (NSDictionary *)enableClipboardHistoryRequest:(NSString *)directory {
     if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return @{ @"error": @YES };
     return MSIMEEnableClipboardHistory(^NSDictionary *{

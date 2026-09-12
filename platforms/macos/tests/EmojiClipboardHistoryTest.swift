@@ -1,6 +1,13 @@
 import Foundation
 
 @objc(MSIMEClientSession) final class HistorySessionStub: NSObject {
+  @objc class func clipboardCaptureEnabledRequest(_ directory: String) -> NSDictionary {
+    switch directory {
+    case "/synthetic-state": return ["enabled": true]
+    case "/synthetic-disabled": return ["enabled": false]
+    default: return ["error": true]
+    }
+  }
   @objc class func captureClipboardHistoryRequest(_ request: NSDictionary) -> NSDictionary {
     precondition(request["directory"] as? String == "/synthetic-state")
     switch request["text"] as? String {
@@ -28,6 +35,9 @@ import Foundation
 
 @main struct EmojiClipboardHistoryTest {
   static func main() throws {
+    let captureEnabled = try MacEmojiClipboardHistory.captureEnabled(directory: "/synthetic-state")
+    let captureDisabled = try MacEmojiClipboardHistory.captureEnabled(directory: "/synthetic-disabled")
+    precondition(captureEnabled && !captureDisabled)
     let captured = try MacEmojiClipboardHistory.capture(directory: "/synthetic-state", text: "synthetic capture")
     precondition(captured)
     let disabledCapture = try MacEmojiClipboardHistory.capture(directory: "/synthetic-state", text: "synthetic disabled")
