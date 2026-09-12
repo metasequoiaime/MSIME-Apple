@@ -1,9 +1,12 @@
 #pragma once
-#include "ModeLayout.h"
 #include "CandidateClickWorker.h"
+#include "CandidatePalette.h"
+#include "ModeLayout.h"
 #include "ModeMailbox.h"
 #include "ReplyCodec.h"
+// windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <windows.h>
+#include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
 struct ModeClick {
@@ -21,6 +24,8 @@ public:
   ModeWindow(const ModeWindow &) = delete;
   ModeWindow &operator=(const ModeWindow &) = delete;
   void refresh();
+  // Share the candidate card's resolved tokens so one skin theme covers both.
+  void set_palette(CandidatePalette palette);
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
@@ -28,6 +33,16 @@ public:
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
+  // Direct2D's imaging factory is a COM server; this thread owns an apartment.
+  struct Apartment {
+    Apartment();
+    ~Apartment();
+    Apartment(const Apartment &) = delete;
+    Apartment &operator=(const Apartment &) = delete;
+    bool owned = false;
+  } apartment_;
+  msimeui::DeviceResources device_;
+  CandidatePalette palette_;
   std::optional<ModeClick> hit(int x, int y);
   Reader reader_;
   Click click_;

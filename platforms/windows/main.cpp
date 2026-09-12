@@ -144,12 +144,15 @@ int wmain(int argc, wchar_t **argv) {
         [&] { return server.candidate_view(); },
         [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
         std::nullopt, "Segoe UI", {}, config.dark_theme);
-    candidates.set_palette(resolve_palette(config));
+    const auto palette = resolve_palette(config);
+    candidates.set_palette(palette);
     ModeWindow modes([&] { return server.mode_view(); },
                      [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
+    modes.set_palette(palette);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
+    toolbar.set_palette(palette);
     std::cout
         << "Preview Server running; candidate selection and mode controls enabled.\n";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&

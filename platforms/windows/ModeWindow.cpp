@@ -107,6 +107,23 @@ void ModeWindow::refresh() {
     hide();
   }
 }
+ModeWindow::Apartment::Apartment() {
+  const HRESULT entered =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  if (FAILED(entered) && entered != RPC_E_CHANGED_MODE)
+    throw std::runtime_error("Mode apartment unavailable");
+  owned = entered != RPC_E_CHANGED_MODE;
+}
+ModeWindow::Apartment::~Apartment() {
+  if (owned)
+    CoUninitialize();
+}
+void ModeWindow::set_palette(CandidatePalette palette) {
+  palette_ = std::move(palette);
+  painted_.reset();
+  if (window_)
+    InvalidateRect(window_, nullptr, FALSE);
+}
 void ModeWindow::paint() {
   PAINTSTRUCT state{};
   const auto dc = BeginPaint(window_, &state);
@@ -122,41 +139,61 @@ void ModeWindow::paint() {
     hide();
     return;
   }
-  const auto font = CreateFontW(
-      -MulDiv(14, static_cast<int>(dpi_), 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
-      FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-      CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-  if (!font)
-    throw std::runtime_error("Mode font unavailable");
-  const auto old = SelectObject(dc, font);
-  struct FontEnd {
-    HDC dc;
-    HGDIOBJ old;
-    HFONT font;
-    ~FontEnd() {
-      if (old && old != HGDI_ERROR)
-        SelectObject(dc, old);
-      DeleteObject(font);
-    }
-  } font_end{dc, old, font};
-  if (!old || old == HGDI_ERROR)
-    throw std::runtime_error("Mode font failed");
-  SetBkMode(dc, TRANSPARENT);
-  SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));
-  const std::optional<bool> values[] = {
-      value->chinese, value->chinese_punctuation, value->fullwidth};
+  if (!device_.EnsureForWindow(window_))
+    throw std::runtime_error("Mode device unavailable");
+  auto *target = device_.GetRenderTarget();
+  if (!target)
+    throw std::runtime_error("Mode render target unavailable");
+  auto brush = [&](const CandidateColor &color) {
+    auto *value = device_.GetSolidColorBrush(
+        D2D1::ColorF(color.r, color.g, color.b, color.a));
+    if (!value)
+      throw std::runtime_error("Mode brush unavailable");
+    return value;
+  };
+  // The panel is sized in physical pixels, so draw at the window's own scale.
+  const float scale = dpi_ ? static_cast<float>(dpi_) / 96.0f : 1.0f;
+  auto *format = device_.GetTextFormat(
+      L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
+      DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+  if (!format)
+    throw std::runtime_error("Mode text format unavailable");
+  const std::optional<bool> values[] = {value->chinese,
+                                        value->chinese_punctuation,
+                                        value->fullwidth};
+  target->BeginDraw();
+  target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
+                             palette_.surface.b, palette_.surface.a));
   for (int i = 0; i < 6; ++i) {
-    RECT rect{(i % 2) * layout_->cell_width, (i / 2) * layout_->cell_height,
-              (i % 2 + 1) * layout_->cell_width,
-              (i / 2 + 1) * layout_->cell_height};
-    FillRect(dc, &rect, GetSysColorBrush(COLOR_BTNFACE));
-    DrawEdge(dc, &rect, EDGE_RAISED, BF_RECT);
+    const D2D1_RECT_F cell{
+        static_cast<float>((i % 2) * layout_->cell_width) / scale,
+        static_cast<float>((i / 2) * layout_->cell_height) / scale,
+        static_cast<float>((i % 2 + 1) * layout_->cell_width) / scale,
+        static_cast<float>((i / 2 + 1) * layout_->cell_height) / scale};
+    const D2D1_ROUNDED_RECT rounded{{cell.left + 2.0f, cell.top + 2.0f,
+                                     cell.right - 2.0f, cell.bottom - 2.0f},
+                                    palette_.item_radius, palette_.item_radius};
     const auto current = values[i / 2];
+    // The confirmed half of each pair reads as selected; unknown state stays
+    // neutral rather than guessing which half the host applied.
+    const bool active = current && *current == (i % 2 == 0);
+    target->FillRoundedRectangle(rounded,
+                                 brush(active ? palette_.selected : palette_.hover));
+    target->DrawRoundedRectangle(rounded, brush(palette_.border),
+                                 palette_.border_width);
     std::wstring text = labels[i];
-    text += !current ? L" ?" : (*current == (i % 2 == 0) ? L" ✓" : L"");
-    DrawTextW(dc, text.c_str(), -1, &rect,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    text += !current ? L" ?" : (active ? L" \u2713" : L"");
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
+                     rounded.rect,
+                     brush(active ? palette_.accent : palette_.text));
   }
+  const HRESULT drawn = target->EndDraw();
+  if (drawn == D2DERR_RECREATE_TARGET) {
+    device_.DiscardTarget();
+    return;
+  }
+  if (FAILED(drawn))
+    throw std::runtime_error("Mode drawing failed");
   painted_ = value;
 }
 std::optional<ModeClick> ModeWindow::hit(int x, int y) {
