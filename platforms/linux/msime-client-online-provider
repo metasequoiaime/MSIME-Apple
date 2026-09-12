@@ -69,6 +69,18 @@ def cloud(query):
     return None
 
 
+def ai_prompt(options):
+    selected = options.get("prompt_id") or "custom_1"
+    if selected == "custom":
+        selected = "custom_1"
+    if selected not in ("custom_1", "custom_2", "custom_3"):
+        return None
+    prompt = options.get("prompt_" + selected) or options.get("prompt", "")
+    if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
+        return None
+    return prompt
+
+
 def ai(query, config):
     options = query.get("ai_assistant")
     if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
@@ -85,8 +97,8 @@ def ai(query, config):
         not isinstance(context, str) or len(context.encode()) > 1024 or
         type(limit) is not int or not 1 <= limit <= 10):
         return None
-    prompt = options.get("prompt", "")
-    if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
+    prompt = ai_prompt(options)
+    if prompt is None:
         return None
     body = {"model": config["model"], "stream": False, "temperature": 0.2,
             "max_tokens": 512, "response_format": {"type": "json_object"},

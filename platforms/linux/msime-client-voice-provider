@@ -165,7 +165,7 @@ def polish_prompt(options):
         return options.get("polish_prompt_custom_1") or options.get("polish_prompt") or PROMPTS["cleanup"]
     if preset in ("custom_2", "custom_3"):
         return options.get("polish_prompt_" + preset) or PROMPTS["cleanup"]
-    return options.get("polish_prompt") or PROMPTS.get(preset, PROMPTS["cleanup"])
+    return PROMPTS.get(preset, PROMPTS["cleanup"])
 
 
 def polish(text, config, options):
