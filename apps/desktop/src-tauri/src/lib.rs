@@ -1298,7 +1298,7 @@ fn voice_provider_options(document: &Value) -> Value {
 async fn recognize_voice(
     app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
-    options: tauri::State<'_, DictionaryHostOptions>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     if request.language.is_empty()
         || request.language.len() > 64
@@ -1310,16 +1310,16 @@ async fn recognize_voice(
     }
     #[cfg(unix)]
     {
-        let document = serde_json::from_str::<Value>(&options.0).unwrap_or(Value::Null);
+        let document = runtime
+            .document
+            .lock()
+            .map(|document| document.clone())
+            .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
-        let configured = serde_json::from_str::<serde_json::Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("voice_provider_socket")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            });
+        let configured = document
+            .get("voice_provider_socket")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         let path = configured
             .or_else(|| {
                 std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
@@ -1361,7 +1361,7 @@ async fn recognize_voice(
     }
     #[cfg(not(unix))]
     {
-        let _ = (request, options);
+        let _ = (request, runtime);
     Err(HostActionError {
         code: "unavailable",
     })
