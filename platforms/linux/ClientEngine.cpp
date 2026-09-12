@@ -923,6 +923,44 @@ std::string candidate_action_name(const char *action, const Json &id) {
          "/" + std::to_string(id.at("generation").get<uint64_t>()) +
          "/" + std::to_string(id.at("index").get<size_t>());
 }
+std::string nine_key_spelling_action_name(uint64_t session, uint64_t generation,
+                                          size_t index) {
+  return "NineKeySpelling/" + std::to_string(session) + "/" +
+         std::to_string(generation) + "/" + std::to_string(index);
+}
+IBusProperty *nine_key_spellings(IBusEngine *engine) {
+  const auto &s = state(engine);
+  auto menu = ibus_prop_list_new();
+  const auto spellings = s.view.is_object()
+                             ? s.view.value("nine_key_spellings", Json::array())
+                             : Json::array();
+  const bool available = s.session && s.focused && !s.blocked && s.input_enabled &&
+                         s.view.value("nine_key", false) && spellings.is_array();
+  bool has_items = false;
+  if (available) {
+    const auto generation = s.view.value("generation", uint64_t{0});
+    for (size_t index = 0; index < spellings.size(); ++index) {
+      if (!spellings.at(index).is_string())
+        continue;
+      auto spelling = spellings.at(index).get<std::string>();
+      if (spelling.empty() || spelling.size() > 64)
+        continue;
+      const auto name = nine_key_spelling_action_name(s.session, generation, index);
+      const auto label = std::to_string(index + 1) + ". " + spelling;
+      ibus_prop_list_append(menu, ibus_property_new(
+          name.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(label.c_str()),
+          "", ibus_text_new_from_static_string("选择九键拼音"), TRUE, FALSE,
+          PROP_STATE_UNCHECKED, nullptr));
+      has_items = true;
+    }
+  }
+  const bool enabled = available && has_items;
+  return ibus_property_new(
+      "NineKeySpellings", PROP_TYPE_MENU,
+      ibus_text_new_from_static_string("九键拼音"), "",
+      ibus_text_new_from_static_string("选择九键数字对应的拼音"), enabled, TRUE,
+      PROP_STATE_UNCHECKED, menu);
+}
 IBusProperty *candidate_actions(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
@@ -1249,6 +1287,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("使用数字键输入全拼并选择拼音候选"),
       s.focused && !s.blocked && s.input_enabled && active_scheme == "quanpin",
       TRUE, nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto nine_key_spellings_property = nine_key_spellings(engine);
   auto local_modes_property = ibus_property_new(
       "LocalModes", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("本地输入模式"), "",
@@ -1420,6 +1459,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, frequency_property);
     ibus_prop_list_append(properties, number_row_property);
     ibus_prop_list_append(properties, nine_key_property);
+    ibus_prop_list_append(properties, nine_key_spellings_property);
     ibus_prop_list_append(properties, local_modes_property);
     ibus_prop_list_append(properties, word_character_property);
     ibus_prop_list_append(properties, preedit_property);
@@ -1454,6 +1494,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, number_row_property);
     ibus_engine_update_property(engine, nine_key_property);
+    ibus_engine_update_property(engine, nine_key_spellings_property);
     ibus_engine_update_property(engine, local_modes_property);
     ibus_engine_update_property(engine, word_character_property);
     ibus_engine_update_property(engine, preedit_property);
@@ -1893,6 +1934,27 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           apply(engine, msime_client_clear_candidate_position(s.session, generation, index));
         else
           apply(engine, msime_client_fix_candidate_position(s.session, generation, index, position));
+        return;
+      }
+    });
+    return;
+  }
+  if (candidate_name.rfind("NineKeySpelling/", 0) == 0) {
+    guarded(engine, "nine_key_spelling", [&] {
+      auto &s = state(engine);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled ||
+          !s.view.value("nine_key", false))
+        return;
+      const auto spellings = s.view.value("nine_key_spellings", Json::array());
+      if (!spellings.is_array())
+        return;
+      const auto generation = s.view.value("generation", uint64_t{0});
+      for (size_t index = 0; index < spellings.size(); ++index) {
+        if (!spellings.at(index).is_string() ||
+            candidate_name != nine_key_spelling_action_name(s.session, generation, index))
+          continue;
+        apply(engine, msime_client_choose_nine_key_spelling(
+                         s.session, generation, index));
         return;
       }
     });
