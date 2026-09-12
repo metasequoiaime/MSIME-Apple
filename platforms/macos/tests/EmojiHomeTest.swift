@@ -5,6 +5,32 @@ import Foundation
     (0..<count).map { .init(text: "synthetic-\(group)-\($0)", annotation: "fixture", group: group) }
   }
   static func main() throws {
+    let navigationSections = [
+      MacEmojiHomeSection(title: "fixture emoji", category: "", items: items("emoji", 8)),
+      MacEmojiHomeSection(title: "fixture empty", category: "empty", items: []),
+      MacEmojiHomeSection(title: "fixture kaomoji", category: "kaomoji", items: items("kaomoji", 7))
+    ]
+    let entries = MacEmojiHomeNavigation.entries(navigationSections)
+    assert(entries.count == 15 && entries[8].row == 2 && entries[13].row == 3)
+    func move(_ command: MacEmojiGridCommand, _ index: Int) -> MacEmojiHomeKey? {
+      MacEmojiHomeNavigation.destination(command, selected: entries[index].key, entries: entries)?.key
+    }
+    assert(move(.right, 7) == entries[8].key)
+    assert(move(.left, 8) == entries[7].key)
+    assert(move(.down, 0) == entries[6].key)
+    assert(move(.down, 7) == entries[13].key)
+    assert(move(.up, 7) == entries[1].key)
+    assert(move(.up, 12) == entries[12].key)
+    assert(move(.down, 12) == entries[14].key)
+    assert(move(.up, 14) == entries[9].key)
+    assert(MacEmojiHomeNavigation.destination(.down, selected: nil, entries: entries)?.key == entries[0].key)
+    assert(move(.home, 12) == entries.first?.key && move(.end, 0) == entries.last?.key)
+    assert(move(.up, 0) == entries[0].key && move(.down, 14) == entries[14].key)
+    assert(MacEmojiHomeNavigation.destination(.activate, selected: nil, entries: entries) == nil)
+    let reordered = Array(entries.reversed())
+    assert(MacEmojiHomeNavigation.destination(.activate, selected: entries[3].key, entries: reordered)?.item.text == entries[3].item.text)
+    assert(MacEmojiHomeNavigation.destination(.activate, selected: entries[3].key, entries: Array(entries.prefix(2))) == nil)
+    assert(MacEmojiHomeNavigation.destination(.home, selected: nil, entries: []) == nil)
     let groups = [items("a", 3), items("b", 1), items("c", 2)]
     assert(MacEmojiHomeCatalog.preview(groups: groups, limit: 4, diverse: false).map(\.text) == ["synthetic-a-0", "synthetic-a-1", "synthetic-a-2", "synthetic-b-0"])
     assert(MacEmojiHomeCatalog.preview(groups: groups, limit: 5, diverse: true).map(\.text) == ["synthetic-a-0", "synthetic-b-0", "synthetic-c-0", "synthetic-a-1", "synthetic-c-1"])
