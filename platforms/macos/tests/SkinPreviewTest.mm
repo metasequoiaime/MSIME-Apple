@@ -103,6 +103,44 @@ int main(int argc, const char **argv) {
             if ([control.accessibilityLabel isEqual:@"候选排列"]) layout = (id)control;
         }
         assert(layout);
+        NSComboBox *familyControl = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSView *control = [grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if ([control.accessibilityLabel isEqual:@"候选字体"]) familyControl = (id)control;
+        }
+        assert(familyControl && familyControl.numberOfItems > 0);
+        NSUInteger familyNotifications = notifications;
+        [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"MSIME Synthetic Unavailable Family"}];
+        assert(notifications == familyNotifications);
+        assert([familyControl.stringValue isEqual:@"MSIME Synthetic Unavailable Family"]);
+        assert([[preferences candidateFontOfSize:18].fontName isEqual:[NSFont systemFontOfSize:18].fontName]);
+        assert([[preferences sharedPreferencesByMerging:@{}][@"candidate_font_family"] isEqual:familyControl.stringValue]);
+        for (id invalid in @[@"", @YES, NSNull.null, [@"字" stringByPaddingToLength:43 withString:@"字" startingAtIndex:0]]) {
+            [preferences applySharedCandidatePreferences:@{@"candidate_font_family": invalid}];
+            assert([preferences.fontFamily isEqual:@"MSIME Synthetic Unavailable Family"]);
+        }
+        NSString *installedFamily = [NSFont fontWithName:@"Menlo" size:18].familyName;
+        assert(installedFamily);
+        familyControl.stringValue = installedFamily;
+        [NSApp sendAction:familyControl.action to:familyControl.target from:familyControl];
+        assert([[preferences candidateFontOfSize:18].familyName isEqual:installedFamily]);
+        MSIMEAppearancePreferences *familyReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert([familyReloaded.fontFamily isEqual:installedFamily]);
+        NSDictionary *familyMerge = [preferences sharedPreferencesByMerging:@{@"candidate_fallback_fonts": @[@"Synthetic Supplementary"], @"synthetic_unowned": @42}];
+        assert([familyMerge[@"candidate_font_family"] isEqual:installedFamily]);
+        assert(([familyMerge[@"candidate_fallback_fonts"] isEqual:@[@"Synthetic Supplementary"]]));
+        assert([familyMerge[@"synthetic_unowned"] isEqual:@42]);
+        NSFont *measuredCandidate = [preferences candidateFontOfSize:preferences.fontSize];
+        NSFont *measuredPreedit = [preferences candidateFontOfSize:preferences.preeditFontSize];
+        CGFloat measuredRow = ceil(measuredCandidate.ascender - measuredCandidate.descender + measuredCandidate.leading) + 8;
+        CGFloat measuredHeader = MAX(22.0, ceil(measuredPreedit.ascender - measuredPreedit.descender + measuredPreedit.leading) + 6);
+        CGFloat familyHeight = 10 + 16 + 4 + 6 + measuredHeader + 5 * measuredRow + 18 + 6 + 14;
+        assert(std::abs(preview.previewContentHeight - familyHeight) < .01);
+        Draw(preview);
+        familyControl.stringValue = @"";
+        [NSApp sendAction:familyControl.action to:familyControl.target from:familyControl];
+        assert([familyControl.stringValue isEqual:installedFamily]);
+        preferences.fontFamily = @"Segoe UI";
         // Shared updates do not persist or notify; native controls own explicit edits.
         NSUInteger beforeShared = notifications;
         [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": @32, @"candidate_preedit_style": @"empty"}];

@@ -693,7 +693,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
-        NSFont *preeditFont = [NSFont systemFontOfSize:_appearance.preeditFontSize];
+        NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
         clearance += MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
     }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
@@ -722,11 +722,11 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
     const CGFloat inset = MAX(2.0, geometry.pad);
-    NSFont *font = [NSFont systemFontOfSize:_appearance.fontSize];
+    NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
-    NSFont *preeditFont = [NSFont systemFontOfSize:_appearance.preeditFontSize];
+    NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize];
     CGFloat preeditHeight = preedit.length ? MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0) : 0;
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
