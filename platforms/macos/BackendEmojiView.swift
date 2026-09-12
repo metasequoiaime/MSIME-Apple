@@ -43,9 +43,6 @@ struct MacEmojiView: View {
   @State private var parent = ""
   @State private var symbolGroups: [MacEmojiSymbolGroup] = []
   @State private var symbolTabs: [MacEmojiCategoryTab<String>] = []
-  private var displayedGroups: [String] {
-    category == "symbols" ? MacEmojiSymbolGroup.titles(symbolGroups, parent: parent) : groups
-  }
   @State private var groups: [String] = []
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
@@ -127,14 +124,6 @@ struct MacEmojiView: View {
           } else { Text(MacEmojiMainPage.title(category: category)).font(.system(size: 16, weight: .semibold)) }
         }
       }
-      if category != "home" && category != "clipboard" && category != "symbols" && !emojiPage && mediaPage == nil {
-      Picker("分类", selection: $group) {
-        Text("全部分类").tag("")
-        ForEach(groupsCategory == category ? displayedGroups : [], id: \.self) { name in
-          Text(name).tag(name)
-        }
-      }.disabled(groupsCategory != category || displayedGroups.isEmpty)
-      }
       if groupsFailed { Text("分类加载失败，可返回首页重试").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
         presentation: MacEmojiSearchPresentation(category: category),
@@ -181,9 +170,13 @@ struct MacEmojiView: View {
           }.frame(height: 24)
           MacEmojiScroll(resetID: scrollID) {
             if category == "kaomoji" {
+              if loadedQuery == queryID && (!items.isEmpty || search.isEmpty) {
+              MacEmojiDetailSection(title: "All", palette: palette) {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
                 selected: { selectedIndex == $0 }, identity: { $0 },
                 copy: { selectedIndex = $0; copyItem(flowItems[$0]) })
+              }.frame(width: flowWidth, alignment: .leading)
+              }
             } else if category == "symbols" {
               MacEmojiSymbolSectionsView(items: loadedQuery == queryID ? items : [], palette: palette,
                 selectedIndex: selectedIndex, copy: { selectedIndex = $0; copyItem(items[$0]) })
@@ -197,9 +190,13 @@ struct MacEmojiView: View {
               }
             }
             } else {
+              if loadedQuery == queryID {
+              MacEmojiDetailSection(title: category == "recent" ? "Recent" : group, palette: palette) {
               MacEmojiGrid(items: loadedQuery == queryID ? items : [], palette: palette,
                 selected: { selectedIndex == $0 }, identity: { $0 },
                 copy: { selectedIndex = $0; copyItem(items[$0]) })
+              }.frame(width: MacEmojiGridMetrics.width, alignment: .leading)
+              }
             }
           }
         }
