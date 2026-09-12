@@ -16,6 +16,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <set>
 #include <tuple>
 #include <cstdlib>
 #include <stdexcept>
@@ -212,7 +213,8 @@ struct State {
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
   // Key ownership lasts until release, independently of provider completion.
-  guint voice_hotkey_consumed_key = 0;
+  std::set<guint> voice_consumed_keys;
+  guint voice_hold_key = 0;
   bool voice_space_consumed = false;
   bool voice_space_locked = false;
   bool voice_active = false;
@@ -299,7 +301,8 @@ struct State {
     voice_active = false;
     voice_generation = 0;
     voice_preedit.clear();
-    voice_hotkey_consumed_key = 0;
+    voice_consumed_keys.clear();
+    voice_hold_key = 0;
     voice_space_consumed = false;
     voice_space_locked = false;
     reset_mode_modifiers();
@@ -2502,7 +2505,6 @@ void voice_start(IBusEngine *engine) {
   s.voice_phase = "正在录音…";
   s.voice_level.reset();
   s.voice_stopping = false;
-  s.voice_requires_control = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
@@ -2716,7 +2718,8 @@ void focus_out(IBusEngine *engine) {
   guarded(engine, "focus_out", [&] {
     auto &s = state(engine);
     voice_cancel(engine);
-    s.voice_hotkey_consumed_key = 0;
+    s.voice_consumed_keys.clear();
+    s.voice_hold_key = 0;
     s.voice_space_consumed = false;
     s.focused = false;
     s.focused_context.clear();
@@ -3429,7 +3432,8 @@ void reset(IBusEngine *engine) {
     state(engine).native_compose.reset();
     if (state(engine).voice_active)
       voice_cancel(engine);
-    state(engine).voice_hotkey_consumed_key = 0;
+    state(engine).voice_consumed_keys.clear();
+    state(engine).voice_hold_key = 0;
     state(engine).voice_space_consumed = false;
     state(engine).last_smart_punctuation = 0;
     state(engine).last_smart_punctuation_time = 0;
@@ -3593,7 +3597,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // A held key can repeat after stop, cancellation or a fast final result.
   // Keep consuming its stroke even if modifiers or voice settings changed.
   if (!release &&
-      ((s.voice_hotkey_consumed_key != 0 && s.voice_hotkey_consumed_key == key) ||
+      (s.voice_consumed_keys.count(key) != 0 ||
        (key == IBUS_space && s.voice_space_consumed)))
     return TRUE;
   const bool repeated_modifier = !release &&
@@ -3632,11 +3636,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return FALSE;
   }
   if (ctrl_key && (flags & IBUS_RELEASE_MASK)) {
-    if (s.voice_active && s.voice_requires_control && s.voice_hotkey_consumed_key &&
-        !s.voice_space_locked &&
-        (s.voice_hotkey_consumed_key == IBUS_Alt_R ? !s.right_ctrl_down : !s.ctrl_down)) {
+    if (s.voice_requires_control && s.voice_hold_key &&
+        (s.voice_hold_key == IBUS_Alt_R ? !s.right_ctrl_down : !s.ctrl_down)) {
+      s.voice_hold_key = 0;
+      s.voice_requires_control = false;
       s.pure_ctrl_candidate = false;
-      guarded(engine, "voice_control_release", [&] { voice_stop(engine); });
+      if (s.voice_active && !s.voice_space_locked)
+        guarded(engine, "voice_control_release", [&] { voice_stop(engine); });
       return FALSE;
     }
     if (!s.mode_ctrl_enabled || !s.pure_ctrl_candidate ||
@@ -3673,11 +3679,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.voice_space_consumed = false;
       return TRUE;
     }
-    if (s.voice_hotkey_consumed_key == key) {
-      s.voice_hotkey_consumed_key = 0;
-      if (s.voice_active && !s.voice_space_locked &&
-          key != IBUS_F9)
-        guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
+    if (s.voice_consumed_keys.erase(key) != 0) {
+      if (s.voice_hold_key == key) {
+        s.voice_hold_key = 0;
+        s.voice_requires_control = false;
+        if (s.voice_active && !s.voice_space_locked)
+          guarded(engine, "voice_hotkey_release", [&] { voice_stop(engine); });
+      }
       return TRUE;
     }
     return FALSE;
@@ -3760,7 +3768,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // shortcut, and recognition/polishing can no longer be locked.
   if (s.voice_active && !s.voice_stopping && s.voice_hotkey_hold_space_lock &&
       key == IBUS_space &&
-      voice_hold_hotkey(s, s.voice_hotkey_consumed_key, modifiers)) {
+      voice_hold_hotkey(s, s.voice_hold_key, modifiers)) {
     s.voice_space_consumed = true;
     s.voice_space_locked = true;
     return TRUE;
@@ -3877,11 +3885,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     if (voice_hotkey(s, key, modifiers) && s.voice_enabled &&
         !s.voice_provider_socket.empty()) {
-      if (s.voice_hotkey_consumed_key == key) {
-        handled = true;
+      // Windows keeps one active hold chord; another hold shortcut cannot
+      // replace it. Ctrl+F9 has an independent consumed-key lifetime.
+      if (key != IBUS_F9 && s.voice_hold_key != 0)
         return;
-      }
-      s.voice_hotkey_consumed_key = key;
+      s.voice_consumed_keys.insert(key);
       // Hold shortcuts start/continue recording; only a locked recording
       // turns their next press into Stop. Ctrl+F9 always toggles recording.
       if (s.voice_active) {
@@ -3892,7 +3900,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
       // A hold chord may take over a recording started from the menu or
       // Ctrl+F9. Releasing its Ctrl must stop just like releasing Win/RAlt.
-      s.voice_requires_control = key != IBUS_F9 && (modifiers & IBUS_CONTROL_MASK);
+      if (key != IBUS_F9) {
+        s.voice_hold_key = key;
+        s.voice_requires_control = (modifiers & IBUS_CONTROL_MASK) != 0;
+      }
       handled = true;
       return;
     }
