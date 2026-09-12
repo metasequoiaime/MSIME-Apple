@@ -1668,10 +1668,13 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
             value
                 .get("handwriting_model")
                 .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
                 .map(str::to_owned)
         })
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
+        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from))
         .or_else(|| {
             discover_packaged_file(
                 "msime-client/handwriting/handwriting-zh_CN.model",

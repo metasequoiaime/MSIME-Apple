@@ -92,7 +92,8 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
         DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/voice")
 if(MSIME_HANDWRITING_MODEL AND EXISTS "${MSIME_HANDWRITING_MODEL}")
-  install(FILES "${MSIME_HANDWRITING_MODEL}" DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/handwriting")
+  install(FILES "${MSIME_HANDWRITING_MODEL}" DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/handwriting"
+          RENAME handwriting-zh_CN.model)
   get_filename_component(MSIME_HANDWRITING_MODEL_DIR "${MSIME_HANDWRITING_MODEL}" DIRECTORY)
   foreach(MSIME_HANDWRITING_NOTICE HandwritingModel-LICENSE.txt provenance.json)
     if(EXISTS "${MSIME_HANDWRITING_MODEL_DIR}/${MSIME_HANDWRITING_NOTICE}")
