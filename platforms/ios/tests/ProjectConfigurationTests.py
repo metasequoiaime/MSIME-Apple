@@ -35,6 +35,57 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_no_unapplied_character_set_membership_predicate(self):
+        # 把 CharacterSet.contains 当方法引用传进 contains(where:),在 iOS 26 上会把普通汉字
+        # 判成控制字符。Each scalar of 青瓷庭院 tests false on its own; the same predicate handed
+        # to contains(where:) says the string holds one, so every AI design with a Chinese name was
+        # rejected as malformed. A closure, or the scalar's own Unicode category, answers correctly.
+        roots = [IOS_ROOT, IOS_ROOT.parents[0] / "macos"]
+        offenders = []
+        for root in roots:
+            for path in root.rglob("*.swift"):
+                if "Pods" in path.parts:
+                    continue
+                if re.search(r"CharacterSet\.\w+\.contains\s*\)", path.read_text()):
+                    offenders.append(str(path.relative_to(IOS_ROOT.parents[0])))
+        self.assertEqual(sorted(offenders), [],
+                         "pass a closure instead of CharacterSet.contains as a method reference")
+
+    def test_brand_logo_is_a_template_without_a_baked_in_background(self):
+        # 启动页、欢迎页和关于页共用这一张图。It was exported as RGB, so the white it was drawn on
+        # travelled with it and showed as a white tile on the launch screen's grouped background --
+        # and as a white block in dark mode. Alpha alone is not enough: without the template intent
+        # the black ink would then be invisible on a dark background.
+        asset = IOS_ROOT / "App/Resources/Assets.xcassets/MSIMELogo.imageset"
+        contents = json.loads((asset / "Contents.json").read_text())
+        self.assertEqual(contents["properties"]["template-rendering-intent"], "template")
+        image = (asset / contents["images"][0]["filename"]).read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        # Colour type 6 is RGBA, 4 is grey+alpha; anything else carries no transparency.
+        self.assertIn(image[25], (4, 6), "brand logo must keep an alpha channel")
+        storyboard = (IOS_ROOT / "App/Resources/LaunchScreen.storyboard").read_text()
+        self.assertIn('<color key="tintColor" systemColor="labelColor"/>', storyboard)
+
+    def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
+        # The effect assumes edges hold empty space. Keyboard panels are a few rows tall, so the
+        # gradient lands on the content: it smudged the candidate chips and sat over the first line
+        # of text in the service panels. It is on by default, so each new scroll view reintroduces
+        # it, and it looks like a rendering glitch rather than a setting anyone chose.
+        roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]
+        sources = sorted(path for root in roots for path in root.glob("*.swift"))
+        self.assertTrue(sources)
+        uikit, swiftui = [], []
+        for path in sources:
+            if path.name == "ScrollEdgeEffects.swift":
+                continue
+            text = path.read_text()
+            if re.search(r"= UIScrollView\(\)|: UIScrollView \{", text) and "disableEdgeEffects()" not in text:
+                uikit.append(path.name)
+            if re.search(r"^\s*ScrollView \{", text, re.M) and "disablingScrollEdgeEffects()" not in text:
+                swiftui.append(path.name)
+        self.assertEqual(uikit, [], "UIKit scroll views must call disableEdgeEffects()")
+        self.assertEqual(swiftui, [], "SwiftUI scroll views must call disablingScrollEdgeEffects()")
+
     def test_testflight_upload_passes_xcode16_credentials_and_cleans_up_key(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
         upload = script[script.index('private_keys_dir="$build_root/private_keys"'):]
@@ -270,7 +321,10 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios\n", project)
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard\n", project)
-        self.assertIn("deploymentTarget:\n    iOS: \"15.0\"", project)
+        self.assertIn("deploymentTarget:\n    iOS: \"15.5\"", project)
+        # The Podfile states the same floor, and the pods are compiled against whatever it says. The
+        # two drifting apart builds the dependencies for a different iOS than the app declares.
+        self.assertIn("platform :ios, '15.5'", (IOS_ROOT / "Podfile").read_text())
 
     def test_testflight_archive_uses_distribution_profiles(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
@@ -341,8 +395,11 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         # Without a page offset the chip numbers and the engine's own numbering agree, so a digit
         # and the chip carrying it name the same candidate again.
-        self.assertIn("makeCandidateButton(candidate: String, number: Int, index: Int)", controller)
-        self.assertIn("candidate: candidate, number: offset + 1, index: offset))", controller)
+        # A chip keeps its position for the life of the strip and selects by that position, which is
+        # what keeps the digits and the engine's numbering in step. The chips are built once and
+        # relabelled, so this pins the index reaching the engine rather than the call that fills them.
+        self.assertIn("makeCandidateButton(index: Int)", controller)
+        self.assertIn("number: offset + 1", controller)
         self.assertIn("self.render(self.session.selectCandidate(at: UInt(index)))", controller)
 
         # The control is for reaching what the strip cannot show, so it appears exactly then.
@@ -533,14 +590,26 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
     def test_candidate_surface_exposes_native_chips_numbered_only_for_voiceover(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
 
-        self.assertIn("candidate: candidate, number: offset + 1, index: offset", controller)
+        # The chips are built once and relabelled, so assert that each one is handed the candidate,
+        # its annotation and its position, rather than pinning the shape of a single call. The
+        # annotation is one slot serving two things -- the wubi code still to type, or the English
+        # gloss -- so it is the router that has to reach the chip, not either source directly.
+        self.assertIn("candidateAnnotation(at: offset)", controller)
+        self.assertIn("wubiCodeHint(at: index)", controller)
+        self.assertIn("number: offset + 1", controller)
         self.assertIn("configuration.background.cornerRadius", controller)
 
         # A touch keyboard has no number row for the ordinal to answer to, so it is spoken rather
         # than drawn: the chip shows the candidate alone and VoiceOver still hears the position.
         self.assertIn("configuration.title = display", controller)
         self.assertNotIn('configuration.title = "\\(number)', controller)
-        self.assertIn('button.accessibilityLabel = "候选词 \\(number)：\\(display)"', controller)
+        self.assertIn('"候选词 \\(number)：\\(display)"', controller)
+
+        # The one thing drawn beside a candidate is the wubi code still to type, and only where it
+        # leads somewhere: the wubi scheme, the setting on, and no local mode synthesising the list.
+        self.assertIn("，还需输入 \\(hint)", controller)
+        self.assertIn("guard inputScheme == .wubi, !session.isInLocalMode, WubiCodeHintPreference.isEnabled",
+                      controller)
 
     def test_apostrophe_reaches_the_engine_before_punctuation_conversion(self):
         controller = (IOS_ROOT / "KeyboardExtension/Sources/KeyboardViewController.swift").read_text()
@@ -731,7 +800,11 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             self.skipTest("engine submodule is not checked out")
 
         project = (IOS_ROOT / "project.yml").read_text()
-        not_built = {"tests"}
+        # handwriting 是引擎自带的 zinnia 识别器,iOS 走的是 MLKit Digital Ink。
+        # Compiling it here would put a second recogniser, its third-party sources and its model
+        # data into a keyboard extension that never calls any of it. macOS takes it through
+        # add_subdirectory because that is where it is used.
+        not_built = {"tests", "handwriting"}
         missing = []
         for directory in sorted(engine_root.iterdir()):
             if not directory.is_dir() or directory.name.startswith("."):
@@ -759,7 +832,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("render(session.handleCharacter(character))", character_handler)
         self.assertNotIn("uppercased()", character_handler.split("} else {", 1)[0])
 
-    def test_build_number_is_the_commit_count_and_not_the_marketing_version(self):
+    def test_build_number_comes_from_the_release_tag_and_not_the_marketing_version(self):
         # App Store Connect keys Beta App Review to CFBundleShortVersionString and rejects a repeated
         # CFBundleVersion inside it. Both used to carry the release version, which allowed exactly one
         # upload per release: a build that failed review could only be replaced by cutting another.
@@ -802,57 +875,38 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             self.assertEqual(archived.returncode, 0, archived.stderr)
             self.assertEqual(archived.stdout, product_version, name)
 
-        start = 'if ! git -C "$project_root" rev-parse --git-dir'
-        end = 'build_number=$(git -C "$project_root" rev-list --count HEAD)'
-        fragments = {
-            name: script[script.index(start):script.index(end) + len(end)]
-            for name, script in scripts.items()
-        }
+        # The build number is no longer a commit count: a release tag carries it directly, and a
+        # METASEQUOIA_BUILD_NUMBER disagreeing with the tag has to stop the packaging rather than
+        # ship a number that contradicts the release it goes out under.
+        start = "build_number=${METASEQUOIA_BUILD_NUMBER:-$version}"
+        fragments = {}
+        for name, script in scripts.items():
+            begin = script.index(start)
+            fragments[name] = script[begin:script.index("\nfi\n", begin) + len("\nfi\n")]
         self.assertEqual(*fragments.values(), "both release paths must derive the build number alike")
 
         fragment = next(iter(fragments.values()))
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            origin = root / "origin"
-            origin.mkdir()
-            env = {
-                **os.environ,
-                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
-            }
-            subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
-            for index in range(3):
-                (origin / "f").write_text(str(index))
-                subprocess.run(["git", "-C", str(origin), "add", "f"], check=True)
-                subprocess.run(
-                    ["git", "-C", str(origin), "commit", "-q", "-m", f"c{index}"], check=True, env=env
-                )
-
-            runner = root / "run.sh"
-            runner.write_text(
-                f'#!/usr/bin/env bash\nset -euo pipefail\nproject_root="$1"\n{fragment}\n'
-                'printf "%s\\n" "$build_number"\n'
+        for tag, supplied, expected in [
+            (f"v{product_version}", None, product_version),
+            (f"v{product_version}-build.1002.57.1", None, "1002.57.1"),
+            (f"ios-v{product_version}-build.1002.57.1", None, "1002.57.1"),
+            (f"v{product_version}-build.1002.57.1", "1002.57.1", "1002.57.1"),
+            (f"v{product_version}-build.1002.57.1", "1002.58.1", None),
+        ]:
+            environment = dict(os.environ, tag_name=tag, version=product_version)
+            environment.pop("METASEQUOIA_BUILD_NUMBER", None)
+            if supplied is not None:
+                environment["METASEQUOIA_BUILD_NUMBER"] = supplied
+            produced = subprocess.run(
+                ["bash", "-eu", "-c", fragment + '\nprintf "%s" "$build_number"'],
+                env=environment, text=True, capture_output=True,
             )
-            runner.chmod(0o755)
-
-            done = subprocess.run(
-                [str(runner), str(origin)], capture_output=True, text=True, check=True
-            )
-            self.assertEqual(done.stdout.strip(), "3")
-
-            # A shallow checkout restarts the count low enough that App Store Connect reads the next
-            # upload as a downgrade, so the scripts have to stop rather than produce that number.
-            shallow = root / "shallow"
-            subprocess.run(
-                ["git", "clone", "-q", "--depth", "1", origin.as_uri(), str(shallow)], check=True
-            )
-            refused = subprocess.run([str(runner), str(shallow)], capture_output=True, text=True)
-            self.assertNotEqual(refused.returncode, 0)
-            self.assertIn("shallow", refused.stderr)
-
-            outside = subprocess.run([str(runner), str(root)], capture_output=True, text=True)
-            self.assertNotEqual(outside.returncode, 0)
-            self.assertIn("Not a git checkout", outside.stderr)
+            if expected is None:
+                self.assertNotEqual(produced.returncode, 0, tag)
+                self.assertIn("does not match", produced.stderr)
+            else:
+                self.assertEqual(produced.returncode, 0, produced.stderr)
+                self.assertEqual(produced.stdout, expected, tag)
 
 
 if __name__ == "__main__":

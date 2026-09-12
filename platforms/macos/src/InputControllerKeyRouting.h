@@ -22,6 +22,18 @@ enum class ControllerKeyAction
     CommitRaw,
     Cancel,
     CommitCandidate,
+    CommitFirstHan,
+    CommitLastHan,
+};
+
+struct CandidateKeyOptions
+{
+    bool minusEqual = true;
+    bool commaPeriod = false;
+    bool brackets = false;
+    bool pageKeys = true;
+    bool verticalNavigation = true;
+    bool edgeSelection = false;
 };
 
 enum class CandidatePageShortcut
@@ -120,5 +132,28 @@ constexpr ControllerKeyAction ClassifyControllerKey(
     default:
         return ControllerKeyAction::Character;
     }
+}
+constexpr ControllerKeyAction ClassifyConfiguredControllerKey(unsigned short keyCode, bool visible,
+                                                              CandidateKeyOptions options, char character,
+                                                              bool modified)
+{
+    if (visible && !modified)
+    {
+        if (options.edgeSelection && character == '[')
+            return ControllerKeyAction::CommitFirstHan;
+        if (options.edgeSelection && character == ']')
+            return ControllerKeyAction::CommitLastHan;
+        if ((options.minusEqual && character == '-') || (options.commaPeriod && character == ',') ||
+            (options.brackets && !options.edgeSelection && character == '['))
+            return ControllerKeyAction::MoveCandidatePageUp;
+        if ((options.minusEqual && character == '=') || (options.commaPeriod && character == '.') ||
+            (options.brackets && !options.edgeSelection && character == ']'))
+            return ControllerKeyAction::MoveCandidatePageDown;
+    }
+    if ((keyCode == kVK_PageUp || keyCode == kVK_PageDown) && (!options.pageKeys || modified))
+        return ControllerKeyAction::Character;
+    if ((keyCode == kVK_UpArrow || keyCode == kVK_DownArrow) && !options.verticalNavigation)
+        return ControllerKeyAction::Character;
+    return ClassifyControllerKey(keyCode, visible, CandidatePageShortcut::PageKeys, '\0', modified);
 }
 } // namespace metasequoia::mac

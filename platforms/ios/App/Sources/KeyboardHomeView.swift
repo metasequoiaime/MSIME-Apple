@@ -4,7 +4,7 @@ struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var scheme = InputSchemePreference.scheme
   @State private var skin = KeyboardSkinPreference.selected
-  @State private var layout = KeyboardLayoutPreference.selected
+  @State private var layout = KeyboardLayoutPreference.geometry
   @State private var design = CustomKeyboardSkinStore.current
   @State private var replyActive = false
   private var skinName: String {
@@ -26,7 +26,7 @@ struct SettingsView: View {
               quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("布局", subtitle: layout.title, symbol: "rectangle.3.group", color: MetasequoiaTheme.accent)
+              quickEntry("按键", subtitle: "间距与高度", symbol: "slider.horizontal.3", color: MetasequoiaTheme.accent)
             }.accessibilityIdentifier("keyboardLayoutLink")
           }.buttonStyle(.plain)
           Button {
@@ -130,6 +130,7 @@ struct SettingsView: View {
   }
   private func refresh() {
     scheme = InputSchemePreference.scheme; skin = KeyboardSkinPreference.selected
-    layout = KeyboardLayoutPreference.selected; design = CustomKeyboardSkinStore.current
+    design = CustomKeyboardSkinStore.current
+    layout = KeyboardLayoutPreference.geometry
   }
 }

@@ -138,7 +138,7 @@ struct ReplyKeyboardView: View {
                   .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 10))
               }
             }
-          }.accessibilityIdentifier("replyCandidates")
+          }.accessibilityIdentifier("replyCandidates").disablingScrollEdgeEffects()
         }
         VStack(spacing: 5) {
           Button { if !model.text.isEmpty { model.setText(String(model.text.dropLast())) } } label: {

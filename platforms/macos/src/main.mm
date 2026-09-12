@@ -4,6 +4,8 @@
 #import "InputSourceRegistration.h"
 #import "PreferencesWindowController.h"
 #import "UpdateController.h"
+#import "CandidateAppearancePreferences.h"
+#import "InputBehaviorPreferences.h"
 
 #include <cstdio>
 
@@ -28,6 +30,22 @@ int main(int argc, const char *argv[])
         }
 
         NSApplication *application = [NSApplication sharedApplication];
+        application.appearance = MetasequoiaForcedAppearance();
+        void (^appearanceChanged)(NSNotification *) = ^(NSNotification *notification) {
+          (void)notification;
+          [NSUserDefaults.standardUserDefaults synchronize];
+          application.appearance = MetasequoiaForcedAppearance();
+        };
+        id localAppearanceObserver =
+            [NSNotificationCenter.defaultCenter addObserverForName:MetasequoiaAppearanceDidChange
+                                                            object:nil
+                                                             queue:NSOperationQueue.mainQueue
+                                                        usingBlock:appearanceChanged];
+        id distributedAppearanceObserver =
+            [NSDistributedNotificationCenter.defaultCenter addObserverForName:MetasequoiaAppearanceDidChange
+                                                                       object:nil
+                                                                        queue:NSOperationQueue.mainQueue
+                                                                   usingBlock:appearanceChanged];
         [application setActivationPolicy:NSApplicationActivationPolicyAccessory];
         if (MetasequoiaShouldShowPreferences(argc, argv))
         {
@@ -42,9 +60,14 @@ int main(int argc, const char *argv[])
             [[MetasequoiaPreferencesWindowController sharedController] showAndActivateForStandaloneLaunch];
             [application run];
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
+            [NSNotificationCenter.defaultCenter removeObserver:localAppearanceObserver];
+            [NSDistributedNotificationCenter.defaultCenter removeObserver:distributedAppearanceObserver];
             return 0;
         }
 
+        if (MetasequoiaInputBehavior()[@"defaultEnglish"] != nil)
+            [MetasequoiaPreferencesWindowController
+                setEnglishInputMode:MetasequoiaInputInteger(@"defaultEnglish", 0, 0, 1) != 0];
         NSBundle *bundle = [NSBundle mainBundle];
         NSString *connectionName = [bundle objectForInfoDictionaryKey:@"InputMethodConnectionName"];
         NSString *bundleIdentifier = bundle.bundleIdentifier;
@@ -56,6 +79,8 @@ int main(int argc, const char *argv[])
         }
         (void)[MetasequoiaUpdateController sharedController];
         [application run];
+        [NSNotificationCenter.defaultCenter removeObserver:localAppearanceObserver];
+        [NSDistributedNotificationCenter.defaultCenter removeObserver:distributedAppearanceObserver];
         (void)server;
     }
     return 0;

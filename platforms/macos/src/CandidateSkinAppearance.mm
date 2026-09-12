@@ -1,4 +1,5 @@
 #import "CandidateSkinAppearance.h"
+#import "CandidateAppearancePreferences.h"
 
 NSNotificationName const MetasequoiaCandidateSkinDidChangeNotification =
     @"MetasequoiaCandidateSkinDidChangeNotification";
@@ -11,7 +12,9 @@ NSColor *MetasequoiaColorFromRgba(metasequoia::mac::Rgba color)
 
 BOOL MetasequoiaAppearanceIsDark(NSAppearance *appearance)
 {
-    NSAppearance *resolved = appearance;
+    NSAppearance *resolved = MetasequoiaForcedAppearance();
+    if (!resolved)
+        resolved = appearance;
     if (resolved == nil)
     {
         resolved = NSApp.effectiveAppearance;
@@ -57,7 +60,11 @@ void MetasequoiaSetStoredCandidateSkin(NSString *skinId)
 metasequoia::mac::ResolvedSkin MetasequoiaResolveCandidateSkin(NSString *skinId, BOOL dark)
 {
     const char *utf8 = skinId.UTF8String;
-    return metasequoia::mac::ResolveSkin(utf8 == nullptr ? "" : utf8, dark, metasequoia::mac::DefaultSkinsRoot());
+    auto skin = metasequoia::mac::ResolveSkin(utf8 == nullptr ? "" : utf8, dark, metasequoia::mac::DefaultSkinsRoot());
+    NSColor *color = [MetasequoiaCandidateTextColor() colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    if (color)
+        skin.tokens.text = {(float)color.redComponent, (float)color.greenComponent, (float)color.blueComponent, 1.0f};
+    return skin;
 }
 
 metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredCandidateSkin(BOOL dark)

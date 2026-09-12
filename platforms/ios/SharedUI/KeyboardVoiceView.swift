@@ -27,12 +27,13 @@ struct KeyboardVoiceView: View {
               Text("\(entry.expiresAt.formatted(date: .omitted, time: .shortened)) 前可用；点击插入后清除待插入结果。")
                 .font(.caption).foregroundStyle(.secondary)
             } else {
-              Text("请在水杉 App 的“语音设置”中录音识别，点击“发送到键盘”，再返回这里插入。")
-              Text("iOS 键盘不能直接录音。结果只保留最新一条，10 分钟内有效。")
+              Text("这里插入的是水杉 App 里已经识别好的文字。先去 App 录音识别，点击“发送到键盘”，再回到这里插入。")
+              Text("iOS 不允许键盘直接录音，所以录音这一步必须在 App 里做。结果只保留最新一条，10 分钟内有效。")
                 .font(.footnote).foregroundStyle(.secondary)
             }
           }
         }
+        .disablingScrollEdgeEffects()
         .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
       }
       if entry != nil {
@@ -43,6 +44,8 @@ struct KeyboardVoiceView: View {
     }
     .padding(.horizontal, 12)
     .buttonStyle(KeyboardPanelButtonStyle())
-    .background(Color(uiColor: .secondarySystemBackground))
+    // Into the bottom safe area as well: the panel is sized to the whole keyboard, and leaving the
+    // inset unpainted let the host app's own tab bar show through under the last button.
+    .background(Color(uiColor: .secondarySystemBackground).ignoresSafeArea(edges: .bottom))
   }
 }

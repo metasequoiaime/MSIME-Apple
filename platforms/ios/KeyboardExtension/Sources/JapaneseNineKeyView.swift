@@ -98,7 +98,7 @@ final class JapaneseNineKeyView: UIStackView {
     else { onInput?(key.strokes[direction]) }
   }
   func applyLayout() {
-    let layout = KeyboardLayoutPreference.selected
+    let layout = KeyboardLayoutPreference.geometry
     spacing = layout.keySpacing
     for row in rows { row.spacing = row.axis == .vertical ? layout.rowSpacing : layout.keySpacing }
     (arrangedSubviews.first as? UIStackView)?.spacing = layout.rowSpacing

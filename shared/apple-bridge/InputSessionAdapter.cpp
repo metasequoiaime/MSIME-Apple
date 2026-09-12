@@ -1,8 +1,14 @@
 #include "InputSessionAdapter.h"
 
+#include "CandidateTranslation.h"
+#include "contracts/assets/assets.h"
+#include "english/english_dictionary.h"
+
 #include <metasequoia/session.h>
 #include "quanpin/quanpin_utils.h"
 
+#include <filesystem>
+#include <system_error>
 #include <utility>
 
 namespace metasequoia::apple
@@ -12,14 +18,16 @@ class InputSessionAdapter::Impl
   public:
     explicit Impl(const RuntimePaths &runtime_paths, SchemeType scheme = SchemeType::Quanpin,
                   std::string profile = "xiaohe", bool learning = false, std::uint32_t fuzzy = 0,
-                  FrequencyAdjustmentOptions frequency = {FrequencyAdjustmentMode::Promote, 1, 1})
-        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy, frequency)},
+                  FrequencyAdjustmentOptions frequency = {FrequencyAdjustmentMode::Promote, 1, 1},
+                  bool english_mixed = false)
+        : paths{runtime_paths}, session{MakeOptions(paths, scheme, profile, learning, fuzzy, frequency, english_mixed)},
           profile_name{std::move(profile)}
     {
     }
 
     static SessionOptions MakeOptions(const RuntimePaths &paths, SchemeType scheme, const std::string &profile,
-                                      bool learning, std::uint32_t fuzzy, FrequencyAdjustmentOptions frequency)
+                                      bool learning, std::uint32_t fuzzy, FrequencyAdjustmentOptions frequency,
+                                      bool english_mixed)
     {
         SessionOptions session_options;
         session_options.paths = paths;
@@ -33,6 +41,9 @@ class InputSessionAdapter::Impl
         session_options.learning = learning;
         session_options.fuzzy_pinyin.rules = fuzzy;
         session_options.frequency = learning ? frequency : FrequencyAdjustmentOptions{};
+        // Mixes English words into the Chinese candidates. The Engine keeps its own guards: Quanpin
+        // and Shuangpin only, an all-lowercase prefix, and at least english.minimum_prefix letters.
+        session_options.english.mixed_candidates = english_mixed;
         // The iOS product ships the locked main, English and expressive databases.
         LocalModeOptions options;
         options.unicode = true;
@@ -55,22 +66,56 @@ class InputSessionAdapter::Impl
 
 namespace
 {
-InputSnapshot MakeSnapshot(const Session &session, KeyResult result)
+} // namespace
+
+InputSnapshot InputSessionAdapter::make_snapshot(KeyResult result)
 {
     InputSnapshot snapshot;
     snapshot.handled = result.handled;
     snapshot.commit = std::move(result.commit);
     snapshot.diagnostic = std::move(result.diagnostic);
-    const auto view = session.snapshot();
+    const auto view = impl_->session.snapshot();
     snapshot.preedit = view.preedit;
     snapshot.candidates.reserve(view.candidates.size());
+    snapshot.candidate_codes.reserve(view.candidates.size());
     for (const auto &candidate : view.candidates)
     {
         snapshot.candidates.push_back(candidate.word);
+        snapshot.candidate_codes.push_back(candidate.pinyin);
+    }
+    EnglishDictionary *glosses = candidate_glosses_enabled_ ? gloss_dictionary() : nullptr;
+    if (glosses == nullptr)
+        return snapshot;
+    snapshot.candidate_glosses.resize(view.candidates.size());
+    for (std::size_t index = 0; index < view.candidates.size(); ++index)
+    {
+        if (const auto query = metasequoia::mac::TranslationQueryForCandidate(view.candidates[index]))
+            snapshot.candidate_glosses[index] = metasequoia::mac::LookupCandidateGloss(*glosses, *query);
     }
     return snapshot;
 }
-} // namespace
+
+EnglishDictionary *InputSessionAdapter::gloss_dictionary()
+{
+    if (gloss_dictionary_)
+        return gloss_dictionary_.get();
+    const auto path = impl_->paths.dictionary(metasequoia::assets::english_dictionary);
+    std::error_code code;
+    if (!std::filesystem::exists(path, code))
+        return nullptr;
+    gloss_dictionary_ = std::make_unique<EnglishDictionary>(path.string(), false);
+    return gloss_dictionary_.get();
+}
+
+void InputSessionAdapter::set_candidate_glosses_enabled(bool enabled)
+{
+    candidate_glosses_enabled_ = enabled;
+}
+
+bool InputSessionAdapter::candidate_glosses_enabled() const
+{
+    return candidate_glosses_enabled_;
+}
 
 InputSessionAdapter::InputSessionAdapter() : InputSessionAdapter(RuntimePaths::legacy())
 {
@@ -78,14 +123,14 @@ InputSessionAdapter::InputSessionAdapter() : InputSessionAdapter(RuntimePaths::l
 
 InputSessionAdapter::InputSessionAdapter(const RuntimePaths &paths)
     : impl_(std::make_unique<Impl>(paths, SchemeType::Quanpin, "xiaohe", learning_enabled_, fuzzy_pinyin_rules_,
-                                   frequency_))
+                                   frequency_, english_mixed_candidates_))
 {
 }
 
 void InputSessionAdapter::replace_session(SchemeType scheme, std::string profile, bool nine_key)
 {
     impl_ = std::make_unique<Impl>(impl_->paths, scheme, std::move(profile), learning_enabled_, fuzzy_pinyin_rules_,
-                                   frequency_);
+                                   frequency_, english_mixed_candidates_);
     impl_->nine_key = nine_key;
     impl_->session.set_nine_key_enabled(nine_key);
     impl_->session.set_wubi_mixed_pinyin(wubi_mixed_pinyin_);
@@ -100,9 +145,9 @@ InputSnapshot InputSessionAdapter::handle_character(char character)
     // preserving the keyboard's existing uppercase passthrough behavior.
     if (character >= 'A' && character <= 'Z')
     {
-        return MakeSnapshot(impl_->session, KeyResult{});
+        return make_snapshot(KeyResult{});
     }
-    return MakeSnapshot(impl_->session, impl_->session.character(character));
+    return make_snapshot(impl_->session.character(character));
 }
 
 InputSnapshot InputSessionAdapter::open_local_mode(char trigger)
@@ -113,9 +158,9 @@ InputSnapshot InputSessionAdapter::open_local_mode(char trigger)
     // triggers are keyed off.
     if (trigger < 'A' || trigger > 'Z' || !impl_->session.snapshot().preedit.empty())
     {
-        return MakeSnapshot(impl_->session, KeyResult{});
+        return make_snapshot(KeyResult{});
     }
-    return MakeSnapshot(impl_->session, impl_->session.character(trigger, true));
+    return make_snapshot(impl_->session.character(trigger, true));
 }
 
 bool InputSessionAdapter::in_local_mode() const
@@ -130,42 +175,42 @@ bool InputSessionAdapter::in_unicode_mode() const
 
 InputSnapshot InputSessionAdapter::handle_candidate_key(char character)
 {
-    return MakeSnapshot(impl_->session, impl_->session.candidate_key(character));
+    return make_snapshot(impl_->session.candidate_key(character));
 }
 
 InputSnapshot InputSessionAdapter::handle_punctuation(char character)
 {
-    return MakeSnapshot(impl_->session, impl_->session.punctuation(character));
+    return make_snapshot(impl_->session.punctuation(character));
 }
 
 InputSnapshot InputSessionAdapter::handle_backspace()
 {
-    return MakeSnapshot(impl_->session, impl_->session.command(Command::Backspace));
+    return make_snapshot(impl_->session.command(Command::Backspace));
 }
 
 InputSnapshot InputSessionAdapter::commit_candidate()
 {
-    return MakeSnapshot(impl_->session, impl_->session.command(Command::CommitCandidate));
+    return make_snapshot(impl_->session.command(Command::CommitCandidate));
 }
 
 InputSnapshot InputSessionAdapter::finish_composition()
 {
-    return MakeSnapshot(impl_->session, impl_->session.finish());
+    return make_snapshot(impl_->session.finish());
 }
 
 InputSnapshot InputSessionAdapter::commit_raw()
 {
-    return MakeSnapshot(impl_->session, impl_->session.command(Command::CommitRaw));
+    return make_snapshot(impl_->session.command(Command::CommitRaw));
 }
 
 InputSnapshot InputSessionAdapter::cancel()
 {
-    return MakeSnapshot(impl_->session, impl_->session.command(Command::Cancel));
+    return make_snapshot(impl_->session.command(Command::Cancel));
 }
 
 InputSnapshot InputSessionAdapter::select_candidate(std::size_t index)
 {
-    return MakeSnapshot(impl_->session, impl_->session.select(index));
+    return make_snapshot(impl_->session.select(index));
 }
 
 bool InputSessionAdapter::set_learning_enabled(bool enabled)
@@ -186,6 +231,24 @@ void InputSessionAdapter::set_wubi_mixed_pinyin(bool enabled)
         return;
     wubi_mixed_pinyin_ = enabled;
     impl_->session.set_wubi_mixed_pinyin(enabled);
+}
+
+bool InputSessionAdapter::set_english_mixed_candidates(bool enabled)
+{
+    if (enabled == english_mixed_candidates_)
+        return true;
+    // The Engine takes this through SessionOptions, so the session is rebuilt rather than retuned.
+    const auto current = impl_->session.snapshot();
+    if (!current.preedit.empty() || current.local_mode != LocalInputMode::None)
+        return false;
+    english_mixed_candidates_ = enabled;
+    replace_session(current.scheme, impl_->profile_name, impl_->nine_key);
+    return true;
+}
+
+bool InputSessionAdapter::english_mixed_candidates() const
+{
+    return english_mixed_candidates_;
 }
 
 bool InputSessionAdapter::set_fuzzy_pinyin_rules(std::uint32_t rules)
@@ -298,7 +361,7 @@ InputSnapshot InputSessionAdapter::edit_candidate(std::size_t index, const std::
 {
     const auto current = impl_->session.snapshot();
     if (index >= current.candidates.size() || current.candidates[index].word != expected_word)
-        return MakeSnapshot(impl_->session, KeyResult{});
+        return make_snapshot(KeyResult{});
     KeyResult result;
     switch (action)
     {
@@ -315,7 +378,7 @@ InputSnapshot InputSessionAdapter::edit_candidate(std::size_t index, const std::
         result = impl_->session.clear_position(index);
         break;
     }
-    return MakeSnapshot(impl_->session, std::move(result));
+    return make_snapshot(std::move(result));
 }
 
 InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
@@ -323,10 +386,10 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
     if (impl_->session.snapshot().scheme == (uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin) &&
         !impl_->nine_key && (!uses_shuangpin || impl_->profile_name == "xiaohe"))
     {
-        return MakeSnapshot(impl_->session, {});
+        return make_snapshot({});
     }
     const auto result = impl_->session.finish();
-    auto snapshot = MakeSnapshot(impl_->session, result);
+    auto snapshot = make_snapshot(result);
     const auto scheme = uses_shuangpin ? SchemeType::Shuangpin : SchemeType::Quanpin;
     replace_session(scheme, "xiaohe", false);
     return snapshot;
@@ -335,10 +398,10 @@ InputSnapshot InputSessionAdapter::switch_to_shuangpin(bool uses_shuangpin)
 InputSnapshot InputSessionAdapter::switch_to_shuangpin_profile(const std::string &name)
 {
     if (name != "xiaohe" && name != "ziranma" && name != "shoudao" && name != "microsoft")
-        return MakeSnapshot(impl_->session, {});
+        return make_snapshot({});
     if (uses_shuangpin() && !impl_->nine_key && impl_->profile_name == name)
-        return MakeSnapshot(impl_->session, {});
-    auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
+        return make_snapshot({});
+    auto snapshot = make_snapshot(impl_->session.finish());
     replace_session(SchemeType::Shuangpin, name, false);
     return snapshot;
 }
@@ -350,8 +413,8 @@ std::string InputSessionAdapter::shuangpin_profile_name() const
 InputSnapshot InputSessionAdapter::switch_to_wubi()
 {
     if (impl_->session.snapshot().scheme == SchemeType::Wubi && !impl_->nine_key)
-        return MakeSnapshot(impl_->session, {});
-    auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
+        return make_snapshot({});
+    auto snapshot = make_snapshot(impl_->session.finish());
     replace_session(SchemeType::Wubi, "xiaohe", false);
     return snapshot;
 }
@@ -359,8 +422,8 @@ InputSnapshot InputSessionAdapter::switch_to_wubi()
 InputSnapshot InputSessionAdapter::switch_to_japanese()
 {
     if (impl_->session.snapshot().scheme == SchemeType::JapaneseRomaji && !impl_->nine_key)
-        return MakeSnapshot(impl_->session, {});
-    auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
+        return make_snapshot({});
+    auto snapshot = make_snapshot(impl_->session.finish());
     replace_session(SchemeType::JapaneseRomaji, "xiaohe", false);
     return snapshot;
 }
@@ -368,14 +431,14 @@ InputSnapshot InputSessionAdapter::switch_to_japanese()
 InputSnapshot InputSessionAdapter::switch_to_nine_key()
 {
     if (impl_->nine_key)
-        return MakeSnapshot(impl_->session, {});
-    auto snapshot = MakeSnapshot(impl_->session, impl_->session.finish());
+        return make_snapshot({});
+    auto snapshot = make_snapshot(impl_->session.finish());
     replace_session(SchemeType::Quanpin, "xiaohe", true);
     return snapshot;
 }
 InputSnapshot InputSessionAdapter::choose_nine_key_spelling(std::size_t index)
 {
-    return MakeSnapshot(impl_->session, impl_->session.choose_nine_key_spelling(index));
+    return make_snapshot(impl_->session.choose_nine_key_spelling(index));
 }
 std::vector<std::string> InputSessionAdapter::nine_key_spellings() const
 {

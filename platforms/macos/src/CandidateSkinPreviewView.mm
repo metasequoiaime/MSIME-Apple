@@ -1,5 +1,6 @@
 #import "CandidateSkinPreviewView.h"
 #import "CandidateSkinAppearance.h"
+#import "CandidateAppearancePreferences.h"
 
 namespace
 {
@@ -38,13 +39,14 @@ SkinPreviewMetrics MakeShowcaseMetrics(CGFloat candidateFontSize, CGFloat decora
 {
     SkinPreviewMetrics metrics;
     metrics.fontSize = MIN(candidateFontSize, 15.0);
-    NSFont *font = [NSFont systemFontOfSize:metrics.fontSize weight:NSFontWeightRegular];
+    NSFont *font = MetasequoiaCandidateFont(metrics.fontSize);
     metrics.captionHeight = 16.0;
     metrics.captionGap = 4.0;
     metrics.sectionGap = 10.0;
     metrics.top = 10.0;
     metrics.bottom = 14.0;
-    metrics.preeditHeight = 22.0;
+    NSFont *preeditFont = MetasequoiaCandidateFont(MetasequoiaAppearanceInteger(@"preeditSize", 15, 10, 36));
+    metrics.preeditHeight = ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0;
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     metrics.horizontalHeight = 6.0 + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + 6.0;
@@ -63,13 +65,14 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
 {
     SkinPreviewMetrics metrics;
     metrics.fontSize = MAX(12.0, candidateFontSize);
-    NSFont *font = [NSFont systemFontOfSize:metrics.fontSize weight:NSFontWeightRegular];
+    NSFont *font = MetasequoiaCandidateFont(metrics.fontSize);
     metrics.captionHeight = 16.0;
     metrics.captionGap = 4.0;
     metrics.sectionGap = 0.0;
-    metrics.top = 10.0;
-    metrics.bottom = 14.0;
-    metrics.preeditHeight = 22.0;
+    metrics.top = 32.0;
+    metrics.bottom = 72.0;
+    NSFont *preeditFont = MetasequoiaCandidateFont(MetasequoiaAppearanceInteger(@"preeditSize", 15, 10, 36));
+    metrics.preeditHeight = ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0;
     metrics.rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const NSInteger visibleRows = panelStyle == 1 ? MIN(MAX(pageSize, (NSInteger)1), (NSInteger)5) : 1;
@@ -79,8 +82,8 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     metrics.horizontalHeight = 0.0;
     metrics.verticalHeight = 0.0;
     metrics.toolbarHeight = 0.0;
-    metrics.totalHeight =
-        metrics.top + metrics.captionHeight + metrics.captionGap + metrics.panelHeight + metrics.bottom;
+    metrics.totalHeight = MAX(340.0, metrics.top + metrics.captionHeight + metrics.captionGap + metrics.panelHeight +
+                                         metrics.bottom + 100.0);
     return metrics;
 }
 
@@ -125,34 +128,46 @@ void DrawDecoration(NSRect rect, const metasequoia::mac::ResolvedSkin &skin)
 }
 
 void DrawPreviewCandidates(NSRect rect, const metasequoia::mac::ResolvedSkin &skin, BOOL vertical,
-                           NSArray<NSString *> *words, CGFloat fontSize, NSString *footer)
+                           NSArray<NSString *> *words, NSArray<NSString *> *glosses, CGFloat fontSize, NSString *footer,
+                           BOOL elevated = NO)
 {
     const metasequoia::mac::SkinTokens &tokens = skin.tokens;
     const CGFloat decorationTop = MAX(0.0, skin.decorationTopDip);
     DrawDecoration(rect, skin);
     NSRect chrome =
         NSMakeRect(NSMinX(rect), NSMinY(rect) + decorationTop, NSWidth(rect), NSHeight(rect) - decorationTop);
+    [NSGraphicsContext saveGraphicsState];
+    if (elevated)
+    {
+        NSShadow *shadow = [[NSShadow alloc] init];
+        shadow.shadowColor = [[NSColor blackColor] colorWithAlphaComponent:0.13];
+        shadow.shadowBlurRadius = 20.0;
+        shadow.shadowOffset = NSMakeSize(0.0, -8.0);
+        [shadow set];
+    }
     DrawSkinChrome(chrome, tokens);
+    [NSGraphicsContext restoreGraphicsState];
     NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, 1.0, 1.0)
                                                          xRadius:MAX(1.0, tokens.radius - 1.0)
                                                          yRadius:MAX(1.0, tokens.radius - 1.0)];
     [NSGraphicsContext saveGraphicsState];
     [clip addClip];
 
-    NSFont *font = [NSFont systemFontOfSize:fontSize weight:NSFontWeightRegular];
-    NSFont *preeditFont = [NSFont systemFontOfSize:MAX(11.0, fontSize - 3.0) weight:NSFontWeightRegular];
+    NSFont *font = MetasequoiaCandidateFont(fontSize);
+    NSFont *preeditFont = MetasequoiaCandidateFont(MetasequoiaAppearanceInteger(@"preeditSize", 15, 10, 36));
     NSFont *numberFont = [NSFont monospacedDigitSystemFontOfSize:MAX(10.0, fontSize - 4.0) weight:NSFontWeightRegular];
     NSDictionary *preeditAttributes = @{
         NSFontAttributeName : preeditFont,
         NSForegroundColorAttributeName : MetasequoiaColorFromRgba(tokens.text),
     };
     const CGFloat pad = 6.0;
-    const CGFloat preeditHeight = 22.0;
+    const CGFloat preeditHeight = ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0;
     const CGFloat rowHeight = ceil(font.ascender - font.descender + font.leading) + 8.0;
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
-    DrawAlignedString(@"nihao", preeditRow, NSMinX(preeditRow), preeditAttributes);
-    const CGFloat caretX = NSMinX(preeditRow) + [@"nihao" sizeWithAttributes:preeditAttributes].width + 2.0;
+    NSString *preedit = elevated ? @"ni'men" : @"nihao";
+    DrawAlignedString(preedit, preeditRow, NSMinX(preeditRow), preeditAttributes);
+    const CGFloat caretX = NSMinX(preeditRow) + [preedit sizeWithAttributes:preeditAttributes].width + 2.0;
     NSRect caret = NSMakeRect(caretX, NSMinY(preeditRow) + 3.0, 1.5, NSHeight(preeditRow) - 6.0);
     [MetasequoiaColorFromRgba(tokens.accent) setFill];
     NSRectFill(caret);
@@ -208,6 +223,15 @@ void DrawPreviewCandidates(NSRect rect, const metasequoia::mac::ResolvedSkin &sk
         const CGFloat textX = NSMinX(row) + textInset;
         DrawAlignedString(number, row, textX, numberAttributes);
         DrawAlignedString(word, row, textX + numberWidth + 6.0, wordAttributes);
+        if (vertical && index < static_cast<NSInteger>(glosses.count) && [glosses[index] length] > 0)
+        {
+            NSDictionary *glossAttributes = @{
+                NSFontAttributeName : [NSFont systemFontOfSize:MAX(11.0, fontSize - 3.0)],
+                NSForegroundColorAttributeName : MetasequoiaColorFromRgba(tokens.text),
+            };
+            NSSize glossSize = [glosses[index] sizeWithAttributes:glossAttributes];
+            DrawAlignedString(glosses[index], row, NSMaxX(row) - glossSize.width - 8.0, glossAttributes);
+        }
         if (!vertical)
         {
             x += itemWidth;
@@ -262,6 +286,7 @@ NSArray<NSString *> *PreviewSamples()
     NSString *_previewSkinId;
     NSNumber *_forcedDark;
     BOOL _showsLayoutShowcase;
+    BOOL _translationsEnabled;
     NSLayoutConstraint *_heightConstraint;
 }
 
@@ -326,7 +351,7 @@ NSArray<NSString *> *PreviewSamples()
 - (NSColor *)previewCanvasFillColor
 {
     return [self previewUsesDark] ? [NSColor colorWithSRGBRed:0.04 green:0.04 blue:0.05 alpha:1.0]
-                                  : [NSColor colorWithSRGBRed:0.90 green:0.91 blue:0.92 alpha:1.0];
+                                  : [NSColor whiteColor];
 }
 
 - (NSColor *)previewPanelFillColor
@@ -371,11 +396,28 @@ NSArray<NSString *> *PreviewSamples()
     _panelStyle = panelStyle;
     _pageSize = pageSize;
     _candidateFontSize = fontSize;
-    NSString *layout = panelStyle == 1 ? @"纵向列表" : @"横向排列";
-    self.accessibilityValue = [NSString
-        stringWithFormat:@"%@，%ld 个候选，%ld pt", layout, static_cast<long>(pageSize), static_cast<long>(fontSize)];
-    self.accessibilityHelp = @"预览会随候选排列、每页候选和候选字号实时变化";
+    [self refreshPreviewAccessibility];
     [self reloadPreview];
+}
+
+- (void)setTranslationsEnabled:(BOOL)enabled
+{
+    if (_translationsEnabled == enabled)
+        return;
+    _translationsEnabled = enabled;
+    [self refreshPreviewAccessibility];
+    [self reloadPreview];
+}
+
+- (void)refreshPreviewAccessibility
+{
+    NSString *layout = _panelStyle == 1 ? @"纵向列表" : @"横向排列";
+    NSString *summary = [NSString stringWithFormat:@"%@，%ld 个候选，%ld pt", layout, static_cast<long>(_pageSize),
+                                                   static_cast<long>(_candidateFontSize)];
+    if (_panelStyle == 1 && _translationsEnabled)
+        summary = [summary stringByAppendingString:@"，英文释义"];
+    self.accessibilityValue = summary;
+    self.accessibilityHelp = @"预览会随候选排列、每页候选、候选字号和英文释义实时变化";
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -386,7 +428,7 @@ NSArray<NSString *> *PreviewSamples()
     [[self previewCanvasFillColor] setFill];
     [canvasPath fill];
     [[NSColor separatorColor] setStroke];
-    canvasPath.lineWidth = 1.0;
+    canvasPath.lineWidth = 0.5;
     [canvasPath stroke];
     [NSGraphicsContext saveGraphicsState];
     [canvasPath addClip];
@@ -406,12 +448,12 @@ NSArray<NSString *> *PreviewSamples()
         [@"横排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.horizontalHeight), skin, NO,
-                              horizontal, metrics.fontSize, nil);
+                              horizontal, nil, metrics.fontSize, nil);
         y += metrics.horizontalHeight + metrics.sectionGap;
         [@"竖排候选" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.verticalHeight), skin, YES,
-                              vertical, metrics.fontSize, nil);
+                              vertical, nil, metrics.fontSize, nil);
         y += metrics.verticalHeight + metrics.sectionGap;
         [@"悬浮状态栏" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
@@ -422,7 +464,7 @@ NSArray<NSString *> *PreviewSamples()
 
     const SkinPreviewMetrics metrics =
         MakeAppearanceMetrics(_panelStyle, _pageSize, _candidateFontSize, skin.decorationTopDip);
-    NSArray<NSString *> *samples = PreviewSamples();
+    NSArray<NSString *> *samples = @[ @"你们", @"你", @"呢", @"妮", @"泥", @"逆", @"拟", @"倪", @"腻" ];
     const NSInteger count = MIN(MAX(_pageSize, (NSInteger)1), static_cast<NSInteger>(samples.count));
     const BOOL vertical = _panelStyle == 1;
     const NSInteger visible = vertical ? MIN(count, 5) : count;
@@ -431,14 +473,22 @@ NSArray<NSString *> *PreviewSamples()
                            ? [NSString stringWithFormat:@"另有 %ld 个", static_cast<long>(count - visible)]
                            : nil;
     CGFloat y = metrics.top;
-    [@"输入效果" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
+    NSDictionary *headingAttributes = @{
+        NSFontAttributeName : [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName : [NSColor labelColor]
+    };
+    [@"候选窗口预览" drawAtPoint:NSMakePoint(28.0, y) withAttributes:headingAttributes];
     NSString *pageSummary = [NSString stringWithFormat:@"每页 %ld 个", static_cast<long>(_pageSize)];
     NSSize pageSummarySize = [pageSummary sizeWithAttributes:captionAttributes];
     [pageSummary drawAtPoint:NSMakePoint(NSMaxX(canvas) - pageSummarySize.width - 14.0, y)
               withAttributes:captionAttributes];
-    y += metrics.captionHeight + metrics.captionGap;
-    DrawPreviewCandidates(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.panelHeight), skin, vertical, words,
-                          metrics.fontSize, footer);
+    y = MAX(y + metrics.captionHeight + metrics.captionGap, (NSHeight(self.bounds) - metrics.panelHeight) / 2.0 + 15.0);
+    const CGFloat panelWidth = MIN(NSWidth(self.bounds) - 56.0, vertical ? 300.0 : 600.0);
+    NSArray<NSString *> *glosses = nil;
+    if (vertical && _translationsEnabled)
+        glosses = @[ @"metasequoia", @"input method", @"hello" ];
+    DrawPreviewCandidates(NSMakeRect((NSWidth(self.bounds) - panelWidth) / 2.0, y, panelWidth, metrics.panelHeight),
+                          skin, vertical, words, glosses, metrics.fontSize, footer, YES);
     [NSGraphicsContext restoreGraphicsState];
 }
 

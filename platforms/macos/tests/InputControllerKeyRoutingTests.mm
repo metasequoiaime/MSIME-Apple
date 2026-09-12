@@ -8,6 +8,7 @@
 #include "../src/FullWidthInput.h"
 #include "../src/HelpcodeSchemaPreference.h"
 #include "../src/InputSchemePreference.h"
+#include "../src/CandidateTranslationLanguage.h"
 #include "../src/WubiCommitPolicy.h"
 #include "../../../vendor/MetasequoiaImeEngine/contracts/punctuation/policy.h"
 
@@ -20,6 +21,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <initializer_list>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -86,6 +88,29 @@ int main()
     using metasequoia::mac::NormalizeCandidatePageSize;
     using metasequoia::mac::NormalizeCandidatePanelStyle;
     using metasequoia::mac::NormalizeStoredInputScheme;
+
+    using metasequoia::mac::ClassifyConfiguredControllerKey;
+    metasequoia::mac::CandidateKeyOptions keys{true, true, true, true, true, false};
+    for (char key : std::string("-,["))
+        require(ClassifyConfiguredControllerKey(0, true, keys, key, false) == ControllerKeyAction::MoveCandidatePageUp,
+                "Enabled paging combinations must coexist.");
+    for (char key : std::string("=.]"))
+        require(ClassifyConfiguredControllerKey(0, true, keys, key, false) ==
+                    ControllerKeyAction::MoveCandidatePageDown,
+                "Enabled next-page combinations must coexist.");
+    keys.edgeSelection = true;
+    require(ClassifyConfiguredControllerKey(0, true, keys, '[', false) == ControllerKeyAction::CommitFirstHan &&
+                ClassifyConfiguredControllerKey(0, true, keys, ']', false) == ControllerKeyAction::CommitLastHan,
+            "Edge selection must take priority over conflicting bracket paging.");
+    require(ClassifyConfiguredControllerKey(0, false, keys, '[', false) == ControllerKeyAction::Character &&
+                ClassifyConfiguredControllerKey(0, true, keys, '[', true) == ControllerKeyAction::Character,
+            "Edge selection must not consume idle or modified punctuation.");
+    keys.pageKeys = false;
+    keys.verticalNavigation = false;
+    require(ClassifyConfiguredControllerKey(kVK_PageDown, true, keys, '\0', false) == ControllerKeyAction::Character &&
+                ClassifyConfiguredControllerKey(kVK_DownArrow, true, keys, '\0', false) ==
+                    ControllerKeyAction::Character,
+            "Disabled navigation keys must pass through.");
 
     require(NormalizeStoredInputScheme(0) == 0 && NormalizeStoredInputScheme(1) == 1 &&
                 NormalizeStoredInputScheme(2) == 2 && NormalizeStoredInputScheme(99) == 0,
@@ -176,6 +201,60 @@ int main()
                 CandidateDisplayText(WordItem{"abcd", "你", 1}, SchemeType::Wubi, true) == "你",
             "Candidate display exposed auxiliary codes when the feature or scheme did not allow them.");
 
+    // A wubi candidate is annotated with the keys that still single it out, so the hint is the tail
+    // of its own code. Helpcodes have no say in it: they annotate a word with how to reach it in
+    // pinyin, which is a different question than which key finishes the code in hand.
+    using metasequoia::mac::WubiCodeHint;
+    require(CandidateDisplayText(WordItem{"wqb", "爷", 1}, SchemeType::Wubi, false, nullptr, "wq") == "爷 b" &&
+                CandidateDisplayText(WordItem{"wqbb", "父子", 1}, SchemeType::Wubi, true, lantian.get(), "wq") ==
+                    "父子 bb",
+            "A wubi candidate did not show the code that is left to type.");
+    require(CandidateDisplayText(WordItem{"wq", "你", 1}, SchemeType::Wubi, false, nullptr, "wq") == "你",
+            "A wubi candidate typed in full was annotated with an empty hint.");
+    require(CandidateDisplayText(WordItem{"wqb", "爷", 1}, SchemeType::Wubi, false, nullptr, "") == "爷",
+            "A wubi candidate was annotated with the hint switched off.");
+    // The pinyin fallback keys its candidates by spelling, and those letters do not lead to the word
+    // in wubi. The controller withholds the typed code there; this is the second line of defence.
+    require(WubiCodeHint(WordItem{"ni'hao", "你好", 1}, "nihao").empty(),
+            "A candidate keyed outside the typed code was annotated as though it extended it.");
+    require(WubiCodeHint(WordItem{"wqb", "爷", 1}, "wq") == "b" && WubiCodeHint(WordItem{"wqb", "爷", 1}, "").empty(),
+            "The wubi hint did not report the keys that are left to press.");
+
+    // A stored language or provider index is written by whichever build the user last ran; a later
+    // one that grew the list must not send an earlier one reading past it.
+    {
+        using metasequoia::mac::CandidateTranslationLanguageAt;
+        using metasequoia::mac::CandidateTranslationProvider;
+        using metasequoia::mac::CandidateTranslationProviderAt;
+        using metasequoia::mac::kCandidateTranslationLanguageCount;
+
+        require(std::string(CandidateTranslationLanguageAt(0).code) == "EN" &&
+                    std::string(CandidateTranslationLanguageAt(0).name) == "English",
+                "The first translation language was not English.");
+        require(std::string(CandidateTranslationLanguageAt(3).code) == "ES" &&
+                    std::string(CandidateTranslationLanguageAt(3).name) == "Spanish",
+                "Spanish was not reachable among the translation languages.");
+        require(std::string(CandidateTranslationLanguageAt(kCandidateTranslationLanguageCount).code) == "EN" &&
+                    std::string(CandidateTranslationLanguageAt(999).code) == "EN",
+                "An out-of-range language index was not clamped to the first language.");
+        // Every entry carries both a service code and a name a model can read.
+        for (std::size_t i = 0; i < kCandidateTranslationLanguageCount; ++i)
+        {
+            const auto &entry = CandidateTranslationLanguageAt(i);
+            require(entry.title != nullptr && entry.code != nullptr && entry.name != nullptr &&
+                        std::strlen(entry.code) == 2 && std::strlen(entry.name) > 2,
+                    "A translation language was missing its title, service code or model name.");
+        }
+
+        require(CandidateTranslationProviderAt(0) == CandidateTranslationProvider::AccountModel,
+                "The account model was not the default translation provider.");
+        require(CandidateTranslationProviderAt(1) == CandidateTranslationProvider::TencentMachineTranslation &&
+                    CandidateTranslationProviderAt(2) == CandidateTranslationProvider::DeepLX,
+                "The phrase-based providers moved out from under their stored indexes.");
+        require(CandidateTranslationProviderAt(99) == CandidateTranslationProvider::AccountModel,
+                "An unknown provider index did not fall back to the account model.");
+    }
+
     const auto dictionarySuffix = std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());
     const std::filesystem::path dictionaryDirectory =
         std::filesystem::temp_directory_path() / ("metasequoia-wubi-routing-" + dictionarySuffix);
@@ -231,6 +310,54 @@ int main()
     require(metasequoia::mac::ShouldToggleInputMode(true, kVK_Space, NSEventModifierFlagShift) &&
                 !metasequoia::mac::ShouldToggleInputMode(false, kVK_Space, NSEventModifierFlagShift),
             "The input-mode shortcut preference did not gate Shift+Space.");
+
+    // Shift on its own. The press cannot tell a tap from the start of Shift+A, so only the release
+    // decides, and anything arriving in between takes the decision away.
+    {
+        using metasequoia::mac::ActionForSolitaryShift;
+        using metasequoia::mac::SolitaryShiftAction;
+        using metasequoia::mac::SolitaryShiftTracker;
+        const auto shift = NSEventModifierFlagShift;
+
+        SolitaryShiftTracker tap;
+        require(!tap.flagsChanged(shift, 1.0), "Pressing Shift fired before it was released.");
+        require(tap.flagsChanged(0, 1.1), "Releasing a solitary Shift did not fire.");
+        require(!tap.flagsChanged(0, 1.2), "A release with no press behind it fired.");
+
+        SolitaryShiftTracker withKey;
+        (void)withKey.flagsChanged(shift, 2.0);
+        withKey.keyDown();
+        require(!withKey.flagsChanged(0, 2.1), "Shift+key was taken for a solitary Shift.");
+
+        SolitaryShiftTracker held;
+        (void)held.flagsChanged(shift, 3.0);
+        require(!held.flagsChanged(0, 3.0 + metasequoia::mac::kSolitaryShiftInterval + 0.01),
+                "A held Shift switched the input mode on release.");
+
+        SolitaryShiftTracker chord;
+        (void)chord.flagsChanged(shift | NSEventModifierFlagCommand, 4.0);
+        require(!chord.flagsChanged(0, 4.1), "Command+Shift was taken for a solitary Shift.");
+
+        SolitaryShiftTracker capsLock;
+        (void)capsLock.flagsChanged(shift | NSEventModifierFlagCapsLock, 5.0);
+        require(capsLock.flagsChanged(NSEventModifierFlagCapsLock, 5.1),
+                "Caps Lock being on stopped Shift from switching the input mode.");
+
+        SolitaryShiftTracker cleared;
+        (void)cleared.flagsChanged(shift, 6.0);
+        cleared.reset();
+        require(!cleared.flagsChanged(0, 6.1), "A reset tracker still fired.");
+
+        // Letters on screen mean the tap converts them; nothing composing means it switches modes;
+        // the preference turns both off together.
+        require(ActionForSolitaryShift(true, true) == SolitaryShiftAction::CommitComposition,
+                "Shift during a composition did not commit what had been typed.");
+        require(ActionForSolitaryShift(true, false) == SolitaryShiftAction::ToggleInputMode,
+                "Shift with nothing composing did not switch the input mode.");
+        require(ActionForSolitaryShift(false, true) == SolitaryShiftAction::Ignore &&
+                    ActionForSolitaryShift(false, false) == SolitaryShiftAction::Ignore,
+                "The disabled shortcut preference still acted on Shift.");
+    }
     require(metasequoia::mac::ShouldPrepareInputSession(false) && !metasequoia::mac::ShouldPrepareInputSession(true),
             "Direct English mode did not bypass input-session preparation.");
     require(metasequoia::mac::NormalizeHelpcodeSchemaPreference(0) == 0 &&
@@ -265,22 +392,22 @@ int main()
                 NormalizeCandidatePageSize(9) == 9 && NormalizeCandidatePageSize(0) == 9 &&
                 NormalizeCandidatePageSize(99) == 9,
             "The stored candidate page size was not normalized safely.");
-    require(CandidatePageSizeForOptionIndex(0) == 5 && CandidatePageSizeForOptionIndex(1) == 7 &&
-                CandidatePageSizeForOptionIndex(2) == 9 && CandidatePageSizeForOptionIndex(99) == 9 &&
-                CandidatePageSizeOptionIndex(5) == 0 && CandidatePageSizeOptionIndex(7) == 1 &&
-                CandidatePageSizeOptionIndex(9) == 2,
+    require(CandidatePageSizeForOptionIndex(0) == 1 && CandidatePageSizeForOptionIndex(5) == 6 &&
+                CandidatePageSizeForOptionIndex(8) == 9 && CandidatePageSizeForOptionIndex(99) == 9 &&
+                CandidatePageSizeOptionIndex(5) == 4 && CandidatePageSizeOptionIndex(7) == 6 &&
+                CandidatePageSizeOptionIndex(9) == 8,
             "The candidate page-size options did not map to persisted values.");
     require(metasequoia::mac::NormalizeCandidateFontSize(16) == 16 &&
                 metasequoia::mac::NormalizeCandidateFontSize(18) == 18 &&
                 metasequoia::mac::NormalizeCandidateFontSize(20) == 20 &&
                 metasequoia::mac::NormalizeCandidateFontSize(99) == 18,
             "The stored candidate font size was not normalized safely.");
-    require(metasequoia::mac::CandidateFontSizeForOptionIndex(0) == 16 &&
-                metasequoia::mac::CandidateFontSizeForOptionIndex(1) == 18 &&
-                metasequoia::mac::CandidateFontSizeForOptionIndex(2) == 20 &&
-                metasequoia::mac::CandidateFontSizeOptionIndex(16) == 0 &&
-                metasequoia::mac::CandidateFontSizeOptionIndex(18) == 1 &&
-                metasequoia::mac::CandidateFontSizeOptionIndex(20) == 2,
+    require(metasequoia::mac::CandidateFontSizeForOptionIndex(0) == 12 &&
+                metasequoia::mac::CandidateFontSizeForOptionIndex(5) == 17 &&
+                metasequoia::mac::CandidateFontSizeForOptionIndex(24) == 36 &&
+                metasequoia::mac::CandidateFontSizeOptionIndex(16) == 4 &&
+                metasequoia::mac::CandidateFontSizeOptionIndex(18) == 6 &&
+                metasequoia::mac::CandidateFontSizeOptionIndex(20) == 8,
             "The candidate font-size options did not map to persisted values.");
     require(metasequoia::mac::NormalizeCandidatePageShortcut(0) == CandidatePageShortcut::MinusEqual &&
                 metasequoia::mac::NormalizeCandidatePageShortcut(1) == CandidatePageShortcut::Brackets &&

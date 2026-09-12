@@ -73,10 +73,9 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          # Start above the legacy iOS commit-count builds (491 at migration).
           # Three numeric components; retries receive a distinct build, up to 99 attempts.
           test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1000 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          build="$((1 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
@@ -340,7 +339,7 @@ jobs:
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
-        run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
+        run: brew install boost fmt spdlog nlohmann-json xcodegen
       - name: Import Developer ID signing certificates
         if: ${{ steps.signing.outputs.signing_enabled == 'true' }}
         env:

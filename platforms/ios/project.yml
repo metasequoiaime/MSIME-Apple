@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: app.msime
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "15.5"
 
 settings:
   base:
@@ -16,14 +16,14 @@ settings:
     # Bumped by release-please alongside CMakeLists.txt. It used to be pinned at 0.1.0 while the
     # project shipped 0.45.x, so any iOS artifact would have carried a version that matched nothing.
     MARKETING_VERSION: 0.48.6 # x-release-please-version
-    # ML Kit Digital Ink 4.x provides x86_64 simulator binaries.
-    EXCLUDED_ARCHS[sdk=iphonesimulator*]: arm64
+    # ML Kit Digital Ink 8.x provides x86_64 simulator binaries, and asks for iOS 15.5.
     SWIFT_VERSION: 6.0
-    IPHONEOS_DEPLOYMENT_TARGET: 15.0
+    IPHONEOS_DEPLOYMENT_TARGET: 15.5
     # Xcode 26 no longer falls back to the target name when a target leaves PRODUCT_NAME unset, so a
     # target without it links as a bare `-l` and builds products named `.xctest` or `-Runner.app`.
     # Targets that publish a different product name still override this below.
     PRODUCT_NAME: $(TARGET_NAME)
+    OTHER_LDFLAGS: $(inherited) -ObjC
     DEVELOPMENT_TEAM: LXCL4Z68GU
 
 targets:
@@ -229,6 +229,7 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboardtesthost
         CODE_SIGN_ENTITLEMENTS: $(PROJECT_DIR)/../../platforms/ios/KeyboardExtension/Resources/MetasequoiaKeyboard.entitlements
 

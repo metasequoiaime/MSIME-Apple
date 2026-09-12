@@ -103,8 +103,10 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   }
   func rename() {
     let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    // 见 GeneratedKeyboardSkin:把 CharacterSet.contains 当方法引用传进 contains(where:),
+    // 在新版 Foundation 上会把普通汉字判成控制字符。
     guard !value.isEmpty, value.unicodeScalars.count <= 64,
-          !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+          !value.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
       message = "昵称需为 1–64 个字符，不能包含换行或控制字符。"; return
     }
     perform {

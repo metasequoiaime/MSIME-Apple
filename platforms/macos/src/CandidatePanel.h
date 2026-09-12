@@ -14,6 +14,7 @@
 @property(nonatomic) IMKCandidatePanelType panelType;
 @property(nonatomic, copy) NSArray<NSNumber *> *selectionKeys;
 @property(nonatomic) NSRect caretRect;
+@property(nonatomic, copy) NSString *preedit;
 @property(nonatomic) BOOL hasPreviousPage;
 @property(nonatomic) BOOL hasNextPage;
 @property(nonatomic, readonly) NSPanel *window;

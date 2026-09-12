@@ -1,96 +1,81 @@
 import UIKit
 
+/// 键位间距与键盘高度的键盘内设置面板。
+///
+/// This replaced a grid of layout preset cards. Key placement no longer derives from a preset --
+/// presets survive only as upgrade defaults for the spacing values -- so picking one changed
+/// nothing the user could see. The spacing the geometry actually reads is editable here instead.
 final class KeyboardLayoutPickerView: UIView {
-  init(selected: KeyboardLayoutPreset, nineKey: Bool, onSelect: @escaping (KeyboardLayoutPreset) -> Void, onClose: @escaping () -> Void) {
-    super.init(frame: .zero)
-    accessibilityIdentifier = "keyboardLayoutPicker"
-    backgroundColor = .secondarySystemBackground
-    let skin = KeyboardSkinPreference.selected
-    let header = UILabel()
-    header.text = "切换布局"
-    header.font = .systemFont(ofSize: 17, weight: .semibold)
-    let close = UIButton(type: .system)
-    close.setTitle("完成", for: .normal)
-    close.accessibilityIdentifier = "closeLayoutPicker"
-    close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
-    let scroll = UIScrollView()
-    let rows = UIStackView()
-    rows.axis = .vertical
-    rows.spacing = 10
-    let schemes = KeyboardLayoutPreset.allCases
-    for index in stride(from: 0, to: schemes.count, by: 2) {
-      let row = UIStackView()
-      row.spacing = 10
-      row.distribution = .fillEqually
-      for scheme in schemes[index..<min(index + 2, schemes.count)] {
-        let card = KeyboardKeyButton()
-        card.accessibilityIdentifier = "layoutCard-\(scheme.rawValue)"
-        card.accessibilityLabel = scheme.title
-        card.accessibilityValue = scheme == selected ? "已选中" : ""
-        if scheme == selected { card.accessibilityTraits.insert(.selected) }
-        card.backgroundColor = skin.background
-        card.layer.cornerRadius = 12
-        card.layer.borderWidth = scheme == selected ? 2 : 1
-        card.layer.borderColor = (scheme == selected ? UIColor.label : UIColor.separator).resolvedColor(with: traitCollection).cgColor
-        card.clipsToBounds = true
-        let title = UILabel()
-        title.text = scheme.title + (scheme == selected ? "  ✓" : "")
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = skin.keyForeground
-        title.adjustsFontSizeToFitWidth = true
-        title.minimumScaleFactor = 0.75
-        let preview = KeyboardSkinMiniature(skin: skin, nineKey: nineKey, layout: scheme)
-        for child in [title, preview] {
-          child.isUserInteractionEnabled = false
-          child.translatesAutoresizingMaskIntoConstraints = false
-          card.addSubview(child)
-        }
-        let preferredWidth = preview.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -14)
-        preferredWidth.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-          preferredWidth,
-          preview.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
-          preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: KeyboardSkinMiniature.heightToWidthRatio),
-          preview.centerXAnchor.constraint(equalTo: card.centerXAnchor),
-          title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
-          title.topAnchor.constraint(equalTo: card.topAnchor, constant: 7),
-          title.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
-          preview.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor, constant: 7),
-          preview.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -7),
-          preview.topAnchor.constraint(equalTo: card.topAnchor, constant: 29),
-          preview.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -7),
-        ])
-        card.addAction(UIAction { _ in onSelect(scheme) }, for: .primaryActionTriggered)
-        row.addArrangedSubview(card)
-      }
-      if row.arrangedSubviews.count == 1 { row.addArrangedSubview(UIView()) }
-      rows.addArrangedSubview(row)
-    }
-    for child in [header, close, scroll] {
-      child.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(child)
-    }
-    rows.translatesAutoresizingMaskIntoConstraints = false
-    scroll.addSubview(rows)
+  init(keySpacing: Double, rowSpacing: Double, height: Double,
+       onKeySpacing: @escaping (Double) -> Void,
+       onRowSpacing: @escaping (Double) -> Void,
+       onHeight: @escaping (Double) -> Void,
+       onReset: @escaping () -> Void,
+       onClose: @escaping () -> Void) {
+    super.init(frame: .zero); accessibilityIdentifier = "keyboardLayoutPicker"
+    let skin = KeyboardSkinPreference.selected; backgroundColor = skin.background
+    let title = UILabel(); title.text = "键盘设置"; title.font = .systemFont(ofSize: 17, weight: .semibold); title.textColor = skin.keyForeground
+    let close = UIButton(type: .system); close.setImage(UIImage(systemName: "chevron.left"), for: .normal); close.tintColor = skin.accent; close.accessibilityIdentifier = "closeLayoutPicker"; close.accessibilityLabel = "返回键盘"; close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
+
+    let keys = Self.spacingRow(title: "按键间距", identifier: "keySpacingSlider", value: keySpacing,
+                               range: 3...6, skin: skin, onChange: onKeySpacing)
+    let rows = Self.spacingRow(title: "行间距", identifier: "rowSpacingSlider", value: rowSpacing,
+                               range: 4...10, skin: skin, onChange: onRowSpacing)
+    // Height belongs next to spacing: both answer "the keys are hard to hit", and sending someone
+    // to the host app for one of them while the other is here would be arbitrary.
+    let tall = Self.spacingRow(title: "键盘高度", identifier: "keyboardHeightSlider", value: height,
+                               range: -12...48, skin: skin,
+                               format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" }, onChange: onHeight)
+
+    // On the title row rather than under the controls. The panel is only as tall as the keyboard,
+    // and the sliders already fill it: a fifth row pushed the stack past the space it had, and Auto
+    // Layout answered by squeezing the sliders until they could not be dragged and the rows
+    // overlapped each other.
+    let reset = UIButton(type: .system)
+    reset.setTitle("恢复默认", for: .normal)
+    reset.setTitleColor(.systemRed, for: .normal)
+    reset.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+    reset.accessibilityIdentifier = "resetKeyboardSettings"
+    reset.accessibilityHint = "把间距和高度恢复成默认值"
+    reset.addAction(UIAction { _ in onReset() }, for: .primaryActionTriggered)
+
+    let stack = UIStackView(arrangedSubviews: [keys, rows, tall]); stack.axis = .vertical; stack.spacing = 16
+    for item in [title, close, reset, stack] { item.translatesAutoresizingMaskIntoConstraints = false; addSubview(item) }
     NSLayoutConstraint.activate([
-      header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-      header.topAnchor.constraint(equalTo: topAnchor),
-      header.heightAnchor.constraint(equalToConstant: 40),
-      close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+      close.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
       close.topAnchor.constraint(equalTo: topAnchor),
-      close.heightAnchor.constraint(equalToConstant: 40),
-      close.widthAnchor.constraint(equalToConstant: 56),
-      scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
-      scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-      scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-      scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-      rows.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-      rows.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-      rows.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-      rows.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -10),
-      rows.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+      close.widthAnchor.constraint(equalToConstant: 44),
+      close.heightAnchor.constraint(equalToConstant: 44),
+      title.centerXAnchor.constraint(equalTo: centerXAnchor),
+      title.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+      reset.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      reset.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
+      stack.topAnchor.constraint(equalTo: close.bottomAnchor, constant: 12),
+      stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+      stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+      stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
     ])
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  private static func spacingRow(title: String, identifier: String, value: Double,
+                                 range: ClosedRange<Double>, skin: KeyboardSkin,
+                                 format: @escaping (Double) -> String = { String(format: "%.1f", $0) },
+                                 onChange: @escaping (Double) -> Void) -> UIStackView {
+    let caption = UILabel(); caption.text = title; caption.font = .systemFont(ofSize: 14, weight: .medium); caption.textColor = skin.keyForeground
+    let amount = UILabel(); amount.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular); amount.textColor = skin.keyForeground.withAlphaComponent(0.7)
+    amount.text = format(value)
+    let header = UIStackView(arrangedSubviews: [caption, UIView(), amount]); header.alignment = .firstBaseline; header.spacing = 8
+    let slider = UISlider(); slider.minimumValue = Float(range.lowerBound); slider.maximumValue = Float(range.upperBound)
+    slider.value = Float(value); slider.minimumTrackTintColor = skin.accent; slider.accessibilityIdentifier = identifier; slider.accessibilityLabel = title
+    slider.addAction(UIAction { action in
+      guard let slider = action.sender as? UISlider else { return }
+      amount.text = format(Double(slider.value))
+      onChange(Double(slider.value))
+    }, for: .valueChanged)
+    let row = UIStackView(arrangedSubviews: [header, slider]); row.axis = .vertical; row.spacing = 4
+    return row
+  }
 }

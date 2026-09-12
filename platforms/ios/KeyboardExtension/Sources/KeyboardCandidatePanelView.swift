@@ -7,15 +7,19 @@ import UIKit
 // the word not being in the dictionary. This shows the whole list at once instead.
 final class KeyboardCandidatePanelView: UIView {
   private let candidates: [String]
+  // The keys still to press for each candidate, parallel to candidates and empty where none applies.
+  private let hints: [String]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
   private var laidOutWidth: CGFloat = 0
 
-  init(candidates: [String], preedit: String, display: @escaping (String) -> String,
+  init(candidates: [String], hints: [String] = [], preedit: String,
+       display: @escaping (String) -> String,
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
+    self.hints = hints
     self.display = display
     self.onSelect = onSelect
     super.init(frame: .zero)
@@ -57,6 +61,7 @@ final class KeyboardCandidatePanelView: UIView {
     rows.alignment = .leading
     rows.translatesAutoresizingMaskIntoConstraints = false
     scrollView.translatesAutoresizingMaskIntoConstraints = false
+    scrollView.disableEdgeEffects()
     scrollView.addSubview(rows)
     addSubview(scrollView)
 
@@ -98,7 +103,9 @@ final class KeyboardCandidatePanelView: UIView {
     var row = makeRow(spacing: spacing)
     var used: CGFloat = 0
     for (offset, candidate) in candidates.enumerated() {
-      let chip = makeChip(candidate: candidate, number: offset + 1)
+      let chip = makeChip(
+        candidate: candidate, hint: hints.indices.contains(offset) ? hints[offset] : "",
+        number: offset + 1)
       let width = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
@@ -119,10 +126,20 @@ final class KeyboardCandidatePanelView: UIView {
     return row
   }
 
-  private func makeChip(candidate: String, number: Int) -> UIButton {
+  private func makeChip(candidate: String, hint: String, number: Int) -> UIButton {
     let text = display(candidate)
     var configuration = UIButton.Configuration.plain()
     configuration.title = text
+    if !hint.isEmpty {
+      configuration.attributedTitle = AttributedString(
+        text, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .body)]))
+        + AttributedString(
+          " " + hint,
+          attributes: AttributeContainer([
+            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          ]))
+    }
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
@@ -135,7 +152,8 @@ final class KeyboardCandidatePanelView: UIView {
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
-    chip.accessibilityLabel = "候选词 \(number)：\(text)"
+    chip.accessibilityLabel =
+      hint.isEmpty ? "候选词 \(number)：\(text)" : "候选词 \(number)：\(text)，还需输入 \(hint)"
     return chip
   }
 }

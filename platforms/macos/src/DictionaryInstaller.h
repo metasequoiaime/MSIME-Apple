@@ -3,6 +3,8 @@
 #import <Foundation/Foundation.h>
 
 BOOL EnsureMetasequoiaDictionary(NSError **error);
+// Seed the legacy English dictionary exactly once. Existing mutable data is never overwritten.
+BOOL InstallMetasequoiaEnglishDictionary(NSURL *source, NSURL *dataDirectory, NSString *fingerprint, NSError **error);
 BOOL InstallMetasequoiaHelpCodes(NSURL *sourceDirectory, NSURL *dataDirectory, NSError **error);
 BOOL PrepareMetasequoiaDictionary(NSURL *source, NSURL *dataDirectory, NSString *dictionaryFingerprint,
                                   NSError **error);

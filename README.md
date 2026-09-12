@@ -5,7 +5,8 @@
 <!-- badges:start -->
 [![CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/MSIME-Apple/ci.yml?branch=develop&label=CI)](https://github.com/metasequoiaime/MSIME-Apple/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/MSIME-Apple/codeql.yml?branch=develop&label=CodeQL)](https://github.com/metasequoiaime/MSIME-Apple/actions/workflows/codeql.yml)
-[![Release](https://img.shields.io/github/v/release/metasequoiaime/MSIME-Apple?include_prereleases&label=release)](https://github.com/metasequoiaime/MSIME-Apple/releases)
+[![macOS](https://img.shields.io/github/v/release/metasequoiaime/MSIME-Apple?include_prereleases&filter=macos-*&label=macOS)](https://github.com/metasequoiaime/MSIME-Apple/releases)
+[![iOS](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2FMSIME-Apple%2Fdevelop%2Fplatforms%2Fios%2Fproject.yml&query=%24.settings.base.MARKETING_VERSION&prefix=v&label=iOS&color=inactive)](docs/ios-distribution.md)
 [![Downloads](https://img.shields.io/github/downloads/metasequoiaime/MSIME-Apple/total?label=downloads)](https://github.com/metasequoiaime/MSIME-Apple/releases)
 [![License](https://img.shields.io/github/license/metasequoiaime/MSIME-Apple)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/metasequoiaime/MSIME-Apple?style=flat)](https://github.com/metasequoiaime/MSIME-Apple/stargazers)
@@ -24,7 +25,7 @@
 
 iOS 版本不会移植 Windows 的 TSF 或 WebView2 宿主，而是复用 `MetasequoiaImeEngine`，并提供 iOS 专用的 UI 与文本文档适配层。
 
-当前版本支持全拼输入、来自官方水杉词库的实时候选、拼音候选旁的辅助码提示、通过原生候选窗口或数字键 1–9 选择候选、空格上屏首选、回车上屏原始输入、退格、Esc、焦点或输入法切换时上屏原始输入、Shift+Space 在中文与直接英文输入之间切换，以及可选的全角模式（Option+Shift+H 切换）。原生的可拖动悬浮状态栏会持续显示中英文、标点、全角和简繁输出状态，并提供一键打开设置的入口；可在「外观」页中隐藏。启用全角模式后，中文模式下组词引擎不接受的字符会转换为对应的 Unicode 全角形式：大写字母、数字、空格，以及关闭「中文标点转换」时的标点（打开时标点仍按中文标点输出，例如 `。` 而不是 `．`）。小写字母始终用于拼音组词，不受全角影响；直接英文输入模式下按键原样透传，也不做全角转换。默认输出简体；输入法菜单和悬浮状态栏可以把可见候选和上屏的中文切换为繁体字，不改变词库键值和学习数据。「词库与数据」页中的「启用本地输入模式」默认关闭；打开后，未处于组词状态时 Shift+U 输入 Unicode 码点、Shift+T 输入日期时间、Shift+K 输入快捷短语、Shift+J 使用超级简拼，关闭时这些组合照常输入大写字母。引擎另外几个本地模式（表情、颜文字、临时英文、临时日文）需要 others.db、english.db 与 dict_japanese.dat，本安装包不附带这些文件，因此始终关闭。
+当前版本支持全拼输入、来自官方水杉词库的实时候选、拼音候选旁的辅助码提示、通过原生候选窗口或数字键 1–9 选择候选、空格上屏首选、回车上屏原始输入、退格、Esc、焦点或输入法切换时上屏原始输入、Shift+Space 在中文与直接英文输入之间切换，以及可选的全角模式（Option+Shift+H 切换）。竖排候选窗口默认在词条右侧显示本地英文释义，可在「外观」页关闭。原生的可拖动悬浮状态栏会持续显示中英文、标点、全角和简繁输出状态，并提供一键打开设置的入口；可在「外观」页中隐藏。启用全角模式后，中文模式下组词引擎不接受的字符会转换为对应的 Unicode 全角形式：大写字母、数字、空格，以及关闭「中文标点转换」时的标点（打开时标点仍按中文标点输出，例如 `。` 而不是 `．`）。小写字母始终用于拼音组词，不受全角影响；直接英文输入模式下按键原样透传，也不做全角转换。默认输出简体；输入法菜单和悬浮状态栏可以把可见候选和上屏的中文切换为繁体字，不改变词库键值和学习数据。「词库与数据」页中的「启用本地输入模式」默认关闭；打开后，未处于组词状态时 Shift+U 输入 Unicode 码点、Shift+T 输入日期时间、Shift+K 输入快捷短语、Shift+J 使用超级简拼，关闭时这些组合照常输入大写字母。引擎另外几个本地模式（表情、颜文字、临时英文、临时日文）需要 others.db、english.db 与 dict_japanese.dat，本安装包不附带这些文件，因此始终关闭。
 
 ## 环境要求
 

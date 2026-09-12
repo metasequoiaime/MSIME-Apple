@@ -43,7 +43,7 @@ The application installs data built from these repositories:
   MSIME-Engine/helpcode    https://github.com/metasequoiaime/MSIME-Engine/tree/main/helpcode
   (imported from MSIME-HelpCode and MSIME-Dict, both now archived; the upstream attribution below is retained)
 
-Installed as msime.db and helpcodes/*.txt in the application's Resources directory. The database is the one MSIME-Engine publishes as a release asset; product-lock.json in this repository names the release and records the SHA256 of every file taken from it. Releases published by the archived MSIME-Dict remain available as immutable historical artefacts.
+Installed as msime.db, english.db, custom_translations.txt and helpcodes/*.txt in the application's Resources directory. The databases are the ones MSIME-Engine publishes as release assets; product-lock.json in this repository names the release and records the SHA256 of every file taken from it. Releases published by the archived MSIME-Dict remain available as immutable historical artefacts. english.db is opened read-only from the bundle for candidate-window glosses and is not installed into the user data directory.
 
 The sources do not declare a license of their own, because most of their content is not their own work. They aggregate word lists and code tables from upstream projects. The upstream terms, which travel with the data, are as follows.
 
@@ -56,6 +56,12 @@ Sources of msime.db:
   rime-jp_sela            none       https://github.com/Selaube/rime-jp_sela
 
 The Chinese tables that msime.db is built from (cn/BaseDictAllV1Part1.txt and cn/BaseDictAllV1Part2.txt) merge rime-ice with CustomPinyinDictionary. rime-ice is licensed under the GNU General Public License version 3, which is the same license this application is distributed under, so its terms are satisfied by the distribution as a whole; this notice serves as its attribution, and its source remains available at the URL above. The quick phrase table is written by the Metasequoia IME maintainers and is covered by that same license.
+
+Sources of english.db candidate glosses:
+
+  ECDICT                  MIT        https://github.com/skywind3000/ECDICT
+
+The bidirectional gloss tables in english.db are derived from ECDICT. The runtime overlay custom_translations.txt is the Engine-maintained correction list and is covered by the same project license as the rest of the Metasequoia IME sources.
 
 Sources of helpcodes/*.txt, packaged from MSIME-Engine/helpcode (history imported from the archived MSIME-HelpCode):
 

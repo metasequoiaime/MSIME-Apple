@@ -1,5 +1,8 @@
 #import "CandidatePanel.h"
+#import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
+#include "CandidateGlossLayout.h"
+#include "StringConversion.h"
 
 #include <cmath>
 
@@ -23,6 +26,7 @@
 @property(nonatomic, copy) NSColor *numberColor;
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
+@property(nonatomic, copy) NSString *candidateTranslation;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -66,23 +70,53 @@
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
     const CGFloat textLeft = 8.0 + (self.showSelectedBar ? 6.0 : 0.0);
+    NSString *translation = self.candidateTranslation;
+    CGFloat translationWidth = 0.0;
+    NSDictionary *translationAttributes = nil;
+    if (translation.length > 0)
+    {
+        NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, self.font.pointSize - 3.0)];
+        NSColor *base = self.titleColor != nil ? self.titleColor : NSColor.labelColor;
+        NSColor *translationColor =
+            self.candidateHighlighted ? [base colorWithAlphaComponent:0.82] : NSColor.secondaryLabelColor;
+        translationAttributes = @{
+            NSFontAttributeName : translationFont,
+            NSForegroundColorAttributeName : translationColor,
+            NSParagraphStyleAttributeName : paragraph,
+        };
+        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
+        translationWidth =
+            metasequoia::mac::CandidateGlossDrawnWidth(translationSize.width, self.bounds.size.width - textLeft - 8.0);
+    }
+    const CGFloat gap = translationWidth > 0.0 ? metasequoia::mac::kCandidateGlossGap : 0.0;
+    const CGFloat rightPad = 8.0 + translationWidth + gap;
     if (split.location == NSNotFound)
     {
         const NSSize size = [title sizeWithAttributes:titleAttributes];
-        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - 8.0);
+        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - rightPad);
         [title drawInRect:NSMakeRect(textLeft, (self.bounds.size.height - size.height) / 2, maxWidth, size.height)
             withAttributes:titleAttributes];
-        return;
     }
-    NSString *number = [title substringToIndex:split.location];
-    NSString *word = [title substringFromIndex:NSMaxRange(split)];
-    const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
-    const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-    const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
-    [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
-    const CGFloat wordX = textLeft + numberSize.width + 6.0;
-    const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
-    [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    else
+    {
+        NSString *number = [title substringToIndex:split.location];
+        NSString *word = [title substringFromIndex:NSMaxRange(split)];
+        const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
+        const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
+        const CGFloat y = (self.bounds.size.height - MAX(numberSize.height, wordSize.height)) / 2;
+        [number drawAtPoint:NSMakePoint(textLeft, y) withAttributes:numberAttributes];
+        const CGFloat wordX = textLeft + numberSize.width + 6.0;
+        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - rightPad);
+        [word drawInRect:NSMakeRect(wordX, y, maxWidth, wordSize.height) withAttributes:titleAttributes];
+    }
+    if (translationWidth > 0.0)
+    {
+        const NSSize translationSize = [translation sizeWithAttributes:translationAttributes];
+        const CGFloat translationY = (self.bounds.size.height - translationSize.height) / 2;
+        [translation drawInRect:NSMakeRect(self.bounds.size.width - 8.0 - translationWidth, translationY,
+                                           translationWidth, translationSize.height)
+                 withAttributes:translationAttributes];
+    }
 }
 @end
 
@@ -137,6 +171,9 @@
     NSInteger _selected;
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
+    NSRect _anchorCaret;
+    NSPoint _fixedOrigin;
+    BOOL _hasAnchor;
 }
 
 - (instancetype)init
@@ -145,6 +182,7 @@
     if (self)
     {
         _data = @[];
+        _preedit = @"";
         _font = [NSFont systemFontOfSize:18];
         _selected = NSNotFound;
         _window = [[MetasequoiaCandidateWindow alloc]
@@ -173,12 +211,21 @@
                                                  selector:@selector(reloadSkin)
                                                      name:MetasequoiaCandidateSkinDidChangeNotification
                                                    object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(reloadSkin)
+                                                   name:MetasequoiaAppearanceDidChange
+                                                 object:nil];
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                          selector:@selector(reloadSkin)
+                                                              name:MetasequoiaAppearanceDidChange
+                                                            object:nil];
     }
     return self;
 }
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
     [_window orderOut:nil];
 }
 - (NSPanel *)window
@@ -187,12 +234,21 @@
 }
 - (void)reloadSkin
 {
+    [NSUserDefaults.standardUserDefaults synchronize];
+    NSInteger legacySize = [NSUserDefaults.standardUserDefaults integerForKey:@"MetasequoiaImeCandidateFontSize"];
+    _font = MetasequoiaCandidateFont(MetasequoiaAppearanceInteger(
+        @"fontSize", legacySize >= 12 && legacySize <= 36 ? legacySize : _font.pointSize, 12, 36));
     _skin = MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
     _decorationImage = nil;
     if (_skin.decorationTopDip > 0.0 && !_skin.decorationPath.empty())
     {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_skin.decorationPath.c_str())];
     }
+    [self layoutCandidates];
+}
+- (void)setPreedit:(NSString *)preedit
+{
+    _preedit = preedit ? [preedit copy] : @"";
     [self layoutCandidates];
 }
 - (void)setPanelType:(IMKCandidatePanelType)type
@@ -227,8 +283,9 @@
 }
 - (NSScreen *)screenForCaret
 {
+    NSRect caret = _hasAnchor && !MetasequoiaCandidateFollowsCaret() ? _anchorCaret : self.caretRect;
     for (NSScreen *screen in NSScreen.screens)
-        if (NSPointInRect(NSMakePoint(NSMinX(self.caretRect), NSMidY(self.caretRect)), screen.frame))
+        if (NSPointInRect(NSMakePoint(NSMinX(caret), NSMidY(caret)), screen.frame))
             return screen;
     return NSScreen.mainScreen;
 }
@@ -247,14 +304,22 @@
     const CGFloat availableWidth = MAX(80, screenWidth - 20 - 2 * inset - (paging && !vertical ? 56 : 0));
     const CGFloat leftPad = 8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0);
     NSDictionary *measure = @{NSFontAttributeName : _font};
+    NSMutableArray<NSString *> *translations = [NSMutableArray array];
+    NSFont *translationFont = [NSFont systemFontOfSize:MAX(12.0, _font.pointSize - 3.0)];
+    NSDictionary *translationMeasure = @{NSFontAttributeName : translationFont};
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
-                                       [word sizeWithAttributes:measure].width + 8.0);
+        NSString *translation = vertical ? MetasequoiaCandidateTranslation(_data[index]) : nil;
+        CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
+                                 [word sizeWithAttributes:measure].width + 8.0);
+        if (translation.length > 0)
+            itemWidth = ceil(itemWidth + metasequoia::mac::CandidateGlossReservedWidth(
+                                             [translation sizeWithAttributes:translationMeasure].width));
         [titles addObject:title];
+        [translations addObject:translation.length > 0 ? translation : @""];
         [widths addObject:@(itemWidth)];
         width = vertical ? MAX(width, itemWidth) : width + itemWidth;
     }
@@ -277,10 +342,16 @@
     if (paging)
         width = vertical ? MAX(width, 64) : width + 56;
     const CGFloat decorationHeight = _skin.decorationTopDip > 0.0 ? _skin.decorationTopDip : 0.0;
+    NSFont *preeditFont = MetasequoiaCandidateFont(MetasequoiaAppearanceInteger(@"preeditSize", 15, 10, 36));
+    const CGFloat preeditHeight =
+        _preedit.length ? ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 10 : 0;
+    if (_preedit.length)
+        width =
+            MAX(width, MIN(availableWidth, [_preedit sizeWithAttributes:@{NSFontAttributeName : preeditFont}].width));
     const CGFloat minWidth = MAX(_skin.minWidthDip, MAX(_skin.decorationWidthDip, 20));
     NSSize size = NSMakeSize(MAX(width + 2 * inset, minWidth),
                              MAX((vertical ? _data.count : (_data.count > 0 ? 1 : 0)) * rowHeight + navigationHeight +
-                                     2 * inset + decorationHeight,
+                                     2 * inset + decorationHeight + preeditHeight,
                                  10));
     [_window setContentSize:size];
     _chrome.fillColor = MetasequoiaColorFromRgba(_skin.tokens.surface);
@@ -298,7 +369,17 @@
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;
-    const CGFloat contentTop = size.height - inset - decorationHeight;
+    const CGFloat contentTop = size.height - inset - decorationHeight - preeditHeight;
+    if (_preedit.length)
+    {
+        NSTextField *label = [NSTextField labelWithString:_preedit];
+        label.font = preeditFont;
+        label.textColor = MetasequoiaColorFromRgba(_skin.tokens.text);
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        label.frame = NSMakeRect(inset, contentTop + 4, size.width - inset * 2, preeditHeight - 4);
+        label.accessibilityLabel = @"预编辑文本";
+        [_chrome addSubview:label];
+    }
     NSColor *selectedFill = MetasequoiaColorFromRgba(_skin.tokens.selected);
     NSColor *textColor = MetasequoiaColorFromRgba(_skin.tokens.text);
     NSColor *selectedText = MetasequoiaColorFromRgba(_skin.tokens.selectedText);
@@ -322,8 +403,13 @@
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
-        button.accessibilityLabel = titles[index];
-        button.toolTip = _data[index].string;
+        button.candidateTranslation = translations[index];
+        button.accessibilityLabel = translations[index].length > 0
+                                        ? [NSString stringWithFormat:@"%@，%@", titles[index], translations[index]]
+                                        : titles[index];
+        button.toolTip = translations[index].length > 0
+                             ? [NSString stringWithFormat:@"%@  %@", _data[index].string, translations[index]]
+                             : _data[index].string;
         [_chrome addSubview:button];
         if (!vertical)
             x += itemWidth;
@@ -367,6 +453,8 @@
         return;
     }
     NSRect caret = self.caretRect;
+    if (_hasAnchor && !MetasequoiaCandidateFollowsCaret())
+        caret = _anchorCaret;
     if (!std::isfinite(caret.origin.x) || !std::isfinite(caret.origin.y) || !std::isfinite(caret.size.width) ||
         !std::isfinite(caret.size.height) || caret.size.height <= 0)
     {
@@ -381,11 +469,23 @@
     if (y < NSMinY(bounds))
         y = NSMaxY(caret) + 4;
     y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
+    if (_hasAnchor && !MetasequoiaCandidateFollowsCaret())
+    {
+        x = MIN(MAX(_fixedOrigin.x, NSMinX(bounds)), MAX(NSMinX(bounds), NSMaxX(bounds) - size.width));
+        y = MIN(MAX(_fixedOrigin.y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
+    }
+    else
+    {
+        _anchorCaret = caret;
+        _fixedOrigin = NSMakePoint(x, y);
+        _hasAnchor = YES;
+    }
     [_window setFrameOrigin:NSMakePoint(x, y)];
     [_window orderFrontRegardless];
 }
 - (void)hide
 {
+    _hasAnchor = NO;
     [_window orderOut:nil];
 }
 - (BOOL)isVisible

@@ -148,6 +148,23 @@ int main()
                 error.localizedDescription.UTF8String);
 
         NSURL *helpcodeSource = CreateDirectory(root, @"bundled-helpcodes");
+        NSURL *englishSource = [root URLByAppendingPathComponent:@"bundled-english.db"];
+        WriteString(@"verified English fixture", englishSource);
+        NSURL *englishData = CreateDirectory(root, @"english-data");
+        Require(!InstallMetasequoiaEnglishDictionary(englishSource, englishData, @"bad", &error),
+                "English installation accepted an invalid digest.");
+        Require(![fileManager fileExistsAtPath:[englishData URLByAppendingPathComponent:@"english.db"].path],
+                "Failed English installation left a published file.");
+        error = nil;
+        Require(
+            InstallMetasequoiaEnglishDictionary(englishSource, englishData, SHA256Fingerprint(englishSource), &error),
+            "English dictionary was not seeded.");
+        NSURL *englishInstalled = [englishData URLByAppendingPathComponent:@"english.db"];
+        WriteString(@"preserved learned data", englishInstalled);
+        Require(
+            InstallMetasequoiaEnglishDictionary(englishSource, englishData, SHA256Fingerprint(englishSource), &error) &&
+                ReadString(englishInstalled) == "preserved learned data",
+            "English dictionary installation overwrote user data.");
         NSArray<NSString *> *helpcodeNames = @[
             @"helpcode.txt", @"zrm_helpcode_big_unique.txt", @"shouyou2_0_helpcode.txt", @"shouyouplus_helpcode.txt",
             @"xiaohe_helpcode.txt"
@@ -333,6 +350,7 @@ int main()
         WriteString(@"journal-wal", [resetDirectory URLByAppendingPathComponent:@"msime_user.db-wal"]);
         WriteString(@"journal-rollback", [resetDirectory URLByAppendingPathComponent:@"msime_user.db-journal"]);
         WriteString(@"english", [resetDirectory URLByAppendingPathComponent:@"msime_english.db"]);
+        WriteString(@"modern English learning", [resetDirectory URLByAppendingPathComponent:@"english.db"]);
         WriteString(@"decoder-learning", [resetDirectory URLByAppendingPathComponent:@"user_dict.dat"]);
         error = nil;
         NSString *resetFingerprint = SHA256Fingerprint(resetSource);
@@ -344,7 +362,8 @@ int main()
                     resetFingerprint.UTF8String,
                 "Resetting learned data did not install the bundled dictionary fingerprint.");
         for (NSString *learnedFile in @[
-                 @"msime_user.db", @"msime_user.db-wal", @"msime_user.db-journal", @"msime_english.db", @"user_dict.dat"
+                 @"msime_user.db", @"msime_user.db-wal", @"msime_user.db-journal", @"msime_english.db", @"english.db",
+                 @"user_dict.dat"
              ])
         {
             Require(![fileManager fileExistsAtPath:[resetDirectory URLByAppendingPathComponent:learnedFile].path],

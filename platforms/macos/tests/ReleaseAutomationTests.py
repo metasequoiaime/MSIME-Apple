@@ -48,7 +48,7 @@ class BuildNumberTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
         self.assertEqual(builds, sorted(set(builds)))
-        self.assertGreater(builds[0], (491, 0, 0))
+        self.assertGreater(builds[0], (0, 48, 6))
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
@@ -97,30 +97,6 @@ class BuildNumberTests(unittest.TestCase):
                                      BUMP_VERSION=bump, REQUESTED_TAG=tag,
                                      REQUESTED_PLATFORM=platform)
             self.assertEqual(result.returncode == 0, valid, f"{bump}/{tag}/{platform}")
-
-    def test_ios_uses_ci_build_and_rejects_tag_mismatch(self):
-        root = MACOS_ROOT.parents[1]
-        for name in ("package_ios_archive.sh", "package_ios_testflight.sh"):
-            script = (root / "platforms/ios/scripts" / name).read_text()
-            fragment = script.split("# CI supplies the shared build.", 1)[1]
-            # The block closes on the only unindented fi. Everything past it needs a real checkout,
-            # and the two scripts diverge there, so neither offers a shared name to cut on.
-            fragment = "# CI supplies the shared build." + fragment.split("\nfi\n", 1)[0] + "\nfi"
-            for tag, supplied, expected in [
-                ("v0.48.6-build.1001.23.1", "1001.23.1", "1001.23.1"),
-                ("v0.48.6", "1001.24.1", "1001.24.1"),
-                ("v0.48.6-build.1001.23.1", "1001.24.1", None),
-            ]:
-                result = subprocess.run(
-                    ["bash", "-eu", "-c", fragment + '\nprintf "%s" "$build_number"'],
-                    env=dict(os.environ, tag_name=tag, METASEQUOIA_BUILD_NUMBER=supplied),
-                    text=True, capture_output=True)
-                if expected is None:
-                    self.assertNotEqual(result.returncode, 0, name)
-                    self.assertIn("does not match", result.stderr)
-                else:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout, expected, name)
 
     def platforms_for(self, *paths, event="push", before=BASE_SHA, platform="both", tag=""):
         quoted = " ".join('"' + path + '"' for path in paths)

@@ -1,6 +1,7 @@
 import hashlib
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -661,6 +662,8 @@ class ReleasePackageTests(unittest.TestCase):
             build_number = bundle_info["CFBundleVersion"]
         self.assertTrue(dictionary.is_file())
         self.assertEqual(dictionary_fingerprint, sha256_file(dictionary))
+        self.assertTrue((bundle / "Contents/Resources/english.db").is_file())
+        self.assertTrue((bundle / "Contents/Resources/custom_translations.txt").is_file())
 
         bundled_uninstaller = bundle / "Contents/Resources/Uninstall.command"
         self.assertTrue(bundled_uninstaller.is_file())
@@ -702,30 +705,31 @@ class ReleasePackageTests(unittest.TestCase):
         for helpcode_table in helpcode_directory.iterdir():
             if helpcode_table.is_file():
                 self.assertGreater(helpcode_table.stat().st_size, 0)
-        menu_icon_properties = subprocess.run(
-            [
-                "sips",
-                "-g",
-                "pixelWidth",
-                "-g",
-                "pixelHeight",
-                "-g",
-                "hasAlpha",
-                "-g",
-                "dpiWidth",
-                "-g",
-                "dpiHeight",
-                menu_icon,
-            ],
+        # The packaged icon keeps both pages: the input menu reads the TIFF's pages rather than the
+        # DPI of a lone one, and a single 2x page arrives as a 32-point image that the menu slot
+        # crops to a solid block. sips only reports the first page, so the pages are read directly.
+        menu_icon_pages = subprocess.run(
+            ["tiffutil", "-info", menu_icon],
             check=True,
             capture_output=True,
             text=True,
         ).stdout
-        self.assertIn("pixelWidth: 32", menu_icon_properties)
-        self.assertIn("pixelHeight: 36", menu_icon_properties)
+        self.assertEqual(
+            re.findall(r"Image Width: (\d+) Image Length: (\d+)", menu_icon_pages),
+            [("16", "16"), ("32", "32")],
+        )
+        self.assertEqual(
+            re.findall(r"Resolution: (\d+), (\d+)", menu_icon_pages), [("72", "72"), ("144", "144")]
+        )
+        self.assertEqual(menu_icon_pages.count("Alpha: Present"), 2)
+
+        menu_icon_properties = subprocess.run(
+            ["sips", "-g", "hasAlpha", menu_icon],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
         self.assertIn("hasAlpha: yes", menu_icon_properties)
-        self.assertIn("dpiWidth: 144", menu_icon_properties)
-        self.assertIn("dpiHeight: 144", menu_icon_properties)
 
         executable = bundle / "Contents/MacOS/MetasequoiaIME"
         for architecture in ("arm64", "x86_64"):

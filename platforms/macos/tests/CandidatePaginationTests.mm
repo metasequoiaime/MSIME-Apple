@@ -21,6 +21,7 @@ static void Require(bool condition, const char *message)
 @property(nonatomic) NSInteger selected;
 @property(nonatomic) BOOL visible;
 @property(nonatomic) NSRect caretRect;
+@property(nonatomic, copy) NSString *preedit;
 @property(nonatomic) BOOL hasPreviousPage;
 @property(nonatomic) BOOL hasNextPage;
 @property(nonatomic) BOOL collapsedIdentifiers;
@@ -206,7 +207,7 @@ static void RunTests()
             "The controller does not support both window delegate contracts.");
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     for (NSNumber *style in @[ @0, @1 ])
-        for (NSNumber *size in @[ @5, @7, @9 ])
+        for (NSNumber *size in @[ @5, @6, @7, @8, @9 ])
         {
             [defaults setVolatileDomain:@{
                 @"MetasequoiaImeCandidatePageSize" : size,
@@ -240,6 +241,24 @@ static void RunTests()
                     "Committing the composition inserted a candidate instead of the typed letters.");
             [controller prepareTestPanel:panel];
             const NSUInteger pageSize = size.unsignedIntegerValue;
+            NSMutableDictionary *edgeDefaults = [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
+            edgeDefaults[MetasequoiaInputBehaviorKey] = @{@"edgeSelection" : @1, @"pageComma" : @1};
+            [defaults setVolatileDomain:edgeDefaults forName:NSArgumentDomain];
+            NSString *edgeWord = [controller testCandidateAtIndex:0];
+            Press(controller, kVK_ANSI_LeftBracket, @"[");
+            Require([controller.testClient.committed isEqualToString:[edgeWord substringToIndex:1]],
+                    "First-Han selection did not commit the default highlighted candidate's first character.");
+            [controller prepareTestPanel:panel];
+            Press(controller, kVK_ANSI_Period, @".");
+            Require(MetasequoiaCandidateIndex(panel.data[0]) == pageSize,
+                    "Comma/period paging did not navigate to the next page.");
+            Press(controller, kVK_ANSI_RightBracket, @"]");
+            // Fixture words are 候选0…候选11: Engine must skip the trailing ASCII digits.
+            Require([controller.testClient.committed isEqualToString:@"选"],
+                    "Last-Han selection did not use the highlighted second-page candidate.");
+            [edgeDefaults removeObjectForKey:MetasequoiaInputBehaviorKey];
+            [defaults setVolatileDomain:edgeDefaults forName:NSArgumentDomain];
+            [controller prepareTestPanel:panel];
             Require([controller testCandidateCount] > pageSize, "The fixture needs multiple pages.");
             Require(panel.data.count == pageSize,
                     "The native window received more than the configured candidates per page.");
@@ -272,7 +291,7 @@ static void RunTests()
             const NSUInteger total = [controller testCandidateCount];
             for (NSUInteger page = 1; page * pageSize < total; ++page)
                 Press(controller, kVK_PageDown, @"");
-            const NSUInteger lastPageStart = pageSize == 5 ? 10 : pageSize; // fixture has 12 candidates
+            const NSUInteger lastPageStart = ((total - 1) / pageSize) * pageSize;
             Require(total == 12 && MetasequoiaCandidateIndex(panel.data[0]) == lastPageStart,
                     "The last page started at the wrong engine candidate.");
             Require(panel.data.count == total - lastPageStart, "The partial last page lost candidates.");
@@ -339,6 +358,75 @@ static void RunTests()
                     "Cancelling retained visible candidates.");
         }
 }
+
+static void RunMixedEnglishTests()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *previous = [defaults volatileDomainForName:NSArgumentDomain];
+    NSMutableDictionary *values = [previous mutableCopy];
+    values[@"MetasequoiaImeEnglishInputMode"] = @NO;
+    values[@"MetasequoiaImeInputScheme"] = @0;
+    values[@"MetasequoiaImeHelpcodeEnabled"] = @NO;
+    values[MetasequoiaInputBehaviorKey] = @{@"mixedEnglish" : @1, @"englishMinimumPrefix" : @2};
+    [defaults setVolatileDomain:values forName:NSArgumentDomain];
+    RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+    PaginationTestController *controller = [PaginationTestController alloc];
+    controller.testClient = [RecordingInputClient new];
+    [controller prepareEmptyTestPanel:panel];
+    Press(controller, kVK_ANSI_H, @"h");
+    auto hasHello = [&]() {
+        for (NSUInteger index = 0; index < [controller testCandidateCount]; ++index)
+            if ([[controller testCandidateAtIndex:index] isEqualToString:@"hello"])
+                return true;
+        return false;
+    };
+    Require(!hasHello(), "English candidates appeared before the configured minimum prefix.");
+    values[MetasequoiaInputBehaviorKey] = @{@"mixedEnglish" : @0, @"englishMinimumPrefix" : @2};
+    [defaults setVolatileDomain:values forName:NSArgumentDomain];
+    Press(controller, kVK_ANSI_E, @"e");
+    Require(hasHello(), "Changing preferences interrupted mixed English in an active composition.");
+    Press(controller, kVK_Escape, @"");
+    Press(controller, kVK_ANSI_H, @"h");
+    Press(controller, kVK_ANSI_E, @"e");
+    Require(!hasHello(), "The next composition ignored disabled mixed English.");
+    Press(controller, kVK_Escape, @"");
+    [controller prepareForLearnedDataReset:nil];
+    [defaults setVolatileDomain:previous forName:NSArgumentDomain];
+}
+
+#ifdef METASEQUOIA_TEST_JAPANESE_MODEL
+static void RunJapaneseTests(NSString *directory)
+{
+    std::filesystem::copy_file(
+        METASEQUOIA_TEST_JAPANESE_MODEL,
+        [directory stringByAppendingPathComponent:@"dict_japanese.dat"].fileSystemRepresentation);
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *previous = [defaults volatileDomainForName:NSArgumentDomain];
+    NSMutableDictionary *values = [previous mutableCopy];
+    values[@"MetasequoiaImeEnglishInputMode"] = @NO;
+    values[MetasequoiaInputBehaviorKey] = @{@"japaneseMode" : @1};
+    [defaults setVolatileDomain:values forName:NSArgumentDomain];
+    const NSInteger chineseScheme = [MetasequoiaPreferencesWindowController storedScheme];
+    Require(ReadSessionPreferences().scheme == SchemeType::JapaneseRomaji,
+            "Japanese mode did not select the Engine scheme.");
+    RecordingCandidatePanel *panel = [RecordingCandidatePanel new];
+    PaginationTestController *controller = [PaginationTestController alloc];
+    controller.testClient = [RecordingInputClient new];
+    [controller prepareEmptyTestPanel:panel];
+    for (char ch : std::string("nihon"))
+        Press(controller, kVK_ANSI_A, [NSString stringWithFormat:@"%c", ch]);
+    bool found = false;
+    for (NSUInteger index = 0; index < [controller testCandidateCount]; ++index)
+        found = found || [[controller testCandidateAtIndex:index] isEqualToString:@"日本"];
+    Require(found, "Published Japanese model did not produce 日本 from nihon.");
+    Require([MetasequoiaPreferencesWindowController storedScheme] == chineseScheme,
+            "Japanese mode overwrote the independent Chinese scheme preference.");
+    Press(controller, kVK_Space, @" ");
+    Require(controller.testClient.committed.length > 0, "Japanese candidate was not committed to the client.");
+    [controller prepareForLearnedDataReset:nil];
+    [defaults setVolatileDomain:previous forName:NSArgumentDomain];
+}
+#endif
 
 @interface DeferredVoiceService : NSObject <MetasequoiaVoiceService>
 @property(nonatomic) BOOL active;
@@ -832,6 +920,19 @@ int main()
             @autoreleasepool
             {
                 RunTests();
+                Require(sqlite3_open([directory stringByAppendingPathComponent:@"english.db"].fileSystemRepresentation,
+                                     &database) == SQLITE_OK,
+                        "Cannot create mixed English fixture.");
+                Require(sqlite3_exec(database,
+                                     "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
+                                     "INSERT INTO english_words VALUES('hello','hello',1000)",
+                                     nullptr, nullptr, nullptr) == SQLITE_OK,
+                        "Cannot populate mixed English fixture.");
+                sqlite3_close(database);
+                RunMixedEnglishTests();
+#ifdef METASEQUOIA_TEST_JAPANESE_MODEL
+                RunJapaneseTests(directory);
+#endif
                 RunVoiceTests();
                 RunFullWidthAndLocalModeTests();
                 RunChinesePunctuationTests();

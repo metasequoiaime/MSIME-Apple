@@ -32,7 +32,7 @@ for profile in \
     fi
 done
 
-for tool in git pod xcodegen xcodebuild xcrun; do
+for tool in xcodegen xcodebuild xcrun; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
@@ -56,32 +56,13 @@ version=${tag_name#macos-}
 version=${version#ios-}
 version=${version#v}
 version=${version%%-build.*}
-
-# CFBundleVersion has to be unique and strictly increasing within one CFBundleShortVersionString.
-# Deriving it from the marketing version left exactly one possible build per release, so a build that
-# failed Beta App Review could not be replaced without cutting another release -- and every new
-# marketing version starts a fresh TestFlight version train that needs its own review. The commit
-# count is monotonic and reproducible from the checkout alone.
-# CI supplies the shared build. Keep commit-count builds for local legacy packaging.
-if [[ -n "${METASEQUOIA_BUILD_NUMBER:-}" || "$tag_name" == *-build.* ]]; then
-    build_number=${METASEQUOIA_BUILD_NUMBER:-}
-    if [[ "$tag_name" == *-build.* ]]; then
-        build_number=${tag_name##*-build.}
-        if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
-            printf '%s\n' "Build number does not match release tag." >&2
-            exit 1
-        fi
-    fi
-else
-    if ! git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
-        printf 'Not a git checkout, so the build number cannot be derived: %s\n' "$project_root" >&2
+build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
+if [[ "$tag_name" == *-build.* ]]; then
+    build_number=${tag_name##*-build.}
+    if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
+        printf '%s\n' "Build number does not match release tag." >&2
         exit 1
     fi
-    if [[ "$(git -C "$project_root" rev-parse --is-shallow-repository)" == "true" ]]; then
-        printf 'Refusing to build from a shallow checkout: the commit count would restart low and App Store Connect would reject the build as a downgrade. Check out with fetch-depth: 0.\n' >&2
-        exit 1
-    fi
-    build_number=$(git -C "$project_root" rev-list --count HEAD)
 fi
 
 build_root="$project_root/build/ios-testflight"
@@ -91,7 +72,6 @@ rm -rf -- "$build_root"
 mkdir -p "$build_root" "$export_path"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
-MSIME_IOS_BUILD_ROOT="$build_root" pod install --deployment --project-directory="$project_root/platforms/ios"
 
 # Install the exact distribution profiles selected by the Release configuration. Xcode's cloud
 # signing fallback can select a development profile for an automatic archive, which then cannot be
@@ -110,7 +90,7 @@ keyboard_profile_name=$(security cms -D -i "$METASEQUOIA_IOS_KEYBOARD_PROVISIONI
 archive_log="$build_root/archive.log"
 set +e
 xcodebuild archive \
-    -workspace "$build_root/MetasequoiaImeIOS.xcworkspace" \
+    -project "$build_root/MetasequoiaImeIOS.xcodeproj" \
     -scheme MetasequoiaImeIOS \
     -configuration Release \
     -destination 'generic/platform=iOS' \

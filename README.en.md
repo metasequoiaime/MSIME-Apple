@@ -5,7 +5,8 @@
 <!-- badges:start -->
 [![CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/MSIME-Apple/ci.yml?branch=develop&label=CI)](https://github.com/metasequoiaime/MSIME-Apple/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/MSIME-Apple/codeql.yml?branch=develop&label=CodeQL)](https://github.com/metasequoiaime/MSIME-Apple/actions/workflows/codeql.yml)
-[![Release](https://img.shields.io/github/v/release/metasequoiaime/MSIME-Apple?include_prereleases&label=release)](https://github.com/metasequoiaime/MSIME-Apple/releases)
+[![macOS](https://img.shields.io/github/v/release/metasequoiaime/MSIME-Apple?include_prereleases&filter=macos-*&label=macOS)](https://github.com/metasequoiaime/MSIME-Apple/releases)
+[![iOS](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2FMSIME-Apple%2Fdevelop%2Fplatforms%2Fios%2Fproject.yml&query=%24.settings.base.MARKETING_VERSION&prefix=v&label=iOS&color=inactive)](docs/ios-distribution.md)
 [![License](https://img.shields.io/github/license/metasequoiaime/MSIME-Apple)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/metasequoiaime/MSIME-Apple?style=flat)](https://github.com/metasequoiaime/MSIME-Apple/stargazers)
 <!-- badges:end -->
@@ -31,6 +32,7 @@ The iOS target builds and is exercised in CI on the simulator, but **it is not d
 - Chinese input: full pinyin, double pinyin (Xiaohe, Ziranma, Shoudao, Microsoft), Wubi 86
 - Japanese input: romaji, as a scheme and as a temporary mode
 - Helpcode (形码) filtering on pinyin schemes
+- Optional English glosses on the right of vertical candidates, from the bundled local table
 - Mixed Chinese-English input, emoji and kaomoji candidates
 - Candidate learning, with the same pin / halve / linear / promote frequency modes as Windows, which can be disabled and whose learned data can be erased from the settings panel
 - Voice input: cloud transcription through an endpoint you configure, or a local Whisper model that never leaves the machine

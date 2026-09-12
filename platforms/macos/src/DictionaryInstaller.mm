@@ -37,6 +37,10 @@ NSArray<NSString *> *MutableDictionaryFileNames()
         @"msime_english.db-wal",
         @"msime_english.db-shm",
         @"msime_english.db-journal",
+        @"english.db",
+        @"english.db-wal",
+        @"english.db-shm",
+        @"english.db-journal",
         @"user_dict.dat",
     ];
     return fileNames;
@@ -536,7 +540,9 @@ BOOL InstallMetasequoiaDictionary(NSURL *source, NSURL *dataDirectory, NSString 
         }
 
         NSURL *userDatabase = [dataDirectory URLByAppendingPathComponent:@"msime_user.db" isDirectory:NO];
-        NSURL *englishDatabase = [dataDirectory URLByAppendingPathComponent:@"msime_english.db" isDirectory:NO];
+        NSURL *englishDatabase = [dataDirectory URLByAppendingPathComponent:@"english.db" isDirectory:NO];
+        if (![fileManager fileExistsAtPath:englishDatabase.path])
+            englishDatabase = [dataDirectory URLByAppendingPathComponent:@"msime_english.db" isDirectory:NO];
         if ([fileManager fileExistsAtPath:userDatabase.path] && ![fileManager fileExistsAtPath:englishDatabase.path] &&
             ![fileManager createFileAtPath:englishDatabase.path contents:nil attributes:nil])
         {
@@ -914,6 +920,33 @@ BOOL InstallMetasequoiaHelpCodes(NSURL *sourceDirectory, NSURL *dataDirectory, N
     }
 }
 
+BOOL InstallMetasequoiaEnglishDictionary(NSURL *source, NSURL *dataDirectory, NSString *fingerprint, NSError **error)
+{
+    if (!source.isFileURL || !dataDirectory.isFileURL)
+        return Fail(error, 11, @"英文词库路径无效。");
+    NSFileManager *manager = NSFileManager.defaultManager;
+    if (![manager createDirectoryAtURL:dataDirectory withIntermediateDirectories:YES attributes:nil error:error])
+        return NO;
+    NSURL *destination = [dataDirectory URLByAppendingPathComponent:@"english.db"];
+    if ([manager fileExistsAtPath:destination.path])
+        return YES;
+    NSURL *temporary = [dataDirectory
+        URLByAppendingPathComponent:[@".english.db.installing." stringByAppendingString:NSUUID.UUID.UUIDString]];
+    if (![manager copyItemAtURL:source toURL:temporary error:error])
+        return NO;
+    if (!DictionaryMatchesFingerprint(temporary, fingerprint))
+    {
+        [manager removeItemAtURL:temporary error:nil];
+        return Fail(error, 11, @"英文词库摘要校验失败。");
+    }
+    // link() atomically publishes a fully copied file without replacing one another
+    // process may have just installed or opened for learning.
+    const int published = link(temporary.fileSystemRepresentation, destination.fileSystemRepresentation);
+    const int publicationError = errno;
+    [manager removeItemAtURL:temporary error:nil];
+    return published == 0 || publicationError == EEXIST ? YES : FailWithErrno(error, publicationError);
+}
+
 BOOL EnsureMetasequoiaDictionary(NSError **error)
 {
     NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -935,7 +968,49 @@ BOOL EnsureMetasequoiaDictionary(NSError **error)
     }
     NSURL *source = [[NSBundle mainBundle] URLForResource:@"msime" withExtension:@"db"];
     NSString *fingerprint = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"MetasequoiaDictionarySHA256"];
-    return PrepareMetasequoiaDictionary(source, dataDirectory, fingerprint, error);
+    NSURL *englishSource = [NSBundle.mainBundle URLForResource:@"english" withExtension:@"db"];
+    NSString *englishDigest = [[NSString
+        stringWithContentsOfURL:[NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:@"english.db.sha256"]
+                       encoding:NSUTF8StringEncoding
+                          error:nil] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!InstallMetasequoiaEnglishDictionary(englishSource, dataDirectory, englishDigest, error))
+        return NO;
+    if (!PrepareMetasequoiaDictionary(source, dataDirectory, fingerprint, error))
+        return NO;
+    NSURL *japaneseSource = [NSBundle.mainBundle URLForResource:@"dict_japanese" withExtension:@"dat"];
+    if (japaneseSource)
+    {
+        NSString *digest =
+            [[NSString stringWithContentsOfURL:[NSBundle.mainBundle.resourceURL
+                                                   URLByAppendingPathComponent:@"dict_japanese.dat.sha256"]
+                                      encoding:NSUTF8StringEncoding
+                                         error:nil]
+                stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSURL *destination = [dataDirectory URLByAppendingPathComponent:@"dict_japanese.dat"];
+        if (!DictionaryMatchesFingerprint(destination, digest))
+        {
+            NSURL *temporary =
+                [dataDirectory URLByAppendingPathComponent:[@".dict_japanese.installing."
+                                                               stringByAppendingString:NSUUID.UUID.UUIDString]];
+            if (![fileManager copyItemAtURL:japaneseSource toURL:temporary error:error])
+                return NO;
+            if (!DictionaryMatchesFingerprint(temporary, digest))
+            {
+                [fileManager removeItemAtURL:temporary error:nil];
+                return Fail(error, 12, @"日语模型摘要校验失败。");
+            }
+            // Immutable model: publish the complete replacement atomically. Existing
+            // sessions keep their opened model; no learning database is touched.
+            const int result = rename(temporary.fileSystemRepresentation, destination.fileSystemRepresentation);
+            const int publicationError = errno;
+            if (result != 0)
+            {
+                [fileManager removeItemAtURL:temporary error:nil];
+                return FailWithErrno(error, publicationError);
+            }
+        }
+    }
+    return YES;
 }
 
 BOOL ResetMetasequoiaLearnedDataForCurrentUser(NSError **error)

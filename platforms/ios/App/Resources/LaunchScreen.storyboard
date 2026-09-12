@@ -13,6 +13,7 @@
                         <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="MSIMELogo" translatesAutoresizingMaskIntoConstraints="NO" id="brand-logo">
                             <rect key="frame" x="82" y="0" width="96" height="96"/>
                             <constraints><constraint firstAttribute="width" constant="96" id="logo-width"/><constraint firstAttribute="height" constant="96" id="logo-height"/></constraints>
+                            <color key="tintColor" systemColor="labelColor"/>
                         </imageView>
                         <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="水杉输入法" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="brand-title">
                             <rect key="frame" x="45" y="114" width="170" height="36"/>

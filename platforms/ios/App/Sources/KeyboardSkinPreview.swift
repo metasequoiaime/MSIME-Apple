@@ -4,7 +4,7 @@ import SwiftUI
 struct KeyboardSkinPreview: View {
   let skin: KeyboardSkin
   let nineKey: Bool
-  var layout: KeyboardLayoutPreset = .msime
+  var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -27,7 +27,7 @@ struct KeyboardSkinPreview: View {
         Text("你好").font(.subheadline.weight(.medium))
         Text("你号").font(.subheadline)
         Spacer(minLength: 0)
-        if layout == .doubao { Image(systemName: "waveform").font(.caption) }
+        if KeyboardLayoutPreference.voiceShortcutEnabled { Image(systemName: "waveform").font(.caption) }
         Text(nineKey ? "九键" : "全拼").font(.caption)
 
       }.padding(.horizontal, 6).frame(height: 32)
@@ -62,10 +62,6 @@ struct KeyboardSkinPreview: View {
       HStack(spacing: 6) {
         if nineKey || layout.showsFullKeyboardSymbols { key("符").frame(width: 30) }
         key("123").frame(width: 38)
-        if layout == .msime {
-          Image(systemName: "globe").frame(width: 34, height: 44)
-            .background(keySurface())
-        }
         if !nineKey { key("，").frame(width: 38) }
         key("空格")
         if layout.showsBottomLanguage { key("中/英").frame(width: 30) }

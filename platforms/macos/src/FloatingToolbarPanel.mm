@@ -1,4 +1,5 @@
 #import "FloatingToolbarPanel.h"
+#import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
 
 #include <algorithm>
@@ -226,6 +227,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                                              selector:@selector(applySkin)
                                                  name:MetasequoiaCandidateSkinDidChangeNotification
                                                object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(applySkin)
+                                               name:MetasequoiaAppearanceDidChange
+                                             object:nil];
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self
+                                                      selector:@selector(applySkin)
+                                                          name:MetasequoiaAppearanceDidChange
+                                                        object:nil];
     [self applySkin];
     [self updateEnglishInputMode:NO
               chinesePunctuationEnabled:YES
@@ -237,6 +246,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
 }
 
 - (void)applySkin

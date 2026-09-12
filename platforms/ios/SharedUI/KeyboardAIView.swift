@@ -46,6 +46,7 @@ struct KeyboardAIView: View {
           }
         }
         .accessibilityIdentifier("keyboardAIScroll")
+        .disablingScrollEdgeEffects()
         .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
       }
       HStack {
@@ -64,7 +65,9 @@ struct KeyboardAIView: View {
     }
     .padding(.horizontal, 12)
     .buttonStyle(KeyboardPanelButtonStyle())
-    .background(Color(uiColor: .secondarySystemBackground))
+    // Into the bottom safe area as well: the panel is sized to the whole keyboard, and leaving
+    // the inset unpainted let the host app show through under the last button.
+    .background(Color(uiColor: .secondarySystemBackground).ignoresSafeArea(edges: .bottom))
     .onDisappear { operation?.cancel() }
   }
 

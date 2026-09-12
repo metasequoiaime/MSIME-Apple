@@ -1,14 +1,23 @@
 source 'https://cdn.cocoapods.org/'
-platform :ios, '15.0'
+platform :ios, '15.5'
 build_root = ENV.fetch('MSIME_IOS_BUILD_ROOT', File.expand_path('../../build/ios', __dir__))
 project File.join(build_root, 'MetasequoiaImeIOS.xcodeproj')
 workspace File.join(build_root, 'MetasequoiaImeIOS.xcworkspace')
 use_frameworks! :linkage => :static
 
-# 4.x is the last Digital Ink SDK supporting the product's iOS 15.0 deployment target.
-# Language models are managed independently by ML Kit.
+# Digital Ink 8.x asks for iOS 15.5, which is what sets this product's deployment target. Language
+# models are managed independently by ML Kit.
+#
+# The SDK ships a fat framework whose arm64 slice is built for devices, so there is no arm64
+# simulator slice to link against. That is fine on CI, which builds x86_64 simulators on an Intel
+# runner, and on device builds anywhere. It cannot work on an Apple Silicon simulator, where Xcode 26
+# dropped the x86_64 destination entirely. Set MSIME_IOS_SKIP_HANDWRITING=1 before `pod install`
+# there: the keyboard then builds without the SDK, and handwriting reports itself unavailable
+# instead of failing to link. Leave it unset for device builds and for CI.
+skip_handwriting = ENV['MSIME_IOS_SKIP_HANDWRITING'] == '1'
+
 abstract_target 'HandwritingSDK' do
-  pod 'MLKitDigitalInkRecognition', '4.0.0'
+  pod 'MLKitDigitalInkRecognition', '8.0.0' unless skip_handwriting
   target 'MetasequoiaKeyboard'
   target 'MetasequoiaKeyboardTests'
 end
@@ -22,7 +31,7 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
     end
   end
 end

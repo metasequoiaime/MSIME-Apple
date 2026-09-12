@@ -1,0 +1,28 @@
+name: Repository contracts
+
+# ReleaseConfigurationTests almost entirely reads files in the tree and asserts on their text: README.md against the features it promises, the Info.plist keys, the release workflow's steps and ordering, the packaging scripts. None of that needs Apple tooling, yet ctest only reaches it after the macOS build, so a README claim that no longer matches the code was reported around forty minutes into a pull request and cost a macOS runner to say so.
+#
+# Called by both ci.yml and ci-docs.yml so it runs on every pull request, and so a change to the documents it asserts on can skip the matrix without losing the assertions. Three cases genuinely need tiffutil, sips or zsh; a @requires guard skips those here and the macOS job keeps running them.
+
+on:
+  workflow_call:
+  # Lets the text contracts be re-run on their own, without dispatching the full matrix.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Repository contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Not recursive: two cases read the Engine's punctuation contract and quanpin header, and the Engine's own submodules are hundreds of megabytes of audio dependencies that nothing here asserts on.
+          submodules: true
+          persist-credentials: false
+      # zsh is deliberately not installed. ubuntu-24.04 ships without it, and apt-get update on a runner spent 10m22s refreshing indexes for a step whose tests then ran in 0.042s -- more than this whole job is meant to cost. The two cases that shell out to zsh check macOS release scripts with a #!/bin/zsh shebang, so the macOS job is the honest place for them; the @requires guard skips them here.
+      - name: Check the repository contracts
+        run: python3 platforms/macos/tests/ReleaseConfigurationTests.py

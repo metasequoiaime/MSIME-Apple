@@ -73,6 +73,7 @@ if(BUILD_TESTING)
     add_executable(MetasequoiaAppleInputSessionAdapterTests
         platforms/ios/tests/InputSessionAdapterTests.cpp
         shared/apple-bridge/InputSessionAdapter.cpp
+        shared/apple-bridge/CandidateTranslation.cpp
         shared/apple-bridge/ShuangpinKeymap.cpp)
     target_include_directories(MetasequoiaAppleInputSessionAdapterTests PRIVATE shared/apple-bridge)
     target_link_libraries(MetasequoiaAppleInputSessionAdapterTests PRIVATE MetasequoiaIme::Engine)
@@ -94,10 +95,14 @@ if(BUILD_TESTING)
     add_executable(MetasequoiaCandidateSkinTests ${METASEQUOIA_MACOS_ROOT}/tests/CandidateSkinTests.cpp ${METASEQUOIA_MACOS_ROOT}/src/CandidateSkin.cpp)
     target_compile_options(MetasequoiaCandidateSkinTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME candidate_skin COMMAND MetasequoiaCandidateSkinTests)
-    add_executable(MetasequoiaCandidatePanelTests ${METASEQUOIA_MACOS_ROOT}/tests/CandidatePanelTests.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${METASEQUOIA_CANDIDATE_SKIN_CORE})
+    add_executable(MetasequoiaCandidatePanelTests ${METASEQUOIA_MACOS_ROOT}/tests/CandidatePanelTests.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${METASEQUOIA_CANDIDATE_SKIN_CORE} ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm)
     target_compile_options(MetasequoiaCandidatePanelTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(MetasequoiaCandidatePanelTests PRIVATE ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
     add_test(NAME candidate_panel COMMAND MetasequoiaCandidatePanelTests)
+    add_executable(MetasequoiaInputModeHUDTests ${METASEQUOIA_MACOS_ROOT}/tests/InputModeHUDTests.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm)
+    target_compile_options(MetasequoiaInputModeHUDTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(MetasequoiaInputModeHUDTests PRIVATE ${APPKIT_FRAMEWORK})
+    add_test(NAME input_mode_hud COMMAND MetasequoiaInputModeHUDTests)
     add_executable(MetasequoiaInputMenuTests ${METASEQUOIA_MACOS_ROOT}/tests/InputMenuTests.mm)
     target_compile_options(MetasequoiaInputMenuTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(MetasequoiaInputMenuTests PRIVATE ${APPKIT_FRAMEWORK})
@@ -120,6 +125,13 @@ if(BUILD_TESTING)
     target_compile_options(MetasequoiaStringConversionTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(MetasequoiaStringConversionTests PRIVATE ${APPKIT_FRAMEWORK})
     add_test(NAME string_conversion COMMAND MetasequoiaStringConversionTests)
+    add_executable(MetasequoiaCandidateTranslationTests
+        ${METASEQUOIA_MACOS_ROOT}/tests/CandidateTranslationTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp)
+    target_include_directories(MetasequoiaCandidateTranslationTests PRIVATE ${METASEQUOIA_MACOS_ROOT}/src ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
+    target_compile_options(MetasequoiaCandidateTranslationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(MetasequoiaCandidateTranslationTests PRIVATE MetasequoiaIme::Engine)
+    add_test(NAME candidate_translation COMMAND MetasequoiaCandidateTranslationTests)
     add_test(NAME release_automation COMMAND ${Python3_EXECUTABLE} ${METASEQUOIA_MACOS_ROOT}/tests/ReleaseAutomationTests.py)
     add_test(NAME release_configuration COMMAND ${Python3_EXECUTABLE} ${METASEQUOIA_MACOS_ROOT}/tests/ReleaseConfigurationTests.py)
     add_test(NAME product_lock COMMAND ${Python3_EXECUTABLE} ${METASEQUOIA_MACOS_ROOT}/tests/ProductLockTests.py)
@@ -143,13 +155,17 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
     if(NOT dictionary_file_name STREQUAL "msime.db")
         message(FATAL_ERROR "METASEQUOIA_IME_DICTIONARY must point at a file named msime.db; got ${dictionary_file_name}.")
     endif()
-
     file(SHA256 "${METASEQUOIA_IME_DICTIONARY}" METASEQUOIA_IME_DICTIONARY_SHA256)
     get_filename_component(dictionary_directory "${METASEQUOIA_IME_DICTIONARY}" DIRECTORY)
     set(METASEQUOIA_IME_ENGLISH_DICTIONARY "${dictionary_directory}/english.db")
     if(NOT EXISTS "${METASEQUOIA_IME_ENGLISH_DICTIONARY}")
         message(FATAL_ERROR "英文词库缺失。请运行 scripts/fetch_dictionary.py，或重新生成测试词库。")
     endif()
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor/MetasequoiaImeEngine/dictionary/custom/translations.txt
+        ${CMAKE_CURRENT_BINARY_DIR}/custom_translations.txt
+        COPYONLY)
+    set(METASEQUOIA_IME_CUSTOM_TRANSLATIONS ${CMAKE_CURRENT_BINARY_DIR}/custom_translations.txt)
     file(SHA256 "${METASEQUOIA_IME_ENGLISH_DICTIONARY}" METASEQUOIA_IME_ENGLISH_SHA256)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests")
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256" "${METASEQUOIA_IME_DICTIONARY_SHA256}\n")
@@ -262,7 +278,8 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-nlohmann-json.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/miniaudio-LICENSE.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-whisper.txt)
-    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
+    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
+    target_sources(MetasequoiaIME PRIVATE ${METASEQUOIA_MACOS_ROOT}/src/TranslationClient.mm)
     get_filename_component(dictionary_directory "${METASEQUOIA_IME_DICTIONARY}" DIRECTORY)
     if(EXISTS "${dictionary_directory}/dictionary-manifest.json")
         target_sources(MetasequoiaIME PRIVATE "${dictionary_directory}/dictionary-manifest.json")
@@ -274,8 +291,22 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/msime.db.sha256"
         "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/english.db.sha256")
     target_sources(MetasequoiaIME PRIVATE ${METASEQUOIA_IME_SNAPSHOT_RESOURCES})
+    if(EXISTS "${dictionary_directory}/dict_japanese.dat")
+        if(NOT EXISTS "${dictionary_directory}/mozc_dictionary_oss_README.txt")
+            message(FATAL_ERROR "Japanese model requires its published Mozc license.")
+        endif()
+        file(SHA256 "${dictionary_directory}/dict_japanese.dat" japanese_model_digest)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/dict_japanese.dat.sha256" "${japanese_model_digest}\n")
+        set(japanese_resources "${dictionary_directory}/dict_japanese.dat"
+            "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/dict_japanese.dat.sha256")
+        target_sources(MetasequoiaIME PRIVATE ${japanese_resources}
+            "${dictionary_directory}/mozc_dictionary_oss_README.txt")
+        set_source_files_properties(${japanese_resources} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        set_source_files_properties("${dictionary_directory}/mozc_dictionary_oss_README.txt"
+            PROPERTIES MACOSX_PACKAGE_LOCATION Resources/Licenses)
+    endif()
     set_source_files_properties(${METASEQUOIA_IME_SNAPSHOT_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    set_source_files_properties(${METASEQUOIA_IME_DICTIONARY} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_source_files_properties(${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_HELPCODES}
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources/helpcodes)
@@ -287,6 +318,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources HEADER_FILE_ONLY TRUE)
     set_target_properties(MetasequoiaIME PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/MetasequoiaIME-Info.plist MACOSX_BUNDLE_BUNDLE_NAME "Metasequoia IME" MACOSX_BUNDLE_GUI_IDENTIFIER "com.houko.inputmethod.MetasequoiaIME" MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION} MACOSX_BUNDLE_BUNDLE_VERSION ${METASEQUOIA_BUILD_NUMBER} OUTPUT_NAME MetasequoiaIME BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "@executable_path/../Frameworks")
     target_compile_options(MetasequoiaIME PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+    target_include_directories(MetasequoiaIME PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
     target_link_libraries(MetasequoiaIME PRIVATE MSIMEBackendAccount MetasequoiaMacDictionaryRuntime MetasequoiaAppleVoice MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${CARBON_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
     add_custom_command(TARGET MetasequoiaIME POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:MetasequoiaIME>/Contents/Frameworks"
@@ -299,14 +331,22 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             ${METASEQUOIA_MACOS_ROOT}/tests/CandidatePaginationTests.mm
             ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm
             ${METASEQUOIA_CANDIDATE_SKIN_SOURCES}
+            ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp
             ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm
             ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm
             ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm
+            ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm
             ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm
             ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm
             ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm
+            ${METASEQUOIA_MACOS_ROOT}/src/TranslationClient.mm
             ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
+        target_include_directories(MetasequoiaCandidatePaginationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
         target_compile_options(MetasequoiaCandidatePaginationTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+        if(EXISTS "${dictionary_directory}/dict_japanese.dat")
+            target_compile_definitions(MetasequoiaCandidatePaginationTests PRIVATE
+                METASEQUOIA_TEST_JAPANESE_MODEL="${dictionary_directory}/dict_japanese.dat")
+        endif()
         target_link_libraries(MetasequoiaCandidatePaginationTests PRIVATE MSIMEBackendAccount MetasequoiaMacDictionaryRuntime MetasequoiaAppleVoice MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${CARBON_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
         set_target_properties(MetasequoiaCandidatePaginationTests PROPERTIES BUILD_RPATH "${METASEQUOIA_SPARKLE_ROOT}")
         add_test(NAME candidate_pagination COMMAND MetasequoiaCandidatePaginationTests)
@@ -325,7 +365,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         add_test(NAME update_controller COMMAND MetasequoiaUpdateControllerTests)
         add_executable(MetasequoiaPreferencesWindowTests ${METASEQUOIA_MACOS_ROOT}/tests/PreferencesWindowTests.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
         target_compile_options(MetasequoiaPreferencesWindowTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
-        target_link_libraries(MetasequoiaPreferencesWindowTests PRIVATE MSIMEBackendAccount MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
+        target_link_libraries(MetasequoiaPreferencesWindowTests PRIVATE MSIMEBackendAccount MetasequoiaAppleVoice MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})
         set_target_properties(MetasequoiaPreferencesWindowTests PROPERTIES BUILD_RPATH "${METASEQUOIA_SPARKLE_ROOT}")
         add_test(NAME preferences_window COMMAND MetasequoiaPreferencesWindowTests)
         add_test(NAME release_package COMMAND ${CMAKE_COMMAND} -E env

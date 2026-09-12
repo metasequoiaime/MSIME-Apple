@@ -29,7 +29,8 @@ metasequoia::LocalModeOptions AppleOptions(bool enabled)
     options.date_time = enabled;
     options.quick_phrase = enabled;
     options.super_jianpin = enabled;
-    // These four read others.db, english.db and dict_japanese.dat, none of which this bundle fetches.
+    // These four read others.db, english.db and dict_japanese.dat. The bundle ships english.db only
+    // as a read-only gloss table, so the engine still cannot open those four modes.
     options.emoji = false;
     options.kaomoji = false;
     options.temporary_english = false;

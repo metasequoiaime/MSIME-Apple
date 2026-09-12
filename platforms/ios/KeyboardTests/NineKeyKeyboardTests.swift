@@ -6,9 +6,24 @@ import Darwin
 final class NineKeyKeyboardTests: XCTestCase {
   // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
   // whatever the app group was left holding. See InputSchemeTestSupport.
+  private var savedKeyboardPreferences: [String: Any] = [:]
+  private let preferenceKeys = [KeyboardLayoutPreference.key, KeyboardLayoutPreference.keySpacingKey,
+    KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey]
+  override func tearDown() {
+    for key in preferenceKeys {
+      if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
+      else { KeyboardLayoutPreference.defaults.removeObject(forKey: key) }
+    }
+    super.tearDown()
+  }
   override func setUp() {
     super.setUp()
     enableAllInputSchemes()
+    savedKeyboardPreferences = [:]
+    for key in preferenceKeys {
+      savedKeyboardPreferences[key] = KeyboardLayoutPreference.defaults.object(forKey: key)
+      if key != KeyboardLayoutPreference.key { KeyboardLayoutPreference.defaults.removeObject(forKey: key) }
+    }
   }
 
   func testLayoutPresetsKeepKeysInBoundsAcrossBothKeyboards() throws {
@@ -109,7 +124,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     InputSchemePreference.enabledSchemes = [.quanpin]
     controller.viewWillAppear(false)
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
-    XCTAssertEqual(try button("scriptShortcut", in: controller).accessibilityIdentifier, "scriptShortcut")
+    XCTAssertTrue(try button("replyShortcut", in: controller).isHidden)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
 
     // Inserting a reply takes the panel away so the text it just wrote, and the backspace that
@@ -289,9 +304,14 @@ final class NineKeyKeyboardTests: XCTestCase {
           key.sendActions(for: .primaryActionTriggered)
         }
       }
+      // The chips are reused across keystrokes and build this menu only when it is opened, so the
+      // button's static children are a placeholder. Ask for the elements the way the menu will.
       let candidate = try button("candidate-1", in: controller)
-      XCTAssertEqual(candidate.menu?.children.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
-      XCTAssertEqual((candidate.menu?.children.last as? UIMenu)?.children.first?.title, "确认删除此词条")
+      XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement,
+                    "候选菜单应延迟到展开时构建")
+      let elements = controller.candidateMenuElements(at: 0)
+      XCTAssertEqual(elements.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
+      XCTAssertEqual((elements.last as? UIMenu)?.children.first?.title, "确认删除此词条")
     }
   }
 
@@ -332,50 +352,229 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testSelectingLayoutsChangesActualNineKeyGeometry() throws {
-    let previousLayout = KeyboardLayoutPreference.selected
+  func testLegacyLayoutsMigrateIndependentSettings() {
+    let defaults = KeyboardLayoutPreference.defaults
+    for preset in KeyboardLayoutPreset.allCases {
+      for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.voiceShortcutKey] {
+        defaults.removeObject(forKey: key)
+      }
+      KeyboardLayoutPreference.selected = preset
+      XCTAssertEqual(KeyboardLayoutPreference.keySpacing, preset.keySpacing)
+      XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, preset.rowSpacing)
+      XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled, preset == .doubao)
+      XCTAssertEqual(KeyboardLayoutPreference.geometry.sidebarRatio, 0.14)
+      XCTAssertFalse(KeyboardLayoutPreference.geometry.showsFullKeyboardSymbols)
+      KeyboardLayoutPreference.keySpacing = 5
+      KeyboardLayoutPreference.voiceShortcutEnabled = !(preset == .doubao)
+      XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
+      XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, preset.rowSpacing)
+      XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled, preset != .doubao)
+      XCTAssertEqual(KeyboardLayoutPreference.selected, preset)
+    }
+    KeyboardLayoutPreference.keySpacing = 99
+    KeyboardLayoutPreference.rowSpacing = -99
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 4)
+  }
+
+  func testSpacingChangesKeepDefaultKeyPlacementAndComposition() throws {
     let previousScheme = InputSchemePreference.scheme
-    defer { KeyboardLayoutPreference.selected = previousLayout; InputSchemePreference.scheme = previousScheme }
+    defer { InputSchemePreference.scheme = previousScheme }
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+      InputSchemePreference.scheme = scheme
+      for width in [320.0, 440.0] {
+        let controller = KeyboardViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 292)
+        for gap in [3.0, 6.0] {
+          try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+          let slider = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keySpacingSlider" } as? UISlider)
+          slider.value = Float(gap)
+          slider.sendActions(for: .valueChanged)
+          let row = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "rowSpacingSlider" } as? UISlider)
+          row.value = gap == 3 ? 4 : 10
+          row.sendActions(for: .valueChanged)
+          try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+          controller.view.layoutIfNeeded()
+          XCTAssertEqual(KeyboardLayoutPreference.geometry.keySpacing, gap)
+          let enter = try button("returnKey", in: controller)
+          let space = try button("spaceKey", in: controller)
+          XCTAssertGreaterThanOrEqual(space.bounds.width, 43.5)
+          XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width)
+          XCTAssertEqual(controller.view.bounds.height, 292)
+          XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
+        }
+      }
+    }
+  }
+
+  func testNineKeysCarryTheirLettersAndAHoldGesture() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
-    var widths: [CGFloat] = []
-    for layout in KeyboardLayoutPreset.allCases {
-      try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-      try button("layoutCard-" + layout.rawValue, in: controller).sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
-      let key = try button("nineKey2", in: controller)
-      widths.append(key.bounds.width)
-      let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) })
-      shot.name = "Applied layout " + layout.rawValue; shot.lifetime = .keepAlways; add(shot)
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    // Nine-key treats 2-9 as pinyin, so a bare letter or digit has no other way in than a hold.
+    let expected = [2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ"]
+    for (digit, letters) in expected {
+      let key = try button("nineKey\(digit)", in: controller)
+      XCTAssertEqual(key.configuration?.title, letters, "九键 \(digit) 的键面字母")
+      XCTAssertEqual(key.tag, digit, "长按要靠 tag 认出是哪个键")
+      let holds = (key.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }
+      XCTAssertEqual(holds.count, 1, "九键 \(digit) 需要且只需要一个长按手势")
     }
-    for i in widths.indices { for j in widths.indices where j > i {
-      XCTAssertGreaterThan(abs(widths[i] - widths[j]), 1)
-    } }
+
+    // The word-split key carries no letters, so it offers nothing to hold for.
+    let split = try button("nineKey1", in: controller)
+    XCTAssertEqual(split.configuration?.title, "分词")
+    XCTAssertTrue(
+      (split.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.isEmpty,
+      "分词键不该有长按手势")
   }
 
-  func testKeyboardLayoutCardsPersistAndKeepHeight() throws {
-    let previous = KeyboardLayoutPreference.selected
-    defer { KeyboardLayoutPreference.selected = previous }
+  func testResetForgetsTheStoredKeyboardSettings() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let previous = (
+      keys: defaults.object(forKey: KeyboardLayoutPreference.keySpacingKey),
+      rows: defaults.object(forKey: KeyboardLayoutPreference.rowSpacingKey),
+      height: defaults.object(forKey: KeyboardLayoutPreference.heightAdjustmentKey),
+      voice: defaults.object(forKey: KeyboardLayoutPreference.voiceShortcutKey)
+    )
+    defer {
+      defaults.set(previous.keys, forKey: KeyboardLayoutPreference.keySpacingKey)
+      defaults.set(previous.rows, forKey: KeyboardLayoutPreference.rowSpacingKey)
+      defaults.set(previous.height, forKey: KeyboardLayoutPreference.heightAdjustmentKey)
+      defaults.set(previous.voice, forKey: KeyboardLayoutPreference.voiceShortcutKey)
+    }
+
+    KeyboardLayoutPreference.keySpacing = 4
+    KeyboardLayoutPreference.rowSpacing = 9
+    KeyboardLayoutPreference.heightAdjustment = 30
+    KeyboardLayoutPreference.voiceShortcutEnabled = !KeyboardLayoutPreference.voiceShortcutEnabled
+
+    KeyboardLayoutPreference.resetToDefaults()
+
+    // Reset forgets the values rather than writing defaults over them, so each one reads through
+    // its fallback again and a later change to those defaults still reaches this keyboard.
+    for stored in [
+      KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
+      KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey,
+    ] {
+      XCTAssertNil(defaults.object(forKey: stored), "\(stored) 应被遗忘而不是写入默认值")
+    }
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.selected.keySpacing)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, KeyboardLayoutPreference.selected.rowSpacing)
+  }
+
+  func testKeyboardHeightFollowsTheSetting() throws {
+    let previous = KeyboardLayoutPreference.heightAdjustment
+    defer { KeyboardLayoutPreference.heightAdjustment = previous }
+
+    func height(for adjustment: Double) -> CGFloat {
+      KeyboardLayoutPreference.heightAdjustment = adjustment
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+      controller.view.layoutIfNeeded()
+      return controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant ?? 0
+    }
+
+    let standard = height(for: 0)
+    XCTAssertGreaterThan(standard, 0)
+    // The keys divide whatever the keyboard claims, so a taller keyboard is what makes them easier
+    // to hit -- the setting exists for that, not for the strip.
+    XCTAssertEqual(height(for: 24), standard + 24, accuracy: 0.5)
+    XCTAssertEqual(height(for: -12), standard - 12, accuracy: 0.5)
+
+    // Out-of-range values are clamped by the preference rather than reaching the constraint.
+    KeyboardLayoutPreference.heightAdjustment = 500
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 48)
+    KeyboardLayoutPreference.heightAdjustment = -500
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -12)
+  }
+
+  func testSymbolKeysShowThePunctuationTheyInsert() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
-    for layout in KeyboardLayoutPreset.allCases {
-      try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
-      let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
-      XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      XCTAssertEqual(try button("layoutCard-" + KeyboardLayoutPreference.selected.rawValue, in: controller).accessibilityValue, "已选中")
-      try button("layoutCard-" + layout.rawValue, in: controller).sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
-      XCTAssertEqual(KeyboardLayoutPreference.selected, layout)
-      XCTAssertEqual(controller.view.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+
+    func face(_ label: String) -> UIButton? {
+      descendants(controller.view).first { $0.accessibilityLabel == "符号 \(label)" } as? UIButton
     }
+
+    // Nothing on the keyboard said that a backslash is how you reach 、, which is what people ask.
+    for (ascii, chinese) in [("\\", "、"), (",", "，"), ("[", "【"), ("<", "《")] {
+      XCTAssertNotNil(face(chinese), "中文模式下应显示 \(chinese)")
+      XCTAssertNil(face(ascii), "中文模式下不该再显示 \(ascii)")
+    }
+
+    // English mode inserts the plain character, so that is what it has to show.
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(face("\\"), "英文模式下应显示反斜杠本身")
+    XCTAssertNil(face("、"))
   }
 
-  func testBrandOpensMoreCardsAndUpdatesFeedbackState() throws {
+  func testNineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+
+    // The grid stays and re-labels itself; handing over to the ten-across symbol rows is what this
+    // guards against, because a nine-key user chose three columns.
+    XCTAssertFalse(controller.view.subviews.isEmpty)
+    for digit in 1...9 {
+      XCTAssertEqual(try button("nineKey\(digit)", in: controller).configuration?.title, String(digit),
+                     "数字键面上九键 \(digit) 应显示数字")
+    }
+    let symbolDigits = descendants(controller.view).filter {
+      $0.accessibilityLabel == "符号 1" && !($0.superview?.isHidden ?? true)
+    }
+    XCTAssertTrue(symbolDigits.isEmpty, "九键的数字键面不应显示 26 键那排符号")
+
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC", "退出数字键面要恢复字母")
+  }
+
+  func testKeyboardSettingsReplaceLayoutCardsAndKeepTheComposition() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+    KeyboardLayoutPreference.keySpacing = 5
+    KeyboardLayoutPreference.rowSpacing = 8
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
+    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+    letter.sendActions(for: .primaryActionTriggered)
+    let preedit = try button("preeditButton", in: controller).configuration?.title
+    try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "voiceShortcutSwitch" })
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
+    try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNotNil(try button("emojiShortcut", in: controller))
+  }
+
+  func testBrandOpensCompactToolsAndUpdatesFeedbackState() throws {
     let previous = KeyboardFeedbackPreference.soundEnabled
     defer { KeyboardFeedbackPreference.defaults.set(previous, forKey: KeyboardFeedbackPreference.soundKey) }
     for width in [320.0, 414.0] {
@@ -399,15 +598,34 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.compositionRowHeight)
-      for title in ["剪贴板历史", "AI 润色", "语音结果", "按键音", "按键振动", "日期时间", "Unicode 码点"] {
+      for title in ["剪贴板历史", "AI 润色", "表情", "本地输入", "繁体输出", "按键音", "按键振动"] {
         let card = try button("moreCard-" + title, in: controller)
-        XCTAssertGreaterThan(card.bounds.width, 140)
-        XCTAssertEqual(card.bounds.height, 100)
+        XCTAssertGreaterThan(card.bounds.width, 100)
+        XCTAssertEqual(card.bounds.height, 48)
+        XCTAssertEqual(card.configuration?.imagePlacement, .leading)
+      }
+      // 本地输入的八个模式收在二级,一级里不该出现。
+      XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-日期时间" })
+      try button("moreCard-本地输入", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNotNil(try button("moreCard-Unicode 码点", in: controller))
+      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNotNil(try button("moreCard-表情", in: controller))
+      let back = try button("closeMorePicker", in: controller)
+      XCTAssertEqual(back.configuration?.title, "返回")
+      XCTAssertEqual(back.accessibilityLabel, "返回键盘")
+      XCTAssertGreaterThanOrEqual(back.bounds.height, 44)
+      XCTAssertLessThan(back.frame.midX, panel.bounds.midX)
+      // 每一张卡都要落在键盘高度以内。这条之前抓到过面板长到 360pt、末尾整段看不见。
+      for card in descendants(panel) where card.accessibilityIdentifier?.hasPrefix("moreCard-") == true {
+        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height,
+                                 "\(card.accessibilityIdentifier ?? "?") 超出面板")
       }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
       })
-      attachment.name = "More cards \(Int(width))pt"
+      attachment.name = "Compact tools \(Int(width))pt"
       attachment.lifetime = .keepAlways
       add(attachment)
       XCTAssertEqual(try button("moreCard-按键音", in: controller).accessibilityValue, "已开启")
@@ -420,6 +638,37 @@ final class NineKeyKeyboardTests: XCTestCase {
       try button("moreCard-AI 润色", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
+    }
+  }
+
+  func testSchemePickerUsesCurrentSkinPalette() throws {
+    let previous = KeyboardSkinPreference.selected
+    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
+    for skin in [KeyboardSkin.forest, .ocean, .midnight] {
+      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+      for style in [UIUserInterfaceStyle.light, .dark] {
+        let traits = UITraitCollection(userInterfaceStyle: style)
+        let picker = KeyboardSchemePickerView(selected: .nineKey, onSelect: { _ in }, onClose: {})
+        picker.overrideUserInterfaceStyle = style
+        picker.frame = CGRect(x: 0, y: 0, width: 414, height: 292)
+        picker.layoutIfNeeded()
+        func assertColor(_ actual: UIColor?, _ expected: UIColor, file: StaticString = #filePath, line: UInt = #line) {
+          XCTAssertEqual(actual?.resolvedColor(with: traits), expected.resolvedColor(with: traits), file: file, line: line)
+        }
+        let buttons = descendants(picker).compactMap { $0 as? UIButton }
+        XCTAssertFalse(buttons.contains { $0.accessibilityIdentifier == "schemePickerKeyboardTab" })
+        XCTAssertFalse(buttons.contains { $0.accessibilityIdentifier == "schemePickerThemeTab" })
+        let back = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "closeSchemePicker" })
+        let selected = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-nineKey" })
+        assertColor(picker.backgroundColor, skin.background)
+        assertColor(back.tintColor, skin.accent)
+        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.10))
+        let labels = selected.subviews.compactMap { $0 as? UILabel }.filter { $0.text?.isEmpty == false }
+        XCTAssertEqual(labels.count, 3)
+        for label in labels {
+          assertColor(label.textColor, skin.accent)
+        }
+      }
     }
   }
 
@@ -486,7 +735,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testSchemePickerSwitchesEnglishThemesAndSettings() throws {
+  func testSchemePickerSwitchesEnglishAndSettingsWithSeparateThemeEntry() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .quanpin
@@ -503,14 +752,18 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("schemeCard-quanpin", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入")
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-    try button("schemePickerThemeTab", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
-    try button("schemePickerKeyboardTab", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemePickerThemeTab" })
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemePickerKeyboardTab" })
     XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
     XCTAssertEqual(try button("schemeCard-quanpin", in: controller).accessibilityValue, "已选中")
     try button("schemePickerSettings", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSchemePickerView })
     XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
+    try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
+    try button("closeSkinPicker", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
   }
 
   func testVisibleInputViewReflectsSoundPreference() throws {
@@ -581,6 +834,235 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(key.layer.animationKeys()?.isEmpty ?? true)
   }
 
+  func testEmojiShortcutOpensABrowsableCatalogAndInsertsWhatIsTapped() throws {
+    let saved = EmojiRecents.stored
+    defer { KeyboardFeedbackPreference.defaults.set(saved, forKey: EmojiRecents.key) }
+    KeyboardFeedbackPreference.defaults.removeObject(forKey: EmojiRecents.key)
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+
+    let grid = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    // Every Unicode group reaches the panel. Ordering the groups by their rows' sort_order would
+    // drop or interleave them -- Symbols spans 1420-1935 and Flags 1644-1913 -- so the catalog
+    // names them in order instead, and this is what notices if that list and the data diverge.
+    XCTAssertEqual(EmojiCatalog.sections.count, 9)
+    XCTAssertTrue(EmojiCatalog.sections.allSatisfy { !$0.emoji.isEmpty })
+    XCTAssertEqual(grid.numberOfSections, EmojiCatalog.sections.count)
+
+    let first = try XCTUnwrap(EmojiCatalog.sections.first?.emoji.first)
+    grid.delegate?.collectionView?(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+    XCTAssertEqual(EmojiRecents.stored.first, first)
+
+    // Reopening leads with what was just used, so the common case is not a scroll away.
+    try button("closeEmojiPicker", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    let reopened = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    XCTAssertEqual(reopened.numberOfSections, EmojiCatalog.sections.count + 1)
+    XCTAssertEqual(reopened.numberOfItems(inSection: 0), 1)
+  }
+
+  func testSchemeNameIsWrittenBackSoTheLegacyFlagCannotKeepResolvingToQuanpin() throws {
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    let defaults = UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey, .shuangpin]
+    InputSchemePreference.scheme = .nineKey
+
+    // 名字丢了,只剩那个老布尔。以前这会永远读成全拼 26 键。
+    defaults.removeObject(forKey: "chineseInputScheme")
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
+    // 但它只该发生一次:迁移的结果要写回,否则每次读都在重置。
+    XCTAssertEqual(defaults.string(forKey: "chineseInputScheme"), "quanpin")
+
+    InputSchemePreference.scheme = .nineKey
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertEqual(defaults.string(forKey: "chineseInputScheme"), "nineKey")
+  }
+
+  func testNineKeySurvivesTheKeyboardBeingTornDownAndRebuilt() throws {
+    // 反馈 #419:切走一段时间再回来就变回 26 键。iOS 回收键盘扩展后重新加载它,所以这里
+    // 的第二个控制器就是那次重新加载。
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .quanpin
+
+    let first = KeyboardViewController()
+    first.loadViewIfNeeded()
+    first.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    first.viewWillAppear(false)
+    try button("schemeButton", in: first).sendActions(for: .primaryActionTriggered)
+    try button("schemeCard-nineKey", in: first).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey)
+    XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: first).superview).isHidden)
+
+    let rebuilt = KeyboardViewController()
+    rebuilt.loadViewIfNeeded()
+    rebuilt.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    rebuilt.viewWillAppear(false)
+    rebuilt.view.layoutIfNeeded()
+    XCTAssertEqual(try button("schemeButton", in: rebuilt).accessibilityValue, "全拼 9 键")
+    XCTAssertFalse(try XCTUnwrap(button("nineKey6", in: rebuilt).superview).isHidden)
+  }
+
+  func testSpellingStripReusesItsButtonsBetweenKeystrokes() throws {
+    // 只有九键有这条带子,而它每敲一下都把整排按钮销毁重建,量出来是 13.76ms/键 对 26 键的 2ms。
+    //
+    // The strip still lays the keyboard out again on every keystroke: making that conditional on
+    // the strip's own visibility broke the local input modes, which reach their layout through the
+    // same call. Reuse is the part that stands, so reuse is what this pins.
+    //
+    // Timing is not asserted -- the shared CI simulator is too noisy for a millisecond budget.
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer { InputSchemePreference.enabledSchemes = enabled; InputSchemePreference.scheme = previous }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
+    let strip = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "nineKeySpellingStrip"
+    } as? UIScrollView)
+    let first = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(first.isEmpty, "九键应当给出拼音候选")
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    let second = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(second.isEmpty)
+    for (before, after) in zip(first, second) {
+      XCTAssertTrue(before === after, "拼音候选按钮在两次按键之间被重建了")
+    }
+    // 文字仍然跟着编码走,复用没有把内容冻住。
+    XCTAssertNotNil(descendants(strip).first {
+      ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_")
+    })
+  }
+
+  func testNineKeyGridSurvivesALatinFieldAndAStuckLocalMode() throws {
+    // 反馈 #419 的另一半:方案没变,但九宫格没了。The grid is hidden by exactly two things beyond the
+    // scheme -- English mode and an open local input mode -- so those are the two a keyboard can
+    // come back in. Either one looks to the user like the layout changed itself.
+    let previous = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let grid = try XCTUnwrap(button("nineKey6", in: controller).superview)
+    XCTAssertFalse(grid.isHidden, "九键应当是起始布局")
+
+    // 进一个只收拉丁字母的输入框,再回到普通输入框。
+    let latin = UUID(), ordinary = UUID()
+    controller.applyInputContext(keyboardType: .emailAddress, documentIdentifier: latin)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(grid.isHidden, "拉丁输入框应当切到英文 26 键")
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(grid.isHidden, "回到普通输入框应当恢复九键")
+    XCTAssertEqual(InputSchemePreference.scheme, .nineKey, "方案自始至终没变过")
+  }
+
+  func testCandidateGlossesAppearOnlyWhenSwitchedOn() throws {
+    // #422:macOS 早就有候选词英文释义,iOS 一直带着同一份离线词库却没有读它。
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+
+    func annotatedCandidate(in controller: KeyboardViewController) throws -> String {
+      let chip = try button("candidate-1", in: controller)
+      let title = chip.configuration?.attributedTitle.map { String($0.characters) }
+        ?? chip.configuration?.title ?? ""
+      return title
+    }
+
+    CandidateGlossPreference.enabled = false
+    let plain = KeyboardViewController()
+    plain.loadViewIfNeeded()
+    plain.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    plain.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(plain.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    let withoutGloss = try annotatedCandidate(in: plain)
+    XCTAssertFalse(withoutGloss.isEmpty, "应当有候选词")
+
+    CandidateGlossPreference.enabled = true
+    let glossed = KeyboardViewController()
+    glossed.loadViewIfNeeded()
+    glossed.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    glossed.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(glossed.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    let withGloss = try annotatedCandidate(in: glossed)
+    XCTAssertTrue(withGloss.hasPrefix(withoutGloss),
+                  "释义是附加在候选后面的,不该改写候选本身")
+    XCTAssertGreaterThan(withGloss.count, withoutGloss.count,
+                         "打开开关后候选后面应当带上释义:\(withGloss)")
+    // 释义来自随键盘打包的离线词库,不联网。词库收词不收单字,所以用词组验证。
+    XCTAssertTrue(withGloss.lowercased().contains("hello"), "你好 的释义应当是 hello:\(withGloss)")
+  }
+
+  func testNineKeyOffersEnglishForTheDigitsTyped() throws {
+    // 反馈:九键打 65 想要 ok,但候选里没有。
+    let previousScheme = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    for key in ["nineKey6", "nineKey5"] {
+      try button(key, in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    let chips = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+      .compactMap { chip -> String? in
+        chip.configuration?.attributedTitle.map { String($0.characters) } ?? chip.configuration?.title
+      }
+    XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "九键 65 应当给出 ok:\(chips)")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
@@ -616,18 +1098,23 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+      for id in ["layoutShortcut", "schemeButton", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
       }
       XCTAssertNil(try button("skinShortcut", in: controller).menu)
-      let script = try button("scriptShortcut", in: controller)
+      // 简繁不再占常驻工具位,改从「更多」里切。
+      XCTAssertTrue(try button("replyShortcut", in: controller).isHidden)
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      let script = try button("moreCard-繁体输出", in: controller)
+      XCTAssertEqual(script.accessibilityValue, "已关闭")
       script.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)
-      XCTAssertEqual(script.accessibilityValue, "繁体")
-      script.sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(try button("moreCard-繁体输出", in: controller).accessibilityValue, "已开启")
+      try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(ChineseOutputPreference.usesTraditional)
+      try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
       let key = try button("nineKey6", in: controller)
       let frame = key.convert(key.bounds, to: controller.view)
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
@@ -734,7 +1221,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertNil(selector.configuration?.title)
             XCTAssertNotNil(selector.configuration?.image)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["layoutShortcut", "scriptShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["layoutShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }
             if width == 320 {
@@ -926,6 +1413,57 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  // An unfinished wubi code answers with the codes it can still become, so the strip has to say
+  // which keys single each candidate out. The code rides along the snapshot; the strip draws its
+  // tail past what has been typed.
+  func testWubiCandidatesCarryAndShowTheCodeLeftToType() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToWubi()
+    _ = bridge.handleCharacter("w")
+    let snapshot = bridge.handleCharacter("q")
+    XCTAssertEqual(snapshot.candidateCodes.count, snapshot.candidates.count)
+    let leading = try XCTUnwrap(snapshot.candidateCodes.first)
+    XCTAssertEqual(leading, "wq", "The code that was typed in full did not lead the list.")
+    XCTAssertTrue(
+      snapshot.candidateCodes.contains { $0.count > 2 && $0.hasPrefix("wq") },
+      "The snapshot carried no candidate reached by a longer code.")
+    _ = bridge.cancel()
+
+    XCTAssertEqual(WubiCodeHintPreference.hint(code: "wqb", typed: "wq"), "b")
+    XCTAssertEqual(WubiCodeHintPreference.hint(code: "wq", typed: "wq"), "")
+    XCTAssertEqual(WubiCodeHintPreference.hint(code: "wqb", typed: ""), "")
+    // What the mixed-pinyin fallback produces: keyed by spelling, and those letters lead nowhere in
+    // wubi, so the candidate is left unannotated.
+    XCTAssertEqual(WubiCodeHintPreference.hint(code: "ni'hao", typed: "nihao"), "")
+
+    let previous = InputSchemePreference.scheme
+    let previousHint = WubiCodeHintPreference.isEnabled
+    defer {
+      InputSchemePreference.scheme = previous
+      WubiCodeHintPreference.isEnabled = previousHint
+    }
+    XCTAssertTrue(previousHint, "The wubi code hint did not ship on.")
+    InputSchemePreference.scheme = .wubi
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    func type(_ code: String) throws {
+      for character in code {
+        let key = try XCTUnwrap(descendants(controller.view).first {
+          $0.accessibilityLabel == "字母 \(String(character).uppercased())"
+        } as? UIButton)
+        key.sendActions(for: .primaryActionTriggered)
+      }
+    }
+    try type("wq")
+    let annotated = try descendants(controller.view).compactMap { $0 as? UIButton }.filter {
+      ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-")
+    }
+    XCTAssertFalse(annotated.isEmpty, "Typing a wubi code produced no candidates.")
+    XCTAssertTrue(
+      annotated.contains { ($0.accessibilityLabel ?? "").contains("还需输入") },
+      "No candidate on the strip said which keys were left to press.")
+  }
+
   func testAdditionalEngineSchemesAndLocalProviders() throws {
     let bridge = MetasequoiaInputSessionBridge()
     _ = bridge.switchToWubi()
@@ -987,10 +1525,16 @@ final class NineKeyKeyboardTests: XCTestCase {
     attachment.lifetime = .keepAlways
     add(attachment)
 
-    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
+    // The digit layer keeps this grid rather than swapping in the 26-key rows, so the container stays
+    // visible and only the faces change. testNineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows
+    // owns that contract; this case asserted the container hid, which was true before the digit layer
+    // shared the grid and has contradicted the other case since.
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
+    XCTAssertEqual(nine.configuration?.title, "6")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
+    XCTAssertEqual(nine.configuration?.title, "MNO")
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
@@ -1038,7 +1582,11 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
         } else if phase == "cleared" {
           try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
-          XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "candidate-1" })
+          // The chips are reused rather than rebuilt, so an emptied strip hides them instead of
+          // removing them. What matters is that none of them is showing.
+          XCTAssertTrue(descendants(controller.view).allSatisfy {
+            $0.accessibilityIdentifier?.hasPrefix("candidate-") != true || $0.isHidden
+          })
         }
         controller.view.layoutIfNeeded()
         for (key, expected) in zip(keys, frames) {

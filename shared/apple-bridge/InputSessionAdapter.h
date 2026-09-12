@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+class EnglishDictionary;
+
 namespace metasequoia
 {
 struct RuntimePaths;
@@ -30,6 +32,14 @@ struct InputSnapshot
     std::optional<std::string> commit;
     std::string preedit;
     std::vector<std::string> candidates;
+    // The dictionary key each candidate was found by, in the same order. A wubi frontend needs it to
+    // say which keys still single a candidate out, since an unfinished code answers with the codes
+    // it can still become. Empty for a candidate that has no key of its own.
+    std::vector<std::string> candidate_codes;
+    // 候选词的英文释义,和候选同序等长,没有释义的那条为空。
+    // Filled only while candidate glosses are enabled; a frontend that never asks for them pays
+    // nothing, since the dictionary behind them is opened on first use.
+    std::vector<std::string> candidate_glosses;
     // Set when the engine could answer the key but something behind it failed, such as a local input
     // mode whose table is missing or a word that could not be learned. Input stays usable, so a
     // frontend reports it rather than treating it as an error.
@@ -72,6 +82,14 @@ class InputSessionAdapter
     bool set_frequency_adjustment(FrequencyAdjustmentOptions options);
     FrequencyAdjustmentOptions frequency_adjustment() const;
     void set_wubi_mixed_pinyin(bool enabled);
+    // Offers words from the packaged English dictionary alongside the Chinese candidates, so a latin
+    // word can be committed without leaving the Chinese keyboard. The Engine applies this to Quanpin
+    // and Shuangpin only, and only to an all-lowercase prefix. Returns false during composition,
+    // like the other options the Engine reads from SessionOptions.
+    bool set_english_mixed_candidates(bool enabled);
+    bool english_mixed_candidates() const;
+    void set_candidate_glosses_enabled(bool enabled);
+    bool candidate_glosses_enabled() const;
     RuntimePaths runtime_paths() const;
     bool idle() const;
     PersonalDictionaryEditResult edit_personal_word(const std::optional<PersonalDictionaryEntry> &previous,
@@ -101,6 +119,11 @@ class InputSessionAdapter
     std::uint32_t fuzzy_pinyin_rules_ = 0;
     FrequencyAdjustmentOptions frequency_{FrequencyAdjustmentMode::Promote, 1, 1};
     bool wubi_mixed_pinyin_ = false;
+    bool english_mixed_candidates_ = false;
+    bool candidate_glosses_enabled_ = false;
+    std::unique_ptr<EnglishDictionary> gloss_dictionary_;
+    EnglishDictionary *gloss_dictionary();
+    InputSnapshot make_snapshot(KeyResult result);
     std::unique_ptr<Impl> impl_;
 };
 } // namespace metasequoia::apple

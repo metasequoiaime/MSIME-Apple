@@ -47,7 +47,9 @@ SUBMODULES = {
 # The database CMakeLists.txt installs into the bundle, plus the checksum file the release publishes
 # beside it. The checksum file is locked too so a rewritten one is caught rather than trusted.
 DATABASES = ("msime.db", "english.db")
-ASSETS = (*DATABASES, "SHA256SUMS.txt")
+LEGACY_ASSETS = (*DATABASES, "SHA256SUMS.txt")
+JAPANESE_ASSETS = ("dict_japanese.dat", "mozc_dictionary_oss_README.txt")
+ASSETS = (*LEGACY_ASSETS, *JAPANESE_ASSETS)
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -67,7 +69,7 @@ def validate(data: dict) -> dict:
     if not SHA.fullmatch(dictionary.get("source_commit", "")):
         raise ValueError("Dictionary source_commit must be the full commit the release tag resolves to")
     assets = dictionary.get("assets", {})
-    expected_assets = set(ASSETS) if dictionary['tag'] == LEGACY_DICTIONARY_TAG else set(ASSETS) | {PRODUCT_MANIFEST}
+    expected_assets = set(LEGACY_ASSETS) if dictionary['tag'] == LEGACY_DICTIONARY_TAG else set(ASSETS) | {PRODUCT_MANIFEST}
     if set(assets) != expected_assets:
         raise ValueError("Dictionary lock must cover every shipped database and the checksum file")
     for name, digest in assets.items():
@@ -94,7 +96,7 @@ def verify_assets(directory: Path, data: dict) -> None:
     shared.verify_digests(directory, data["dictionary"]["assets"])
 
     if PRODUCT_MANIFEST in data["dictionary"]["assets"]:
-        shared.verify_manifest_provenance(directory, PRODUCT_MANIFEST, _product.verify_product, DATABASES,
+        shared.verify_manifest_provenance(directory, PRODUCT_MANIFEST, _product.verify_product, (*DATABASES, *JAPANESE_ASSETS),
                                           data["dictionary"]["repository"], data["dictionary"]["source_commit"])
 
 
@@ -108,7 +110,7 @@ def download_assets(tag: str, destination: Path, repository: str = DICTIONARY_RE
     if repository not in (DICTIONARY_REPOSITORY, "metasequoiaime/MSIME-Dict"):
         raise ValueError("Unexpected dictionary repository")
     destination.mkdir(parents=True, exist_ok=True)
-    names = ASSETS if tag == LEGACY_DICTIONARY_TAG else (*ASSETS, PRODUCT_MANIFEST)
+    names = LEGACY_ASSETS if tag == LEGACY_DICTIONARY_TAG else (*ASSETS, PRODUCT_MANIFEST)
     for name in names:
         url = f"https://github.com/{repository}/releases/download/{tag}/{name}"
         target = destination / name
@@ -168,7 +170,7 @@ def refresh(tag: str) -> dict:
         download_assets(tag, incoming)
         published = published_checksums(incoming)
         assets = {}
-        for name in (ASSETS if tag == LEGACY_DICTIONARY_TAG else (*ASSETS, PRODUCT_MANIFEST)):
+        for name in (LEGACY_ASSETS if tag == LEGACY_DICTIONARY_TAG else (*ASSETS, PRODUCT_MANIFEST)):
             digest = sha256(incoming / name)
             if name in published and published[name] != digest:
                 raise ValueError(f"{name} does not match the checksums published with {tag}")

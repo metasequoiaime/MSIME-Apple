@@ -2,6 +2,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -9,6 +10,20 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MACOS_ROOT = PROJECT_ROOT / "platforms" / "macos"
+
+
+def requires(*tools):
+    """Skip a case that shells out to tooling only macOS has.
+
+    Almost everything in this file reads a file in the tree and asserts on its text, which needs no
+    Apple tooling and no build. contracts.yml therefore runs the whole file on Linux, minutes into a
+    pull request instead of after the macOS build that ctest waits for. The handful of cases below
+    genuinely need tiffutil, sips or zsh, and the macOS job is where they still run -- this skip
+    narrows the Linux run, it does not move coverage off macOS.
+    """
+
+    missing = [tool for tool in tools if shutil.which(tool) is None]
+    return unittest.skipIf(missing, f"{', '.join(missing)} unavailable; the macOS job runs this case")
 
 
 class ReleaseConfigurationTests(unittest.TestCase):
@@ -53,7 +68,51 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: true", workflow)
         # merge-release-pr.sh dispatches ci.yml and waits on that run with --exit-status, so a pull_request run on the same branch must land in a different concurrency group or it cancels the release.
         self.assertIn("${{ github.event_name }}", workflow.split("concurrency:", 1)[1].split("permissions:", 1)[0])
-        self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n  pull_request:\n", workflow)
+        self.assertIn("on:\n  push:\n    branches:\n      - develop\n      - main\n", workflow)
+        self.assertIn("\n  pull_request:\n", workflow)
+
+    def test_documentation_paths_are_skipped_by_a_workflow_that_reports_the_same_checks(self):
+        ci = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text()
+        docs = (PROJECT_ROOT / ".github/workflows/ci-docs.yml").read_text()
+
+        def path_lists(workflow, key):
+            lists = []
+            for block in workflow.split(f"{key}:\n")[1:]:
+                entries = []
+                for line in block.splitlines():
+                    if not line.startswith("      - "):
+                        break
+                    entries.append(line.removeprefix("      - "))
+                lists.append(entries)
+            return lists
+
+        ignored = path_lists(ci, "paths-ignore")
+        answered = path_lists(docs, "paths")
+        # push and pull_request each carry the list; GitHub Actions has no YAML anchors to share one.
+        self.assertEqual(len(ignored), 2)
+        self.assertEqual(ignored[0], ignored[1])
+        self.assertEqual(answered, ignored, "ci-docs.yml must answer for exactly the paths ci.yml ignores")
+
+        # README.md, PRIVACY.md and the architecture document are asserted on by this very file, so they can only be ignored while something that is not the macOS job still runs it. That something is contracts.yml, and both workflows have to call it: ci-docs.yml for the ignored paths, ci.yml for everything else.
+        contracts = (PROJECT_ROOT / ".github/workflows/contracts.yml").read_text()
+        self.assertIn("uses: ./.github/workflows/contracts.yml", ci)
+        self.assertIn("uses: ./.github/workflows/contracts.yml", docs)
+        self.assertIn("python3 platforms/macos/tests/ReleaseConfigurationTests.py", contracts)
+        self.assertIn("runs-on: ubuntu-24.04", contracts)
+        for asserted_document in ("README.md", "PRIVACY.md", "docs/apple-platform-architecture.md"):
+            self.assertIn(asserted_document, ignored[0])
+
+        # Build inputs, not prose: CMake installs both into the bundle.
+        for build_input in ("LICENSE", "THIRD_PARTY_NOTICES.txt"):
+            self.assertNotIn(build_input, ignored[0])
+
+        # Branch protection requires check names, so the substitutes have to be named identically and must not spend a macOS runner to say nothing happened.
+        for required_check in ("name: macOS 15 ${{ matrix.architecture }}", "name: iOS Simulator"):
+            self.assertIn(required_check, ci)
+            self.assertIn(required_check, docs)
+        self.assertIn("architecture: [arm64, x86_64]", docs)
+        self.assertIn("uses: ./.github/workflows/quality.yml", docs)
+        self.assertNotIn("runs-on: macos", docs)
 
     def test_current_repository_links_use_the_canonical_apple_repository(self):
         canonical_repository = "https://github.com/metasequoiaime/MSIME-Apple"
@@ -79,6 +138,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
             f"{canonical_repository}/releases/latest/download/appcast.xml",
         )
 
+    @requires("tiffutil", "sips")
     def test_input_source_uses_a_dedicated_menu_icon(self):
         with (MACOS_ROOT / "resources/Info.plist").open("rb") as info_file:
             info = plistlib.load(info_file)
@@ -99,18 +159,30 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertNotIn("<rect", menu_icon_svg)
 
         icon_path = MACOS_ROOT / "resources" / menu_icon
-        dpi_output = subprocess.check_output(
-            ["sips", "-g", "dpiWidth", "-g", "dpiHeight", str(icon_path)],
-            text=True,
+        # The input menu draws this through HIToolbox, which reads the TIFF's pages rather than the
+        # DPI metadata of a single one. A lone 2x page is taken for a 32-point image and cropped by
+        # the 16-point slot to whatever sits in its middle, which for this stroke arrives as a solid
+        # square. Apple's own input methods ship both pages; so does this.
+        pages = subprocess.check_output(["tiffutil", "-info", str(icon_path)], text=True)
+        self.assertEqual(
+            re.findall(r"Image Width: (\d+) Image Length: (\d+)", pages),
+            [("16", "16"), ("32", "32")],
         )
-        self.assertRegex(dpi_output, r"dpiWidth:\s*144(?:\.0+)?")
-        self.assertRegex(dpi_output, r"dpiHeight:\s*144(?:\.0+)?")
+        self.assertEqual(re.findall(r"Resolution: (\d+), (\d+)", pages), [("72", "72"), ("144", "144")])
+        # The shape is carried by the alpha channel, since the menu tints the icon as a template and
+        # a filled background would tint into a block.
+        self.assertEqual(pages.count("Alpha: Present"), 2)
 
         alpha_output = subprocess.check_output(
             ["sips", "-g", "hasAlpha", str(icon_path)],
             text=True,
         )
         self.assertRegex(alpha_output, r"hasAlpha:\s*yes")
+
+        # The tile is square, and the script that renders it from the SVG stays in the tree so the
+        # next edit to the stroke can reproduce both pages.
+        self.assertRegex(menu_icon_svg, r'viewBox="[\d.]+ [\d.]+ ([\d.]+) \1"')
+        self.assertTrue((MACOS_ROOT / "scripts" / "render_menu_icon.swift").is_file())
 
     def test_input_controller_survives_the_engine_helpcode_semantics(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
@@ -148,25 +220,37 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("NSEventModifierFlagShift", uppercase_branch)
         self.assertIn("character(static_cast<char>(character), true)", uppercase_branch)
 
-    def test_engine_english_learning_stays_unreachable_from_macos(self):
+    def test_engine_english_learning_uses_the_installed_and_reset_dictionary(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
         installer = (MACOS_ROOT / "src/DictionaryInstaller.mm").read_text()
 
-        # The engine writes learned English words to data_file_path("english.db"), while this installer
-        # replays the English journal into msime_english.db and only backs that name up when learned data
-        # is reset. The two never meet today because macOS never turns the engine's English paths on, so
-        # the divergence is latent. Wiring any of these up without first reconciling the filename would
-        # orphan learned English words in a file no macOS code reads, migrates or clears.
+        # English candidates now use SessionOptions. The legacy installer must seed, replay
+        # and clear the same english.db that Engine owns; keep the old name only for migration.
         self.assertIn("msime_english.db", installer)
-        for switch in (
-            "set_dedicated_english",
-            "set_english_input_options",
-            "set_frequency_adjustment",
-            "set_mixed_expressive_options",
-        ):
-            self.assertNotIn(switch, controller, f"{switch} reaches the engine's english.db path; reconcile the filename with msime_english.db first")
-        # handle_character's second parameter is what routes Shift+letter into the English and local modes.
-        self.assertIn("_session->character(static_cast<char>(character))", controller)
+        self.assertIn('options.english.mixed_candidates = preferences.mixedEnglish', controller)
+        self.assertIn('InstallMetasequoiaEnglishDictionary', installer)
+        mutable_files = installer.split('NSArray<NSString *> *MutableDictionaryFileNames()', 1)[1].split('return fileNames;', 1)[0]
+        self.assertIn('@"english.db"', mutable_files)
+        self.assertIn('NSURL *englishDatabase = [dataDirectory URLByAppendingPathComponent:@"english.db"', installer)
+
+    def test_vertical_candidates_can_show_bundled_english_glosses(self):
+        cmake = (PROJECT_ROOT / "CMakeLists.txt").read_text()
+        controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
+        preferences = (MACOS_ROOT / "src/PreferencesWindowController.mm").read_text()
+        panel = (MACOS_ROOT / "src/CandidatePanel.mm").read_text()
+        readme = (PROJECT_ROOT / "README.md").read_text()
+
+        self.assertIn("english.db", cmake)
+        self.assertIn("custom_translations.txt", cmake)
+        self.assertIn("CandidateTranslation.cpp", cmake)
+        self.assertIn("CandidateTranslationTests.cpp", cmake)
+        self.assertIn("pathForResource:@\"english\" ofType:@\"db\"", controller)
+        self.assertIn("LookupCandidateGloss", controller)
+        self.assertIn("storedCandidateTranslationsEnabled", controller)
+        self.assertIn("竖排候选显示英文释义", preferences)
+        self.assertIn("candidateTranslation", panel)
+        self.assertIn("英文释义", readme)
+        self.assertNotIn("set_english_input_options", controller)
 
     def test_macos_session_forwards_windows_frequency_adjustment(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
@@ -284,8 +368,45 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual((PROJECT_ROOT / "version.txt").read_text().strip(), match.group(1))
         self.assertIn("x-release-please-version", project_line)
 
+    def test_ios_symbol_faces_show_what_the_contract_will_insert(self):
+        # The iOS keys carry the Chinese punctuation they produce rather than the ASCII that
+        # produces it, so nobody has to guess that 、 is on the backslash. The faces are a literal
+        # copied out of the contract, and a contract edit that leaves it behind puts a wrong
+        # character on a key, so they are held together here.
+        policy = json.loads(
+            (PROJECT_ROOT / "vendor/MetasequoiaImeEngine/contracts/punctuation/policy.json").read_text()
+        )
+        expected = {entry["input"]: entry["output"] for entry in policy["simple"]}
+        expected.update({entry["input"]: entry["opening"] for entry in policy["alternating"]})
+        expected[policy["nested"]["openingInput"]] = policy["nested"]["opening"]
+        expected[policy["nested"]["closingInput"]] = policy["nested"]["closing"]
+
+        controller = (
+            PROJECT_ROOT / "platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift"
+        ).read_text()
+        # Take whole lines rather than splitting on a bracket: "[" is one of the keys, so a bracket
+        # scan stops halfway through the table and silently checks only what came before it.
+        body = controller.split("static let chineseSymbolFaces", 1)[1].split("= [", 1)[1]
+        table = "".join(
+            line for line in body.splitlines(keepends=True)[: body.count("\n")]
+            if not line.lstrip().startswith("]")
+        ).split("\n  ]")[0]
+        # Anchor each pair on what precedes it, or the match slides across the ", " between entries
+        # and invents a key out of the separator.
+        faces = dict(re.findall(r'(?:^|[\[,]\s*)"((?:[^"\\]|\\.)+)":\s*"([^"]+)"', table, re.MULTILINE))
+        faces = {key.replace('\\\\', '\\').replace('\\"', '"'): value for key, value in faces.items()}
+        self.assertTrue(faces, "the iOS keyboard must declare the punctuation faces")
+
+        for ascii_input, face in faces.items():
+            self.assertEqual(
+                face, expected.get(ascii_input),
+                f"the {ascii_input!r} key shows {face!r}, contract inserts {expected.get(ascii_input)!r}")
+
     def test_punctuation_dispatch_matches_the_pinned_engine_table(self):
         controller = (MACOS_ROOT / "src/MetasequoiaInputController.mm").read_text()
+        # Read the contract itself. punctuation_policy.cpp only forwards to it through simple_output
+        # and alternating_mapping, so scanning that file for case labels finds none and leaves this
+        # test asserting against an empty set.
         policy = json.loads(
             (PROJECT_ROOT / "vendor/MetasequoiaImeEngine/contracts/punctuation/policy.json").read_text()
         )
@@ -297,20 +418,21 @@ class ReleaseConfigurationTests(unittest.TestCase):
         engine_characters.update(
             (policy["nested"]["openingInput"], policy["nested"]["closingInput"])
         )
-
-        # The host delegates the supported-key decision to the pinned Engine contract, so a future
-        # contract addition cannot be silently omitted from this routing branch. Microsoft Shuangpin
-        # must try ';' as ing before that catch-all, or n; commits punctuation instead of composing.
-        character_input = controller.split("ControllerKeyAction::Character:", 1)[1]
-        self.assertIn(
-            "metasequoia::punctuation_contract::is_supported(static_cast<char>(character))",
-            character_input,
-        )
-        self.assertLess(
-            character_input.index("ShouldRouteSemicolonAsShuangpinInput"),
-            character_input.index("punctuation_contract::is_supported"),
-        )
+        self.assertIn("IsEnginePunctuationCharacter", controller)
+        self.assertIn("_session->punctuation(static_cast<char>(character))", controller)
         self.assertGreater(len(engine_characters), 10, "the Engine punctuation contract was not parsed")
+
+        # The host decides the supported keys with its own literal now that it no longer calls the
+        # contract's is_supported, so that literal is what has to stay in step with the pinned table.
+        # A contract addition that never reaches it would silently stop routing to the Engine.
+        handler = controller.split("bool IsEnginePunctuationCharacter", 1)[1].split("\n}", 1)[0]
+        literal = re.search(r'std::string\("((?:[^"\\]|\\.)*)"\)', handler)
+        self.assertIsNotNone(literal, "the punctuation handler must match against a string literal")
+        handled = set(literal.group(1).encode().decode("unicode_escape"))
+        self.assertEqual(
+            sorted(engine_characters - handled), [],
+            "every punctuation input the pinned contract defines must reach the Engine",
+        )
 
     def test_every_quanpin_autocorrect_type_reaches_both_apple_products(self):
         header = (PROJECT_ROOT / "vendor/MetasequoiaImeEngine/quanpin/quanpin_utils.h").read_text()
@@ -404,7 +526,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 action_reference = uses_line.removeprefix("uses:").strip().split()[0]
                 if action_reference.startswith("./"):
                     # Local reusable workflows are pinned by the caller's own commit.
-                    self.assertEqual(action_reference, "./.github/workflows/quality.yml")
+                    self.assertIn(action_reference, {"./.github/workflows/quality.yml", "./.github/workflows/contracts.yml"})
                     self.assertTrue((PROJECT_ROOT / action_reference).is_file())
                     continue
                 action, separator, revision = action_reference.partition("@")
@@ -591,7 +713,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("启用全拼自动纠错", preferences_controller)
         self.assertIn("storedHelpcodeEnabled", preferences_controller)
         self.assertIn("setHelpcodeEnabled", preferences_controller)
-        self.assertIn("启用辅助码", preferences_controller)
+        # One switch became two when quanpin and shuangpin got their own scheme lists.
+        self.assertIn("全拼辅助码", preferences_controller)
+        self.assertIn("双拼辅助码", preferences_controller)
         self.assertIn("storedQuanpinHelpcodeSchema", preferences_controller)
         self.assertIn("storedShuangpinHelpcodeSchema", preferences_controller)
         # Each preference owns one notification name here. The two schemas briefly shared MetasequoiaHelpcodeDidChangeNotification, whose payload is the enabled BOOL, so a subscriber reading -boolValue would have seen a schema index instead.
@@ -614,20 +738,18 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn('#import "DictionaryInstaller.h"', preferences_controller)
         self.assertIn("refreshDictionaryStatus", preferences_controller)
         self.assertIn("EnsureMetasequoiaDictionary", preferences_controller)
-        self.assertIn("constexpr CGFloat kWindowWidth = 680.0", preferences_controller)
+        self.assertIn("constexpr CGFloat kWindowWidth = 980.0", preferences_controller)
         self.assertIn("constexpr CGFloat kWindowHeight = 800.0", preferences_controller)
-        self.assertIn("NSWindowToolbarStylePreference", preferences_controller)
-        self.assertIn("NSToolbarDisplayModeIconAndLabel", preferences_controller)
-        self.assertIn("toolbarSelectableItemIdentifiers", preferences_controller)
-        self.assertIn('@"键盘输入", @"外观", @"皮肤", @"词库与数据", @"更新与反馈"', preferences_controller)
+        self.assertIn("NSWindowStyleMaskResizable", preferences_controller)
+        self.assertIn("MetasequoiaSettingsNavigationButton", preferences_controller)
         self.assertIn('@[ @"全拼输入", @"双拼输入", @"五笔输入" ]', preferences_controller)
         self.assertIn("ShuangpinSchemaTitle", preferences_controller)
         self.assertIn("kShuangpinSchemaIdentifiers", preferences_controller)
         self.assertIn('addItemWithTitle:@"86 五笔"', preferences_controller)
         self.assertIn('accessibilityLabel = @"五笔功能设置"', preferences_controller)
-        self.assertIn("selectPreferencesPageFromToolbar:", preferences_controller)
+        self.assertIn("selectPreferencesPage:", preferences_controller)
         self.assertIn('NSURL URLWithString:@"https://msime.app/"', preferences_controller)
-        self.assertNotIn('accessibilityLabel = @"水杉输入法导航"', preferences_controller)
+        self.assertIn('accessibilityLabel = @"水杉输入法导航"', preferences_controller)
         self.assertNotIn("sidebar.fillColor", preferences_controller)
         self.assertIn("词库已就绪", preferences_controller)
         self.assertIn("当前输入结束后的下一次按键生效", preferences_controller)
@@ -672,10 +794,6 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("candidatePageShortcutModified", handle_event)
         character_input = handle_event.split("ControllerKeyAction::Character:", 1)[1]
         self.assertNotIn("charactersIgnoringModifiers", character_input)
-        self.assertLess(
-            character_input.index("ShouldRouteSemicolonAsShuangpinInput"),
-            character_input.index("punctuation_contract::is_supported"),
-        )
         commit_composition = input_controller.split("- (void)commitComposition:(id)sender", 1)[1].split(
             "- (void)deactivateServer:(id)sender", 1
         )[0]
@@ -873,13 +991,15 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertRegex(lock["source_commit"], r"\A[0-9a-f]{40}\Z")
         # The digests are committed rather than taken from the SHA256SUMS.txt that travels with the
         # data, so a retagged release fails the build instead of shipping.
-        for name in ("msime.db", "SHA256SUMS.txt", "dictionary-manifest.json"):
+        for name in ("msime.db", "english.db", "SHA256SUMS.txt", "dictionary-manifest.json"):
             self.assertRegex(lock["assets"][name], r"\A[0-9a-f]{64}\Z")
         self.assertIn("product_lock.verify_assets", source)
         # The probe that would have caught the old build: quick_parases comes from a stage the
         # removed build_dictionary.py never ran, so a database missing it looked perfectly valid.
         self.assertIn("quick_parases", source)
         self.assertIn("PRAGMA integrity_check", source)
+        self.assertIn("zh_en_glosses", source)
+        self.assertIn('"你好"', source)
 
         # Every path that produces a build has to go through it, including the iOS variant, which
         # slices the same database rather than generating its own.
@@ -904,6 +1024,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("vendor/MetasequoiaImeEngine/helpcode/helpcodes", cmake)
         self.assertIn("Resources/helpcodes", cmake)
 
+    @requires("zsh")
     def test_release_scripts_have_valid_zsh_syntax(self):
         for relative_path in (
             "scripts/install-release.sh",
@@ -921,6 +1042,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    @requires("zsh")
     def test_package_script_refuses_ambiguously_named_unsigned_assets(self):
         environment = os.environ.copy()
         for variable in (

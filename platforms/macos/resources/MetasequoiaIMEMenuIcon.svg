@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="36" viewBox="0 0 32 36">
+<!--
+  The square viewBox is the stroke's own bounds grown by a thirty-second of a side on each edge, and
+  is computed by platforms/macos/scripts/render_menu_icon.swift. The input menu gets a square tile;
+  a taller one is read as a 32-point image and cropped to its middle, which arrives as a solid
+  block. Edit the path here, then rerun that script to rewrite MetasequoiaIMEMenuIcon.tiff.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0.496 2.968 31.199 31.199">
   <title>Metasequoia IME menu icon</title>
   <path
     d="M25 6.5 7.5 14 24.5 18.25 7.5 25.75c4.5 3.5 10.5 5.25 17.5 2.75"

@@ -34,37 +34,21 @@ version=${version#ios-}
 version=${version#v}
 version=${version%%-build.*}
 
-for tool in git pod xcodegen xcodebuild ditto shasum; do
+build_number=${METASEQUOIA_BUILD_NUMBER:-$version}
+if [[ "$tag_name" == *-build.* ]]; then
+    build_number=${tag_name##*-build.}
+    if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
+        printf '%s\n' "Build number does not match release tag." >&2
+        exit 1
+    fi
+fi
+
+for tool in xcodegen xcodebuild ditto shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
     fi
 done
-
-# This archive is what a maintainer opens in Xcode Organizer to push to TestFlight, so it needs the
-# same build number rule as the signed path: unique and increasing within one marketing version,
-# rather than a copy of the marketing version that allows only one build per release.
-# CI supplies the shared build. Keep commit-count builds for local legacy packaging.
-if [[ -n "${METASEQUOIA_BUILD_NUMBER:-}" || "$tag_name" == *-build.* ]]; then
-    build_number=${METASEQUOIA_BUILD_NUMBER:-}
-    if [[ "$tag_name" == *-build.* ]]; then
-        build_number=${tag_name##*-build.}
-        if [[ "${METASEQUOIA_BUILD_NUMBER:-$build_number}" != "$build_number" ]]; then
-            printf '%s\n' "Build number does not match release tag." >&2
-            exit 1
-        fi
-    fi
-else
-    if ! git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
-        printf 'Not a git checkout, so the build number cannot be derived: %s\n' "$project_root" >&2
-        exit 1
-    fi
-    if [[ "$(git -C "$project_root" rev-parse --is-shallow-repository)" == "true" ]]; then
-        printf 'Refusing to build from a shallow checkout: the commit count would restart low and App Store Connect would reject the build as a downgrade. Check out with fetch-depth: 0.\n' >&2
-        exit 1
-    fi
-    build_number=$(git -C "$project_root" rev-list --count HEAD)
-fi
 
 spec="$project_root/platforms/ios/project.yml"
 if [[ ! -f "$spec" ]]; then
@@ -89,12 +73,11 @@ rm -rf -- "$build_root"
 mkdir -p "$build_root" "$output_dir"
 
 xcodegen generate --spec "$spec" --project "$build_root" --project-root "$project_root"
-MSIME_IOS_BUILD_ROOT="$build_root" pod install --deployment --project-directory="$project_root/platforms/ios"
 
 # MARKETING_VERSION is passed on the command line as well as being bumped in project.yml, so the
 # archive carries the release version even when the spec is momentarily behind the tag being built.
 xcodebuild archive \
-    -workspace "$build_root/MetasequoiaImeIOS.xcworkspace" \
+    -project "$build_root/MetasequoiaImeIOS.xcodeproj" \
     -scheme MetasequoiaImeIOS \
     -configuration Release \
     -destination 'generic/platform=iOS' \

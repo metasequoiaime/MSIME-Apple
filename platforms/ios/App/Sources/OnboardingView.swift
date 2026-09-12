@@ -22,9 +22,6 @@ struct KeyboardSettingsView: View {
           NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
             Label("AI 设置", systemImage: "sparkles")
           }.accessibilityIdentifier("aiSettingsLink")
-          NavigationLink(destination: ServiceSettingsView(kind: .voice)) {
-            Label("语音设置", systemImage: "waveform")
-          }.accessibilityIdentifier("voiceSettingsLink")
         }
 
         Section("系统") {
@@ -50,6 +47,10 @@ struct InputSettingsView: View {
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
   private var wubiMixedPinyin = false
+  @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
+  private var wubiCodeHint = true
+  @AppStorage(CandidateGlossPreference.enabledKey, store: CandidateGlossPreference.defaults)
+  private var candidateGloss = false
   @State private var previewFeedback: UIImpactFeedbackGenerator?
   @State private var inputScheme = InputSchemePreference.scheme
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
@@ -111,11 +112,22 @@ struct InputSettingsView: View {
           }
         }
 
+        Section("候选词") {
+          Toggle("显示英文释义", isOn: $candidateGloss)
+            .accessibilityIdentifier("candidateGloss")
+          Text("在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。")
+            .font(.footnote).foregroundStyle(.secondary)
+        }
+
         if enabledSchemes.contains(.wubi) {
           Section("五笔") {
             Toggle("编码打不出时用拼音候选", isOn: $wubiMixedPinyin)
               .accessibilityIdentifier("wubiMixedPinyin")
             Text("五笔词库答不上当前编码时，用同一串字母查全拼。词库答得上的编码不受影响。")
+              .font(.footnote).foregroundStyle(.secondary)
+            Toggle("候选显示剩余编码", isOn: $wubiCodeHint)
+              .accessibilityIdentifier("wubiCodeHint")
+            Text("在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。")
               .font(.footnote).foregroundStyle(.secondary)
           }
         }
@@ -237,7 +249,7 @@ struct OnboardingView: View {
             .accessibilityIdentifier("finishOnboardingButton")
         }
 
-        Text("键盘默认离线。打字统计需开启“允许完全访问”以保存本机字数；AI 和语音服务可在设置中单独配置。")
+        Text("键盘默认离线。打字统计需开启“允许完全访问”以保存本机字数；AI 服务可在设置中单独配置。")
           .font(.footnote)
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .center)

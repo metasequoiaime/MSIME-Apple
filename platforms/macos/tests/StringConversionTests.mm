@@ -57,6 +57,13 @@ int main()
                 "Identical visible candidates did not preserve distinct engine identities.");
         Require(MetasequoiaCandidateIndex([[NSAttributedString alloc] initWithString:@"乾"]) == NSNotFound,
                 "An unindexed candidate unexpectedly resolved to an engine identity.");
+        NSAttributedString *translated = MetasequoiaCandidateStringByAddingTranslation(firstCollision, @"dry; heaven");
+        Require([translated.string isEqualToString:@"乾"] && MetasequoiaCandidateIndex(translated) == 0 &&
+                    [MetasequoiaCandidateTranslation(translated) isEqualToString:@"dry; heaven"],
+                "A candidate gloss did not travel with the original engine identity.");
+        Require(MetasequoiaCandidateStringByAddingTranslation(firstCollision, @"") == firstCollision &&
+                    MetasequoiaCandidateTranslation(firstCollision) == nil,
+                "An empty gloss still annotated the candidate.");
     }
     return 0;
 }

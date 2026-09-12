@@ -2,52 +2,28 @@ import UIKit
 
 final class KeyboardSchemePickerView: UIView {
   private var glyphBorders: [(UILabel, Bool)] = []
-  // The one place in the keyboard that invented its own accent. Orange against a product that is
-  // forest green read as a different app's control, and white on it measured 2.6:1 in light mode
-  // and 2.1:1 in dark -- below the large-text floor, let alone AA.
-  private let accent = MetasequoiaTheme.forestUIColor
-  private let onAccent = MetasequoiaTheme.onForestUIColor
+  private let skin = KeyboardSkinPreference.selected
+  private var accent: UIColor { skin.accent }
 
   init(selected: ChineseInputScheme, isChineseMode: Bool = true,
        onSelect: @escaping (ChineseInputScheme) -> Void,
        onSelectEnglish: (() -> Void)? = nil,
-       onSelectSkin: ((KeyboardSkin) -> Void)? = nil,
        onSettings: (() -> Void)? = nil,
        onClose: @escaping () -> Void) {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSchemePicker"
-    backgroundColor = .secondarySystemBackground
+    backgroundColor = skin.background
 
     let close = UIButton(type: .system)
     close.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-    close.tintColor = .label
+    close.tintColor = accent
     close.accessibilityLabel = "返回键盘"
     close.accessibilityIdentifier = "closeSchemePicker"
     close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
 
-    let keyboardTab = UIButton(type: .system)
-    keyboardTab.setTitle("键盘", for: .normal)
-    keyboardTab.accessibilityIdentifier = "schemePickerKeyboardTab"
-    keyboardTab.accessibilityTraits.insert(.selected)
-    let themeTab = UIButton(type: .system)
-    themeTab.setTitle("主题", for: .normal)
-    themeTab.accessibilityIdentifier = "schemePickerThemeTab"
-    themeTab.isEnabled = onSelectSkin != nil
-    let tabs = UIStackView(arrangedSubviews: [keyboardTab, themeTab])
-    tabs.distribution = .fillEqually
-    tabs.backgroundColor = .systemBackground
-    tabs.layer.cornerRadius = 15
-    for button in [keyboardTab, themeTab] {
-      button.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
-      button.layer.cornerRadius = 15
-      button.setTitleColor(.label, for: .normal)
-    }
-    keyboardTab.backgroundColor = accent
-    keyboardTab.setTitleColor(onAccent, for: .normal)
-
     let settings = UIButton(type: .system)
     settings.setImage(UIImage(systemName: "gearshape"), for: .normal)
-    settings.tintColor = .label
+    settings.tintColor = accent
     settings.accessibilityLabel = "键盘设置"
     settings.accessibilityIdentifier = "schemePickerSettings"
     settings.isEnabled = onSettings != nil
@@ -58,10 +34,11 @@ final class KeyboardSchemePickerView: UIView {
     scroll.accessibilityIdentifier = "schemePickerScroll"
     scroll.alwaysBounceVertical = false
     scroll.delaysContentTouches = false
+    scroll.disableEdgeEffects()
     let panel = UIStackView()
     panel.axis = .vertical
     panel.spacing = 4
-    panel.backgroundColor = .systemBackground
+    panel.backgroundColor = skin.keyBackground
     panel.layer.cornerRadius = 18
     panel.isLayoutMarginsRelativeArrangement = true
     panel.layoutMargins = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
@@ -100,7 +77,7 @@ final class KeyboardSchemePickerView: UIView {
       row.heightAnchor.constraint(equalToConstant: 62).isActive = true
     }
 
-    for child in [close, tabs, settings, content] {
+    for child in [close, settings, content] {
       child.translatesAutoresizingMaskIntoConstraints = false
       addSubview(child)
     }
@@ -115,10 +92,6 @@ final class KeyboardSchemePickerView: UIView {
       settings.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
       settings.topAnchor.constraint(equalTo: topAnchor),
       settings.widthAnchor.constraint(equalToConstant: 44), settings.heightAnchor.constraint(equalToConstant: 44),
-      tabs.centerXAnchor.constraint(equalTo: centerXAnchor), tabs.centerYAnchor.constraint(equalTo: close.centerYAnchor),
-      tabs.widthAnchor.constraint(equalToConstant: 150), tabs.heightAnchor.constraint(equalToConstant: 30),
-      tabs.leadingAnchor.constraint(greaterThanOrEqualTo: close.trailingAnchor, constant: 8),
-      tabs.trailingAnchor.constraint(lessThanOrEqualTo: settings.leadingAnchor, constant: -8),
       content.topAnchor.constraint(equalTo: close.bottomAnchor),
       content.leadingAnchor.constraint(equalTo: leadingAnchor), content.trailingAnchor.constraint(equalTo: trailingAnchor),
       content.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -131,29 +104,6 @@ final class KeyboardSchemePickerView: UIView {
       panel.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
       panel.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
     ])
-    let showTab: (Bool) -> Void = { [weak content, weak scroll, weak keyboardTab, weak themeTab, weak self] showThemes in
-      guard let self, let content, let scroll, let keyboardTab, let themeTab else { return }
-      scroll.isHidden = showThemes
-      keyboardTab.backgroundColor = showThemes ? .clear : accent
-      themeTab.backgroundColor = showThemes ? accent : .clear
-      keyboardTab.setTitleColor(showThemes ? .label : onAccent, for: .normal)
-      themeTab.setTitleColor(showThemes ? onAccent : .label, for: .normal)
-      keyboardTab.accessibilityTraits = showThemes ? [.button] : [.button, .selected]
-      themeTab.accessibilityTraits = showThemes ? [.button, .selected] : [.button]
-      content.subviews.filter { $0 !== scroll }.forEach { $0.removeFromSuperview() }
-      if showThemes, let onSelectSkin {
-        let themes = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected,
-          showsHeader: false, onSelect: onSelectSkin, onClose: onClose)
-        themes.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(themes)
-        NSLayoutConstraint.activate([
-          themes.leadingAnchor.constraint(equalTo: content.leadingAnchor), themes.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-          themes.topAnchor.constraint(equalTo: content.topAnchor), themes.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
-      }
-    }
-    keyboardTab.addAction(UIAction { _ in showTab(false) }, for: .primaryActionTriggered)
-    themeTab.addAction(UIAction { _ in showTab(true) }, for: .primaryActionTriggered)
   }
 
   private func makeCard(title: String, glyph: String, badge: String, selected: Bool,
@@ -165,7 +115,7 @@ final class KeyboardSchemePickerView: UIView {
     if selected { card.accessibilityTraits.insert(.selected) }
     card.layer.cornerRadius = 13
     card.backgroundColor = selected ? accent.withAlphaComponent(0.10) : .clear
-    let color: UIColor = selected ? accent : .label
+    let color: UIColor = selected ? accent : skin.keyForeground
     let symbol = UILabel()
     symbol.text = glyph
     symbol.textAlignment = .center
@@ -180,7 +130,7 @@ final class KeyboardSchemePickerView: UIView {
     suffix.font = .systemFont(ofSize: 9, weight: .bold)
     suffix.textAlignment = .center
     suffix.textColor = color
-    suffix.backgroundColor = .systemBackground
+    suffix.backgroundColor = skin.keyBackground
     let label = UILabel()
     label.text = title
     label.textAlignment = .center
@@ -191,7 +141,7 @@ final class KeyboardSchemePickerView: UIView {
     label.textColor = color
     let check = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
     check.tintColor = accent
-    check.backgroundColor = .systemBackground
+    check.backgroundColor = skin.keyBackground
     check.layer.cornerRadius = 6
     check.isHidden = !selected
     for child in [symbol, suffix, label, check] {
@@ -220,7 +170,7 @@ final class KeyboardSchemePickerView: UIView {
   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
     super.traitCollectionDidChange(previousTraitCollection)
     for (label, selected) in glyphBorders {
-      label.layer.borderColor = (selected ? accent : UIColor.label).resolvedColor(with: traitCollection).cgColor
+      label.layer.borderColor = (selected ? accent : skin.keyForeground).resolvedColor(with: traitCollection).cgColor
     }
   }
 }

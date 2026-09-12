@@ -24,6 +24,14 @@ typedef NS_ENUM(NSInteger, MetasequoiaFrequencyAdjustmentMode) {
 @property(nonatomic, copy, readonly, nullable) NSString *commitText;
 @property(nonatomic, copy, readonly) NSString *preedit;
 @property(nonatomic, copy, readonly) NSArray<NSString *> *candidates;
+/// The dictionary key each candidate was found by, in the same order and of the same count. A wubi
+/// code shorter than four letters answers with the codes it can still become, and this is what says
+/// which keys single a candidate out.
+@property(nonatomic, copy, readonly) NSArray<NSString *> *candidateCodes;
+/// 候选词的英文释义,和候选同序等长;没有释义的那条是空串。
+/// Empty overall while candidate glosses are switched off, which is what a frontend that never
+/// shows them leaves them as.
+@property(nonatomic, copy, readonly) NSArray<NSString *> *candidateGlosses;
 /// Set when the key was handled but something behind it failed, such as a local input mode whose
 /// table is missing. Input stays usable, so a frontend reports this rather than failing.
 @property(nonatomic, copy, readonly, nullable) NSString *diagnosticText;
@@ -51,6 +59,9 @@ typedef NS_ENUM(NSInteger, MetasequoiaFrequencyAdjustmentMode) {
                       triggerCount:(NSInteger)triggerCount
                         linearStep:(NSInteger)linearStep;
 - (void)setWubiMixedPinyin:(BOOL)enabled;
+- (BOOL)setEnglishMixedCandidates:(BOOL)enabled;
+/// 打开后,每次快照都会带上候选词的英文释义。关闭时不会去碰英文词库。
+- (void)setCandidateGlossesEnabled:(BOOL)enabled;
 - (BOOL)suspendDictionarySession;
 - (BOOL)resumeDictionarySessionWithError:(NSError **)error NS_SWIFT_NAME(resumeDictionarySession());
 // Call on the session-owning thread. This token describes the current logical

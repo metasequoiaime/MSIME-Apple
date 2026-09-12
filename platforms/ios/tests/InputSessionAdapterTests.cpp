@@ -214,6 +214,40 @@ void TestRuntimeGenerationUpgrade(const std::filesystem::path &root)
     }
 }
 
+// A wubi candidate is reached by its own code, and an unfinished code answers with the codes it can
+// still become, so the frontend needs each candidate's code to say which keys single it out. The
+// words alone cannot carry that.
+void TestWubiCandidateCodes(const std::filesystem::path &root)
+{
+    std::filesystem::create_directories(root);
+    if (setenv("METASEQUOIA_IME_DATA_DIR", root.c_str(), 1) != 0)
+    {
+        throw std::runtime_error("Failed to set the wubi adapter test data directory.");
+    }
+    sqlite3 *database = nullptr;
+    Require(sqlite3_open((root / "msime.db").c_str(), &database) == SQLITE_OK, "Cannot create the wubi fixture.");
+    Require(sqlite3_exec(database,
+                         "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
+                         "INSERT INTO wubi86 VALUES('wq','你',10),('wqb','爷',20),('wqbb','父子',30)",
+                         nullptr, nullptr, nullptr) == SQLITE_OK,
+            "Cannot populate the wubi fixture.");
+    sqlite3_close(database);
+
+    metasequoia::apple::InputSessionAdapter adapter;
+    adapter.switch_to_wubi();
+    adapter.handle_character('w');
+    const auto snapshot = adapter.handle_character('q');
+    Require(snapshot.candidate_codes.size() == snapshot.candidates.size(),
+            "A candidate came back without the code it was found by.");
+    Require(!snapshot.candidates.empty() && snapshot.candidates.front() == "你" &&
+                snapshot.candidate_codes.front() == "wq",
+            "The wubi snapshot did not carry the code of the candidate that answered the typed code.");
+    const auto longer = std::find(snapshot.candidates.begin(), snapshot.candidates.end(), "爷");
+    Require(longer != snapshot.candidates.end() &&
+                snapshot.candidate_codes.at(static_cast<std::size_t>(longer - snapshot.candidates.begin())) == "wqb",
+            "A candidate reached by a longer code did not carry that code.");
+}
+
 int RunTest()
 {
     const std::filesystem::path dataDirectory =
@@ -590,6 +624,7 @@ int RunTest()
     }
 
     TestRuntimeGenerationUpgrade(dataDirectory / "upgrade");
+    TestWubiCandidateCodes(dataDirectory / "wubi");
     user_dictionary::close_default_user_database();
     std::filesystem::remove_all(dataDirectory);
     return 0;

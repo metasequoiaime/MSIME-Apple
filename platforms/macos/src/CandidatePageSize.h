@@ -6,18 +6,18 @@ namespace metasequoia::mac
 {
 constexpr size_t NormalizeCandidatePageSize(size_t value)
 {
-    return value == 5 || value == 7 || value == 9 ? value : 9;
+    return value >= 1 && value <= 9 ? value : 9;
 }
 
 constexpr size_t CandidatePageSizeForOptionIndex(size_t index)
 {
-    return index == 0 ? 5 : index == 1 ? 7 : 9;
+    return index < 9 ? index + 1 : 9;
 }
 
 constexpr size_t CandidatePageSizeOptionIndex(size_t pageSize)
 {
     pageSize = NormalizeCandidatePageSize(pageSize);
-    return pageSize == 5 ? 0 : pageSize == 7 ? 1 : 2;
+    return pageSize - 1;
 }
 } // namespace metasequoia::mac
 

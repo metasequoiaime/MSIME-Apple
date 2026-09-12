@@ -1,6 +1,8 @@
 import UIKit
+#if canImport(MLKitDigitalInkRecognition)
 @preconcurrency import MLKitDigitalInkRecognition
 @preconcurrency import MLKitCommon
+#endif
 
 private final class HandwritingDownloadFailure: @unchecked Sendable {
   private let lock = NSLock()
@@ -9,8 +11,15 @@ private final class HandwritingDownloadFailure: @unchecked Sendable {
   var error: Error? { lock.lock(); defer { lock.unlock() }; return storedError }
 }
 
+/// 手写识别。不含 Digital Ink SDK 的构建里，这里报告功能不可用。
+///
+/// The SDK has no arm64 simulator slice, so a simulator build on Apple Silicon leaves it out (see
+/// the Podfile). Everything above this type -- the canvas, the panel, the scheme -- is unchanged
+/// either way; the panel already drives itself off `isReady`, so a build without the SDK behaves
+/// like one whose model was never downloaded, and says so when asked to download.
 @MainActor
 final class HandwritingRecognizer {
+#if canImport(MLKitDigitalInkRecognition)
   init() {
     // ML Kit creates its download session while checking model availability, before download().
     _ = HandwritingDownloadSession.configureSharedContainer(InputSchemePreference.appGroupIdentifier)
@@ -74,6 +83,20 @@ final class HandwritingRecognizer {
     try Task.checkCancellation()
     return words
   }
+#else
+  private static let unavailable = NSError(domain: "MSIMEHandwriting", code: 5,
+    userInfo: [NSLocalizedDescriptionKey: "此版本不含手写识别，请使用真机版本"])
+
+  init() {}
+  func release() {}
+  var isReady: Bool { false }
+
+  func download(onProgress: (Double) -> Void) async throws { throw Self.unavailable }
+
+  func recognize(_ strokes: [[CGPoint]], width: Double, height: Double) async throws -> [String] {
+    throw Self.unavailable
+  }
+#endif
 }
 
 final class HandwritingCanvas: UIView {
@@ -213,6 +236,7 @@ final class HandwritingInputView: UIView {
     accessibilityIdentifier = "handwritingInput"
     let column = UIStackView(); column.axis = .vertical; column.spacing = 4
     let scroll = UIScrollView(); scroll.showsHorizontalScrollIndicator = false
+    scroll.disableEdgeEffects()
     candidates.axis = .horizontal; candidates.spacing = 8
     status.font = .systemFont(ofSize: 12); status.text = "一次写一个字，停笔后选字"; status.accessibilityIdentifier = "handwritingStatus"
     candidates.addArrangedSubview(status)
