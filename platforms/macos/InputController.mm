@@ -215,6 +215,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_glossRequest;
     uint64_t _glossEpoch;
     NSNumber *_glossEnabled;
+    NSString *_glossTargetLanguage;
 }
 
 - (void)cancelCandidateGloss {
@@ -225,9 +226,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)currentGlossRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    if (_glossTargetLanguage && ![_glossTargetLanguage isEqual:@"en"]) return nil;
     NSDictionary *query = [_session translationQueryWithError:nil];
-    if (!query) return nil;
+    if (!query || ![query[@"target_language"] isEqual:@"en"]) return nil;
     NSDictionary *view = [_session viewWithError:nil];
+    // Windows suppresses candidate translations in Japanese, including a
+    // temporary Japanese composition whose view retains its original scheme.
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
@@ -779,11 +784,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id glossEnabled = preferences[@"candidate_translations"];
     if ([glossEnabled isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)glossEnabled) == CFBooleanGetTypeID()) {
         _glossEnabled = glossEnabled;
-        if (!_glossEnabled.boolValue) {
-            [self cancelCandidateGloss];
-            NSDictionary *view = [_session viewWithError:nil];
-            if (view) [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
-        }
+    }
+    id target = preferences[@"translation_target_language"];
+    if ([@[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"] containsObject:target]) _glossTargetLanguage = target;
+    if ((_glossEnabled && !_glossEnabled.boolValue) || (_glossTargetLanguage && ![_glossTargetLanguage isEqual:@"en"])) {
+        [self cancelCandidateGloss];
+        NSDictionary *view = [_session viewWithError:nil];
+        if (view) [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     }
     id pageSize = preferences[@"candidate_page_size"];
     if ([pageSize isKindOfClass:NSNumber.class] &&
