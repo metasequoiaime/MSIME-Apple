@@ -51,7 +51,7 @@ pub fn tencent_tc3_authorization(
         "TC3-HMAC-SHA256\n{timestamp}\n{scope}\n{}",
         tencent_tc3_sha256_hex(canonical.as_bytes())
     );
-    let signature = tencent_tc3_derive(secret_key, &date, "tmt", &string_to_sign);
+    let signature = tencent_tc3_derive(secret_key, date, "tmt", &string_to_sign);
     format!("TC3-HMAC-SHA256 Credential={secret_id}/{scope}, SignedHeaders=content-type;host;x-tc-action, Signature={signature}")
 }
 
@@ -82,16 +82,31 @@ pub fn tencent_tmt_headers(
     ]
 }
 
+/// One signed Tencent TMT call: the credentials, the region they are scoped to
+/// and the moment the signature covers.
+pub struct TencentTmtRequest<'a> {
+    pub secret_id: &'a str,
+    pub secret_key: &'a str,
+    pub region: &'a str,
+    pub timestamp: i64,
+    pub date: &'a str,
+    pub source: &'a str,
+    pub target: &'a str,
+}
+
 pub fn translate_tencent_batch(
-    secret_id: &str,
-    secret_key: &str,
-    region: &str,
-    timestamp: i64,
-    date: &str,
-    source: &str,
-    target: &str,
+    request_info: &TencentTmtRequest<'_>,
     texts: &[String],
 ) -> Vec<Option<String>> {
+    let TencentTmtRequest {
+        secret_id,
+        secret_key,
+        region,
+        timestamp,
+        date,
+        source,
+        target,
+    } = *request_info;
     let results = vec![None; texts.len()];
     let Some(payload) = tencent_tmt_payload(source, target, texts) else {
         return results;
