@@ -222,6 +222,7 @@ struct State {
   bool voice_requires_control = false;
   uint64_t voice_generation = 0;
   std::string voice_preedit;
+  std::string voice_transcript;
   std::string voice_phase = "正在录音…";
   std::optional<unsigned> voice_level;
   std::shared_ptr<std::atomic_bool> alive =
@@ -301,6 +302,7 @@ struct State {
     voice_active = false;
     voice_generation = 0;
     voice_preedit.clear();
+    voice_transcript.clear();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
     voice_space_consumed = false;
@@ -2245,6 +2247,19 @@ void render(IBusEngine *engine, const Json &view) {
         feedback += index < *state(engine).voice_level ? "▰" : "▱";
       feedback += "]";
     }
+    if (!state(engine).voice_transcript.empty()) {
+      const auto &transcript = state(engine).voice_transcript;
+      const auto length = g_utf8_strlen(transcript.c_str(), -1);
+      const auto *tail = g_utf8_offset_to_pointer(
+          transcript.c_str(), std::max<glong>(0, length - 160));
+      std::string preview(tail);
+      for (auto &character : preview)
+        if (character == '\r' || character == '\n' || character == '\t')
+          character = ' ';
+      feedback += "\n";
+      if (length > 160) feedback += "…";
+      feedback += preview;
+    }
     ibus_engine_update_auxiliary_text(engine,
         ibus_text_new_from_string(feedback.c_str()), TRUE);
     return;
@@ -2388,6 +2403,7 @@ struct VoiceResult {
   bool final = true;
   unsigned level = 0;
   bool provider_failed = false;
+  bool inline_preedit = false;
 };
 struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
@@ -2470,6 +2486,7 @@ void voice_cancel(IBusEngine *engine) {
   s.voice_level.reset();
   s.voice_generation = 0;
   s.voice_preedit.clear();
+  s.voice_transcript.clear();
   s.voice_space_locked = false;
   s.voice_worker.cancel_async();
   if (s.session)
@@ -2604,10 +2621,11 @@ void voice_start_impl(IBusEngine *engine) {
       },
       [engine, alive, generation,
        stream_inline_preedit](std::string text, bool final) {
-        if (!stream_inline_preedit || final || text.empty())
+        if (final || text.empty())
           return;
         auto *result = new VoiceResult{engine, alive, generation,
                                        std::move(text), false};
+        result->inline_preedit = stream_inline_preedit;
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
@@ -2618,12 +2636,15 @@ void voice_start_impl(IBusEngine *engine) {
               if (!s.voice_active || s.voice_generation != result->generation ||
                   !s.session || !s.focused || s.blocked || !s.input_enabled)
                 return G_SOURCE_REMOVE;
-              s.voice_preedit = msime_voice_bound_result(std::move(result->text));
-              ibus_engine_update_preedit_text_with_mode(
-                  result->engine,
-                  ibus_text_new_from_string(s.voice_preedit.c_str()),
-                  static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
-                  TRUE, IBUS_ENGINE_PREEDIT_CLEAR);
+              auto text = msime_voice_bound_result(std::move(result->text));
+              if (result->inline_preedit) {
+                s.voice_preedit = std::move(text);
+                s.voice_transcript.clear();
+              } else {
+                s.voice_transcript = std::move(text);
+                s.voice_preedit.clear();
+              }
+              render(result->engine, s.view);
               return G_SOURCE_REMOVE;
             },
             result, nullptr);
@@ -2648,6 +2669,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_active = false;
                   s.voice_generation = 0;
                   s.voice_preedit.clear();
+                  s.voice_transcript.clear();
                   s.voice_space_locked = false;
                   render(result->engine, s.view);
                   publish_mode(result->engine);
@@ -2664,6 +2686,7 @@ void voice_start_impl(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_transcript.clear();
                 s.voice_space_locked = false;
                 if (applied.is_string()) {
                   auto text = traditional_display(
@@ -2680,6 +2703,7 @@ void voice_start_impl(IBusEngine *engine) {
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
+                s.voice_transcript.clear();
                 s.voice_space_locked = false;
                 msime_client_string_free(msime_client_voice_cancel(s.session));
                 render(result->engine, s.view);
