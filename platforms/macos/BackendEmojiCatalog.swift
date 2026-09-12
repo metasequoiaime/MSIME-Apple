@@ -51,7 +51,7 @@ enum MacEmojiCatalog {
     return groups
   }
 
-  private static func request(resources: String, parameters: [String: Any]) throws -> NSDictionary {
+  static func request(resources: String, parameters: [String: Any]) throws -> NSDictionary {
     let selector = NSSelectorFromString("emojiCatalogRequest:")
     var payload = parameters
     payload["resources"] = resources
