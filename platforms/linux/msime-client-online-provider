@@ -81,6 +81,27 @@ def ai_prompt(options):
     return prompt
 
 
+def select_ai_config(config, query):
+    options = query.get("ai_assistant")
+    if not isinstance(options, dict) or not options.get("enabled") or not query.get("ai_eligible"):
+        return None
+    provider = options.get("provider")
+    if not isinstance(provider, str):
+        return None
+    if config.get("provider") == provider:
+        return config
+    return config.get("profiles", {}).get(provider)
+
+
+def configured_ai(query, path):
+    # Do not touch the private file when this query cannot request AI.
+    options = query.get("ai_assistant")
+    if not path or not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
+        return None
+    config = load_ai_config(path)
+    return ai(query, select_ai_config(config, query))
+
+
 def ai(query, config):
     options = query.get("ai_assistant")
     if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
@@ -271,7 +292,7 @@ class Handler(socketserver.StreamRequestHandler):
             # Fetch independently so a failed AI response still preserves cloud.
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 jobs = [pool.submit(safely, cloud, query),
-                        pool.submit(safely, ai, query, self.server.ai_config)]
+                        pool.submit(safely, configured_ai, query, self.server.ai_config_path)]
                 rows = [result for job in jobs if (result := job.result()) is not None]
             self.wfile.write(json.dumps({"candidates": rows}, ensure_ascii=False).encode() + b"\n")
         except Exception:
@@ -302,28 +323,58 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         pass
 
 
+def load_ai_config(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as source:
+        info = os.fstat(source.fileno())
+        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+            raise ValueError("invalid private configuration")
+        raw = source.read(16385)
+        after = os.fstat(source.fileno())
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns, value.st_mode, value.st_uid)
+        if len(raw) > 16384 or identity(info) != identity(after):
+            raise ValueError("invalid private configuration")
+    config = json.loads(raw.decode("utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError("invalid AI configuration")
+    profiles = config.get("profiles", {})
+    if not isinstance(profiles, dict) or len(profiles) > 16:
+        raise ValueError("invalid AI profiles")
+    entries = [config] if "provider" in config else []
+    for provider, entry in profiles.items():
+        if (not isinstance(provider, str) or not provider or len(provider) > 64
+                or not isinstance(entry, dict) or entry.get("provider", provider) != provider
+                or config.get("provider") == provider):
+            raise ValueError("invalid AI profile")
+        entry["provider"] = provider
+        entries.append(entry)
+    if not entries:
+        raise ValueError("missing AI configuration")
+    for entry in entries:
+        if any(not isinstance(entry.get(key), str) or not entry[key].strip()
+               for key in ("provider", "endpoint", "model", "token")):
+            raise ValueError("invalid AI configuration")
+        token = entry["token"]
+        if token.startswith(("<", "FAKESECRET_")) or any(ord(c) < 33 or ord(c) > 126 for c in token):
+            raise ValueError("invalid AI credential")
+        url = urllib.parse.urlsplit(entry["endpoint"])
+        if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
+            raise ValueError("invalid AI endpoint")
+    return config
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("socket", type=Path, help="absolute socket path in a private runtime directory")
-    parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider, endpoint, model, token")
+    parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider/endpoint/model/token and optional profiles by provider")
     parser.add_argument("--tencent-config", type=Path, help="owner-only JSON: secret_id, secret_key, optional region")
     args = parser.parse_args()
-    config = {}
     if args.ai_config:
-        info = args.ai_config.stat()
-        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
-            parser.error("AI configuration must be an owner-only regular file")
-        if info.st_size > 16384:
-            parser.error("AI configuration is too large")
         try:
-            config = json.loads(args.ai_config.read_text())
-            if any(not isinstance(config.get(k), str) or not config[k] for k in ("provider", "endpoint", "model", "token")):
-                raise ValueError()
-            url = urllib.parse.urlsplit(config["endpoint"])
-            if url.scheme != "https" or not url.hostname or url.username or url.password:
-                raise ValueError()
+            load_ai_config(args.ai_config)
         except Exception:
-            parser.error("invalid AI configuration")
+            parser.error("AI configuration must be valid owner-only JSON")
     tencent_config = {}
     if args.tencent_config:
         try:
@@ -360,7 +411,7 @@ def main():
     except Exception:
         os.close(service_lock)
         raise
-    server.ai_config = config
+    server.ai_config_path = args.ai_config.absolute() if args.ai_config else None
     server.tencent_config = tencent_config
     server.translation_cache = {}
     server.translation_lock = threading.Lock()
