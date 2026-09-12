@@ -574,7 +574,7 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
   const [query, setQuery] = useState("");
   const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
     try {
-      const value: unknown = JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
+      const value: unknown = typeof window === "undefined" ? null : JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
       return Array.isArray(value) ? value.filter(item => item && typeof item.text === "string" && Array.isArray(item.keywords)).slice(0, 28) as EmojiCatalogItem[] : [];
     } catch { return []; }
   });
