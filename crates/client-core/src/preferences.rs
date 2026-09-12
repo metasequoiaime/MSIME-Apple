@@ -233,8 +233,6 @@ pub struct VoiceInputPreferences {
     pub polish_prompt_custom_2: String,
     #[serde(default)]
     pub polish_prompt_custom_3: String,
-    #[serde(default)]
-    pub stream_inline_preedit: bool,
     #[serde(default = "enabled_by_default")]
     pub hotkey_ralt: bool,
     #[serde(default)]
@@ -283,7 +281,6 @@ impl Default for VoiceInputPreferences {
             polish_prompt_custom_1: String::new(),
             polish_prompt_custom_2: String::new(),
             polish_prompt_custom_3: String::new(),
-            stream_inline_preedit: false,
             hotkey_ralt: true,
             hotkey_ctrl_win: false,
             hotkey_rctrl_ralt: false,
