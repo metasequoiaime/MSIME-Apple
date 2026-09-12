@@ -594,7 +594,9 @@ export function EmojiPanel({ client }: { client: EmojiPanelClient }) {
 
   useEffect(() => {
     if (!client.loadCatalog) return;
-    void client.loadCatalog().then(setCatalog).catch(() => setNotice("目录不可用，已使用内置目录"));
+    let active = true;
+    void client.loadCatalog().then(next => { if (active) setCatalog(next); }).catch(() => { if (active) setNotice("目录不可用，已使用内置目录"); });
+    return () => { active = false; };
   }, [client]);
 
   useEffect(() => {
