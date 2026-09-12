@@ -30,12 +30,24 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) BOOL autocorrect;
+// Legacy fallback for both schemes; setting it explicitly still sets both.
 @property(nonatomic) BOOL helpcodeEnabled;
+@property(nonatomic) BOOL quanpinHelpcodeEnabled;
+@property(nonatomic) BOOL shuangpinHelpcodeEnabled;
+- (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
+- (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
 /// Cache shared visibility without emitting a local-save notification.
 - (void)applySharedToolbarVisibility:(BOOL)enabled;
+- (BOOL)localModeEnabled:(NSString *)mode;
+- (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled;
+/// Refresh shared state without emitting a local-save notification.
+- (void)applySharedLocalModes:(NSDictionary *)modes;
+/// Cache input choices from shared storage without saving them back.
+- (void)applySharedInputPreferences:(NSDictionary *)preferences;
+- (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 // 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
 @property(nonatomic) NSInteger pageShortcut;
 @end

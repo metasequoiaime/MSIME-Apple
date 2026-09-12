@@ -1,11 +1,40 @@
 //! Installed family names only; never expose font files or paths to the webview.
 pub fn supported() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", target_os = "linux"))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn list() -> Result<Vec<String>, &'static str> {
     Err("unsupported")
+}
+
+#[cfg(target_os = "linux")]
+pub fn list() -> Result<Vec<String>, &'static str> {
+    use std::collections::BTreeSet;
+    use std::process::Command;
+
+    const MAX_FAMILIES: usize = 16_384;
+    const MAX_BYTES: usize = 128;
+    let output = Command::new("fc-list")
+        .args([":", "family"])
+        .output()
+        .map_err(|_| "font_catalog")?;
+    if !output.status.success() || output.stdout.len() > 8 * 1024 * 1024 {
+        return Err("font_catalog");
+    }
+    let mut names = BTreeSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        for family in line.split(',') {
+            let family = family.trim();
+            if !family.is_empty() && family.len() <= MAX_BYTES {
+                names.insert(family.to_owned());
+            }
+            if names.len() > MAX_FAMILIES {
+                return Err("font_catalog_limit");
+            }
+        }
+    }
+    Ok(names.into_iter().collect())
 }
 
 #[cfg(target_os = "macos")]

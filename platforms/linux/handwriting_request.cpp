@@ -1,47 +1,26 @@
 #include "msime_client.h"
+#include "LocalResourcePaths.h"
 
 #include <array>
-#include <cstdlib>
-#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 
-namespace {
-std::string default_model_path(const char *program) {
-  if (const char *configured = std::getenv("MSIME_HANDWRITING_MODEL");
-      configured && *configured)
-    return configured;
-  std::error_code error;
-  const auto executable = std::filesystem::absolute(program, error);
-  if (error)
-    return {};
-  return (executable.parent_path().parent_path() /
-          "share/msime-client/handwriting/handwriting-zh_CN.model")
-      .string();
-}
-} // namespace
-
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-handwriting [--local] <socket-or-model>\n";
+    std::cout << "Usage: msime-client-handwriting [--local [model]] <provider-socket>\n";
     return 0;
   }
   const bool local = argc >= 2 && std::string(argv[1]) == "--local";
   const bool provider = !local && argc == 2;
   if ((!local && !provider) || (provider && argv[1][0] != '/'))
     return 2;
-  std::string endpoint;
-  if (local) {
-    if (argc > 3)
-      return 2;
-    endpoint = argc == 3 ? argv[2] : default_model_path(argv[0]);
-    if (endpoint.empty() || endpoint[0] != '/')
-      return 2;
-  } else {
-    endpoint = argv[1];
-  }
+  const std::string endpoint = local
+      ? (argc == 3 ? argv[2] : msime_linux::local_resource("MSIME_HANDWRITING_MODEL", "msime-client/handwriting/handwriting-zh_CN.model"))
+      : argv[1];
+  if (endpoint.empty() || endpoint[0] != '/')
+    return 2;
   std::array<char, 262145> buffer;
   std::cin.read(buffer.data(), buffer.size());
   const auto length = static_cast<size_t>(std::cin.gcount());

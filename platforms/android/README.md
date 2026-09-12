@@ -16,7 +16,7 @@
 
 工具栏“空格”支持轻点选词或插入空格，也可左右滑动向编辑器发送有界方向键事件以移动光标。滑动开始时先完成 Engine 组合，距离累积器绑定当前 `InputConnection` 身份；输入目标变化、手势取消、非有限坐标或异常跳变都会终止移动，不读取或持久化编辑器文本。
 
-键盘工具栏的“设置”面板以固定来源 `MSIME-Apple@2b0250f` 复刻 Apple 的按键间距、行间距和顶部语音入口控制：间距分别支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 偏好。拖动时只更新 Android 键位 margin，不重建 Engine 或丢失当前组词；松手及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。26 键、全拼九键、日语九键和手写工具键消费同一几何设置。
+键盘工具栏的“设置”面板在保留已迁移的间距和 Android 语音入口基础上，以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 增加键盘高度调节。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；26 键三行均分增量，九键整体增减，手写把增量用于书写与工具区。间距仍分别支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍调节及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。
 
 语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。系统识别器可用性、Activity 返回后的键盘恢复和真实编辑器插入仍需设备产品验收。
 
@@ -28,7 +28,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 “高情商回复”是独立 Android 宿主方案，底层固定映射到 Engine 的全拼 26 键，不向共享输入算法增加 AI 状态。选中后显示覆盖整个 IME 区域的专用键盘：顶部提供“帮你回/帮润色”、输入方案、社区模板、四种共享皮肤和收起入口；正文通过用户明确点按读取当前文本剪贴板，限制 10,000 个 Unicode 码点，并提供九种内置风格、删除、清空、取消、生成和同风格“换一句”。回复请求复用 AI 润色的 HTTPS transport、容量 1 队列、取消和 1 MiB 响应边界，但每次使用 Apple 对应风格 prompt；候选去重、最新在前且最多三条，服务结果绝不自动上屏，只有点按候选且 InputConnection、光标上下文、Engine 空闲状态、当前方案和完整 AI 配置仍匹配时才插入。插入后面板让出编辑器，候选栏“回复”入口可重新打开。切换模式、修改源文字、切换方案、编辑器上下文或 AI 配置变化都会取消请求并废弃迟到结果。
 
-社区回复模板只从应用私有 files 目录的 `CommunityLibrary.json` 读取，该文件用于主应用向独立 `:ime` 进程显式共享已收藏资源，不包含凭据或源消息。读取拒绝符号链接、非 UTF-8/非法 JSON、超过 4,000,000 字节、超过 50 项或无效字段，仅展示 `kind == reply` 且含 prompt 的条目；发起请求时重新读取，已移除模板不会复用。方案卡片提供启用/禁用“高情商回复”，禁用当前方案立即回退全拼；宿主选择保存在 IME 私有偏好中，共享 PreferencesStore 继续只保存 Engine 可理解的方案与触屏布局。真实 provider、剪贴板系统限制、不同聊天编辑器插入、皮肤菜单和进程重建仍需 Android 原生产品验收。
+社区回复模板只从应用私有 files 目录的 `CommunityLibrary.json` 读取，该文件用于主应用向独立 `:ime` 进程显式共享已收藏资源，不包含凭据或源消息。读取拒绝符号链接、非 UTF-8/非法 JSON、超过 4,000,000 字节、超过 50 项或无效字段，仅展示 `kind == reply` 且含 prompt 的条目；发起请求时重新读取，已移除模板不会复用。高情商回复与其他触屏输入方案统一由共享 `touch_keyboard_schemes` 管理可见性和选择；只有旧快照尚无该字段时，原 IME 私有开关与选择才作为迁移兼容来源。真实 provider、剪贴板系统限制、不同聊天编辑器插入、皮肤菜单和进程重建仍需 Android 原生产品验收。
 
 候选区独立显示当前组合文本、当前页和候选按钮；Engine 候选超过当前页容量时显示展开入口。用户打开面板后，宿主通过按需 host API 一次复制当前 generation 的完整 Engine 候选，在顶部显示 preedit、候选总数和收起入口，候选 chip 按实际测量宽度自动换行且不绘制序号；全局序号只保留在无障碍描述中。展开面板没有分页按钮，点按页外候选通过独立的全代次选择 API 交回 Engine。普通候选栏继续使用分页 `View` 和当前页选择边界，每次按键不会携带完整列表；两条选择路径都校验 session、generation 和全局索引，宿主不复制候选算法或组合状态。
 
@@ -38,7 +38,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 “更多”工具页的“本地输入”分组接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，按 Apple 顺序提供 Unicode、日期时间、超级简拼、快捷短语、英文补全、表情、颜文字和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。
 
-键盘工具栏提供与 Apple 方案卡片对应的输入方案面板，当前展示全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 26 键、日语 9 键、手写和高情商回复。切换前先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 保存 `scheme`、`last_chinese_scheme`、`shuangpin_profile` 和平台无关的 `touch_keyboard_layout`，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认 26 键，桌面宿主只往返该布局值而不消费触屏展示；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
+键盘工具栏与 Android 设置按 Apple 固定顺序共享全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 9 键、日语 26 键、手写和高情商回复。`touch_keyboard_schemes.enabled` 控制快捷切换中可见的卡片并至少保留一种，`selected` 保存当前方案；隐藏当前方案时按固定顺序回退到第一种可见方案，设置与输入法进程重启后继续生效。键盘内切换先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 同步 `scheme`、`last_chinese_scheme`、`shuangpin_profile`、平台无关的 `touch_keyboard_layout` 及嵌套方案选择，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认全部可见和 26 键，并在第一次键盘内切换时迁移；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
 
 全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点、删除、重输和数字 0 分区，并显示 Engine 返回的拼音消歧条。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。
 
@@ -115,6 +115,8 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 独立 instrumentation 读取编辑器与输入法的交互窗口，等待窗口稳定后重新定位并注入触摸，断言“你好”提交、退格、“直接输入”状态和密码框字符长度；不记录编辑器原文。普通 uiautomator dump 只用于准备 Activity，不能用它缺少输入法节点推断键盘未显示。APK fixture 不随产品打包。
 
 同一 smoke 脚本还执行同开发签名的 PreferencesDeviceSmoke，instrumentation 以预览应用为目标，直接在其私有测试目录原子发布合成设置，无需给产品增加导出的测试写接口。目标进程重启后重新绑定专用 AVD 的 IME；测试组词延迟、提交保留、页大小与标点生效、损坏文件保护以及恢复重试。结束时恢复原偏好文件（原本不存在则删除测试文件），不清空资源和用户数据。该测试必须经专用 AVD 检查的 smoke 脚本执行，不安装在个人设备。
+
+KeyboardHeightDeviceSmoke 通过键盘内真实无障碍调节动作验证 -12、0 和 +48 dp 档位：正负调整必须改变实际字母键边界，调节和保存期间已有 Engine 组合不得丢失，保存值在 IME 进程重启后必须继续生效。`--settings` 还让 SettingsDeviceSmoke 在真实 React WebView 中修改并保存同一高度字段，再由独立输入法进程消费；两项测试结束时都恢复原偏好文件。
 
 共享核心单元测试也可在该 AVD 实际执行（从仓库根运行，以下工具链为 macOS 主机）：
 

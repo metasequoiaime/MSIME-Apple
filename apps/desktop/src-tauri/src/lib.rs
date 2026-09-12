@@ -6,14 +6,18 @@ use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+// The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(unix)]
-use msime_input_runtime::{HandwritingPoint, HandwritingQuery, UnixSocketProvider};
+use msime_input_runtime::UnixSocketProvider;
+use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
 #[cfg(unix)]
 use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
@@ -467,11 +471,11 @@ async fn cloud_clipboard_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_clipboard(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -521,11 +525,11 @@ async fn cloud_dictionary_request(
                 .ok_or(CommandError {
                     code: "unavailable",
                 })?;
-            return UnixSocketProvider::new(path)
+            UnixSocketProvider::new(path)
                 .cloud_dictionary(action)
                 .ok_or(CommandError {
                     code: "unavailable",
-                });
+                })
         }
         #[cfg(not(unix))]
         {
@@ -855,7 +859,40 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0x0d => 28,
         0x20 => 57,
         0x2e => 111,
+        0x13 => 119,
+        0x10 => 42,
+        0x11 => 29,
+        0x12 => 56,
+        0xa1 => 54,
+        0xa3 => 97,
+        0xa5 => 100,
         0x14 => 58,
+        0x1b => 1,
+        0x21 => 104,
+        0x22 => 109,
+        0x23 => 107,
+        0x24 => 102,
+        0x25 => 105,
+        0x26 => 103,
+        0x27 => 106,
+        0x28 => 108,
+        0x2c => 99,
+        0x2d => 110,
+        0x5b => 125,
+        0x5c => 126,
+        0x5d => 127,
+        0x70..=0x79 => virtual_key - 0x70 + 59,
+        0x7a => 87,
+        0x7b => 88,
+        0x60..=0x69 => [82, 79, 80, 81, 75, 76, 77, 71, 72, 73][(virtual_key - 0x60) as usize],
+        0x6a => 55,
+        0x6b => 78,
+        0x6c => 121,
+        0x6d => 74,
+        0x6e => 83,
+        0x6f => 98,
+        0x90 => 69,
+        0x91 => 70,
         0xc0 => 41,
         0xbd => 12,
         0xbb => 13,
@@ -867,6 +904,7 @@ fn ydotool_key_code(virtual_key: u16) -> Option<u16> {
         0xbc => 51,
         0xbe => 52,
         0xbf => 53,
+        0xe2 => 86,
         0x30 => 11,
         0x31 => 2,
         0x32 => 3,
@@ -931,7 +969,38 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0x0d => "Return",
         0x20 => "space",
         0x2e => "Delete",
+        0x13 => "Pause",
+        0x10 => "Shift_L",
+        0x11 => "Control_L",
+        0x12 => "Alt_L",
+        0xa1 => "Shift_R",
+        0xa3 => "Control_R",
+        0xa5 => "Alt_R",
         0x14 => "Caps_Lock",
+        0x1b => "Escape",
+        0x21 => "Prior",
+        0x22 => "Next",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x2c => "Print",
+        0x2d => "Insert",
+        0x5b => "Super_L",
+        0x5c => "Super_R",
+        0x5d => "Menu",
+        0x60..=0x69 => return Some(format!("KP_{}", virtual_key - 0x60)),
+        0x6a => "KP_Multiply",
+        0x6b => "KP_Add",
+        0x6c => "KP_Separator",
+        0x6d => "KP_Subtract",
+        0x6e => "KP_Decimal",
+        0x6f => "KP_Divide",
+        0x90 => "Num_Lock",
+        0x91 => "Scroll_Lock",
+        0x70..=0x7b => return Some(format!("F{}", virtual_key - 0x70 + 1)),
         0xc0 => "grave",
         0xbd => "minus",
         0xbb => "equal",
@@ -943,6 +1012,7 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
         0xbc => "comma",
         0xbe => "period",
         0xbf => "slash",
+        0xe2 => "less",
         0x30..=0x39 => return char::from_u32(virtual_key as u32).map(|value| value.to_string()),
         0x41..=0x5a => {
             return char::from_u32(virtual_key as u32)
@@ -1359,93 +1429,101 @@ async fn recognize_handwriting(
     request.validate().map_err(|_| HostActionError {
         code: "invalid_stroke",
     })?;
-    // Recognition runs through the unix provider socket; other hosts answer
-    // unavailable rather than pretending to recognize.
-    #[cfg(not(unix))]
-    let _ = options;
-    #[cfg(unix)]
-    {
-        let query = HandwritingQuery {
-            language: request.language,
-            strokes: request
-                .strokes
-                .into_iter()
-                .map(|stroke| {
-                    stroke
-                        .points
-                        .into_iter()
-                        .map(|point| HandwritingPoint {
-                            x: point.x,
-                            y: point.y,
-                        })
-                        .collect()
-                })
-                .collect(),
-        };
-        let path = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map(|path| (path, true));
-        let configured = serde_json::from_str::<Value>(&options.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("handwriting_model")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute());
-        let model = configured
-            .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(std::path::PathBuf::from))
-            .or_else(|| {
-                std::env::current_exe().ok().and_then(|exe| {
-                    exe.parent()?.parent().map(|prefix| {
-                        prefix.join("share/msime-client/handwriting/handwriting-zh_CN.model")
+    let query = HandwritingQuery {
+        language: request.language,
+        strokes: request
+            .strokes
+            .into_iter()
+            .map(|stroke| {
+                stroke
+                    .points
+                    .into_iter()
+                    .map(|point| HandwritingPoint {
+                        x: point.x,
+                        y: point.y,
                     })
-                })
+                    .collect()
             })
-            .filter(|path| path.is_absolute() && path.is_file());
-        let candidates = if let Some((path, _)) = path {
-            tauri::async_runtime::spawn_blocking(move || {
-                UnixSocketProvider::new(path).handwriting(query)
-            })
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-        } else if let Some(model) = model {
-            tauri::async_runtime::spawn_blocking(move || {
-                msime_host_api::handwriting_local_candidates(
-                    model.to_str().unwrap_or_default(),
-                    &query,
-                )
-            })
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-        } else {
-            return Err(HostActionError {
-                code: "unavailable",
-            });
-        };
+            .collect(),
+    };
+    let model = packaged_handwriting_model(&options.0);
+    // A user-managed socket owns recognizer and model policy where one is
+    // configured; otherwise the Engine's packaged recognizer answers, which is
+    // the only path hosts without unix sockets have.
+    #[cfg(unix)]
+    let socket = std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute());
+    #[cfg(unix)]
+    if let Some(path) = socket {
+        let candidates = tauri::async_runtime::spawn_blocking(move || {
+            UnixSocketProvider::new(path).handwriting(query)
+        })
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
         let result = HandwritingRecognitionResult { candidates };
         result.validate().map_err(|_| HostActionError {
             code: "invalid_stroke",
         })?;
         return Ok(result);
     }
-    #[cfg(not(unix))]
-    Err(HostActionError {
-        code: "unavailable",
+    let Some(model) = model else {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    };
+    let candidates = tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::handwriting_local_candidates(model.to_str().unwrap_or_default(), &query)
     })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let result = HandwritingRecognitionResult { candidates };
+    result.validate().map_err(|_| HostActionError {
+        code: "invalid_stroke",
+    })?;
+    Ok(result)
+}
+
+/// Locate the Engine's packaged handwriting model: the host options first, then
+/// an explicit override, then the layouts the installers produce. Only an
+/// absolute path to a file that exists is accepted, so a stale setting cannot
+/// send strokes at something else.
+fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
+    serde_json::from_str::<Value>(host_options)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("handwriting_model")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let directory = exe.parent()?;
+            // Beside the executable, as the Windows package stages it, and one
+            // prefix up, as the unix install lays it out.
+            [
+                directory.join("handwriting/handwriting-zh_CN.model"),
+                directory
+                    .parent()?
+                    .join("share/msime-client/handwriting/handwriting-zh_CN.model"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file())
+        })
+        .filter(|path| path.is_absolute() && path.is_file())
 }
 
 #[derive(serde::Deserialize)]
@@ -1516,6 +1594,30 @@ fn voice_provider_options(document: &Value) -> Value {
     Value::Object(options)
 }
 
+#[cfg(unix)]
+fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::path::PathBuf> {
+    document
+        .get("voice_provider_socket")
+        .and_then(serde_json::Value::as_str)
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+        })
+        .or_else(|| {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(std::path::PathBuf::from)
+                .map(|dir| dir.join("msime-client/voice.sock"))
+                .filter(|path| {
+                    path.metadata()
+                        .map(|metadata| metadata.file_type().is_socket())
+                        .unwrap_or(false)
+                })
+        })
+}
+
 #[tauri::command]
 async fn recognize_voice(
     app: tauri::AppHandle,
@@ -1547,20 +1649,9 @@ async fn recognize_voice(
             .map(|document| document.clone())
             .unwrap_or(Value::Null);
         let provider_options = voice_provider_options(&document);
-        let configured = document
-            .get("voice_provider_socket")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let path = configured
-            .or_else(|| {
-                std::env::var_os("MSIME_VOICE_PROVIDER_SOCKET")
-                    .and_then(|value| value.into_string().ok())
-            })
-            .map(std::path::PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
+        let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
+            code: "unavailable",
+        })?;
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let session = sessions
             .begin(request.request_id, path)
@@ -1599,7 +1690,7 @@ async fn recognize_voice(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        return Ok(VoiceRecognitionResult { text });
+        Ok(VoiceRecognitionResult { text })
     }
     #[cfg(not(unix))]
     {
@@ -2131,6 +2222,13 @@ fn linux_clipboard_text() -> Result<String, HostActionError> {
                 .ok()
                 .filter(|output| output.status.success())
         })
+        .or_else(|| {
+            std::process::Command::new("xsel")
+                .args(["--clipboard", "--output"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+        })
         .ok_or(HostActionError {
             code: "unavailable",
         })?;
@@ -2162,14 +2260,21 @@ fn write_linux_clipboard(text: &str) -> bool {
             return true;
         }
     }
-    let Ok(child) = std::process::Command::new("xclip")
+    if let Ok(child) = std::process::Command::new("xclip")
         .args(["-selection", "clipboard"])
         .stdin(std::process::Stdio::piped())
         .spawn()
-    else {
-        return false;
-    };
-    write_with(child, text)
+    {
+        if write_with(child, text) {
+            return true;
+        }
+    }
+    std::process::Command::new("xsel")
+        .args(["--clipboard", "--input"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map(|child| write_with(child, text))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "linux")]
@@ -2575,6 +2680,42 @@ mod tests {
         assert_eq!(super::requested_settings_page(Some("About")), None);
         assert_eq!(super::requested_settings_page(Some("a?b=c")), None);
         assert_eq!(super::requested_settings_page(Some(&"a".repeat(33))), None);
+    }
+
+    #[test]
+    fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("handwriting-zh_CN.model");
+        std::fs::write(&model, b"synthetic").unwrap();
+        let options = |value: String| serde_json::json!({ "handwriting_model": value }).to_string();
+
+        // The host options win when they name a model that is actually there.
+        assert_eq!(
+            super::packaged_handwriting_model(&options(model.to_string_lossy().into_owned())),
+            Some(model.clone())
+        );
+
+        // A relative or missing path is refused rather than handed to the
+        // recognizer, so a stale setting cannot send strokes at something else.
+        assert_eq!(
+            super::packaged_handwriting_model(&options("model".into())),
+            None
+        );
+        assert_eq!(
+            super::packaged_handwriting_model(&options(
+                directory
+                    .path()
+                    .join("absent.model")
+                    .to_string_lossy()
+                    .into_owned()
+            )),
+            None
+        );
+
+        // Options that never mention a model fall through to discovery, which
+        // finds nothing next to a test binary.
+        assert_eq!(super::packaged_handwriting_model("{}"), None);
+        assert_eq!(super::packaged_handwriting_model("not json"), None);
     }
 
     #[test]

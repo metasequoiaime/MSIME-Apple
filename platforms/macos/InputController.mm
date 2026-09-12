@@ -32,7 +32,9 @@ static BOOL MSIMEScriptConversionApplies(id value) {
     if (![value isKindOfClass:NSDictionary.class] || ![value[@"scheme"] isKindOfClass:NSNumber.class]) return NO;
     if ([value[@"scheme"] integerValue] < 0 || [value[@"scheme"] integerValue] > 2) return NO;
     NSString *mode = value[@"local_mode"];
-    return ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"unicode"];
+    // Temporary Japanese retains the original Chinese scheme in the host snapshot.
+    return ![mode isKindOfClass:NSString.class] ||
+        (![mode isEqualToString:@"unicode"] && ![mode isEqualToString:@"temporary_japanese"]);
 }
 
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
@@ -91,6 +93,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     }
     [self syncPageSize];
     [self syncPunctuation];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -356,6 +359,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     [super activateServer:sender];
     [self ensureAppearance];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     _preferenceLoadState.reset();
@@ -392,8 +396,15 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 - (void)snapshotSessionReplaced:(NSNotification *)notification {
     if (notification.object != _session) return;
+    _requestedPageSize = 0;
+    _preferenceLoadState.reset();
+    _focusPending = YES;
+    if (_activeClient) {
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
+    }
     _view = @{};
     [_panel orderOut:nil];
+    [_keymapPanel orderOut:nil];
 }
 
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
@@ -403,6 +414,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
         NSDictionary *options = [self runtimeOptions];
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
+            _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
         }
@@ -464,6 +476,16 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    id pageSize = preferences[@"candidate_page_size"];
+    if ([pageSize isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)pageSize) != CFBooleanGetTypeID() &&
+        [pageSize doubleValue] == [pageSize integerValue] && [pageSize integerValue] >= 1 && [pageSize integerValue] <= 9 &&
+        [pageSize unsignedIntegerValue] != _requestedPageSize) _requestedPageSize = 0;
+    [_appearance applySharedInputPreferences:preferences];
+    [_appearance applySharedCandidatePreferences:preferences];
+    [_appearance applySharedAssistancePreferences:preferences];
+    [_appearance applySharedLocalModes:preferences[@"local_modes"]];
+    [_toolbar updateEnglishInputMode:_appearance.englishMode chinesePunctuationEnabled:_appearance.chinesePunctuation fullWidthEnabled:_appearance.fullWidthInput traditionalChineseOutputEnabled:_appearance.traditionalOutput];
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     if ([shared respondsToSelector:@selector(applyEmojiPreferences:)])
@@ -650,8 +672,12 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     NSString *editing = MSIMEShuangpinKeymapEditingText(_view);
     NSNumber *scheme = _view[@"scheme"];
     NSString *profile = _view[@"shuangpin_profile"];
+    NSString *mode = _view[@"local_mode"];
+    NSNumber *dedicatedEnglish = _view[@"dedicated_english"];
     if (!_session || !_activeClient || _appearance.englishMode ||
         ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"none"] ||
+        ![dedicatedEnglish isKindOfClass:NSNumber.class] || dedicatedEnglish.boolValue ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
         !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, editing.length > 0)) {
         [_keymapPanel orderOut:nil];

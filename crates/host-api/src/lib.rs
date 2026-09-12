@@ -13,6 +13,7 @@ use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
+use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
@@ -20,7 +21,7 @@ use msime_input_runtime::{
     Runtime, Transition,
 };
 #[cfg(unix)]
-use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery, TranslationQuery};
+use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -37,11 +38,11 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
 };
 
-/// Run the optional offline Engine handwriting recognizer for a native panel.
+/// Run the optional offline Engine handwriting recognizer for a panel host.
 /// The caller must provide a trusted absolute model path; strokes are copied
-/// before crossing the C++ bridge. The shared Linux panel uses a 420 by 420
-/// canvas, which is also the coordinate space passed to the Engine.
-#[cfg(unix)]
+/// before crossing the C++ bridge. The shared panel uses a 420 by 420 canvas,
+/// which is also the coordinate space passed to the Engine. This path needs no
+/// provider socket, so every host can use it.
 pub fn handwriting_local_candidates(
     model_path: &str,
     query: &HandwritingQuery,
@@ -74,6 +75,8 @@ struct HostSession {
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
     voice: VoiceSessionState,
+    // Declared after runtime so the Engine is dropped before releasing access.
+    _dictionary_access: DictionaryAccess,
 }
 
 impl HostSession {
@@ -107,8 +110,17 @@ impl HostSession {
         options.english_minimum_prefix = snapshot.preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = snapshot.preferences.mixed_input.emoji;
         options.mixed_kaomoji = snapshot.preferences.mixed_input.kaomoji;
+        options.local_unicode = snapshot.preferences.local_modes.unicode;
+        options.local_date_time = snapshot.preferences.local_modes.date_time;
+        options.local_quick_phrase = snapshot.preferences.local_modes.quick_phrase;
+        options.local_emoji = snapshot.preferences.local_modes.emoji;
+        options.local_kaomoji = snapshot.preferences.local_modes.kaomoji;
+        options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
+        options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
+        options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
+        options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         options.paired_punctuation = snapshot.preferences.paired_punctuation;
@@ -293,6 +305,7 @@ impl HostOptions {
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: self.preferences.chinese_punctuation,
             paired_punctuation: self.preferences.paired_punctuation,
@@ -842,6 +855,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             local_temporary_english: options.preferences.local_modes.temporary_english,
             local_temporary_japanese: options.preferences.local_modes.temporary_japanese,
             helpcode: helpcode.enabled,
+            show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
             chinese_punctuation: options.preferences.chinese_punctuation,
             paired_punctuation: options.preferences.paired_punctuation,
@@ -851,6 +865,12 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 msime_client_core::preferences::PunctuationLock::English => 2,
             },
         };
+        let dictionary_access = DictionaryAccess::try_session(
+            std::path::Path::new(&options.user_data),
+            std::path::Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable".to_owned())?
+        .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
         let default_english = matches!(
             applied.default_ime_mode,
             msime_client_core::preferences::DefaultImeMode::English
@@ -886,6 +906,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     page_size_override: None,
                     nine_key_override: None,
                     voice: VoiceSessionState::default(),
+                    _dictionary_access: dictionary_access,
                 },
             )
         });
@@ -1412,14 +1433,27 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
-            .query(query)
-            .map(|(text, source)| json!({"text": text, "source": source}))
+            .query_candidates(query)
+            .map(|candidates| {
+                let rows: Vec<_> = candidates
+                    .into_iter()
+                    .map(|(text, source)| json!({"text": text, "source": source}))
+                    .collect();
+                // Preserve the single-result fields for older CLI consumers.
+                let mut value = rows.first().cloned().unwrap_or(json!({}));
+                value["candidates"] = json!(rows);
+                value
+            })
             .unwrap_or(Value::Null))
     })
 }
 
 /// Forward one account-backed dictionary operation to a user-owned Linux
 /// provider. The request is validated before it crosses the Unix socket.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
@@ -1457,6 +1491,10 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
 
 /// Forward one validated account-backed cloud clipboard operation to a
 /// user-owned Linux provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
@@ -1567,6 +1605,10 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
 /// Run the Engine's optional offline handwriting recognizer against a trusted
 /// packaged model. The model path is supplied by the native host, never by a
 /// webview or remote provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_handwriting_local_request(
@@ -2313,7 +2355,7 @@ mod tests {
             quanpin_helpcode: HelpcodePreferences {
                 enabled: false,
                 schema: HelpcodeSchema::Xiaohe,
-                show_in_candidate_window: true,
+                show_in_candidate_window: false,
             },
             shuangpin_helpcode: HelpcodePreferences {
                 enabled: true,
@@ -2329,11 +2371,13 @@ mod tests {
         SESSIONS.with(|sessions| {
             assert!(!sessions.borrow()[&handle].options.helpcode);
             assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
+            assert!(!sessions.borrow()[&handle].options.show_helpcode);
         });
         preferences.scheme = InputScheme::Shuangpin;
         assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
         SESSIONS.with(|sessions| {
             assert!(sessions.borrow()[&handle].options.helpcode);
+            assert!(sessions.borrow()[&handle].options.show_helpcode);
             assert_eq!(
                 sessions.borrow()[&handle].options.helpcode_schema,
                 "shouyou2_0"
@@ -2927,10 +2971,13 @@ mod tests {
         let enabled = read(msime_client_set_english_mode(handle, true));
         assert_eq!(enabled["ok"], true);
         assert_eq!(enabled["value"]["focused"], true);
-        assert_eq!(
-            read(msime_client_set_english_mode(handle, false))["ok"],
-            true
-        );
+        assert_eq!(enabled["value"]["dedicated_english"], true);
+        let typed = read(msime_client_character(handle, b'a', false));
+        assert_eq!(typed["value"]["view"]["dedicated_english"], true);
+        assert_eq!(typed["value"]["view"]["local_mode"], "none");
+        let disabled = read(msime_client_set_english_mode(handle, false));
+        assert_eq!(disabled["ok"], true);
+        assert_eq!(disabled["value"]["dedicated_english"], false);
         read(msime_client_destroy(handle));
     }
 

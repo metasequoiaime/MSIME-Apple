@@ -29,6 +29,90 @@ fn resources(root: &Path) -> EngineOptions {
     options
 }
 
+#[test]
+fn helpcode_display_toggle_keeps_candidates_and_filtering_enabled() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    let helpcodes = Path::new(&options.resources).join("helpcodes");
+    std::fs::create_dir_all(&helpcodes).unwrap();
+    std::fs::write(
+        helpcodes.join("zrm_helpcode_big_unique.txt"),
+        "你=ab\n好=cd\n拟=ef\n",
+    )
+    .unwrap();
+    options.helpcode = true;
+    options = stage(&options, &root.path().join("display-fixture"), Vec::new()).unwrap();
+    let mut candidates = None;
+    for visible in [true, false, true] {
+        options.show_helpcode = visible;
+        let mut session = Session::new(&options).unwrap();
+        for ch in b"nihao" {
+            session.character(*ch, false).unwrap();
+        }
+        let view = session.snapshot().unwrap();
+        assert!(!view.candidates.is_empty());
+        if let Some(previous) = &candidates {
+            assert_eq!(&view.candidates, previous);
+        }
+        candidates = Some(view.candidates.clone());
+        assert_eq!(
+            view.candidate_annotations
+                .iter()
+                .any(|value| !value.is_empty()),
+            visible
+        );
+        assert!(session.character(b'A', true).unwrap().handled);
+    }
+}
+
+#[test]
+fn hiding_helpcode_restores_correction_annotations() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    Connection::open(Path::new(&options.resources).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_2_s VALUES('shang''hao','sh','上好',100);",
+        )
+        .unwrap();
+    let helpcodes = Path::new(&options.resources).join("helpcodes");
+    std::fs::create_dir_all(&helpcodes).unwrap();
+    std::fs::write(
+        helpcodes.join("zrm_helpcode_big_unique.txt"),
+        "上=ab\n好=cd\n",
+    )
+    .unwrap();
+    options.helpcode = true;
+    options = stage(
+        &options,
+        &root.path().join("correction-fixture"),
+        Vec::new(),
+    )
+    .unwrap();
+    for visible in [true, false, true] {
+        options.show_helpcode = visible;
+        let mut session = Session::new(&options).unwrap();
+        // Same transposition used by the pinned Engine's pinyin correction tests.
+        for ch in b"sahnghao" {
+            session.character(*ch, false).unwrap();
+        }
+        let view = session.snapshot().unwrap();
+        let index = view
+            .candidates
+            .iter()
+            .position(|text| text == "上好")
+            .unwrap();
+        let annotation = &view.candidate_annotations[index];
+        if visible {
+            assert!(!annotation.is_empty());
+            assert_ne!(annotation, "sahnghao");
+        } else {
+            assert_eq!(annotation, "sahnghao");
+        }
+    }
+}
+
 fn records() -> Vec<DictionaryStateRecord> {
     use DictionaryStateRecord::*;
     vec![

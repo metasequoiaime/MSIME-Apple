@@ -1,6 +1,7 @@
 #pragma once
 
 #import <AppKit/AppKit.h>
+#include "CandidateSkin.h"
 
 @class MetasequoiaFloatingToolbarPanel;
 
@@ -34,6 +35,8 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 /// Apply validated shared preferences without persisting platform-local defaults.
 - (void)applyThemePreferences:(NSDictionary *)preferences;
 - (void)applySizingPreferences:(NSDictionary *)preferences;
+/// Use the active host's resolved palette without reading another preference store.
+- (void)applyLightSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark;
 @end
 #define MSIMEFloatingToolbarDelegate MetasequoiaFloatingToolbarDelegate
 #define MSIMEFloatingToolbarPanel MetasequoiaFloatingToolbarPanel

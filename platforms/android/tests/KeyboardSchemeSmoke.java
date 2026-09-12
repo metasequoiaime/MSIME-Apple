@@ -19,9 +19,25 @@ public final class KeyboardSchemeSmoke {
 
     public static void main(String[] args) {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
-            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 26 键", "日语 9 键", "手写", "高情商回复")));
+            "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "高情商回复")));
+        check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::preferenceId).toList().equals(List.of(
+            "quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi",
+            "japanese_nine_key", "japanese", "handwriting", "thoughtful_reply")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
-            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ26", "あ9", "写手", "聊AI")));
+            List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ9", "あ26", "写手", "聊AI")));
+        check(KeyboardScheme.fromPreferenceId("japanese_nine_key") == KeyboardScheme.JAPANESE_NINE_KEY);
+        check(KeyboardScheme.fromPreferenceId("future") == null);
+        List<KeyboardScheme> visible = KeyboardScheme.enabledFromPreferenceIds(List.of(
+            "thoughtful_reply", "future", "nine_key", "nine_key", "quanpin"));
+        check(visible.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY,
+            KeyboardScheme.THOUGHTFUL_REPLY)));
+        check(KeyboardScheme.enabledFromPreferenceIds(List.of()).equals(List.of(KeyboardScheme.QUANPIN)));
+        check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN_NINE_KEY, null, visible)
+            == KeyboardScheme.QUANPIN_NINE_KEY);
+        check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN_NINE_KEY, "thoughtful_reply", visible)
+            == KeyboardScheme.THOUGHTFUL_REPLY);
+        check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN_NINE_KEY, "handwriting", visible)
+            == KeyboardScheme.QUANPIN);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting") == KeyboardScheme.HANDWRITING);
         check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "nine_key") == KeyboardScheme.QUANPIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key") == KeyboardScheme.JAPANESE_NINE_KEY);

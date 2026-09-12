@@ -34,7 +34,7 @@ int main(int argc, const char **argv) {
         NSString *suite = [@"app.msime.test.skin-cards." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
-        MSIMESkinSettingsView *cards = [[MSIMESkinSettingsView alloc] initWithFrame:NSMakeRect(0, 0, 700, 700) preferences:preferences];
+        MetasequoiaSkinSettingsView *cards = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSMakeRect(0, 0, 700, 700) preferences:preferences];
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 700) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
         [window.contentView addSubview:cards];
         [NSLayoutConstraint activateConstraints:@[
@@ -57,6 +57,8 @@ int main(int argc, const char **argv) {
         for (NSUInteger index = 0; index < 4; ++index) {
             [NSApp sendAction:switches[index].action to:switches[index].target from:switches[index]];
             assert([preferences.skinID isEqual:switches[index].identifier]);
+            assert([[[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] skinID] isEqual:preferences.skinID]);
+            assert([preferences resolvedSkinForDark:NO].id == preferences.skinID.UTF8String);
             for (NSUInteger other = 0; other < 4; ++other) assert(switches[other].state == (other == index ? NSControlStateValueOn : NSControlStateValueOff));
             [switches[index] performClick:nil];
             assert(switches[index].state == NSControlStateValueOn);
@@ -113,12 +115,17 @@ int main(int argc, const char **argv) {
             [cards cacheDisplayInRect:cards.bounds toBitmapImageRep:bitmap];
             assert([[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);
         }
-        NSGridView *grid = (id)preferences.window.contentView.subviews[0];
-        NSButton *browse = (id)[grid cellAtColumnIndex:1 rowIndex:6].contentView;
+        NSScrollView *settingsScroll = (id)preferences.window.contentView.subviews[0];
+        NSGridView *grid = (id)settingsScroll.documentView;
+        NSButton *browse = nil;
+        for (NSInteger row = 0; row < grid.numberOfRows; ++row) {
+            NSControl *control = (id)[grid cellAtColumnIndex:1 rowIndex:row].contentView;
+            if (control.action == NSSelectorFromString(@"showSkinCatalog:")) browse = (id)control;
+        }
         assert([browse.title isEqual:@"浏览所有皮肤…"] && [preferences respondsToSelector:browse.action]);
         NSWindowController *catalogWindow = [preferences skinCatalogController];
-        MSIMESkinSettingsView *catalogView = (id)catalogWindow.window.contentView.subviews.firstObject;
-        assert([catalogView isKindOfClass:MSIMESkinSettingsView.class]);
+        MetasequoiaSkinSettingsView *catalogView = (id)catalogWindow.window.contentView.subviews.firstObject;
+        assert([catalogView isKindOfClass:MetasequoiaSkinSettingsView.class]);
         assert([catalogView valueForKey:@"preferences"] == preferences);
         assert([preferences skinCatalogController] == catalogWindow && !catalogWindow.window.isVisible);
         [catalogWindow.window.contentView layoutSubtreeIfNeeded];

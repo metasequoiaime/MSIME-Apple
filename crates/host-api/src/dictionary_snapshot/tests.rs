@@ -32,6 +32,7 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         helpcode: false,
+        show_helpcode: true,
         helpcode_schema: "ziranma".into(),
         chinese_punctuation: true,
         paired_punctuation: true,

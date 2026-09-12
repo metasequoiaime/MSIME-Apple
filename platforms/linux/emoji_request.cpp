@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "LocalResourcePaths.h"
 
 #include <array>
 #include <iostream>
@@ -6,20 +7,32 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+std::string local_resources(int argc, char **argv, bool *local) {
+  *local = argc >= 2 && std::string(argv[1]) == "--local";
+  if (!*local)
+    return argc == 2 ? argv[1] : std::string{};
+  if (argc == 3)
+    return argv[2];
+  if (argc != 2)
+    return {};
+  return msime_linux::local_resource(
+      "MSIME_EMOJI_RESOURCES", "msime-client/emoji/others.db", true);
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-emoji [--local] <socket-or-resources>\n";
+    std::cout << "Usage: msime-client-emoji [--local [resources]] <socket-or-resources>\n";
     return 0;
   }
-  const bool local = argc == 3 && std::string(argv[1]) == "--local";
-  if ((!local && argc != 2) || (local ? argv[2][0] != '/' : argv[1][0] != '/'))
+  bool local = false;
+  const auto target = local_resources(argc, argv, &local);
+  if (target.empty() || target[0] != '/')
     return 2;
   std::array<char, 16385> buffer;
   std::cin.read(buffer.data(), buffer.size());
   const auto length = static_cast<size_t>(std::cin.gcount());
   if (std::cin.bad() || length == 0 || length > 16384)
     return 2;
-  const std::string target = local ? argv[2] : argv[1];
   std::unique_ptr<char, decltype(&msime_client_string_free)> result(
       local ? msime_client_emoji_catalog_request(
                   reinterpret_cast<const uint8_t *>(buffer.data()), length,

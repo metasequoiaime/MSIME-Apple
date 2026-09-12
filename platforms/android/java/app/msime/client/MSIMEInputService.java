@@ -91,9 +91,11 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout moreToolsPanel;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
+    private SeekBar keyboardHeightSlider;
     private Switch voiceShortcutSwitch;
     private TextView keySpacingValue;
     private TextView rowSpacingValue;
+    private TextView keyboardHeightValue;
     private ClipboardHistoryStore clipboardHistory;
     private boolean clipboardHistoryEnabled;
     private boolean candidateHorizontal;
@@ -101,6 +103,7 @@ public final class MSIMEInputService extends InputMethodService {
     private int candidatePreeditFontSize = 16;
     private int touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
     private int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
+    private int touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
     private boolean touchVoiceShortcutEnabled;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
@@ -115,7 +118,9 @@ public final class MSIMEInputService extends InputMethodService {
     private Button aiPolishShortcutButton;
     private Button replyShortcutButton;
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
-    private KeyboardScheme schemeSaveTarget;
+    private java.util.List<KeyboardScheme> enabledSchemes =
+        KeyboardScheme.enabledFromPreferenceIds(null);
+    private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
     private SharedPreferences feedbackPreferences;
     private boolean soundEnabled = true;
@@ -160,6 +165,20 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchGeometrySaving;
     private boolean skinSaving;
     private boolean traditionalOutputSaving;
+    private static final class KeyboardHeightRole {
+        final int baseHeight;
+        final int rowCount;
+        final int rowIndex;
+        final boolean includesRowSpacing;
+
+        KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex,
+                           boolean includesRowSpacing) {
+            this.baseHeight = baseHeight;
+            this.rowCount = rowCount;
+            this.rowIndex = rowIndex;
+            this.includesRowSpacing = includesRowSpacing;
+        }
+    }
     private ScrollView voiceResultScroll;
     private LinearLayout voiceResultPanel;
     private VoiceResultStore voiceResultStore;
@@ -203,16 +222,22 @@ public final class MSIMEInputService extends InputMethodService {
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
 
-    private boolean thoughtfulReplyEnabled() {
+    private boolean legacyThoughtfulReplyEnabled() {
         return schemeHostPreferences == null
             || schemeHostPreferences.getBoolean(THOUGHTFUL_REPLY_ENABLED, true);
+    }
+
+    private boolean thoughtfulReplyEnabled() {
+        return sharedSchemePreferences
+            ? enabledSchemes.contains(KeyboardScheme.THOUGHTFUL_REPLY)
+            : legacyThoughtfulReplyEnabled();
     }
 
     private KeyboardScheme hostScheme(KeyboardScheme engineScheme) {
         String stored = schemeHostPreferences == null ? null
             : schemeHostPreferences.getString(SELECTED_HOST_SCHEME, null);
         KeyboardScheme resolved = KeyboardScheme.fromHostSelection(
-            stored, thoughtfulReplyEnabled(), engineScheme);
+            stored, legacyThoughtfulReplyEnabled(), engineScheme);
         if (resolved != KeyboardScheme.THOUGHTFUL_REPLY && stored != null
                 && !resolved.name().equals(stored)) saveHostScheme(resolved);
         return resolved;
@@ -221,6 +246,38 @@ public final class MSIMEInputService extends InputMethodService {
     private void saveHostScheme(KeyboardScheme scheme) {
         if (schemeHostPreferences != null)
             schemeHostPreferences.edit().putString(SELECTED_HOST_SCHEME, scheme.name()).apply();
+    }
+
+    private record SchemeConfiguration(
+        java.util.List<KeyboardScheme> enabled, KeyboardScheme selected, boolean shared) {}
+
+    private SchemeConfiguration schemeConfiguration(
+            JSONObject preferences, KeyboardScheme engineScheme) {
+        JSONObject shared = preferences == null ? null
+            : preferences.optJSONObject("touch_keyboard_schemes");
+        if (shared == null) {
+            java.util.List<String> legacyIds = new java.util.ArrayList<>();
+            for (KeyboardScheme candidate : KeyboardScheme.values()) {
+                if (candidate != KeyboardScheme.THOUGHTFUL_REPLY
+                        || legacyThoughtfulReplyEnabled()) {
+                    legacyIds.add(candidate.preferenceId());
+                }
+            }
+            return new SchemeConfiguration(
+                KeyboardScheme.enabledFromPreferenceIds(legacyIds), hostScheme(engineScheme), false);
+        }
+        JSONArray values = shared.optJSONArray("enabled");
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        if (values != null) {
+            for (int index = 0; index < values.length(); index++) {
+                String value = values.optString(index, null);
+                if (value != null) ids.add(value);
+            }
+        }
+        java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids);
+        String selected = shared.has("selected") ? shared.optString("selected", null) : null;
+        return new SchemeConfiguration(enabled,
+            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
     }
 
     private JSONObject value(String response) throws JSONException {
@@ -313,6 +370,8 @@ public final class MSIMEInputService extends InputMethodService {
         editorContextRevision++;
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
+        sharedSchemePreferences = false;
+        enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         letterCase.reset();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = info == null ? 0 : info.inputType;
@@ -329,11 +388,15 @@ public final class MSIMEInputService extends InputMethodService {
                 if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
                 JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
                 JSONObject preferences = options.optJSONObject("preferences");
-                selectedScheme = hostScheme(KeyboardScheme.fromPreferences(
+                KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
                     preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
                     preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
                     preferences == null ? "twenty_six_key"
-                        : preferences.optString("touch_keyboard_layout", "twenty_six_key")));
+                        : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+                SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
+                enabledSchemes = schemeConfiguration.enabled();
+                selectedScheme = schemeConfiguration.selected();
+                sharedSchemePreferences = schemeConfiguration.shared();
                 skin = KeyboardSkin.from(preferences == null ? "fluent"
                     : preferences.optString("candidate_skin", "fluent"));
                 localModes = preferences == null ? new JSONObject()
@@ -392,7 +455,6 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesDirectory = "";
         preferencesSnapshot = null;
         schemeSaving = false;
-        schemeSaveTarget = null;
         touchGeometrySaving = false;
         skinSaving = false;
         traditionalOutputSaving = false;
@@ -434,6 +496,9 @@ public final class MSIMEInputService extends InputMethodService {
             : preferences.optInt("touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
             : preferences.optInt("touch_row_spacing_tenths", -1));
+        touchKeyboardHeightAdjustment = KeyboardGeometry.heightAdjustment(preferences == null
+            ? Integer.MIN_VALUE : preferences.optInt("touch_keyboard_height_adjustment",
+                Integer.MIN_VALUE));
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
     }
@@ -503,6 +568,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private String touchGeometryKey() {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
+            + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage;
     }
 
@@ -554,6 +620,8 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optInt("touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             preferences.optInt("touch_row_spacing_tenths", -1));
+        int nextHeightAdjustment = KeyboardGeometry.heightAdjustment(
+            preferences.optInt("touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -565,12 +633,14 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
             preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+        SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
         if (!allowLearning) sessionSnapshot.getJSONObject("preferences").put("learning", false);
         JSONObject result = value(NativeClient.updatePreferences(session, sessionSnapshot.toString()));
         boolean geometryChanged = touchKeySpacingTenths != nextKeySpacing
-            || touchRowSpacingTenths != nextRowSpacing;
+            || touchRowSpacingTenths != nextRowSpacing
+            || touchKeyboardHeightAdjustment != nextHeightAdjustment;
         skin = nextSkin;
         localModes = nextLocalModes;
         candidateHorizontal = nextHorizontal;
@@ -578,6 +648,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePreeditFontSize = nextPreeditFontSize;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
+        touchKeyboardHeightAdjustment = nextHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -586,7 +657,9 @@ public final class MSIMEInputService extends InputMethodService {
         traditionalChineseOutput = nextTraditional;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
-        selectedScheme = hostScheme(nextScheme);
+        enabledSchemes = nextSchemeConfiguration.enabled();
+        selectedScheme = nextSchemeConfiguration.selected();
+        sharedSchemePreferences = nextSchemeConfiguration.shared();
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
             clipboardHistory.clear();
@@ -944,7 +1017,37 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyKeyboardGeometry() {
         if (keyRows == null) return;
         applyKeyboardGeometry(keyRows);
+        applyKeyboardHeight(keyRows);
         keyRows.requestLayout();
+        if (keyboardRoot != null) {
+            keyboardRoot.requestLayout();
+            keyboardRoot.getRootView().requestLayout();
+        }
+    }
+
+    private void applyKeyboardHeight(View node) {
+        Object tag = node.getTag();
+        if (tag instanceof KeyboardHeightRole) {
+            KeyboardHeightRole role = (KeyboardHeightRole) tag;
+            int height = pixels(KeyboardGeometry.adjustedRowHeight(role.baseHeight,
+                touchKeyboardHeightAdjustment, role.rowCount, role.rowIndex));
+            if (role.includesRowSpacing)
+                height += halfSpacingPixels(touchRowSpacingTenths) * 2;
+            if (node.getLayoutParams() != null) {
+                android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
+                params.height = height;
+                node.setLayoutParams(params);
+            }
+        }
+        if (node instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) node;
+            for (int index = 0; index < group.getChildCount(); index++)
+                applyKeyboardHeight(group.getChildAt(index));
+        }
+    }
+
+    private void adjustFixedHeight(View view, int baseHeight) {
+        view.setTag(new KeyboardHeightRole(baseHeight, 1, 0, false));
     }
 
     private void styleButton(Button button, boolean action) {
@@ -1859,23 +1962,34 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void renderLayoutSettingsState() {
-        if (keySpacingSlider == null || rowSpacingSlider == null
-                || keySpacingValue == null || rowSpacingValue == null
+        if (keySpacingSlider == null || rowSpacingSlider == null || keyboardHeightSlider == null
+                || keySpacingValue == null || rowSpacingValue == null || keyboardHeightValue == null
                 || voiceShortcutSwitch == null) return;
         keySpacingSlider.setProgress(touchKeySpacingTenths);
         rowSpacingSlider.setProgress(touchRowSpacingTenths);
+        keyboardHeightSlider.setProgress(touchKeyboardHeightAdjustment);
         keySpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         rowSpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+        keyboardHeightSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
         voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
         keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
         rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
+        keyboardHeightValue.setText(KeyboardGeometry.displayHeight(
+            touchKeyboardHeightAdjustment) + " dp");
     }
 
     private void previewTouchGeometry(boolean keySpacing, int value) {
         if (touchGeometrySaving || traditionalOutputSaving) return;
         if (keySpacing) touchKeySpacingTenths = KeyboardGeometry.keySpacing(value);
         else touchRowSpacingTenths = KeyboardGeometry.rowSpacing(value);
+        renderLayoutSettingsState();
+        applyKeyboardGeometry();
+    }
+
+    private void previewTouchHeight(int value) {
+        if (touchGeometrySaving || traditionalOutputSaving) return;
+        touchKeyboardHeightAdjustment = KeyboardGeometry.heightAdjustment(value);
         renderLayoutSettingsState();
         applyKeyboardGeometry();
     }
@@ -1887,7 +2001,25 @@ public final class MSIMEInputService extends InputMethodService {
             : KeyboardGeometry.MAX_ROW_SPACING_TENTHS);
         slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar source, int progress, boolean fromUser) {
-                if (fromUser) previewTouchGeometry(keySpacing, progress);
+                if (fromUser) {
+                    previewTouchGeometry(keySpacing, progress);
+                    if (!source.isPressed()) saveTouchGeometry();
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar source) { }
+            @Override public void onStopTrackingTouch(SeekBar source) { saveTouchGeometry(); }
+        });
+    }
+
+    private void configureHeightSlider(SeekBar slider) {
+        slider.setMin(KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_DP);
+        slider.setMax(KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_DP);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar source, int progress, boolean fromUser) {
+                if (fromUser) {
+                    previewTouchHeight(progress);
+                    if (!source.isPressed()) saveTouchGeometry();
+                }
             }
             @Override public void onStartTrackingTouch(SeekBar source) { }
             @Override public void onStopTrackingTouch(SeekBar source) { saveTouchGeometry(); }
@@ -1920,6 +2052,9 @@ public final class MSIMEInputService extends InputMethodService {
                     "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
                 && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
                     "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
+                && KeyboardGeometry.heightAdjustment(acceptedPreferences.optInt(
+                    "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
+                    == touchKeyboardHeightAdjustment
                 && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
                     == touchVoiceShortcutEnabled) return;
         final long targetSession = session;
@@ -1933,6 +2068,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject preferences = pending.getJSONObject("preferences");
             preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
             preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+            preferences.put("touch_keyboard_height_adjustment", touchKeyboardHeightAdjustment);
             preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
         } catch (JSONException error) {
             preferencesNotice = " · 键盘设置保存失败，保留原设置";
@@ -2026,8 +2162,7 @@ public final class MSIMEInputService extends InputMethodService {
         Button close = button(header, "返回键盘", this::closeSchemePicker);
         close.setContentDescription("返回键盘");
         schemePanel.addView(header);
-        java.util.List<KeyboardScheme> schemes = java.util.Arrays.stream(KeyboardScheme.values())
-            .filter(value -> value != KeyboardScheme.THOUGHTFUL_REPLY || thoughtfulReplyEnabled()).toList();
+        java.util.List<KeyboardScheme> schemes = enabledSchemes;
         for (int start = 0; start < schemes.size(); start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -2053,14 +2188,18 @@ public final class MSIMEInputService extends InputMethodService {
             }
             schemePanel.addView(row);
         }
-        Button toggleReply = button(schemePanel, thoughtfulReplyEnabled()
-            ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
-        toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        toggleReply.setContentDescription(thoughtfulReplyEnabled()
-            ? "禁用高情商回复输入方案" : "启用高情商回复输入方案");
+        if (!sharedSchemePreferences) {
+            Button toggleReply = button(schemePanel, thoughtfulReplyEnabled()
+                ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
+            toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            toggleReply.setContentDescription(thoughtfulReplyEnabled()
+                ? "禁用高情商回复输入方案" : "启用高情商回复输入方案");
+        }
         TextView hint = new TextView(this);
-        hint.setText("切换会先完成当前组词，并同步到共享设置；高情商回复只保存宿主展示状态");
+        hint.setText(sharedSchemePreferences
+            ? "显示的方案由共享设置管理；切换会先完成当前组词并同步当前方案"
+            : "切换会先完成当前组词，并迁移到共享输入方案设置");
         schemePanel.addView(hint);
         applySkin();
     }
@@ -2097,6 +2236,12 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
             preferences.put("shuangpin_profile", mapping.shuangpinProfile());
             preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
+            JSONArray enabled = new JSONArray();
+            for (KeyboardScheme candidate : enabledSchemes) {
+                enabled.put(candidate.preferenceId());
+            }
+            preferences.put("touch_keyboard_schemes", new JSONObject()
+                .put("enabled", enabled).put("selected", scheme.preferenceId()));
         } catch (JSONException | LinkageError error) {
             preferencesNotice = " · 输入方案切换失败，保留当前设置";
             closeSchemePicker();
@@ -2105,7 +2250,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
         closeSchemePicker();
         schemeSaving = true;
-        schemeSaveTarget = scheme;
         preferencesNotice = " · 正在切换输入方案";
         final long operation = ++preferenceSaveGeneration;
         render();
@@ -2124,7 +2268,6 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (RuntimeException error) {
             if (operation == preferenceSaveGeneration) {
                 schemeSaving = false;
-                schemeSaveTarget = null;
                 preferencesNotice = " · 输入方案切换失败，保留当前设置";
                 render();
             }
@@ -2145,10 +2288,6 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
-                if (schemeSaveTarget != null) {
-                    saveHostScheme(schemeSaveTarget);
-                    selectedScheme = schemeSaveTarget;
-                }
                 preferencesNotice = " · 输入方案已切换";
             }
         } catch (JSONException | LinkageError error) {
@@ -2156,13 +2295,13 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 输入方案切换失败，保留当前设置";
             Toast.makeText(this, "输入方案未能保存", Toast.LENGTH_SHORT).show();
         }
-        schemeSaveTarget = null;
         synchronizeReplyKeyboard();
         render();
     }
 
     private void toggleThoughtfulReplyScheme() {
-        if (schemeHostPreferences == null || schemeSaving || traditionalOutputSaving) return;
+        if (sharedSchemePreferences || schemeHostPreferences == null
+                || schemeSaving || traditionalOutputSaving) return;
         boolean enabled = thoughtfulReplyEnabled();
         schemeHostPreferences.edit().putBoolean(THOUGHTFUL_REPLY_ENABLED, !enabled).apply();
         if (enabled && selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY) {
@@ -2927,7 +3066,8 @@ public final class MSIMEInputService extends InputMethodService {
         downloadParams.leftMargin = pixels(16);
         downloadParams.rightMargin = pixels(16);
         canvasFrame.addView(handwritingDownload, downloadParams);
-        row.addView(canvasFrame, new LinearLayout.LayoutParams(0, pixels(220), 1));
+        row.addView(canvasFrame, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
@@ -2936,7 +3076,9 @@ public final class MSIMEInputService extends InputMethodService {
         }));
         addNineKey(tools, keyboardKey("清空", "清空手写", this::clearHandwriting));
         addNineKey(tools, keyboardKey("⌫", "删除", this::deleteFromHandwriting));
-        row.addView(tools, new LinearLayout.LayoutParams(pixels(64), pixels(220)));
+        row.addView(tools, new LinearLayout.LayoutParams(pixels(64),
+            LinearLayout.LayoutParams.MATCH_PARENT));
+        adjustFixedHeight(row, KeyboardGeometry.HANDWRITING_BODY_HEIGHT_DP);
         keyRows.addView(row);
 
         handwritingRecognizer = HandwritingRecognizerFactory.create(this);
@@ -2975,15 +3117,20 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             }
         }
-        for (java.util.List<String> keys : KeyboardLayout.rows(
-                keyboardLayer, letterCase.usesUppercase())) {
+        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(
+            keyboardLayer, letterCase.usesUppercase());
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(this);
-            keyRows.addView(row);
+            row.setTag(new KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                rows.size(), rowIndex, true));
+            keyRows.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             for (String key : keys) {
                 final String input = key;
                 Button keyButton = keyboardKey(key, key, () -> type(input.charAt(0)));
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
         }
         applyKeyboardGeometry();
@@ -2999,6 +3146,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildNineKeyRows() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
+        adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
         keyRows.addView(container, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
 
@@ -3154,6 +3302,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
+        adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
         keyRows.addView(container, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
 
@@ -3409,6 +3558,18 @@ public final class MSIMEInputService extends InputMethodService {
         Button closeLayout = button(layoutHeader, "返回键盘", this::closeLayoutSettings);
         closeLayout.setContentDescription("返回键盘");
         layoutSettingsPanel.addView(layoutHeader);
+        LinearLayout keyboardHeightHeader = new LinearLayout(this);
+        TextView keyboardHeightLabel = new TextView(this);
+        keyboardHeightLabel.setText("键盘高度");
+        keyboardHeightHeader.addView(keyboardHeightLabel, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        keyboardHeightValue = new TextView(this);
+        keyboardHeightHeader.addView(keyboardHeightValue);
+        layoutSettingsPanel.addView(keyboardHeightHeader);
+        keyboardHeightSlider = new SeekBar(this);
+        keyboardHeightSlider.setContentDescription("键盘高度");
+        configureHeightSlider(keyboardHeightSlider);
+        layoutSettingsPanel.addView(keyboardHeightSlider);
         LinearLayout keySpacingHeader = new LinearLayout(this);
         TextView keySpacingLabel = new TextView(this);
         keySpacingLabel.setText("按键间距");
@@ -3446,7 +3607,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         layoutSettingsPanel.addView(voiceShortcutSwitch);
         TextView layoutHint = new TextView(this);
-        layoutHint.setText("间距只改变键位外观，不改变输入方案；松手后自动保存。");
+        layoutHint.setText("高度和间距只改变键位外观，不改变输入方案；松手后自动保存。");
         layoutSettingsPanel.addView(layoutHint);
         layoutSettingsScroll = new ScrollView(this);
         layoutSettingsScroll.addView(layoutSettingsPanel);
