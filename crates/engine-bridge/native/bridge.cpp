@@ -10,6 +10,7 @@
 #include "../../vendor/MSIME-Engine/quanpin/quanpin_utils.h"
 #include <sqlite3.h>
 #include <unordered_set>
+#include <memory>
 
 namespace msime {
 namespace {
@@ -266,16 +267,15 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str se
                                                rust::Str category, std::size_t offset,
                                                std::uint16_t limit) {
     rust::Vec<EmojiCatalogItem> result;
-    if (limit == 0 || limit > 4096)
-        return result;
+    if (limit == 0 || limit > 4096 || offset > static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
+        throw std::invalid_argument("Invalid emoji catalog page");
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
     sqlite3 *database = nullptr;
-    if (sqlite3_open_v2(path.u8string().c_str(), &database,
-                        SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
-        if (database)
-            sqlite3_close(database);
-        return result;
-    }
+    const int opened = sqlite3_open_v2(path.u8string().c_str(), &database,
+                                     SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database_guard(database, sqlite3_close);
+    if (opened != SQLITE_OK)
+        throw std::runtime_error("Emoji catalog unavailable");
     const std::string category_text(category);
     const bool kaomoji = category_text == "kaomoji";
     const bool symbols = category_text == "symbols";
@@ -296,26 +296,32 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str se
               "ORDER BY sort_order LIMIT ?4 OFFSET ?5";
     }
     sqlite3_stmt *statement = nullptr;
-    if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK) {
-        sqlite3_close(database);
-        return result;
-    }
+    const int prepared = sqlite3_prepare_v2(database, sql, -1, &statement, nullptr);
+    const std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> statement_guard(statement, sqlite3_finalize);
+    if (prepared != SQLITE_OK)
+        throw std::runtime_error("Emoji catalog query unavailable");
+    // Do not include SQLite diagnostics: they can expose resource paths or data.
+    const auto check_bind = [](int status) {
+        if (status != SQLITE_OK)
+            throw std::runtime_error("Emoji catalog query rejected");
+    };
     const std::string search_text(search);
     const std::string pattern = "%" + search_text + "%";
     if (kaomoji || symbols) {
-        sqlite3_bind_text(statement, 1, search_text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(statement, 2, pattern.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(statement, 3, limit);
-        sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(offset));
+        check_bind(sqlite3_bind_text(statement, 1, search_text.c_str(), -1, SQLITE_TRANSIENT));
+        check_bind(sqlite3_bind_text(statement, 2, pattern.c_str(), -1, SQLITE_TRANSIENT));
+        check_bind(sqlite3_bind_int(statement, 3, limit));
+        check_bind(sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(offset)));
     } else {
-        sqlite3_bind_text(statement, 1, category_text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(statement, 2, search_text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(statement, 3, pattern.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(statement, 4, limit);
-        sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(offset));
+        check_bind(sqlite3_bind_text(statement, 1, category_text.c_str(), -1, SQLITE_TRANSIENT));
+        check_bind(sqlite3_bind_text(statement, 2, search_text.c_str(), -1, SQLITE_TRANSIENT));
+        check_bind(sqlite3_bind_text(statement, 3, pattern.c_str(), -1, SQLITE_TRANSIENT));
+        check_bind(sqlite3_bind_int(statement, 4, limit));
+        check_bind(sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(offset)));
     }
     std::unordered_set<std::string> seen;
-    while (sqlite3_step(statement) == SQLITE_ROW) {
+    int status = SQLITE_OK;
+    while ((status = sqlite3_step(statement)) == SQLITE_ROW) {
         const auto *text = reinterpret_cast<const char *>(sqlite3_column_text(statement, 0));
         const auto *group = reinterpret_cast<const char *>(sqlite3_column_text(statement, 1));
         const auto *annotation = reinterpret_cast<const char *>(sqlite3_column_text(statement, 2));
@@ -323,8 +329,8 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str se
             result.push_back({rust::String(text), rust::String(annotation ? annotation : ""),
                               rust::String(group ? group : "")});
     }
-    sqlite3_finalize(statement);
-    sqlite3_close(database);
+    if (status != SQLITE_DONE)
+        throw std::runtime_error("Emoji catalog read failed");
     return result;
 }
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,

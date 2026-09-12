@@ -1387,7 +1387,8 @@ struct EmojiCatalogQuery {
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
-/// The response is `{items:[{text,annotation,group}]}` or null when unavailable.
+/// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
+/// Unavailable or unreadable catalogs return an error, not an empty item list.
 ///
 /// # Safety
 /// All pointers must reference readable buffers of the stated lengths for
@@ -2595,5 +2596,48 @@ mod tests {
         );
         assert_eq!(request("", 0, 0)["ok"], false);
         assert_eq!(request("", usize::MAX, 255)["ok"], false);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn emoji_catalog_errors_are_not_empty_results() {
+        let directory = tempfile::tempdir().unwrap();
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let request = |category: &str| {
+            let query = serde_json::to_vec(&json!({"category":category})).unwrap();
+            read(unsafe {
+                msime_client_emoji_catalog_request(
+                    query.as_ptr(),
+                    query.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+        let unavailable = json!({"ok":false,"error":"local emoji catalog unavailable"});
+        assert_eq!(request(""), unavailable);
+        let path = directory.path().join("others.db");
+        assert!(!path.exists(), "read-only query must not create resources");
+        std::fs::write(&path, b"synthetic invalid sqlite file").unwrap();
+        for category in ["", "kaomoji", "symbols"] {
+            assert_eq!(request(category), unavailable);
+        }
+        std::fs::remove_file(&path).unwrap();
+        let db = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(request(""), unavailable);
+        db.execute_batch("CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
+            CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);
+            CREATE TABLE symbol_catalog(symbol TEXT,category TEXT,parent_category TEXT,keywords TEXT,sort_order INTEGER);").unwrap();
+        for category in ["", "kaomoji", "symbols"] {
+            assert_eq!(request(category), json!({"ok":true,"value":{"items":[]}}));
+        }
+        // A query can prepare successfully but fail while stepping it.
+        db.execute_batch(
+            "DROP TABLE emoji;
+            CREATE VIEW emoji AS SELECT abs(-9223372036854775808) AS emoji,
+                '' AS category, '' AS keywords, '' AS pinyin, 0 AS sort_order;",
+        )
+        .unwrap();
+        assert_eq!(request(""), unavailable);
     }
 }
