@@ -1987,6 +1987,8 @@ void voice_start(IBusEngine *engine) {
                       s, Json{{"scheme", s.view.value("scheme", 0)},
                               {"local_mode", "none"}},
                       applied.get<std::string>());
+                  if (s.fullwidth)
+                    text = fullwidth_text(std::move(text));
                   ibus_engine_commit_text(
                       result->engine,
                       ibus_text_new_from_string(text.c_str()));
