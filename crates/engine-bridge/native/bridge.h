@@ -25,6 +25,7 @@ public:
     explicit EngineSession(const EngineOptions& options);
     EngineSnapshot snapshot() const;
     OnlineQuerySnapshot online_query() const;
+    void reset_cache();
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
     EngineResult character(std::uint8_t value, bool shift);

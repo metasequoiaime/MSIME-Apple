@@ -953,7 +953,10 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <small>{linuxPlatform ? "当前 IBus 会话中的候选维护与服务重启" : "程序运行时全局生效；用于维护与调试"}</small>
           <div className="shortcut-list">
             <div className="shortcut-row"><span>删除当前候选窗口中的第 1–8 项</span><kbd>Ctrl+Shift+Alt+1–8</kbd></div>
-            {linuxPlatform && <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>}
+            {linuxPlatform && <>
+              <div className="shortcut-row"><span>清除当前输入法会话的 Engine 缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
+              <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>
+            </>}
             {!linuxPlatform && <>
               <div className="shortcut-row"><span>清除输入法引擎缓存</span><kbd>Ctrl+Shift+Alt+C</kbd></div>
               <div className="shortcut-row"><span>重启输入法服务</span><kbd>Ctrl+Shift+Alt+R</kbd></div>

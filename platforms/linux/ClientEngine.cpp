@@ -2978,6 +2978,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_restart_key && s.focused && !s.blocked)
     return restart_ibus_service() ? TRUE : FALSE;
+  const bool maintenance_clear_cache_key =
+      (key == IBUS_c || key == IBUS_C) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+  if (!release && maintenance_clear_cache_key && s.focused && !s.blocked) {
+    guarded(engine, "reset_engine_cache", [&] {
+      s.open();
+      if (s.session)
+        apply(engine, msime_client_reset_cache(s.session));
+    });
+    return TRUE;
+  }
   const bool dedicated_english_toggle =
       (key == IBUS_e || key == IBUS_E) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);

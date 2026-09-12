@@ -413,6 +413,9 @@ EngineSnapshot EngineSession::snapshot() const {
     }
     return output;
 }
+void EngineSession::reset_cache() {
+    session_.reset_cache();
+}
 OnlineQuerySnapshot EngineSession::online_query() const {
     OnlineQuerySnapshot output;
     const auto query = session_.online_query();
