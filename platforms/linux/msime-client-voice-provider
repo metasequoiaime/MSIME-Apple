@@ -428,18 +428,30 @@ def capture(session, connection, args, seconds, options, on_audio=None, on_tick=
             append(chunk)
         return (bytes(pcm), recorded) if not session.cancelled.is_set() else (b"", 0)
     finally:
-        if process:
-            if process.poll() is None:
-                process.terminate()
+        try:
+            if process:
                 try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-            process.stdout.close()
-        restore_audio(muted)
-        cue(options, False)
-        session.capture_done.set()
+                    if process.poll() is None:
+                        try:
+                            process.terminate()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                finally:
+                    process.stdout.close()
+        finally:
+            # Process cleanup must not prevent restoring streams we muted.
+            try:
+                restore_audio(muted)
+            finally:
+                try:
+                    cue(options, False)
+                finally:
+                    session.capture_done.set()
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -542,7 +554,9 @@ class Handler(socketserver.StreamRequestHandler):
                 pcm, recorded = capture(session, self.request, capture_args, self.server.seconds, options,
                                         recognizer.feed if recognizer else None, tick if recognizer else None)
             finally:
+                # Also covers recognizer initialization failures before capture().
                 self.server.microphone.release()
+                session.capture_done.set()
             if session.cancelled.is_set() or recorded < RATE // 4 * 2:
                 self.send(generation)
                 return
@@ -563,15 +577,23 @@ class Handler(socketserver.StreamRequestHandler):
             except Exception:
                 pass
         finally:
-            if recognizer:
-                recognizer.close()
-            if session:
-                with self.server.lock:
-                    self.server.sessions.pop(key, None)
-                session.finished.set()
-                session.capture_done.set()
-            if voice_slot:
-                self.server.voice_slots.release()
+            try:
+                if recognizer:
+                    recognizer.close()
+            except Exception:
+                # Never expose transport errors or let them retain a voice slot.
+                pass
+            finally:
+                try:
+                    if session:
+                        with self.server.lock:
+                            if self.server.sessions.get(key) is session:
+                                self.server.sessions.pop(key, None)
+                        session.finished.set()
+                        session.capture_done.set()
+                finally:
+                    if voice_slot:
+                        self.server.voice_slots.release()
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -697,9 +719,11 @@ def main():
             sessions = list(server.sessions.values())
             for session in sessions:
                 session.control(True)
-        # Let capture's finally stop the child and restore audio before exiting.
+        # All capture and audio restoration commands have their own bounds.
+        # Await their completion rather than abandoning daemon threads after
+        # 20 seconds while a multi-stream audio restoration is still running.
         for session in sessions:
-            session.capture_done.wait(20)
+            session.capture_done.wait()
         server.server_close()
         try:
             current = args.socket.stat()

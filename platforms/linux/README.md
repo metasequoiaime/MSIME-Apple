@@ -328,3 +328,5 @@ Linux 设置页的“语音输入 → 录音设备”可选择 PulseAudio、Pipe
 设备目录依据 [PulseAudio pactl 实现](https://github.com/pulseaudio/pulseaudio/blob/master/src/utils/pactl.c)、[PipeWire pw-dump 文档](https://docs.pipewire.org/page_man_pw-dump_1.html) 和 [ALSA arecord 实现](https://github.com/alsa-project/alsa-utils/blob/master/aplay/aplay.c)。列表反映发现时的设备信息，不保证设备之后仍连接或可用于指定采样格式。
 
 录音采集在连续 5 秒未收到 PCM 字节时终止本次请求并恢复被服务静音的播放流，释放麦克风供下一次重试。正常静音仍有 PCM 数据，不会被当作设备停滞。停止录音后最多收取 1 秒的管道尾部数据，并遵守录音长度及音频字节上限；取消或客户端断开后不再向识别服务补发尾部音频。16-bit PCM 被管道拆开的单字节会与下一块合并，只向流式识别器提交完整采样点。
+
+服务退出时先取消所有会话，并等待各会话完成采集清理与音频恢复，再关闭 socket；不会因为固定 20 秒等待结束就中断仍在恢复的播放流。录音子进程清理失败仍执行音频恢复，识别连接关闭失败仍移除对应会话并释放语音并发槽位。所有工具调用继续使用各自的超时边界，退出等待不包含已经结束采集后的网络识别请求。
