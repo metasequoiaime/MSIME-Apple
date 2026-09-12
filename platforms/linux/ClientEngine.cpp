@@ -2682,6 +2682,8 @@ void focus_in(IBusEngine *engine) {
     const auto previous_session = s.session;
     s.focused = true;
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
+    // Host shortcuts and presentation also apply before a runtime is needed.
+    s.refresh_host_preferences(configured.at("preferences"));
     s.open();
     watch_clipboard_history(engine);
     sync_global_input_mode(engine);
@@ -4319,10 +4321,21 @@ struct PreferencesRead {
 };
 void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   auto &s = state(engine);
-  if (!s.session || !s.focused || s.blocked)
+  if (!s.focused || s.blocked)
     return;
   s.apply_session_overrides(snapshot);
   const auto &preferences = snapshot.at("preferences");
+  if (!s.session) {
+    if (preferences != s.applied_preferences_snapshot ||
+        s.applied_display_generation != configuration_generation) {
+      s.refresh_host_preferences(preferences);
+      s.applied_preferences_snapshot = preferences;
+      s.applied_display_generation = configuration_generation;
+      publish_mode(engine);
+    }
+    sync_global_input_mode(engine);
+    return;
+  }
   if (preferences == s.applied_preferences_snapshot) {
     sync_global_input_mode(engine);
     if (s.applied_display_generation != configuration_generation) {
@@ -4426,8 +4439,7 @@ gboolean reload_preferences(gpointer data) {
                              accepted_preferences_directory = request->directory;
                              accepted_preferences_snapshot = snapshot;
                              configured["preferences"] = snapshot.at("preferences");
-                             if (request->session == 0 ||
-                                 s.session != request->session || !s.focused ||
+                             if (s.session != request->session || !s.focused ||
                                  s.blocked)
                                return;
                              apply_live_preferences(IBUS_ENGINE(source), std::move(snapshot));

@@ -248,12 +248,57 @@ int main(int argc, char **argv) {
       for (char c : std::string("nihao"))
         require(key(c), "Phrase key not consumed");
     };
+    // Host shortcuts must load and reload while English passthrough has no
+    // Engine session. Keep this store separate from the remaining fixtures.
+    ibus_object_destroy(IBUS_OBJECT(engine));
+    g_object_unref(engine);
+    auto live_options = options;
+    auto &live_preferences = live_options["preferences"];
+    live_preferences["default_ime_mode"] = "english";
+    live_preferences["keybindings"]["switch_language_shift"] = false;
+    live_preferences["keybindings"]["switch_language_ctrl"] = false;
+    const auto live_directory = root / "passthrough-preferences";
+    std::filesystem::create_directory(live_directory);
+    live_options["preferences_directory"] = live_directory.string();
+    auto save_live_preferences = [&](unsigned revision) {
+      std::ofstream(live_directory / "next.json") << nlohmann::json{
+          {"format_version", 1}, {"revision", revision},
+          {"preferences", live_preferences}}.dump();
+      std::filesystem::rename(live_directory / "next.json", live_directory / "preferences.json");
+    };
+    save_live_preferences(1);
+    msime_preview_configure(live_options.dump());
+    engine = create_engine();
+    seen = Observation{};
+    invoke("FocusIn");
+    require(!key(IBUS_Shift_L, IBUS_SHIFT_MASK) &&
+                !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+            "Passthrough ignored the disabled Shift mode shortcut");
+    require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
+                !key(IBUS_Control_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+            "Passthrough ignored the disabled Ctrl mode shortcut");
+    live_preferences["keybindings"]["switch_language_ctrl"] = true;
+    save_live_preferences(2);
+    bool live_shortcut = false;
+    const auto live_deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+    while (!live_shortcut && g_get_monotonic_time() < live_deadline) {
+      require(!key(IBUS_Control_L, IBUS_CONTROL_MASK), "Ctrl press was intercepted");
+      live_shortcut = key(IBUS_Control_L, IBUS_RELEASE_MASK);
+      if (!live_shortcut) g_usleep(50000);
+    }
+    require(live_shortcut && seen.input_enabled,
+            "Host shortcuts did not reload without an Engine session");
+    phrase();
+    require(!seen.english_mode && seen.preedit == "nihao",
+            "Reloaded mode shortcut did not open Chinese input");
+    invoke("Reset");
     for (const auto *scope : {"app", "global"}) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       auto initial = options;
       initial["preferences"]["default_ime_mode"] = "english";
       initial["preferences"]["ime_mode_scope"] = scope;
+      initial["preferences"]["keybindings"]["switch_language_shift"] = false;
       initial.erase("preferences_directory");
       msime_preview_configure(initial.dump());
       engine = create_engine();
@@ -266,7 +311,9 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_sensitive && !seen.input_enabled && !seen.smart_punctuation_sensitive,
               "Passthrough refocus did not restore the mode menu without a session");
-      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
+                  key(IBUS_Control_L, IBUS_RELEASE_MASK),
+              "Configured Ctrl shortcut did not leave initial passthrough");
       phrase();
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
                   !seen.candidates.empty() && seen.candidates.front() == "你好",
