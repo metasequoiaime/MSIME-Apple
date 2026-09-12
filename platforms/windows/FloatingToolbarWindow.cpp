@@ -171,6 +171,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
                                     WorkerMode::ChinesePunctuation,
                                     WorkerMode::Fullwidth};
         if (slot < 3) self->click_(ModeClick{value->lease, modes[slot]});
+        else if (slot == 3 && self->settings_action_) self->settings_action_();
       }
       return 0;
     }

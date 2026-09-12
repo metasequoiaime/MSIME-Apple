@@ -10,10 +10,12 @@ class FloatingToolbarWindow final {
 public:
   using Reader = std::function<std::optional<ModePresentation>()>;
   using Click = std::function<void(const ModeClick &)>;
+  using Action = std::function<void()>;
   FloatingToolbarWindow(Reader reader, Click click);
   ~FloatingToolbarWindow();
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
+  void set_settings_action(Action action) { settings_action_ = std::move(action); }
   FloatingToolbarWindow(const FloatingToolbarWindow &) = delete;
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
   void refresh(bool enabled);
@@ -35,6 +37,7 @@ private:
   CandidatePalette palette_;
   Reader reader_;
   Click click_;
+  Action settings_action_;
   HWND window_ = nullptr;
   std::optional<ModePresentation> shown_;
   bool failed_ = false;

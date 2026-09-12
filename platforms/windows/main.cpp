@@ -198,6 +198,10 @@ int wmain(int argc, wchar_t **argv) {
     bool toolbar_visible = config.floating_toolbar_enabled;
     const auto shell = shell_executable(executable_directory(),
                                         configured_shell_command());
+    toolbar.set_settings_action([&] {
+      const auto request = shell_surface_request(TrayMenuCommand::Settings);
+      if (shell && request) (void)launch_shell_surface(*shell, *request);
+    });
     TrayMenuCapabilities menu_capabilities;
     menu_capabilities.emoji_panel = shell.has_value();
     menu_capabilities.handwriting_panel = shell.has_value();
