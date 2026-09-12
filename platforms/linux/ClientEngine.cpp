@@ -814,7 +814,6 @@ void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.translation_provider_socket.empty() || s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled ||
-      s.candidate_orientation != IBUS_ORIENTATION_VERTICAL ||
       !s.view.value("candidates", Json::array()).size())
     return;
   try {
@@ -1722,8 +1721,7 @@ void render(IBusEngine *engine, const Json &view) {
   for (size_t index = 0; index < candidates.size(); ++index) {
     const auto &candidate = candidates.at(index);
     auto value = candidate.at("text").get<std::string>();
-    if (state(engine).candidate_orientation == IBUS_ORIENTATION_VERTICAL &&
-        candidate.contains("translation") && !candidate.at("translation").is_null()) {
+    if (candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose
       // the optional gloss without allowing an oversized provider result to
