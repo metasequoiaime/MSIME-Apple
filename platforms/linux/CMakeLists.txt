@@ -30,6 +30,9 @@ add_executable(msime-client-ibus main.cpp SystemTheme.cpp)
 target_compile_options(msime-client-ibus PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-ibus PRIVATE msime-ibus-host)
 add_executable(msime-client-dictionary dictionary_request.cpp)
+add_executable(msime-client-prepare prepare_host.cpp)
+target_compile_options(msime-client-prepare PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-prepare PRIVATE msime-ibus-host)
 target_compile_options(msime-client-dictionary PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-dictionary PRIVATE msime-ibus-host)
 add_executable(msime-client-cloud-dictionary cloud_dictionary_request.cpp)
@@ -73,7 +76,7 @@ if(MSIME_LINUX_VOICE)
 endif()
 configure_file(msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
-                msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture
+                msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
@@ -134,7 +137,7 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
 set_target_properties(msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-handwriting
-                      msime-client-voice msime-client-emoji msime-client-clipboard-capture PROPERTIES
+                      msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 
 add_executable(linux-native-compose-test tests/native_compose.cpp)
