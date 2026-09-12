@@ -35,6 +35,7 @@ uint64_t configuration_generation = 0;
 // Effective runtime revisions also include local overrides and are independent.
 std::string accepted_preferences_directory;
 Json accepted_preferences_snapshot;
+bool toolbar_save_pending = false;
 
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
@@ -84,6 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
+void save_toolbar_enabled(IBusEngine *engine, bool enabled);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
   const auto explicit_path = options.value("clipboard_history_path", std::string{});
@@ -789,6 +791,16 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
 IBusProperty *desktop_tools_property(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
+  const auto directory = configured.value("preferences_directory", std::string{});
+  const bool toolbar_enabled = configured.at("preferences")
+      .value("floating_toolbar", Json::object()).value("enabled", true);
+  ibus_prop_list_append(items, ibus_property_new(
+      "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("工具栏"), "",
+      ibus_text_new_from_static_string("保存工具栏显示开关"),
+      s.focused && !s.blocked && !toolbar_save_pending &&
+          !directory.empty() && directory.front() == '/',
+      TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   for (const auto &action : desktop_panel_actions) {
     ibus_prop_list_append(items, ibus_property_new(
         action.property, PROP_TYPE_NORMAL,
@@ -851,7 +863,8 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
   return ibus_property_new(
       "LinuxToolbar", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("工具栏"), "",
-      ibus_text_new_from_static_string("Linux 原生输入法工具栏"), available, TRUE,
+      ibus_text_new_from_static_string("Linux 原生输入法工具栏"), available,
+      toolbar.value("enabled", true),
       PROP_STATE_UNCHECKED, items);
 }
 
@@ -3008,6 +3021,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name.rfind("DesktopTools/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
+    if (property_name == "DesktopTools/ToolbarEnabled") {
+      if (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED)
+        save_toolbar_enabled(engine, value == PROP_STATE_CHECKED);
+      return;
+    }
     for (const auto &action : desktop_panel_actions) {
       if (property_name == action.property) {
         if (!launch_desktop_panel(action.panel))
@@ -4623,6 +4641,71 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   publish_mode(engine);
   translation_schedule(engine);
   online_schedule(engine);
+}
+struct ToolbarSave {
+  std::string directory;
+  uint64_t configuration;
+  bool enabled;
+};
+void save_toolbar_enabled(IBusEngine *engine, bool enabled) {
+  const auto directory = configured.value("preferences_directory", std::string{});
+  if (toolbar_save_pending || directory.empty() || directory.front() != '/')
+    return;
+  toolbar_save_pending = true;
+  publish_mode(engine);
+  auto task = g_task_new(G_OBJECT(engine), nullptr,
+      +[](GObject *source, GAsyncResult *result, gpointer) {
+        toolbar_save_pending = false;
+        auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+        std::unique_ptr<Json> snapshot(static_cast<Json *>(
+            g_task_propagate_pointer(G_TASK(result), nullptr)));
+        if (!self->state) return;
+        const auto &request = *static_cast<ToolbarSave *>(
+            g_task_get_task_data(G_TASK(result)));
+        guarded(IBUS_ENGINE(source), "toolbar_save", [&] {
+          if (request.configuration != configuration_generation) return;
+          if (!snapshot) {
+            g_warning("Cannot save MSIME toolbar preference");
+            publish_mode(IBUS_ENGINE(source));
+            return;
+          }
+          // A concurrent reader may already have accepted a newer store revision.
+          if (accepted_preferences_directory == request.directory &&
+              !accepted_preferences_snapshot.is_null() &&
+              accepted_preferences_snapshot.at("revision").get<uint64_t>() >
+                  snapshot->at("revision").get<uint64_t>()) {
+            publish_mode(IBUS_ENGINE(source));
+            return;
+          }
+          accepted_preferences_directory = request.directory;
+          accepted_preferences_snapshot = *snapshot;
+          configured["preferences"] = snapshot->at("preferences");
+          apply_live_preferences(IBUS_ENGINE(source), *snapshot);
+          publish_mode(IBUS_ENGINE(source));
+        });
+      }, nullptr);
+  g_task_set_task_data(task, new ToolbarSave{directory, configuration_generation, enabled},
+      +[](gpointer value) { delete static_cast<ToolbarSave *>(value); });
+  g_task_run_in_thread(task,
+      +[](GTask *task, gpointer, gpointer data, GCancellable *) {
+        const auto &request = *static_cast<ToolbarSave *>(data);
+        Json *saved = nullptr;
+        try {
+          const auto *path = reinterpret_cast<const uint8_t *>(request.directory.data());
+          auto snapshot = response(msime_client_load_preferences(path, request.directory.size()));
+          const auto revision = snapshot.at("revision").get<uint64_t>();
+          snapshot["preferences"]["floating_toolbar"]["enabled"] = request.enabled;
+          const auto encoded = snapshot.dump();
+          saved = new Json(response(msime_client_save_preferences(
+              path, request.directory.size(), revision,
+              reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())));
+        } catch (...) {
+          // Revision conflicts and storage errors leave the visible setting unchanged.
+        }
+        g_task_return_pointer(task, saved,
+            +[](gpointer value) { delete static_cast<Json *>(value); });
+      });
+  g_object_unref(task);
 }
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
