@@ -81,12 +81,16 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             if (saved.getLong("revision") != revision + 1 || saved.getJSONObject("preferences").getBoolean("chinese_punctuation") == before) throw new AssertionError("React save did not reach shared storage");
             JSONObject savedPreferences = saved.getJSONObject("preferences");
             JSONObject touchSchemes = savedPreferences.getJSONObject("touch_keyboard_schemes");
-            if (!"quanpin".equals(touchSchemes.getString("selected"))
-                    || touchSchemes.getJSONArray("enabled").toString().contains("nine_key")
-                    || !"quanpin".equals(savedPreferences.getString("scheme"))
-                    || !"twenty_six_key".equals(savedPreferences.getString("touch_keyboard_layout"))) {
-                throw new AssertionError("React scheme fallback did not reach shared storage");
+            if (!"quanpin".equals(touchSchemes.getString("selected")))
+                throw new AssertionError("Shared selected scheme did not use the fallback");
+            for (int index = 0; index < touchSchemes.getJSONArray("enabled").length(); index++) {
+                if ("nine_key".equals(touchSchemes.getJSONArray("enabled").getString(index)))
+                    throw new AssertionError("Hidden scheme remained enabled in shared storage");
             }
+            if (!"quanpin".equals(savedPreferences.getString("scheme")))
+                throw new AssertionError("Engine scheme did not use the fallback");
+            if (!"twenty_six_key".equals(savedPreferences.getString("touch_keyboard_layout")))
+                throw new AssertionError("Touch layout did not use the fallback");
             stage = "React reload";
             js("(" + RELOAD_BUTTON + ").click(); true");
             awaitJs("!(" + RELOAD_BUTTON + ").disabled && ("
@@ -119,16 +123,22 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         }
     }
     private void assertSharedSchemePicker() throws Exception {
-        tap(key("方案"));
+        String prefix = stage;
+        stage = prefix + ": open picker";
+        tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && equalsText("输入方案：全拼 26 键", node.getContentDescription()));
+        stage = prefix + ": selected fallback card";
         await(node -> equalsText("app.msime.client.preview", node.getPackageName())
             && equalsText("输入方案卡片 全拼 26 键", node.getContentDescription())
             && equalsText("已选中", node.getStateDescription()));
+        stage = prefix + ": hidden card absence";
         for (var window : automation.getWindows()) {
             if (find(window.getRoot(), node -> equalsText("app.msime.client.preview", node.getPackageName())
                     && equalsText("输入方案卡片 全拼 9 键", node.getContentDescription())) != null) {
                 throw new AssertionError("Hidden scheme remained in the keyboard picker");
             }
         }
+        stage = prefix + ": return to keyboard";
         tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
             && equalsText("返回键盘", node.getContentDescription()));
     }
