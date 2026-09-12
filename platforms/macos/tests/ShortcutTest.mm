@@ -56,6 +56,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger selectCalls;
 @property(nonatomic) uint64_t selectedGeneration;
 @property(nonatomic) NSUInteger selectedIndex;
+@property(nonatomic) NSUInteger maintenanceCalls;
+@property(nonatomic) NSInteger maintenanceAction;
 @property(nonatomic, copy) NSDictionary *nextTransition;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
@@ -68,6 +70,18 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @end
 @implementation ShortcutSession
+- (NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 0; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+}
+- (NSDictionary *)removeGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 1; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+}
+- (NSDictionary *)clearPositionGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 2; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+}
+- (NSDictionary *)fixGeneration:(uint64_t)generation index:(NSUInteger)index position:(uint8_t)position error:(NSError **)error {
+    (void)error; ++self.maintenanceCalls; self.maintenanceAction = 10 + position; self.selectedGeneration = generation; self.selectedIndex = index; return nil;
+}
 - (NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     (void)error; ++self.selectCalls; self.selectedGeneration = generation; self.selectedIndex = index;
     return nil;
@@ -1194,6 +1208,52 @@ int main() {
         CGFloat verticalHeight = layoutPanel.frame.size.height;
         MSIMECandidateButton *clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
         assert(clickCandidate);
+        NSMenu *candidateMenu = clickCandidate.menu;
+        NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1];
+        assert([clickCandidate menuForEvent:rightClick] == candidateMenu);
+        assert(candidateMenu.numberOfItems == 3);
+        assert([[candidateMenu itemAtIndex:0].title isEqual:@"置顶"]);
+        assert([[candidateMenu itemAtIndex:1].title isEqual:@"固定排位"]);
+        assert([[candidateMenu itemAtIndex:2].title isEqual:@"删除"]);
+        NSMenu *positionMenu = [candidateMenu itemAtIndex:1].submenu;
+        assert(positionMenu.numberOfItems == 7 && [positionMenu itemAtIndex:5].separatorItem);
+        NSMutableArray *operations = [NSMutableArray arrayWithObjects:[candidateMenu itemAtIndex:0], [candidateMenu itemAtIndex:2], nil];
+        [operations addObjectsFromArray:[positionMenu.itemArray subarrayWithRange:NSMakeRange(0, 5)]];
+        [operations addObject:[positionMenu itemAtIndex:6]];
+        for (NSMenuItem *operation in operations) {
+            NSUInteger calls = session.maintenanceCalls;
+            [NSApp sendAction:operation.action to:operation.target from:operation];
+            assert(session.maintenanceCalls == calls + 1 && session.maintenanceAction == operation.tag);
+            assert(session.selectedGeneration == 2 && session.selectedIndex == 1);
+        }
+        NSMenuItem *retainedOperation = [candidateMenu itemAtIndex:0];
+        NSDictionary *validContext = retainedOperation.representedObject;
+        NSUInteger maintenanceCalls = session.maintenanceCalls;
+        retainedOperation.enabled = NO;
+        [controller candidateMenuAction:retainedOperation];
+        retainedOperation.enabled = YES;
+        layoutPanel.requestedVisible = NO;
+        [controller candidateMenuAction:retainedOperation];
+        layoutPanel.requestedVisible = YES;
+        for (NSString *field in @[@"session", @"generation", @"focused"]) {
+            NSMutableDictionary *stale = [pageView mutableCopy];
+            stale[field] = [field isEqual:@"focused"] ? @NO : @99;
+            [controller setValue:stale forKey:@"view"];
+            [controller candidateMenuAction:retainedOperation];
+        }
+        [controller setValue:pageView forKey:@"view"];
+        for (NSString *field in @[@"session", @"generation", @"index"]) {
+            NSMutableDictionary *badID = [validContext[@"id"] mutableCopy];
+            [badID removeObjectForKey:field];
+            retainedOperation.representedObject = @{@"id":badID, @"render":validContext[@"render"]};
+            [controller candidateMenuAction:retainedOperation];
+        }
+        retainedOperation.representedObject = validContext;
+        assert(session.maintenanceCalls == maintenanceCalls);
+        for (NSString *text in @[@"中", @"𠀀", @"测试"]) {
+            NSMenu *menu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":text}];
+            assert(menu.numberOfItems == ([text isEqual:@"测试"] ? 3 : 2));
+        }
         NSDictionary *validClickID = clickCandidate.candidateID;
         NSUInteger selectedCalls = session.selectCalls;
         [controller selectCandidate:clickCandidate];
@@ -1228,6 +1288,8 @@ int main() {
         [controller renderCandidates];
         [controller selectCandidate:clickCandidate];
         assert(session.selectCalls == selectedCalls + 1); // Detached button from an earlier render.
+        [controller candidateMenuAction:retainedOperation];
+        assert(session.maintenanceCalls == maintenanceCalls);
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
         [controller appearanceChanged:nil];

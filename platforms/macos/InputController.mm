@@ -162,6 +162,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id _activeClient;
     MSIMEToolTextReturn _emojiReturn;
     NSDictionary *_view;
+    NSObject *_candidateMenuToken;
     NSPanel *_panel;
     MSIMEShuangpinKeymapPanel *_keymapPanel;
     MSIMEFloatingToolbarPanel *_toolbar;
@@ -827,6 +828,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)renderCandidates {
+    _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
     if (_appearance.englishMode) { [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
@@ -909,6 +911,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
+        button.menu = [self menuForCandidate:candidate];
         button.tag = (NSInteger)slot;
         CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
         button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - preeditHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
@@ -994,6 +997,58 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *identifier = button.candidateID;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
     [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
+}
+
+- (NSMenu *)menuForCandidate:(NSDictionary *)candidate {
+    NSDictionary *identifier = candidate[@"id"];
+    if (!MSIMECurrentCandidateIdentity(identifier, _view) || !_candidateMenuToken) return nil;
+    NSDictionary *context = @{@"id":[identifier copy], @"render":_candidateMenuToken};
+    NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {
+        NSMenuItem *entry = [[NSMenuItem alloc] initWithTitle:title action:@selector(candidateMenuAction:) keyEquivalent:@""];
+        entry.target = self;
+        entry.tag = tag;
+        entry.representedObject = context;
+        return entry;
+    };
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"候选操作"];
+    menu.autoenablesItems = NO;
+    [menu addItem:item(@"置顶", 0)];
+    NSMenuItem *fixed = [[NSMenuItem alloc] initWithTitle:@"固定排位" action:nil keyEquivalent:@""];
+    NSMenu *positions = [[NSMenu alloc] initWithTitle:@"固定排位"];
+    positions.autoenablesItems = NO;
+    for (NSInteger position = 1; position <= 5; ++position)
+        [positions addItem:item([NSString stringWithFormat:@"第 %ld 位", (long)position], 10 + position)];
+    [positions addItem:NSMenuItem.separatorItem];
+    [positions addItem:item(@"取消固定", 2)];
+    fixed.submenu = positions;
+    [menu addItem:fixed];
+    NSString *text = candidate[@"text"];
+    // Windows hides deletion for one Unicode scalar, including supplementary Han.
+    if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1)
+        [menu addItem:item(@"删除", 1)];
+    return menu;
+}
+
+- (void)candidateMenuAction:(NSMenuItem *)item {
+    if (!_activeClient || !_session || !_panel.isVisible || !item.enabled) return;
+    NSDictionary *context = item.representedObject;
+    if (![context isKindOfClass:NSDictionary.class] || context[@"render"] != _candidateMenuToken) return;
+    NSDictionary *identifier = context[@"id"];
+    if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
+    uint64_t generation = [identifier[@"generation"] unsignedLongLongValue];
+    NSUInteger index = [identifier[@"index"] unsignedIntegerValue];
+    NSError *error = nil;
+    NSDictionary *result = nil;
+    switch (item.tag) {
+        case 0: result = [_session pinGeneration:generation index:index error:&error]; break;
+        case 1: result = [_session removeGeneration:generation index:index error:&error]; break;
+        case 2: result = [_session clearPositionGeneration:generation index:index error:&error]; break;
+        default:
+            if (item.tag < 11 || item.tag > 15) return;
+            result = [_session fixGeneration:generation index:index position:(uint8_t)(item.tag - 10) error:&error];
+    }
+    if (result) [self apply:result];
+    else if (error) NSBeep();
 }
 
 - (void)changeCandidatePage:(MSIMECandidateButton *)button {

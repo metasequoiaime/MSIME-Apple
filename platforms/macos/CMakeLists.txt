@@ -288,7 +288,7 @@ target_compile_options(external-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG
 add_test(NAME external-skin COMMAND external-skin-test)
 add_executable(text-client-test tests/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(text-client-test PRIVATE apple-client)
+target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
 add_test(NAME text-client COMMAND text-client-test)
 add_executable(string-conversion-test tests/StringConversionTest.mm StringConversion.mm)
 target_compile_options(string-conversion-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
