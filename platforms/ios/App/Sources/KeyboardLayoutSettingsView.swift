@@ -33,14 +33,14 @@ struct KeyboardLayoutSettingsView: View {
       Section {
         // Writes through the binding rather than onChange: reading the preferences back after a
         // reset also assigns this, and onChange would store the default again, undoing the reset.
-        Toggle("顶部语音入口", isOn: Binding(
+        Toggle("顶部语音结果入口", isOn: Binding(
           get: { voice },
           set: { voice = $0; KeyboardLayoutPreference.voiceShortcutEnabled = $0 }
         )).accessibilityIdentifier("appVoiceShortcutSwitch")
       } header: {
         Text("快捷入口")
       } footer: {
-        Text("语音入口用于打开已识别的语音结果。")
+        Text("iOS 不允许键盘直接录音，这个入口不是按住说话：先在“语音设置”里录音识别、点击“发送到键盘”，再在键盘里插入结果。打开后工具栏的简繁按钮会换成语音结果按钮；关掉也能从键盘的“更多 → 语音结果”进入。")
       }
       Section {
         Button("恢复默认", role: .destructive) {

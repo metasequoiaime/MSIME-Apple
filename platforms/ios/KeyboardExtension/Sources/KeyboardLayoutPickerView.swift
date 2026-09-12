@@ -28,8 +28,11 @@ final class KeyboardLayoutPickerView: UIView {
                                range: -12...48, skin: skin,
                                format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" }, onChange: onHeight)
 
-    let voiceLabel = UILabel(); voiceLabel.text = "顶部语音入口"; voiceLabel.font = .systemFont(ofSize: 14, weight: .medium); voiceLabel.textColor = skin.keyForeground
-    let voiceSwitch = UISwitch(); voiceSwitch.isOn = voiceEnabled; voiceSwitch.onTintColor = skin.accent; voiceSwitch.accessibilityIdentifier = "voiceShortcutSwitch"; voiceSwitch.accessibilityLabel = "顶部语音入口"
+    // "语音结果" rather than "语音": the button opens results already recognized in the app. Named
+    // for recording, everyone reads it as press-to-talk, which iOS does not let a keyboard do.
+    let voiceLabel = UILabel(); voiceLabel.text = "顶部语音结果入口"; voiceLabel.font = .systemFont(ofSize: 14, weight: .medium); voiceLabel.textColor = skin.keyForeground
+    let voiceSwitch = UISwitch(); voiceSwitch.isOn = voiceEnabled; voiceSwitch.onTintColor = skin.accent; voiceSwitch.accessibilityIdentifier = "voiceShortcutSwitch"; voiceSwitch.accessibilityLabel = "顶部语音结果入口"
+    voiceSwitch.accessibilityHint = "把工具栏的简繁按钮换成语音结果按钮"
     voiceSwitch.addAction(UIAction { action in
       guard let toggle = action.sender as? UISwitch else { return }
       onVoice(toggle.isOn)

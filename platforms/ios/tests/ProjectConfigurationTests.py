@@ -35,6 +35,21 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path: platforms/ios/App/Resources/Assets.xcassets", project)
         self.assertIn("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon", project)
 
+    def test_voice_recording_deep_link_scheme_is_registered(self):
+        # The keyboard sends the user to the app to record, because an extension is denied the
+        # microphone. If the plist and the URL in the code drift apart the button silently fails --
+        # openURL just reports failure -- so pin them to each other rather than to a literal here.
+        with (IOS_ROOT / "App/Resources/Info.plist").open("rb") as source:
+            info = plistlib.load(source)
+        registered = {scheme for entry in info["CFBundleURLTypes"] for scheme in entry["CFBundleURLSchemes"]}
+        store = (IOS_ROOT / "SharedUI/VoiceTextHandoffStore.swift").read_text()
+        url = re.search(r'recordingURL = URL\(string: "([a-z]+)://([a-z]+)"\)', store)
+        self.assertIsNotNone(url, "VoiceTextHandoffStore must declare the recording deep link")
+        self.assertIn(url.group(1), registered)
+        navigation = (IOS_ROOT / "App/Sources/AppNavigation.swift").read_text()
+        self.assertIn("VoiceTextHandoffStore.recordingURL.scheme", navigation)
+        self.assertIn("VoiceTextHandoffStore.recordingURL.host", navigation)
+
     def test_testflight_upload_passes_xcode16_credentials_and_cleans_up_key(self):
         script = (IOS_ROOT / "scripts/package_ios_testflight.sh").read_text()
         upload = script[script.index('private_keys_dir="$build_root/private_keys"'):]

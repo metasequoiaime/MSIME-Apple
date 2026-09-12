@@ -105,6 +105,17 @@ private struct MainTabView: View {
     }
     .environmentObject(navigation)
     .tint(MetasequoiaTheme.accent)
+    .onOpenURL { navigation.open($0) }
+    .sheet(isPresented: $navigation.presentsVoiceRecording) {
+      NavigationView {
+        ServiceSettingsView(kind: .voice).toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("关闭") { navigation.presentsVoiceRecording = false }
+              .accessibilityIdentifier("closeVoiceRecording")
+          }
+        }
+      }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+    }
   }
 }
 

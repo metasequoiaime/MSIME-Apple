@@ -6,6 +6,16 @@ final class AppNavigation: ObservableObject {
   @Published var tab: Tab = .keyboard
   @Published var communityCategory = 0
   @Published var communityRoot = UUID()
+  /// Presented as a sheet rather than pushed: the keyboard can deep link here from any tab and any
+  /// depth, and rebuilding the two-level push stack would depend on where the user already was.
+  @Published var presentsVoiceRecording = false
+
+  /// Handles the keyboard's deep link. Unknown hosts just open the app.
+  func open(_ url: URL) {
+    guard url.scheme == VoiceTextHandoffStore.recordingURL.scheme,
+          url.host == VoiceTextHandoffStore.recordingURL.host else { return }
+    presentsVoiceRecording = true
+  }
 
   func discoverSkins() {
     communityRoot = UUID()

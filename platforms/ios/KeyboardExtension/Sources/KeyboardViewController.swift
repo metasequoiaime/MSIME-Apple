@@ -1564,7 +1564,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
-      }, close: { [weak self] in self?.closeKeyboardService() }))
+      }, close: { [weak self] in self?.closeKeyboardService() },
+      openRecording: { [weak self] in await self?.openVoiceRecording() ?? false }))
       servicePanel = panel
       addChild(panel)
       panel.view.frame = view.bounds
@@ -1572,6 +1573,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       view.addSubview(panel.view)
       panel.didMove(toParent: self)
     } catch { showDiagnostic(error.localizedDescription) }
+  }
+
+  /// Whether the host app agreed to open the recording page. Only the host can honour this, and
+  /// some refuse, so the caller shows the manual instructions instead of a button that does nothing.
+  @MainActor private func openVoiceRecording() async -> Bool {
+    guard let context = extensionContext else { return false }
+    return await withCheckedContinuation { continuation in
+      context.open(VoiceTextHandoffStore.recordingURL) { continuation.resume(returning: $0) }
+    }
   }
 
   private func closeKeyboardService() {
