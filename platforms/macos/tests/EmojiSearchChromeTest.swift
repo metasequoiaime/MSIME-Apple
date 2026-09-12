@@ -4,6 +4,15 @@ import SwiftUI
 @main enum EmojiSearchChromeTest {
   @MainActor static func main() {
     _ = NSApplication.shared
+    let placeholders = ["home": "Search emoji, kaomoji, and symbols", "": "Search emojis",
+      "recent": "Search emojis", "kaomoji": "Search kaomoji", "symbols": "Search symbols",
+      "clipboard": "搜索剪贴板", "sticker": "Search", "gif": "Search", "unknown": "Search"]
+    for (category, placeholder) in placeholders {
+      let presentation = MacEmojiSearchPresentation(category: category)
+      assert(presentation.placeholder == placeholder)
+      assert(presentation.textSize == (category == "clipboard" ? 16 : 14))
+      assert(presentation.placeholderSize == (category == "clipboard" ? 16 : 12))
+    }
     assert(abs(MacEmojiSearchChrome.height - 104 / 3) < 0.001)
     for light in [false, true] {
       let palette = MacEmojiPalette(light: light)

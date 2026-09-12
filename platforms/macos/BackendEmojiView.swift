@@ -128,7 +128,7 @@ struct MacEmojiView: View {
       }
       if groupsFailed { Text("分类加载失败，可返回首页重试").font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted)) }
       MacEmojiSearchField(text: $search,
-        placeholder: mediaPage != nil ? "搜索" : category == "home" ? "搜索表情、颜文字和符号" : category == "clipboard" ? "搜索剪贴板历史" : category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
+        presentation: MacEmojiSearchPresentation(category: category),
         palette: palette)
       if category == "clipboard" {
         if historyEnabled == false && loadedQuery == queryID {
@@ -215,6 +215,7 @@ struct MacEmojiView: View {
         let generation = toast.generation
         await MacEmojiToastState.expire(generation: generation) { toast.dismiss(ifGeneration: $0) }
       }
+      .onChange(of: search) { _ in toast.dismiss() }
       .onChange(of: category) { _ in group = ""; parent = ""; toast.dismiss() }
       .onChange(of: parent) { _ in group = "" }
       .task(id: category) {
