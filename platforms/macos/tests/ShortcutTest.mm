@@ -161,6 +161,45 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
 - (void)orderOut:(id)sender { (void)sender; self.requestedVisible = NO; }
 @end
 
+static void TestIndependentAssistancePreferences() {
+    NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    NSButton *quanpin = (id)PreferenceControl(prefs, @selector(quanpinHelpcodeChanged:));
+    NSButton *shuangpin = (id)PreferenceControl(prefs, @selector(shuangpinHelpcodeChanged:));
+    NSButton *autocorrect = (id)PreferenceControl(prefs, @selector(autocorrectChanged:));
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    NSDictionary *shared = @{@"autocorrect": @NO, @"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
+    [controller applySharedToolbarPreferences:shared];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    assert(quanpin.state == NSControlStateValueOn && shuangpin.state == NSControlStateValueOff && autocorrect.state == NSControlStateValueOff);
+    for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
+    [controller applySharedToolbarPreferences:@{@"autocorrect": @1, @"quanpin_helpcode": @{@"enabled": @0}, @"shuangpin_helpcode": NSNull.null}];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    quanpin.state = NSControlStateValueOff;
+    [NSApp sendAction:quanpin.action to:quanpin.target from:quanpin];
+    assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 1);
+    shuangpin.state = NSControlStateValueOn;
+    [NSApp sendAction:shuangpin.action to:shuangpin.target from:shuangpin];
+    autocorrect.state = NSControlStateValueOn;
+    [NSApp sendAction:autocorrect.action to:autocorrect.target from:autocorrect];
+    assert(!prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled && prefs.autocorrect && saves == 3);
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!reopened.quanpinHelpcodeEnabled && reopened.shuangpinHelpcodeEnabled && reopened.autocorrect);
+    NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
+    assert([edited[@"quanpin_helpcode"][@"enabled"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"enabled"] isEqual:@YES]);
+    assert([edited[@"quanpin_helpcode"][@"auto_display"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"future_field"] isEqual:@7]);
+    [controller applySharedToolbarPreferences:shared];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 3);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestSharedInputPreferences() {
     NSString *suite = [@"msime.shared-input." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -647,6 +686,7 @@ int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
         TestSharedInputPreferences();
+        TestIndependentAssistancePreferences();
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];

@@ -30,7 +30,11 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) BOOL autocorrect;
+// Legacy fallback for both schemes; setting it explicitly still sets both.
 @property(nonatomic) BOOL helpcodeEnabled;
+@property(nonatomic) BOOL quanpinHelpcodeEnabled;
+@property(nonatomic) BOOL shuangpinHelpcodeEnabled;
+- (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
