@@ -10,6 +10,9 @@ NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification = @"MS
 static void setError(NSError **error, NSString *message) {
     if (error) *error = [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
 }
+struct VoiceStreamContext { MSIMEVoiceProviderUpdate update; MSIMEVoiceProviderPhase phase; };
+static void VoiceUpdate(const uint8_t *text, size_t length, bool final, void *opaque) { auto *c=(VoiceStreamContext *)opaque; if(!c||!c->update||!text||length>4096)return; NSString *value=[[NSString alloc] initWithBytes:text length:length encoding:NSUTF8StringEncoding]; if(value)c->update(value,final); }
+static void VoicePhase(uint8_t phase, void *opaque) { auto *c=(VoiceStreamContext *)opaque; if(c&&c->phase)c->phase(phase); }
 
 struct SnapshotReaderContext { MSIMESnapshotNextRecord block; };
 static intptr_t SnapshotNext(void *opaque, uint8_t *buffer, size_t capacity) {
@@ -56,6 +59,11 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *q = [NSJSONSerialization dataWithJSONObject:query options:0 error:error]; NSData *s = [socket dataUsingEncoding:NSUTF8StringEncoding];
     if (!q || q.length > 65536 || !s || s.length > 4096) { setError(error, @"语音服务请求过大"); return nil; }
     return decode(msime_client_voice_provider_request((const uint8_t *)q.bytes, q.length, (const uint8_t *)s.bytes, s.length), error);
+}
+- (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
+    if (![NSJSONSerialization isValidJSONObject:query] || !socket.length || !update) { setError(error,@"语音流请求格式错误"); return NO; }
+    NSData *q=[NSJSONSerialization dataWithJSONObject:query options:0 error:error], *s=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!q||q.length>65536||!s||s.length>4096){setError(error,@"语音流请求过大");return NO;}
+    VoiceStreamContext context={ [update copy], [phase copy] }; char *response=msime_client_voice_provider_stream_events((const uint8_t *)q.bytes,q.length,(const uint8_t *)s.bytes,s.length,VoiceUpdate,VoicePhase,&context); BOOL ok=decode(response,error)!=nil; return ok;
 }
 - (BOOL)restoreLiveModes:(NSError **)error {
     BOOL restored = YES;

@@ -7,6 +7,8 @@ typedef NSDictionary *_Nullable (^MSIMESnapshotNextRecord)(NSError *_Nullable *e
 /// Foundation adapter for macOS input controllers and iOS keyboard extensions.
 /// Construct and use on the main thread. No Tauri process is required.
 @interface MSIMEClientSession : NSObject
+typedef void (^MSIMEVoiceProviderUpdate)(NSString *text, BOOL final);
+typedef void (^MSIMEVoiceProviderPhase)(NSUInteger phase);
 FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification;
 /// The validated creation options, copied for native maintenance UI; never mutable by callers.
 @property(nonatomic, readonly) NSDictionary<NSString *, id> *hostOptions;
@@ -69,6 +71,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
 /// User-owned provider socket boundary for cloud ASR; no credentials are logged.
 - (nullable NSDictionary<NSString *, id> *)voiceProviderRequest:(NSDictionary *)query socket:(NSString *)socket error:(NSError **)error;
+- (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error;
 /// Management is separate from live sessions; call only after all sessions are closed.
 + (nullable NSDictionary<NSString *, id> *)dictionaryRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
 + (nullable NSDictionary<NSString *, id> *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error;
