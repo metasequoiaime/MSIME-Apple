@@ -1581,13 +1581,23 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_property_set_symbol(
       property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
+  const auto voice_label = s.voice_active
+      ? (s.voice_space_locked && !s.voice_stopping
+             ? std::string("录音已锁定") : s.voice_phase)
+      : std::string("语音输入");
   auto voice = ibus_property_new(
       "VoiceInput", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_string(s.voice_active ? s.voice_phase.c_str() : "语音输入"), "",
+      ibus_text_new_from_string(voice_label.c_str()), "",
       ibus_text_new_from_static_string("点击开始录音，再次点击结束录音并提交识别结果；Esc 取消"),
       s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
           !s.voice_provider_socket.empty() && !(s.voice_active && s.voice_stopping),
       TRUE, s.voice_active ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto voice_cancel_property = ibus_property_new(
+      "VoiceCancel", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("取消语音输入"), "",
+      ibus_text_new_from_static_string("取消当前录音、识别或润色，不提交语音结果"),
+      s.focused && !s.blocked && s.input_enabled && s.session && s.voice_active,
+      s.voice_active, PROP_STATE_UNCHECKED, nullptr);
   auto cloud = ibus_property_new(
       "CloudCandidates", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("云联想"), "",
@@ -2067,6 +2077,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
     ibus_prop_list_append(properties, voice);
+    ibus_prop_list_append(properties, voice_cancel_property);
     ibus_prop_list_append(properties, cloud);
     ibus_prop_list_append(properties, translations);
     ibus_prop_list_append(properties, translation_language);
@@ -2106,6 +2117,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
     ibus_engine_update_property(engine, voice);
+    ibus_engine_update_property(engine, voice_cancel_property);
     ibus_engine_update_property(engine, cloud);
     ibus_engine_update_property(engine, translations);
     ibus_engine_update_property(engine, translation_language);
@@ -2225,6 +2237,8 @@ void render(IBusEngine *engine, const Json &view) {
         !state(engine).voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
     auto feedback = state(engine).voice_phase;
+    if (state(engine).voice_space_locked && !state(engine).voice_stopping)
+      feedback = "录音已锁定 · 可松开快捷键 · 再按快捷键或点击语音菜单结束 · Esc 取消";
     if (!state(engine).voice_stopping && state(engine).voice_level) {
       feedback += "  麦克风 [";
       for (unsigned index = 0; index < 10; ++index)
@@ -2817,6 +2831,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   }
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
+  if (property_name == "VoiceCancel") {
+    if (s.focused && !s.blocked && s.input_enabled && s.session && s.voice_active)
+      guarded(engine, "voice_menu_cancel", [&] { voice_cancel(engine); });
+    return;
+  }
   if (property_name == "ClipboardHistory/OpenPanel") {
     if (s.focused && !s.blocked && !launch_desktop_panel("clipboard"))
       g_warning("Cannot start MSIME clipboard panel launcher");
@@ -3770,7 +3789,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       key == IBUS_space &&
       voice_hold_hotkey(s, s.voice_hold_key, modifiers)) {
     s.voice_space_consumed = true;
-    s.voice_space_locked = true;
+    if (!s.voice_space_locked) {
+      guarded(engine, "voice_space_lock", [&] {
+        s.voice_space_locked = true;
+        render(engine, s.view);
+        publish_mode(engine);
+      });
+    }
     return TRUE;
   }
   if (character_set_toggle) {
