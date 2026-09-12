@@ -1509,21 +1509,55 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
         })
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("MSIME_HANDWRITING_MODEL").map(PathBuf::from))
-        .or_else(|| {
-            let exe = std::env::current_exe().ok()?;
-            let directory = exe.parent()?;
-            // Beside the executable, as the Windows package stages it, and one
-            // prefix up, as the unix install lays it out.
-            [
-                directory.join("handwriting/handwriting-zh_CN.model"),
-                directory
-                    .parent()?
-                    .join("share/msime-client/handwriting/handwriting-zh_CN.model"),
-            ]
-            .into_iter()
-            .find(|path| path.is_file())
-        })
+        .or_else(discover_handwriting_model)
         .filter(|path| path.is_absolute() && path.is_file())
+}
+
+fn discover_handwriting_model() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    let relative = "msime-client/handwriting/handwriting-zh_CN.model";
+
+    #[cfg(target_os = "linux")]
+    {
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_absolute())
+                    .map(|path| path.join(".local/share"))
+            });
+        if let Some(root) = data_home {
+            candidates.push(root.join(relative));
+        }
+    }
+
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            // Preserve the Windows bundle and relocatable Unix prefix layouts.
+            candidates.push(directory.join("handwriting/handwriting-zh_CN.model"));
+            if let Some(prefix) = directory.parent() {
+                candidates.push(prefix.join("share").join(relative));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let directories = std::env::var_os("XDG_DATA_DIRS")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+        candidates.extend(
+            std::env::split_paths(&directories)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(relative)),
+        );
+    }
+
+    candidates
+        .into_iter()
+        .find(|path| path.is_absolute() && path.is_file())
 }
 
 #[derive(serde::Deserialize)]
@@ -2759,11 +2793,6 @@ mod tests {
             )),
             None
         );
-
-        // Options that never mention a model fall through to discovery, which
-        // finds nothing next to a test binary.
-        assert_eq!(super::packaged_handwriting_model("{}"), None);
-        assert_eq!(super::packaged_handwriting_model("not json"), None);
     }
 
     #[test]
