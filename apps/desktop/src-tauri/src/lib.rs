@@ -1771,13 +1771,13 @@ struct VoiceRecognitionUpdate {
 }
 
 #[cfg(unix)]
-fn voice_provider_options(document: &Value) -> Value {
+fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
         .and_then(|value| value.get("voice_input"))
         .and_then(Value::as_object)
     else {
-        return Value::Object(Default::default());
+        return Ok(Value::Object(Default::default()));
     };
     let mut options = serde_json::Map::new();
     for key in [
@@ -1806,10 +1806,6 @@ fn voice_provider_options(document: &Value) -> Value {
         "polish_provider",
         "polish_model",
         "polish_prompt_id",
-        "polish_prompt",
-        "polish_prompt_custom_1",
-        "polish_prompt_custom_2",
-        "polish_prompt_custom_3",
         "doubao_boosting_table_id",
     ] {
         if let Some(value) = voice.get(key).and_then(Value::as_str) {
@@ -1817,7 +1813,26 @@ fn voice_provider_options(document: &Value) -> Value {
             options.insert(key.to_owned(), Value::String(bounded));
         }
     }
-    Value::Object(options)
+    let preset = voice.get("polish_prompt_id").and_then(Value::as_str).unwrap_or("cleanup");
+    let prompt_key = match preset {
+        "custom" | "custom_1" => Some("polish_prompt_custom_1"),
+        "custom_2" => Some("polish_prompt_custom_2"),
+        "custom_3" => Some("polish_prompt_custom_3"),
+        _ => None,
+    };
+    if let Some(key) = prompt_key {
+        let mut prompt = voice.get(key).and_then(Value::as_str).unwrap_or("");
+        if prompt.is_empty() && key == "polish_prompt_custom_1" {
+            prompt = voice.get("polish_prompt").and_then(Value::as_str).unwrap_or("");
+        }
+        if prompt.len() > 8192 {
+            return Err(HostActionError { code: "invalid_voice" });
+        }
+        if !prompt.is_empty() {
+            options.insert(key.to_owned(), Value::String(prompt.to_owned()));
+        }
+    }
+    Ok(Value::Object(options))
 }
 
 // Resolve on each request so services started after the panel remain discoverable.
@@ -1903,7 +1918,7 @@ async fn recognize_voice(
         .map_err(|_| HostActionError {
             code: "unavailable",
         })??;
-        let provider_options = voice_provider_options(&document);
+        let provider_options = voice_provider_options(&document)?;
         let path = resolve_voice_provider_socket(&document).ok_or(HostActionError {
             code: "unavailable",
         })?;

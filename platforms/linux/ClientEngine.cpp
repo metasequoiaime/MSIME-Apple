@@ -2365,15 +2365,29 @@ Json voice_provider_options(const Json &preferences) {
   constexpr const char *string_keys[] = {
       "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
       "polish_provider", "polish_model", "doubao_boosting_table_id",
-      "polish_prompt_id", "polish_prompt", "polish_prompt_custom_1",
-      "polish_prompt_custom_2", "polish_prompt_custom_3"};
+      "polish_prompt_id"};
   for (const auto *key : string_keys) {
     if (!voice.contains(key) || !voice.at(key).is_string())
       continue;
     auto value = voice.at(key).get<std::string>();
-    if (value.size() > 512)
-      value.resize(512);
+    if (value.size() > 512) {
+      size_t end = 512;
+      while (end && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;
+      value.resize(end);
+    }
     options[key] = std::move(value);
+  }
+  const auto preset = voice.value("polish_prompt_id", std::string{"cleanup"});
+  const char *prompt_key = nullptr;
+  if (preset == "custom" || preset == "custom_1") prompt_key = "polish_prompt_custom_1";
+  else if (preset == "custom_2") prompt_key = "polish_prompt_custom_2";
+  else if (preset == "custom_3") prompt_key = "polish_prompt_custom_3";
+  if (prompt_key) {
+    auto prompt = voice.value(prompt_key, std::string{});
+    if (prompt.empty() && std::string(prompt_key) == "polish_prompt_custom_1")
+      prompt = voice.value("polish_prompt", std::string{});
+    if (prompt.size() > 8192) throw std::runtime_error("Voice prompt exceeds limit");
+    if (!prompt.empty()) options[prompt_key] = std::move(prompt);
   }
   return options;
 }
@@ -2429,6 +2443,8 @@ void voice_start(IBusEngine *engine) {
   if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
+  const auto provider_options = voice_provider_options(
+      configured.value("preferences", Json::object()));
   const auto editing_text =
       s.view.value("editing_text", std::string{});
   const auto candidates = s.view.value("candidates", Json::array());
@@ -2446,8 +2462,6 @@ void voice_start(IBusEngine *engine) {
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
-  const auto provider_options = voice_provider_options(
-      configured.value("preferences", Json::object()));
   const bool stream_inline_preedit =
       provider_options.value("stream_inline_preedit", false);
   const auto alive = s.alive;
