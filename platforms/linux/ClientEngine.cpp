@@ -87,6 +87,14 @@ std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
 enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
+struct FailedMenuSave {
+  MenuPreference preference;
+  Json value;
+  std::string directory;
+  uint64_t configuration;
+};
+std::optional<FailedMenuSave> failed_menu_save;
+
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
   const auto explicit_path = options.value("clipboard_history_path", std::string{});
@@ -793,6 +801,15 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
   const auto directory = configured.value("preferences_directory", std::string{});
+  const bool can_retry = failed_menu_save &&
+      failed_menu_save->directory == directory &&
+      failed_menu_save->configuration == configuration_generation;
+  ibus_prop_list_append(items, ibus_property_new(
+      "DesktopTools/RetrySave", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string(menu_save_pending ? "正在保存设置…" : "设置未保存，点击重试"), "",
+      ibus_text_new_from_static_string("重新读取最新设置并重试上次菜单修改"),
+      can_retry && !menu_save_pending && s.focused && !s.blocked,
+      menu_save_pending || can_retry, PROP_STATE_UNCHECKED, nullptr));
   const bool toolbar_enabled = configured.at("preferences")
       .value("floating_toolbar", Json::object()).value("enabled", true);
   ibus_prop_list_append(items, ibus_property_new(
@@ -3024,6 +3041,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name.rfind("DesktopTools/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
+    if (property_name == "DesktopTools/RetrySave") {
+      if (!menu_save_pending && failed_menu_save &&
+          failed_menu_save->configuration == configuration_generation &&
+          failed_menu_save->directory == configured.value("preferences_directory", std::string{})) {
+        const auto retry = *failed_menu_save;
+        save_menu_preference(engine, retry.preference, retry.value);
+      }
+      return;
+    }
     if (property_name == "DesktopTools/ToolbarEnabled") {
       if (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED)
         save_menu_preference(engine, MenuPreference::Toolbar, value == PROP_STATE_CHECKED);
@@ -4824,6 +4850,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
   if (menu_save_pending || directory.empty() || directory.front() != '/')
     return;
   menu_save_pending = true;
+  failed_menu_save.reset();
   publish_mode(engine);
   auto task = g_task_new(G_OBJECT(engine), nullptr,
       +[](GObject *source, GAsyncResult *result, gpointer) {
@@ -4837,6 +4864,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
         guarded(IBUS_ENGINE(source), "menu_preference_save", [&] {
           if (request.configuration != configuration_generation) return;
           if (!snapshot) {
+            failed_menu_save = FailedMenuSave{request.preference, request.value,
+                                             request.directory, request.configuration};
             g_warning("Cannot save MSIME menu preference");
             publish_mode(IBUS_ENGINE(source));
             return;
