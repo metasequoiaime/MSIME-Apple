@@ -8,6 +8,7 @@
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "WindowsServer.h"
+#include "ClipboardHistory.h"
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
@@ -140,6 +141,11 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServer server(
         options, prepared.at("value").dump(), preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    ClipboardHistory clipboard_history(config.state_root / "clipboard-history");
+    ClipboardMonitor clipboard_monitor(
+        clipboard_history, [](std::string) {});
+    if (!clipboard_monitor.start())
+      throw std::runtime_error("Clipboard monitor unavailable");
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (server.request_selection(click.lease, click.session, click.generation,
                                    click.index) ==
