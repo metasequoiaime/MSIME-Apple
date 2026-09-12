@@ -29,18 +29,31 @@ class HistoryLock {
   int fd_ = -1;
 };
 std::string normalize(std::string text) {
-  text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
-  std::string out;
-  out.reserve(std::min(text.size(), kMaxChars));
-  for (size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == '\r') {
-      if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
-      out.push_back('\n');
-    } else out.push_back(text[i]);
+  while (!text.empty() && (text.back() == '\0' || text.back() == '\r')) text.pop_back();
+  size_t units = 0, cut = text.size();
+  for (size_t i = 0; i < text.size();) {
+    const auto first = static_cast<unsigned char>(text[i]);
+    size_t width = 0; uint32_t codepoint = 0;
+    if (first < 0x80) { width = 1; codepoint = first; }
+    else if (first >= 0xc2 && first <= 0xdf) { width = 2; codepoint = first & 0x1f; }
+    else if (first >= 0xe0 && first <= 0xef) { width = 3; codepoint = first & 0x0f; }
+    else if (first >= 0xf0 && first <= 0xf4) { width = 4; codepoint = first & 7; }
+    else return {};
+    if (i + width > text.size()) return {};
+    for (size_t j = 1; j < width; ++j) {
+      const auto byte = static_cast<unsigned char>(text[i + j]);
+      if ((byte & 0xc0) != 0x80) return {};
+      codepoint = (codepoint << 6) | (byte & 0x3f);
+    }
+    if ((width == 2 && codepoint < 0x80) || (width == 3 && codepoint < 0x800) ||
+        (width == 4 && (codepoint < 0x10000 || codepoint > 0x10ffff)) ||
+        (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint == 0) return {};
+    const size_t next = units + (codepoint > 0xffff ? 2 : 1);
+    if (next > kMaxChars) { cut = i; break; }
+    units = next; i += width;
   }
-  msime_clipboard_truncate(out, kMaxChars);
-  while (!out.empty() && (out.back() == '\n' || out.back() == ' ' || out.back() == '\t')) out.pop_back();
-  return out;
+  text.resize(cut);
+  return text;
 }
 std::vector<std::string> load(const std::filesystem::path &path) {
   std::ifstream input(path); if (!input) return {};
@@ -82,6 +95,7 @@ int main(int argc, char **argv) {
   const std::filesystem::path path = argv[1];
   const std::string op = argv[2];
   std::string added_text;
+  bool had_input = false;
   if (op == "add-stdin") {
     if (argc != 3) return 2;
     // Read before taking the history lock so a slow pipe cannot block readers.
@@ -90,14 +104,19 @@ int main(int argc, char **argv) {
     const auto size = static_cast<size_t>(std::cin.gcount());
     if (std::cin.bad() || size == input.size()) return 2;
     added_text.assign(input.data(), size);
+    had_input = size != 0;
   } else if (op == "add" && argc == 4) {
     added_text = argv[3];
   }
   if (op == "add-stdin" || (op == "add" && argc == 4)) {
+    const std::string original_text = added_text;
     added_text = normalize(std::move(added_text));
+    const bool invalid_input = op == "add-stdin" && had_input && added_text.empty() &&
+                               original_text.find_first_not_of(std::string("\0\r", 2)) != std::string::npos;
     // Reject malformed text without allowing JSON serialization to terminate
     // the process or echo clipboard content in an exception diagnostic.
     try { (void)Json(added_text).dump(); } catch (...) { return 2; }
+    if (invalid_input) return 2;
     if (added_text.empty()) return 0;
     std::error_code error;
     if (!path.parent_path().empty())
