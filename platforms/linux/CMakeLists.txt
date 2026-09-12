@@ -127,4 +127,5 @@ add_executable(linux-native-compose-test tests/native_compose.cpp)
 target_compile_options(linux-native-compose-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-native-compose-test PRIVATE .)
 target_link_libraries(linux-native-compose-test PRIVATE PkgConfig::XKBCOMMON)
-add_test(NAME linux-native-compose COMMAND linux-native-compose-test)
+add_test(NAME linux-native-compose COMMAND linux-native-compose-test
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/compose.fixture")
