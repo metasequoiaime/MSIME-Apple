@@ -272,7 +272,8 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
 
 fn validate_entry(entry: &Entry) -> Result<(), String> {
     let key_limit = match entry.kind { Kind::Pinyin => 256, Kind::Wubi => 4, Kind::QuickPhrase => 32, Kind::English => 64 };
-    if entry.key.is_empty() || entry.key.len() > key_limit || entry.value.is_empty() || entry.value.chars().any(char::is_control) || entry.weight < 0 { return Err("invalid dictionary entry".into()); }
+    let key_valid = match entry.kind { Kind::QuickPhrase => entry.key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()), _ => true };
+    if entry.key.is_empty() || entry.key.len() > key_limit || !key_valid || entry.value.is_empty() || entry.value.chars().any(char::is_control) || entry.weight < 0 { return Err("invalid dictionary entry".into()); }
     if matches!(entry.kind, Kind::QuickPhrase) && entry.value.encode_utf16().count() > 199 { return Err("quick phrase too long".into()); }
     Ok(())
 }
