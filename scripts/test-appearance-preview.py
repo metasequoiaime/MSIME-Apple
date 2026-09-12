@@ -198,6 +198,8 @@ with sync_playwright() as playwright:
     verify_helpcode_display(page, preview)
     page.get_by_label("候选窗主题", exact=True).select_option("light")
     expect(preview.locator(".container")).to_have_css("background-color", "rgb(171, 205, 239)")
+    expect(preview.locator(".container")).to_have_css("border-top-color", "rgb(17, 34, 51)")
+    assert preview.locator(".first").evaluate("el => getComputedStyle(el, '::before').display") == "none"
     page.get_by_label("候选窗主题", exact=True).select_option("dark")
     expect(preview.locator(".container")).to_have_css("background-color", "rgb(18, 52, 86)")
     expect(preview.locator("img.skin-decoration-image")).to_be_visible()

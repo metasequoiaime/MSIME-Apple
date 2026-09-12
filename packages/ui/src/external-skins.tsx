@@ -40,6 +40,12 @@ export function paletteCss(scope: string, palette: Palette): string[] {
   return css;
 }
 
+// Match the upstream settings preview cascade: dark base, then sparse light overrides.
+// Keep this shared by skin cards and the selected appearance preview.
+export function previewPaletteCss(scope: string, candidate: ExternalSkin["candidate"], theme: "dark" | "light"): string[] {
+  return [...paletteCss(scope, candidate.dark), ...(theme === "light" ? paletteCss(scope, candidate.light) : [])];
+}
+
 function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readFont, readToolbarCss, revision, activeTheme }: {
   skin: ExternalSkin; selected: string; layout: string; onSelect: (id: string) => void; readImage?: SkinImageReader; readFont?: SkinFontReader; readToolbarCss?: ToolbarCssReader; revision: number; activeTheme: "dark" | "light";
 }) {
@@ -51,7 +57,7 @@ function ExternalSkinCard({ skin, selected, layout, onSelect, readImage, readFon
   const [paletteFailed, setPaletteFailed] = useState(false);
   useEffect(() => {
     try {
-      const remove = installSkinPalette([...paletteCss(scope, skin.candidate.dark), ...(theme === "light" ? paletteCss(scope, skin.candidate.light) : [])]);
+      const remove = installSkinPalette(previewPaletteCss(scope, skin.candidate, theme));
       setPaletteFailed(false);
       return remove;
     } catch { setPaletteFailed(true); }
