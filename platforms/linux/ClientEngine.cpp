@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2031,7 +2031,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "NineKey", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("九键输入"), "",
       ibus_text_new_from_static_string("使用数字键输入全拼并选择拼音候选"),
-      s.focused && !s.blocked && s.input_enabled && active_scheme == "quanpin",
+      s.focused && !s.blocked && s.input_enabled && active_scheme == "quanpin" && !menu_save_pending,
       TRUE, nine_key ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto nine_key_spellings_property = nine_key_spellings(engine);
   auto local_modes_property = ibus_property_new(
@@ -3203,9 +3203,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const bool enabled = value == PROP_STATE_CHECKED;
       const auto active_scheme = s.scheme_override.value_or(
           configured.at("preferences").value("scheme", "quanpin"));
-      if (active_scheme != "quanpin" ||
+      if (menu_save_pending || active_scheme != "quanpin" ||
           s.view.value("nine_key", false) == enabled)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::NineKey, enabled);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4866,6 +4871,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->shuangpin_profile_override.reset();
           if (request.preference == MenuPreference::InputScheme)
             self->state->scheme_override.reset();
+          if (request.preference == MenuPreference::NineKey)
+            self->state->nine_key_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4948,6 +4955,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             snapshot["preferences"]["scheme"] = request.value;
             if (request.value != "japanese")
               snapshot["preferences"]["last_chinese_scheme"] = request.value;
+            break;
+          case MenuPreference::NineKey:
+            snapshot["preferences"]["touch_keyboard_layout"] =
+                request.value.get<bool>() ? "nine_key" : "twenty_six_key";
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
