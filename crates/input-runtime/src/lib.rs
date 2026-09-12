@@ -405,7 +405,7 @@ pub struct OnlineCandidate {
 /// the actual network I/O through their injected transport and then submit the
 /// result to `Runtime::apply_online_candidate`.
 pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
-    if !query.cloud_eligible {
+    if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
     msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
@@ -416,7 +416,7 @@ pub fn cloud_candidate_from_response(
     query: OnlineQuery,
     response: &[u8],
 ) -> Option<OnlineCandidate> {
-    if !query.cloud_eligible {
+    if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
     let text = msime_client_core::cloud::parse_google_response(response)?;
