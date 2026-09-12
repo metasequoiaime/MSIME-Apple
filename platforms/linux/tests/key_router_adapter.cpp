@@ -8,6 +8,10 @@ int main() {
   assert(adapter.accepts(event));
   event.lease.epoch++;
   assert(!adapter.accepts(event));
+  assert(!adapter.cancel(event.lease));
+  event.lease.epoch--;
+  assert(adapter.cancel(event.lease));
+  assert(!adapter.accepts(event));
   adapter.clear_lease();
   return 0;
 }
