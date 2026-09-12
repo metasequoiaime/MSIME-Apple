@@ -1334,6 +1334,11 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn panel_accepts_focus(label: &str) -> bool {
+    label != "keyboard-panel"
+}
+
+#[cfg(not(target_os = "windows"))]
 fn open_panel_window(
     app: &tauri::AppHandle,
     label: &'static str,
@@ -1352,6 +1357,7 @@ fn open_panel_window(
     }
     #[cfg(not(mobile))]
     {
+        let accepts_focus = panel_accepts_focus(label);
         if let Some(window) = app.get_webview_window(label) {
             #[cfg(target_os = "linux")]
             if let Some((x, y)) = position {
@@ -1361,7 +1367,13 @@ fn open_panel_window(
             }
             window
                 .show()
-                .and_then(|_| window.set_focus())
+                .and_then(|_| {
+                    if accepts_focus {
+                        window.set_focus()
+                    } else {
+                        Ok(())
+                    }
+                })
                 .map_err(|_| HostActionError {
                     code: "unavailable",
                 })?;
@@ -1378,6 +1390,8 @@ fn open_panel_window(
         }
         builder
             .inner_size(width, height)
+            .focused(accepts_focus)
+            .focusable(accepts_focus)
             .min_inner_size(width, height)
             .resizable(false)
             .decorations(false)
@@ -2128,6 +2142,20 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn keyboard_does_not_accept_focus_but_editable_panels_do() {
+        assert!(!super::panel_accepts_focus("keyboard-panel"));
+        for label in [
+            "handwriting-panel",
+            "voice-panel",
+            "emoji-panel",
+            "cloud-clipboard-panel",
+            "cloud-dictionary-panel",
+        ] {
+            assert!(super::panel_accepts_focus(label));
+        }
+    }
     #[test]
     fn toolbar_stylesheet_command_errors_do_not_expose_paths() {
         let state = tempfile::tempdir().unwrap();
