@@ -40,6 +40,14 @@ const defaultKeybindings: KeybindingPreferences = {
   switch_language_ctrl_alt_space: true,
   toggle_character_set_ctrl_shift_f: true,
 };
+export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[] };
+const defaultFuzzyPinyin: FuzzyPinyinPreferences = { enabled: false, rules: [] };
+const fuzzyPinyinGroups: [string, [string, string][]][] = [
+  ["平翘舌", [["z-zh", "z ↔ zh"], ["c-ch", "c ↔ ch"], ["s-sh", "s ↔ sh"]]],
+  ["声母", [["n-l", "n ↔ l"], ["f-h", "f ↔ h"], ["r-l", "r ↔ l"]]],
+  ["前后鼻音", [["an-ang", "an ↔ ang"], ["en-eng", "en ↔ eng"], ["in-ing", "in ↔ ing"]]],
+  ["其他韵母", [["ian-iang", "ian ↔ iang"], ["uan-uang", "uan ↔ uang"]]],
+];
 const helpcodeSchemas: [HelpcodeSchema, string][] = [["lantian", "蓝天小雨点"], ["ziranma", "自然码"], ["shouyou2_0", "首右2.0"], ["shouyouplus", "首右plus"], ["xiaohe", "小鹤"]];
 const pages = [
   { id: "appearance", title: "外观", icon: new URL("./assets/appearance.svg", import.meta.url).href },
@@ -110,6 +118,7 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
+  fuzzy_pinyin?: FuzzyPinyinPreferences;
   frequency?: FrequencyPreferences;
   word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
   navigation?: NavigationPreferences;
@@ -315,6 +324,8 @@ export interface SettingsClient {
     copy?(text: string): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
+  /** Android exposes the Apple-parity fuzzy-pinyin settings; desktop hosts keep this absent. */
+  fuzzyPinyin?: boolean;
 }
 
 function message(error: unknown): string {
@@ -590,6 +601,7 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
   const keybindings = draft?.keybindings ?? defaultKeybindings;
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
+  const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
   const localModes = draft?.local_modes ?? defaultLocalModes;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? draft?.autocorrect ?? true,
@@ -867,6 +879,29 @@ export function SettingsPage({ client }: { client: SettingsClient }) {
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">相邻键误触<small>例如把 shang 输入为 shabg</small></span><input aria-label="全拼纠错：相邻键误触" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_neighbor} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_neighbor: event.target.checked } })} /></label>
         </div>
+        {client.fuzzyPinyin && <div className="section" role="group" aria-label="模糊音">
+          <label className="section-header"><span className="section-title">模糊音<small>全拼、九键与双拼均支持；更改会在当前输入结束后生效</small></span>
+            <input aria-label="启用模糊音" className="toggle" type="checkbox" checked={fuzzyPinyin.enabled} onChange={event => setDraft({
+              ...draft, fuzzy_pinyin: { ...fuzzyPinyin, enabled: event.target.checked },
+            })} />
+          </label>
+          <p className="input-setting-description">勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。</p>
+          {fuzzyPinyinGroups.map(([title, rules]) => <div key={title} className="fuzzy-pinyin-group">
+            <div className="section-title">{title}</div>
+            <div className="input-option-content">{rules.map(([id, label], index) => <div className="input-option-item" key={id}>
+              {index > 0 && <div className="input-option-divider" />}
+              <label className="check-option"><input aria-label={`模糊音规则 ${id}`} type="checkbox" disabled={!fuzzyPinyin.enabled}
+                checked={fuzzyPinyin.rules.includes(id)} onChange={event => {
+                  const selected = new Set(fuzzyPinyin.rules);
+                  if (event.target.checked) selected.add(id); else selected.delete(id);
+                  setDraft({ ...draft, fuzzy_pinyin: { ...fuzzyPinyin, rules: [...selected].sort() } });
+                }} /><span>{label}</span></label>
+            </div>)}</div>
+          </div>)}
+          <button type="button" className="secondary fuzzy-pinyin-reset" onClick={() => {
+            if (window.confirm("关闭模糊音并清空所有规则？")) setDraft({ ...draft, fuzzy_pinyin: { enabled: false, rules: [] } });
+          }}>重置模糊音配置</button>
+        </div>}
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>

@@ -2,7 +2,7 @@
 //! All writers coordinate through the stable lock file, not the replaced data file.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -151,6 +151,8 @@ pub struct Preferences {
     pub autocorrect: bool,
     #[serde(default, skip_serializing_if = "QuanpinPreferences::is_empty")]
     pub quanpin: QuanpinPreferences,
+    #[serde(default)]
+    pub fuzzy_pinyin: FuzzyPinyinPreferences,
     #[serde(default)]
     pub quanpin_helpcode: HelpcodePreferences,
     #[serde(default)]
@@ -690,6 +692,7 @@ impl Default for Preferences {
             learning: true,
             autocorrect: true,
             quanpin: QuanpinPreferences::default(),
+            fuzzy_pinyin: FuzzyPinyinPreferences::default(),
             quanpin_helpcode: HelpcodePreferences::default(),
             shuangpin_helpcode: HelpcodePreferences::default(),
             traditional_chinese_output: false,
@@ -709,6 +712,70 @@ impl Default for Preferences {
             candidate_translations: true,
             translation_target_language: TranslationTargetLanguage::default(),
         }
+    }
+}
+
+/// Stable fuzzy-pinyin rule identifiers and bit assignments shared with the Engine and Apple host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum FuzzyPinyinRule {
+    #[serde(rename = "z-zh")]
+    ZZh,
+    #[serde(rename = "c-ch")]
+    CCh,
+    #[serde(rename = "s-sh")]
+    SSh,
+    #[serde(rename = "n-l")]
+    NL,
+    #[serde(rename = "f-h")]
+    FH,
+    #[serde(rename = "r-l")]
+    RL,
+    #[serde(rename = "an-ang")]
+    AnAng,
+    #[serde(rename = "en-eng")]
+    EnEng,
+    #[serde(rename = "in-ing")]
+    InIng,
+    #[serde(rename = "ian-iang")]
+    IanIang,
+    #[serde(rename = "uan-uang")]
+    UanUang,
+}
+
+impl FuzzyPinyinRule {
+    fn mask(self) -> u32 {
+        match self {
+            Self::ZZh => 1 << 0,
+            Self::CCh => 1 << 1,
+            Self::SSh => 1 << 2,
+            Self::NL => 1 << 3,
+            Self::FH => 1 << 4,
+            Self::RL => 1 << 5,
+            Self::AnAng => 1 << 6,
+            Self::EnEng => 1 << 7,
+            Self::InIng => 1 << 8,
+            Self::IanIang => 1 << 9,
+            Self::UanUang => 1 << 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FuzzyPinyinPreferences {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: BTreeSet<FuzzyPinyinRule>,
+}
+
+impl FuzzyPinyinPreferences {
+    /// Disabled fuzzy pinyin preserves the selected rules while presenting exact matching to Engine.
+    pub fn active_rules(&self) -> u32 {
+        if !self.enabled {
+            return 0;
+        }
+        self.rules.iter().fold(0, |mask, rule| mask | rule.mask())
     }
 }
 
@@ -1104,6 +1171,44 @@ mod tests {
             store.load().unwrap().preferences.diagnostic_log,
             saved.preferences.diagnostic_log
         );
+    }
+
+    #[test]
+    fn fuzzy_pinyin_preserves_disabled_rules_and_rejects_unknown_ids() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let rules = [FuzzyPinyinRule::ZZh, FuzzyPinyinRule::FH]
+            .into_iter()
+            .collect();
+        let fuzzy_pinyin = FuzzyPinyinPreferences {
+            enabled: false,
+            rules,
+        };
+        assert_eq!(fuzzy_pinyin.active_rules(), 0);
+        let disabled = store
+            .save(
+                0,
+                Preferences {
+                    fuzzy_pinyin,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            disabled.preferences.fuzzy_pinyin.rules,
+            [FuzzyPinyinRule::ZZh, FuzzyPinyinRule::FH]
+                .into_iter()
+                .collect()
+        );
+        let mut enabled = disabled.preferences;
+        enabled.fuzzy_pinyin.enabled = true;
+        assert_eq!(enabled.fuzzy_pinyin.active_rules(), (1 << 0) | (1 << 4));
+        let enabled = store.save(disabled.revision, enabled).unwrap();
+        assert_eq!(store.load().unwrap(), enabled);
+
+        let mut invalid = serde_json::to_value(enabled.preferences).unwrap();
+        invalid["fuzzy_pinyin"]["rules"] = serde_json::json!(["z-zh", "unsupported"]);
+        assert!(serde_json::from_value::<Preferences>(invalid).is_err());
     }
 
     #[test]

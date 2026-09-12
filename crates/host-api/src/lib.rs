@@ -98,6 +98,7 @@ impl HostSession {
         options.autocorrect_transposition =
             snapshot.preferences.quanpin_autocorrect_transposition();
         options.autocorrect_neighbor = snapshot.preferences.quanpin_autocorrect_neighbor();
+        options.fuzzy_pinyin_rules = snapshot.preferences.fuzzy_pinyin.active_rules();
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = snapshot.preferences.frequency.trigger_count;
         options.frequency_linear_step = snapshot.preferences.frequency.linear_step;
@@ -273,6 +274,7 @@ impl HostOptions {
             learning: self.preferences.learning,
             autocorrect_transposition: self.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: self.preferences.quanpin_autocorrect_neighbor(),
+            fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -820,6 +822,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             learning: options.preferences.learning,
             autocorrect_transposition: options.preferences.quanpin_autocorrect_transposition(),
             autocorrect_neighbor: options.preferences.quanpin_autocorrect_neighbor(),
+            fuzzy_pinyin_rules: options.preferences.fuzzy_pinyin.active_rules(),
             frequency_mode: options.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: options.preferences.frequency.trigger_count,
             frequency_linear_step: options.preferences.frequency.linear_step,
@@ -2074,6 +2077,44 @@ mod tests {
         });
         preferences.frequency.trigger_count = 0;
         assert_eq!(update(handle, 2, &preferences)["ok"], false);
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn fuzzy_pinyin_changes_wait_for_composition_and_disabled_rules_are_retained() {
+        use msime_client_core::preferences::{FuzzyPinyinPreferences, FuzzyPinyinRule};
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'z', false));
+        let mut preferences = Preferences {
+            fuzzy_pinyin: FuzzyPinyinPreferences {
+                enabled: true,
+                rules: [FuzzyPinyinRule::ZZh].into_iter().collect(),
+            },
+            ..Preferences::default()
+        };
+        let queued = update(handle, 1, &preferences);
+        assert_eq!(queued["value"]["deferred"], true);
+        SESSIONS
+            .with(|sessions| assert_eq!(sessions.borrow()[&handle].options.fuzzy_pinyin_rules, 0));
+        read(msime_client_command(handle, 3));
+        SESSIONS
+            .with(|sessions| assert_eq!(sessions.borrow()[&handle].options.fuzzy_pinyin_rules, 1));
+
+        preferences.fuzzy_pinyin.enabled = false;
+        let disabled = update(handle, 2, &preferences);
+        assert_eq!(disabled["value"]["deferred"], false);
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert_eq!(session.options.fuzzy_pinyin_rules, 0);
+            assert!(!session.applied.fuzzy_pinyin.enabled);
+            assert!(session
+                .applied
+                .fuzzy_pinyin
+                .rules
+                .contains(&FuzzyPinyinRule::ZZh));
+        });
         read(msime_client_destroy(handle));
     }
     #[test]
