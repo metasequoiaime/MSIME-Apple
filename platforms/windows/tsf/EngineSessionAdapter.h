@@ -47,6 +47,9 @@ public:
   bool paired_punctuation(bool, std::string *, std::string *);
   bool punctuation_lock(uint8_t, std::string *, std::string *);
   bool update_preferences(const std::string &, std::string *, std::string *);
+  // Loads the atomically published, validated snapshot without synthesizing
+  // defaults. A busy store is reported as false and leaves the session intact.
+  bool reload_preferences(const std::string &, std::string *, std::string *);
 private:
   bool response(char *, std::string *, std::string *) const;
   uint64_t session_ = 0;

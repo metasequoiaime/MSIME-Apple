@@ -92,4 +92,23 @@ bool EngineSessionAdapter::update_preferences(const std::string &snapshot,
   return response(msime_client_update_preferences(
       session_, reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size()), out, error);
 }
+bool EngineSessionAdapter::reload_preferences(const std::string &directory,
+                                              std::string *out,
+                                              std::string *error) {
+  if (!session_) { if (error) *error = "Engine session is not created"; return false; }
+  std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+      msime_client_try_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
+      msime_client_string_free);
+  if (!raw) { if (error) *error = "Preferences load failed"; return false; }
+  try {
+    const auto response_value = json::parse(raw.get());
+    if (!response_value.value("ok", false) || response_value.at("value").is_null()) {
+      if (error) *error = "Preferences unavailable";
+      return false;
+    }
+    const auto snapshot = response_value.at("value").dump();
+    return update_preferences(snapshot, out, error);
+  } catch (...) { if (error) *error = "Invalid preferences response"; return false; }
+}
 }
