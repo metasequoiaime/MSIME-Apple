@@ -85,7 +85,7 @@ std::optional<guint> candidate_background_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 void voice_cancel(IBusEngine *engine);
 std::string configured_clipboard_path(const Json &options) {
@@ -2110,8 +2110,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "CandidateSkin", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选皮肤"), "",
       ibus_text_new_from_static_string("选择候选窗口皮肤"),
-      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto skin_menu = ibus_prop_list_new();
+  std::set<std::string> listed_skins{"fluent", "wechat", "graphite", "willow_green"};
   const std::pair<const char *, const char *> skin_options[] = {
       {"fluent", "Fluent"}, {"wechat", "微信绿"},
       {"graphite", "Graphite"}, {"willow_green", "杨柳青"}};
@@ -2119,7 +2120,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("CandidateSkin/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选窗口皮肤"), TRUE, TRUE,
+        ibus_text_new_from_static_string("选择候选窗口皮肤"), !menu_save_pending, TRUE,
         skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
@@ -2129,20 +2130,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
         packages != catalog->end() && packages->is_array()) {
       for (const auto &package : *packages) {
         const auto id = package.value("id", std::string{});
-        if (id.empty() || id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+        if (id.empty() || !listed_skins.insert(id).second) continue;
         const auto title = package.value("title", id);
         ibus_prop_list_append(skin_menu, ibus_property_new(
-            id.c_str(), PROP_TYPE_NORMAL, ibus_text_new_from_string(title.c_str()), "",
-            ibus_text_new_from_static_string("外部候选皮肤"), TRUE, TRUE,
+            (std::string("CandidateSkin/") + id).c_str(), PROP_TYPE_RADIO,
+            ibus_text_new_from_string(title.c_str()), "",
+            ibus_text_new_from_static_string("外部候选皮肤"), !menu_save_pending, TRUE,
             skin == id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
       }
     }
   }
-  if (skin != "fluent" && skin != "wechat" && skin != "graphite" && skin != "willow_green") {
+  if (listed_skins.count(skin) == 0) {
     auto item = ibus_property_new(
         (std::string("CandidateSkin/") + skin).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string((std::string("外部：") + skin).c_str()), "",
-        ibus_text_new_from_static_string("当前配置的外部候选皮肤"), TRUE, TRUE,
+        ibus_text_new_from_static_string("当前配置的皮肤不在可用目录中"), FALSE, TRUE,
         PROP_STATE_CHECKED, nullptr);
     ibus_prop_list_append(skin_menu, item);
   }
@@ -3093,6 +3095,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
+       property_name.rfind("CandidateSkin/", 0) != 0 &&
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
        property_name.rfind("FrequencyMode/", 0) != 0 &&
        std::string(name) != "NumberRowSelection" &&
@@ -3441,9 +3444,31 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     if (std::string(name).rfind("CandidateSkin/", 0) == 0) {
       const auto selected = std::string(name).substr(std::string("CandidateSkin/").size());
+      if (value != PROP_STATE_CHECKED || menu_save_pending)
+        return;
+      bool available = selected == "fluent" || selected == "wechat" ||
+                       selected == "graphite" || selected == "willow_green";
+      const auto catalog = configured.find("candidate_skin_catalog");
+      if (!available && catalog != configured.end() && catalog->is_object()) {
+        const auto packages = catalog->find("packages");
+        if (packages != catalog->end() && packages->is_array()) {
+          for (const auto &package : *packages) {
+            if (package.is_object() && package.value("id", std::string{}) == selected) {
+              available = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!available) return;
       if (s.skin_override.value_or(
               configured.at("preferences").value("candidate_skin", "fluent")) == selected)
         return;
+      const auto directory = configured.value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') {
+        save_menu_preference(engine, MenuPreference::CandidateSkin, selected);
+        return;
+      }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
@@ -4728,6 +4753,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->preedit_override.reset();
           if (request.preference == MenuPreference::CandidateLayout)
             self->state->layout_override.reset();
+          if (request.preference == MenuPreference::CandidateSkin)
+            self->state->skin_override.reset();
           accepted_preferences_directory = request.directory;
           accepted_preferences_snapshot = *snapshot;
           configured["preferences"] = snapshot->at("preferences");
@@ -4754,6 +4781,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::CandidateLayout:
             snapshot["preferences"]["candidate_layout"] = request.value;
+            break;
+          case MenuPreference::CandidateSkin:
+            snapshot["preferences"]["candidate_skin"] = request.value;
             break;
           case MenuPreference::Toolbar:
             snapshot["preferences"]["floating_toolbar"]["enabled"] = request.value;
