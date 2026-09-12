@@ -3102,8 +3102,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = apply(engine, msime_client_punctuation_ascii(
             s.session, static_cast<uint8_t>(*keypad)));
         if (!handled && *keypad == '.') {
+          auto text = std::string(".");
+          if (s.fullwidth)
+            text = fullwidth_text(text);
           ibus_engine_commit_text(
-              engine, ibus_text_new_from_static_string("."));
+              engine, ibus_text_new_from_string(text.c_str()));
           handled = true;
         }
       } else {
@@ -3199,8 +3202,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.smart_punctuation && s.view.at("editing_text").get<std::string>().empty() &&
         std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
             std::string::npos) {
-      char raw[2] = {static_cast<char>(key), '\0'};
-      ibus_engine_commit_text(engine, ibus_text_new_from_string(raw));
+      auto text = std::string(1, static_cast<char>(key));
+      if (s.fullwidth)
+        text = fullwidth_text(text);
+      ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
       handled = true;
       return;
     }
