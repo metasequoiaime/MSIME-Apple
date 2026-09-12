@@ -20,9 +20,8 @@ struct MacEmojiView: View {
   private var queryID: [String] { [search, category, group, String(offset)] }
   @State private var items: [MacEmojiCatalogItem] = []
   @State private var status = "正在加载…"
-  var onSelect: (String) -> Void = { text in
-    NotificationCenter.default.post(name: .msimeHandwritingCandidateSelected, object: nil, userInfo: ["text": text])
-  }
+  @State private var selection = MacEmojiSelectionState()
+  var onSelect: (String) -> Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("表情与符号").font(.title2)
@@ -42,6 +41,10 @@ struct MacEmojiView: View {
         placeholder: category == "kaomoji" ? "搜索颜文字" : category == "symbols" ? "搜索符号" : "搜索表情",
         palette: palette)
       Text(status).font(.caption).foregroundStyle(MacEmojiPalette.color(palette.muted))
+      if selection.rejected {
+        Text(MacEmojiSelectionState.failureMessage).font(.caption)
+          .foregroundStyle(MacEmojiPalette.color(palette.text))
+      }
       HStack {
         Button("上一页") { offset = max(0, offset - 255) }.disabled(offset == 0)
         Spacer()
@@ -57,12 +60,12 @@ struct MacEmojiView: View {
                   let index = command.destination(from: selectedIndex, count: items.count, columns: category == "kaomoji" ? 3 : 8) else { return }
             selectedIndex = index
             proxy.scrollTo(index)
-            if case .activate = command { onSelect(items[index].text) }
+            if case .activate = command { selection.submit(items[index].text, send: onSelect) }
           }.frame(height: 24)
           ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: category == "kaomoji" ? 3 : 8), spacing: 8) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
-                Button(item.text) { selectedIndex = index; onSelect(item.text) }
+                Button(item.text) { selectedIndex = index; selection.submit(item.text, send: onSelect) }
                   .font(category == "kaomoji" ? .body : .title2)
                   .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
                   .id(index)

@@ -227,14 +227,14 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     id resources = [self runtimeOptions][@"resources"];
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier ||
-        ![shared respondsToSelector:@selector(showEmojiWithResources:selection:)]) return;
+        ![shared respondsToSelector:@selector(showEmojiWithResources:selectionAttempt:)]) return;
     if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
     const uint64_t token = _emojiReturn.capture(_activeClient);
     __weak MSIMEInputController *weakSelf = self;
-    void (^selection)(NSString *) = ^(NSString *text) {
+    BOOL (^selection)(NSString *) = ^BOOL(NSString *text) {
         MSIMEInputController *controller = weakSelf;
         if (!controller || application.terminated ||
-            !controller->_emojiReturn.queue(text, token, NSProcessInfo.processInfo.systemUptime)) return;
+            !controller->_emojiReturn.queue(text, token, NSProcessInfo.processInfo.systemUptime)) return NO;
         // The Swift bridge closes its window before this activation is executed.
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
@@ -252,8 +252,9 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
             MSIMEInputController *current = weakSelf;
             if (current) current->_emojiReturn.discard(token);
         });
+        return YES;
     };
-    [shared performSelector:@selector(showEmojiWithResources:selection:)
+    [shared performSelector:@selector(showEmojiWithResources:selectionAttempt:)
                  withObject:[resources isKindOfClass:NSString.class] ? resources : @"" withObject:selection];
 }
 - (void)showScreenKeyboard:(id)sender {
