@@ -6,7 +6,11 @@ if [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
   config=$MSIME_IBUS_OPTIONS
 else
   config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
-  if [ ! -e "$config" ]; then
+  case "$config" in
+    /*) ;;
+    *) echo "MSIME user configuration directory must be absolute" >&2; exit 1 ;;
+  esac
+  if [ ! -e "$config" ] && [ ! -L "$config" ]; then
     config=${1:-/etc/msime-client/runtime-options.json}
   fi
 fi

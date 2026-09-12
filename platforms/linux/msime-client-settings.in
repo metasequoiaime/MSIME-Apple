@@ -29,6 +29,15 @@ elif [ -n "${MSIME_IBUS_OPTIONS:-}" ]; then
   config=$MSIME_IBUS_OPTIONS
 else
   config=${XDG_CONFIG_HOME:-$HOME/.config}/msime-client/runtime-options.json
+  case "$config" in
+    /*) ;;
+    *) echo "MSIME user configuration directory must be absolute" >&2; exit 1 ;;
+  esac
+  # Match the IBus component's installed configuration fallback. An existing
+  # unreadable file or dangling symlink is a broken user configuration.
+  if [ ! -e "$config" ] && [ ! -L "$config" ]; then
+    config='@MSIME_SETTINGS_SYSTEM_CONFIG@'
+  fi
 fi
 
 case "$config" in

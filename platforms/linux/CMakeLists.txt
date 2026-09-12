@@ -117,6 +117,9 @@ if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")
     message(FATAL_ERROR "MSIME_DESKTOP_BINARY does not exist: ${MSIME_DESKTOP_BINARY}")
   endif()
+  # Quote the configured path as one POSIX shell word, including apostrophes.
+  string(REPLACE "'" "'\\''" MSIME_SETTINGS_SYSTEM_CONFIG
+         "${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json")
   configure_file(msime-client-settings.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings @ONLY)
   configure_file(data/msime-client.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop @ONLY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-client-desktop)
