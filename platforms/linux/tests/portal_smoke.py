@@ -51,6 +51,28 @@ call(path, interface, "FocusIn")
 for character in "nihao ":
     assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
 wait(lambda: commits == ["你好"])
+# Abandon an in-progress reading across focus loss, then start fresh.
+for character in "nihao":
+    assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
+call(path, interface, "FocusOut")
+call(path, interface, "FocusIn")
+for character in "nihao ":
+    assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
+wait(lambda: commits == ["你好", "你好"])
+# Content-type properties must cancel pending input when entering a sensitive field.
+for character in "nihao":
+    assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
+for purpose in (IBus.InputPurpose.PASSWORD, IBus.InputPurpose.PIN):
+    call(path, "org.freedesktop.DBus.Properties", "Set",
+         GLib.Variant("(ssv)", (interface, "ContentType", GLib.Variant("(uu)", (int(purpose), 0)))))
+    for character in "nihao ":
+        assert not call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
+    assert commits == ["你好", "你好"], "Portal sensitive input produced an IME commit"
+call(path, "org.freedesktop.DBus.Properties", "Set",
+     GLib.Variant("(ssv)", (interface, "ContentType", GLib.Variant("(uu)", (int(IBus.InputPurpose.FREE_FORM), 0)))))
+for character in "nihao ":
+    assert call(path, interface, "ProcessKeyEvent", GLib.Variant("(uuu)", (ord(character), 0, 0))).unpack()[0]
+wait(lambda: commits == ["你好", "你好", "你好"])
 # A distinct session-bus connection must not operate another client's context.
 other = Gio.DBusConnection.new_for_address_sync(
     os.environ["DBUS_SESSION_BUS_ADDRESS"],
@@ -67,4 +89,4 @@ finally:
 call(path, interface, "FocusOut")
 connection.signal_unsubscribe(subscription)
 connection.close_sync(None)
-print("IBus portal composition/commit/context-owner acceptance passed")
+print("IBus portal composition/focus/content-type/context-owner acceptance passed")
