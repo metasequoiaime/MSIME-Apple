@@ -5,8 +5,8 @@ const samples = [["你们", "rR"], ["你", "rX"], ["尼", "uV"], ["妮", "nV"], 
 export function SkinCandidatePreview({ orientation, decorated = false, image, onImageError, count = 6, preedit = true, helpcode = true }: { orientation: "horizontal" | "vertical"; decorated?: boolean; image?: string; onImageError?: () => void; count?: number; preedit?: boolean; helpcode?: boolean }) {
   const horizontal = orientation === "horizontal";
   const visibleCount = Number.isFinite(count) ? Math.max(1, Math.min(9, Math.trunc(count))) : 6;
-  const content = <div className="container">
-      {preedit && <div className="row pinyin"><div className="text">ni'mf<span className="cursor" /></div><div className="hidden-pinyin">n</div></div>}
+  const content = <div className={`container${preedit ? "" : " preedit-hidden"}`}>
+      <div className="row pinyin" hidden={!preedit}><div className="text">ni'mf<span className="cursor" /></div><div className="hidden-pinyin">n</div></div>
       {samples.slice(0, visibleCount).map(([text, code], index) => <div key={index} className={`row-wrapper${horizontal && index === 0 ? " first-row-wrapper" : ""}`}>
         <div className={`row cand${index === 0 ? " first" : ""}`}>
           <div className="text">
