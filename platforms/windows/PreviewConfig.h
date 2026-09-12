@@ -16,13 +16,18 @@ struct PreviewConfig {
   bool explicit_key_bindings = false;
   bool floating_toolbar_enabled = true;
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
+  // Optional appearance. Without it the presenters keep their built-in theme.
+  std::filesystem::path skin_directory;
+  std::string skin_id;
+  bool dark_theme = true;
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");
     const auto value = nlohmann::json::parse(document);
     if (!value.is_object() ||
         value.size() != ((value.contains("key_bindings") ? 6u : 5u) +
-                         (value.contains("floating_toolbar_enabled") ? 1u : 0u)) ||
+                         (value.contains("floating_toolbar_enabled") ? 1u : 0u) +
+                         (value.contains("appearance") ? 1u : 0u)) ||
         !value.at("format_version").is_number_integer() ||
         value.at("format_version") != 1)
       throw std::invalid_argument("Invalid preview configuration");
@@ -47,6 +52,31 @@ struct PreviewConfig {
       result.style = TsfPreeditStyle::Empty;
     else if (style != "local")
       throw std::invalid_argument("Invalid preview preedit style");
+    if (value.contains("appearance")) {
+      const auto &appearance = value.at("appearance");
+      if (!appearance.is_object() || appearance.size() > 3 ||
+          !appearance.contains("skin_directory") ||
+          !appearance.at("skin_directory").is_string())
+        throw std::invalid_argument("Invalid preview appearance");
+      result.skin_directory = std::filesystem::u8path(
+          appearance.at("skin_directory").get<std::string>());
+      if (!result.skin_directory.is_absolute() ||
+          result.skin_directory.u8string().find('\0') != std::string::npos)
+        throw std::invalid_argument("Preview paths must be absolute");
+      if (appearance.contains("skin")) {
+        if (!appearance.at("skin").is_string())
+          throw std::invalid_argument("Invalid preview appearance");
+        result.skin_id = appearance.at("skin").get<std::string>();
+        // The catalog bounds identifiers; refuse anything longer here too.
+        if (result.skin_id.size() > 64)
+          throw std::invalid_argument("Invalid preview appearance");
+      }
+      if (appearance.contains("dark_theme")) {
+        if (!appearance.at("dark_theme").is_boolean())
+          throw std::invalid_argument("Invalid preview appearance");
+        result.dark_theme = appearance.at("dark_theme").get<bool>();
+      }
+    }
     if (value.contains("key_bindings")) {
       result.explicit_key_bindings = true;
       const auto &keys = value.at("key_bindings");

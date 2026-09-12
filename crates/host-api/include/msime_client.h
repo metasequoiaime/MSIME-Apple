@@ -69,6 +69,13 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
+/* Scan an absolute UTF-8 skin root and return the catalog the settings page
+ * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
+ * An unreadable root is an empty catalog; an invalid package becomes an issue
+ * and is never returned as renderable. Presenters must still check that a
+ * package supports the layout and theme before adopting its colors.
+ * Keys are camelCase, the same document the settings page consumes. */
+char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */
