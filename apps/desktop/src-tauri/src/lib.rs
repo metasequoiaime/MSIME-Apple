@@ -1974,6 +1974,11 @@ fn send_text(
 }
 
 #[tauri::command]
+fn supports_clipboard_paste() -> bool {
+    cfg!(target_os = "linux")
+}
+
+#[tauri::command]
 async fn paste_clipboard_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
@@ -2959,6 +2964,7 @@ pub fn run() {
             send_text,
             send_voice_text,
             paste_clipboard_text,
+            supports_clipboard_paste,
             voice_input_language,
             recognize_handwriting,
             recognize_voice,

@@ -99,9 +99,6 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
   emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[] }>("load_emoji_catalog"), clipboard: {
     list: () => invoke<string[]>("list_clipboard_history"),
     onChanged: listener => listen("clipboard-history-changed", () => listener()),
-    ...(/Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent) ? {
-      paste: (text: string) => invoke<void>("paste_clipboard_text", { text }),
-    } : {}),
     remove: text => invoke("remove_clipboard_history", { text }),
     clear: () => invoke("clear_clipboard_history"),
     sync: () => invoke<string[]>("sync_clipboard_history"),
@@ -157,11 +154,34 @@ function DesktopSettings() {
   return settingsClient ? <SettingsPage client={settingsClient} initialPage={initialPage} />
     : <p role="status">正在连接设置…</p>;
 }
+function DesktopEmojiPanel({ theme }: { theme: "dark" | "light" }) {
+  const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
+  useEffect(() => {
+    let active = true;
+    const capability = isTauri()
+      ? invoke<boolean>("supports_clipboard_paste").catch(() => false)
+      : Promise.resolve(false);
+    void capability.then(supported => {
+      if (!active) return;
+      setEmojiClient(supported ? {
+        ...panelClients.emoji,
+        clipboard: {
+          ...panelClients.emoji.clipboard,
+          paste: text => invoke<void>("paste_clipboard_text", { text }),
+        },
+      } : panelClients.emoji);
+    });
+    return () => { active = false; };
+  }, []);
+  return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} />
+    : <p role="status">正在连接面板…</p>;
+}
+
 const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
   : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
   : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
   : panel === "cloud-dictionary" ? <CloudDictionaryPanel client={panelClients.cloudDictionary} />
-  : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <EmojiPanel client={panelClients.emoji} theme={theme} />}</DesktopPanelTheme>
+  : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} />}</DesktopPanelTheme>
   : <DesktopSettings />;
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);
