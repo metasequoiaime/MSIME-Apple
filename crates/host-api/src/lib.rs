@@ -1446,6 +1446,10 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
 
 /// Forward one account-backed dictionary operation to a user-owned Linux
 /// provider. The request is validated before it crosses the Unix socket.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
@@ -1483,6 +1487,10 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
 
 /// Forward one validated account-backed cloud clipboard operation to a
 /// user-owned Linux provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
@@ -1593,6 +1601,10 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
 /// Run the Engine's optional offline handwriting recognizer against a trusted
 /// packaged model. The model path is supplied by the native host, never by a
 /// webview or remote provider.
+///
+/// # Safety
+/// The caller must provide non-null readable buffers of the stated lengths. The buffers are read
+/// only for the duration of this call and are never retained.
 #[cfg(unix)]
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_handwriting_local_request(
