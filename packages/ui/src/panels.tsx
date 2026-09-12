@@ -347,6 +347,7 @@ export function VoicePanel({ client }: { client: VoicePanelClient }) {
       <button type="button" className="voice-panel-record" onClick={() => void recognize()} disabled={busy}>{busy ? "正在识别…" : "开始录音"}</button>
       <textarea aria-label="识别结果" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
       <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || !(client.sendVoiceText ?? client.sendText) || busy}>提交到当前窗口</button>
+      <button type="button" onClick={() => { setText(""); setNotice("识别结果已清空"); }} disabled={!text || busy}>清空结果</button>
       <p className="voice-panel-notice" role="status">{notice}</p>
     </div>
   </main>;
