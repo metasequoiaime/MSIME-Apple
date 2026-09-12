@@ -416,6 +416,7 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
     [_toolbar applyThemePreferences:preferences];
+    [_toolbar applySizingPreferences:preferences];
     NSDictionary *toolbar = preferences[@"floating_toolbar"];
     id enabled = [toolbar isKindOfClass:NSDictionary.class] ? toolbar[@"enabled"] : nil;
     if ([enabled isKindOfClass:NSNumber.class]) {

@@ -1,6 +1,7 @@
 #import "../FloatingToolbarPanel.h"
 
 #include <cassert>
+#include <cmath>
 
 @interface FloatingToolbarTestDelegate : NSObject <MSIMEFloatingToolbarDelegate>
 @property(nonatomic) NSUInteger inputModeToggles;
@@ -68,6 +69,7 @@ int main() {
         [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"follow"}];
         assert(panel.appearance == nil);
         assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
+        [panel setFrameAutosaveName:@""]; // Geometry tests must not persist window placement.
 
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
         NSButton *punctuation = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarPunctuation");
@@ -75,6 +77,33 @@ int main() {
         NSButton *traditional = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarTraditionalOutput");
         NSButton *settings = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarSettings");
         assert(inputMode && punctuation && fullWidth && traditional && settings);
+        for (NSNumber *scale in @[@75, @100, @125, @150]) {
+            for (NSNumber *size in @[@16, @18, @20, @22, @24, @26, @28]) {
+                NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};
+                [panel applySizingPreferences:preferences];
+                const double factor = scale.doubleValue / 100.0;
+                assert(panel.frame.size.width == std::ceil((272.0 + 5.0 * (size.doubleValue - 24.0)) * factor));
+                assert(panel.frame.size.height == std::ceil((size.doubleValue + 20.0) * factor));
+                assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) < 0.01);
+                assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) < 0.01);
+                assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
+                NSRect stable = panel.frame;
+                [panel applySizingPreferences:preferences];
+                assert(NSEqualRects(stable, panel.frame));
+            }
+        }
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
+        assert(panel.frame.size.width == 272.0 && panel.frame.size.height == 44.0);
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
+        FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
+        const NSSize configuredSize = panel.frame.size;
+        [panel activateForDelegate:sizingDelegate visible:YES];
+        assert(NSEqualSizes(panel.frame.size, configuredSize));
+        [panel setVisible:NO forDelegate:sizingDelegate];
+        [panel setVisible:YES forDelegate:sizingDelegate];
+        assert(NSEqualSizes(panel.frame.size, configuredSize));
+        [panel deactivateForDelegate:sizingDelegate];
+        [panel applySizingPreferences:@{}];
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
