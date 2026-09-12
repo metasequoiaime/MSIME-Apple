@@ -180,7 +180,8 @@ int wmain(int argc, wchar_t **argv) {
     CandidateWindow candidates(
         [&] { return server.candidate_view(); },
         [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
-        static_cast<unsigned>(config.candidate_font_size), 16, std::nullopt, "Segoe UI", {}, config.dark_theme,
+        static_cast<unsigned>(config.candidate_font_size),
+        static_cast<unsigned>(config.candidate_preedit_font_size), std::nullopt, "Segoe UI", {}, config.dark_theme,
         config.horizontal_candidates);
     const auto palette = resolve_palette(config);
     candidates.set_palette(palette);
