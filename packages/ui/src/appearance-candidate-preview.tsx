@@ -20,7 +20,7 @@ export function AppearanceCandidatePreview({ preferences, scan, readImage, activ
   return <section className="section" aria-label="候选窗口预览">
     <div className="section-header"><span className="section-title">候选窗口预览<small>固定样例随当前设置草稿变化，不代表实际输入候选。</small></span></div>
     {builtin ? <div className={`skin-card-preview appearance-candidate-preview skin-${skin}`} data-preview-theme={theme}
-      data-font-size={candidateFontSize(preferences.candidate_font_size)} style={{ ...candidateFontStyle(preferences), ...candidateTextStyle(preferences.candidate_text_color, preferences.candidate_number_color, preferences.candidate_accent_color, preferences.candidate_selected_color, preferences.candidate_hover_color), ...candidateFamilyStyle(preferences) }} aria-hidden="true">
+      data-font-size={candidateFontSize(preferences.candidate_font_size)} style={{ ...candidateFontStyle(preferences), ...candidateTextStyle(preferences.candidate_text_color, preferences.candidate_number_color, preferences.candidate_accent_color, preferences.candidate_selected_color, preferences.candidate_hover_color, preferences.candidate_surface_color, preferences.candidate_border_color), ...candidateFamilyStyle(preferences) }} aria-hidden="true">
       <div className="skin-preview-stage"><SkinCandidatePreview orientation={preferences.candidate_layout ?? "vertical"}
         count={preferences.candidate_page_size} preedit={preferences.candidate_preedit_style !== "empty"} helpcode={helpcode} /></div>
     </div> : <ExternalAppearancePreview preferences={preferences} theme={theme} scan={scan} readImage={readImage} active={active} revision={revision} helpcode={helpcode} />}

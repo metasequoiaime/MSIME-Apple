@@ -209,6 +209,8 @@ export type Preferences = {
   candidate_accent_color?: string | null;
   candidate_selected_color?: string | null;
   candidate_hover_color?: string | null;
+  candidate_surface_color?: string | null;
+  candidate_border_color?: string | null;
   candidate_font_family?: string;
   candidate_fallback_fonts?: string[];
   candidate_layout?: "horizontal" | "vertical";
@@ -889,6 +891,8 @@ export function SettingsPage({ client, initialPage }: { client: SettingsClient; 
           <input aria-label="候选悬停色" type="color" value={candidateTextColor(draft.candidate_hover_color) ?? (candidatePreviewTheme === "light" ? "#ececec" : "#414141")} onChange={event => setDraft({ ...draft, candidate_hover_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_hover_color)} onClick={() => { if (candidateTextColor(draft.candidate_hover_color)) setDraft({ ...draft, candidate_hover_color: null }); }}>跟随主题</button>
         </div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选表面色</span><div className="candidate-color-control"><input aria-label="候选表面色" type="color" value={candidateTextColor(draft.candidate_surface_color) ?? (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")} onChange={event => setDraft({ ...draft, candidate_surface_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_surface_color: null })}>跟随主题</button></div></div></div>
+        <div className="section"><div className="section-header"><span className="section-title">候选边框色</span><div className="candidate-color-control"><input aria-label="候选边框色" type="color" value={candidateTextColor(draft.candidate_border_color) ?? (candidatePreviewTheme === "light" ? "#dedede" : "#303030")} onChange={event => setDraft({ ...draft, candidate_border_color: event.target.value })} /><button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`} onClick={() => setDraft({ ...draft, candidate_border_color: null })}>跟随主题</button></div></div></div>
         <div className="section"><div className="section-header"><span className="section-title">候选编号颜色</span><div className="candidate-color-control">
           <input aria-label="候选编号颜色" type="color" value={candidateTextColor(draft.candidate_number_color) ?? (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")} onChange={event => setDraft({ ...draft, candidate_number_color: event.target.value })} />
           <button type="button" className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`} aria-pressed={!candidateTextColor(draft.candidate_number_color)} onClick={() => { if (candidateTextColor(draft.candidate_number_color)) setDraft({ ...draft, candidate_number_color: null }); }}>跟随主题</button>
