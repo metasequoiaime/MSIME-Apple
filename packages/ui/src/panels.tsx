@@ -282,6 +282,16 @@ function appendPointerSamples(points: Point[], event: PointerEvent<SVGSVGElement
 }
 
 export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
+  const [activationMode, setActivationMode] = useState<"copy" | "input">(() => {
+    try { return window.localStorage.getItem("msime.handwriting.activation") === "input" ? "input" : "copy"; }
+    catch { return "copy"; }
+  });
+  const effectiveMode = activationMode === "copy" && !client.copyHandwritingCandidate
+    ? "input" : activationMode === "input" && !client.submitHandwritingCandidate ? "copy" : activationMode;
+  function selectActivation(mode: "copy" | "input") {
+    setActivationMode(mode);
+    try { window.localStorage.setItem("msime.handwriting.activation", mode); } catch { /* optional preference */ }
+  }
   const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [redoStrokes, setRedoStrokes] = useState<InkStroke[]>([]);
   const [drawing, setDrawing] = useState<Point[]>([]);
@@ -336,7 +346,7 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
             const result = await recognizeInk({ language: "zh-CN", strokes: request.strokes });
             if (request.revision !== recognitionRevision.current) continue;
             setCandidates(result.candidates);
-            setNotice(result.candidates.length ? "点击候选结果即可提交" : "未识别到内容，请确认已安装中文手写包");
+            setNotice(result.candidates.length ? "选择候选可复制或输入" : "未识别到内容，请确认已安装中文手写包");
           } catch {
             if (request.revision === recognitionRevision.current) {
               setCandidates([]);
@@ -478,7 +488,18 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="handwriting-panel-body">
       <section className="ink-canvas-section"><svg className="ink-canvas" tabIndex={0} viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布">{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo} disabled={!strokes.length && !drawing.length} aria-keyshortcuts="Control+z Meta+z">↶ 撤销</button><button type="button" onClick={redo} disabled={!redoStrokes.length || drawing.length > 0} aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y">↷ 重做</button><button type="button" onClick={clear} disabled={!strokes.length && !drawing.length && !redoStrokes.length}>× 重写</button>{client.recognizeHandwriting && <button type="button" onClick={retryRecognition} disabled={!strokes.length || drawing.length > 0 || recognizing || submitting}>{recognizing ? "识别中…" : "重新识别"}</button>}</div></section>
-      <section className="recognition-section"><h2>识别结果</h2><div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}><button type="button" className="handwriting-candidate-submit" disabled={submitting} onClick={() => void chooseCandidate(candidate)}>{candidate}</button>{client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}</div>)}</div><p role="status">{notice}</p></section>
+      <section className="recognition-section"><h2>识别结果</h2>
+        <div className="handwriting-actions" role="group" aria-label="点击手写候选的操作">
+          <span>点击候选：</span>
+          <button type="button" aria-pressed={effectiveMode === "copy"} disabled={submitting || !client.copyHandwritingCandidate} onClick={() => selectActivation("copy")}>复制</button>
+          <button type="button" aria-pressed={effectiveMode === "input"} disabled={submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
+        </div>
+        <div className="handwriting-candidate-grid">{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
+          <button type="button" className="handwriting-candidate-submit" title={effectiveMode === "copy" ? "复制候选" : "输入候选"} disabled={submitting} onClick={() => void chooseCandidate(candidate, effectiveMode === "copy")}>{candidate}</button>
+          {effectiveMode === "copy" && client.submitHandwritingCandidate
+            ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
+            : effectiveMode === "input" && client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}
+        </div>)}</div><p role="status">{notice}</p></section>
     </div>
   </main>;
 }
