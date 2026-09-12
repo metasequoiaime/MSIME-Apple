@@ -1762,6 +1762,15 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .map(|candidate| json!({ "text": candidate.text }))
                 .collect::<Vec<_>>();
             let custom_translation = &preferences.custom_translation;
+            let tencent = &preferences.tencent_tmt;
+            // Selecting custom translation must never silently fall back to TMT.
+            let tencent_tmt = (!custom_translation.enabled
+                && tencent.enabled
+                && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
+                && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key))
+            .then(|| serde_json::to_value(tencent))
+            .transpose()
+            .map_err(|_| "invalid Tencent translation configuration")?;
             let custom_translation = (custom_translation.enabled
                 && !custom_translation.endpoint.is_empty())
             .then(|| {
@@ -1777,6 +1786,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     .map_err(|e| e.to_string())?,
                 "candidates": candidates,
                 "custom_translation": custom_translation,
+                "tencent_tmt": tencent_tmt,
             }))
         })
     })
@@ -3374,6 +3384,8 @@ mod tests {
             msime_client_core::preferences::TranslationTargetLanguage::Fr;
         preferences.custom_translation.enabled = true;
         preferences.custom_translation.endpoint = "https://translation.example.invalid".into();
+        preferences.tencent_tmt.secret_id = "AKIDsynthetic".into();
+        preferences.tencent_tmt.secret_key = "synthetic".into();
         let changed = update(handle, 1, &preferences);
         assert_eq!(changed["value"]["deferred"], true);
         assert_eq!(changed["value"]["view"]["generation"], view["generation"]);
@@ -3385,8 +3397,28 @@ mod tests {
             "https://translation.example.invalid"
         );
         assert!(!query["value"]["candidates"].as_array().unwrap().is_empty());
-        preferences.candidate_translations = false;
+        assert!(query["value"]["tencent_tmt"].is_null());
+        preferences.custom_translation.enabled = false;
         update(handle, 2, &preferences);
+        let tencent_query = read(msime_client_translation_query(handle));
+        assert_eq!(tencent_query["value"]["generation"], view["generation"]);
+        assert_eq!(
+            tencent_query["value"]["tencent_tmt"]["region"],
+            "ap-guangzhou"
+        );
+        assert_eq!(
+            tencent_query["value"]["tencent_tmt"]["secret_id"],
+            "AKIDsynthetic"
+        );
+        preferences.tencent_tmt.enabled = false;
+        update(handle, 3, &preferences);
+        assert!(read(msime_client_translation_query(handle))["value"]["tencent_tmt"].is_null());
+        preferences.tencent_tmt.enabled = true;
+        preferences.tencent_tmt.secret_key.clear();
+        update(handle, 4, &preferences);
+        assert!(read(msime_client_translation_query(handle))["value"]["tencent_tmt"].is_null());
+        preferences.candidate_translations = false;
+        update(handle, 5, &preferences);
         assert_eq!(
             read(msime_client_translation_query(handle))["value"],
             Value::Null
