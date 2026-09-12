@@ -88,6 +88,34 @@
     _translationRequest = [request copy]; _maximumBodyBytes = 1048576; _timeout = 2.5;
     return self;
 }
+- (instancetype)initWithAITranslationDescriptor:(NSDictionary *)descriptor configuration:(NSURLSessionConfiguration *)configuration
+                                       completion:(void (^)(NSData *))completion {
+    self = [self initWithURL:nil configuration:configuration completion:completion];
+    if (!self) return nil;
+    if (![descriptor isKindOfClass:NSDictionary.class] || ![descriptor[@"url"] isKindOfClass:NSString.class] ||
+        ![descriptor[@"method"] isEqual:@"POST"] || ![descriptor[@"timeout_ms"] isEqual:@8000] ||
+        ![descriptor[@"connect_timeout_ms"] isEqual:@2500] || ![descriptor[@"max_response_bytes"] isEqual:@1048576] ||
+        ![descriptor[@"body"] isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:descriptor[@"body"]]) return self;
+    NSString *address = descriptor[@"url"];
+    NSURL *url = [NSURL URLWithString:address];
+    NSDictionary *headers = descriptor[@"headers"];
+    if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 || ![@[@"https", @"http"] containsObject:url.scheme] ||
+        !url.host.length || url.user || url.password || url.fragment || ![headers isKindOfClass:NSDictionary.class] ||
+        headers.count != 2 || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
+        ![headers[@"Authorization"] isKindOfClass:NSString.class] || ![headers[@"Authorization"] hasPrefix:@"Bearer "]) return self;
+    for (NSString *name in headers) {
+        NSString *value = headers[name];
+        if (![value isKindOfClass:NSString.class] || !value.length || [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 8192 ||
+            [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
+    }
+    NSData *body = [NSJSONSerialization dataWithJSONObject:descriptor[@"body"] options:0 error:nil];
+    if (!body || body.length > 65536) return self;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST"; request.allHTTPHeaderFields = headers; request.HTTPBody = body;
+    request.HTTPShouldHandleCookies = NO; request.timeoutInterval = 8;
+    _translationRequest = [request copy]; _maximumBodyBytes = 1048576; _timeout = 8;
+    return self;
+}
 - (void)start {
     NSAssert(NSThread.isMainThread, @"Cloud transport must run on main thread");
     if (_started || !_completion) return;

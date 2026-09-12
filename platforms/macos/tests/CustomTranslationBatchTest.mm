@@ -5,6 +5,7 @@
 @interface MSIMECustomTranslationBatch (TestSeams)
 - (NSTimeInterval)currentTime;
 - (MSIMECloudCandidateRequest *)requestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion;
+- (MSIMECloudCandidateRequest *)AIRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion;
 @end
 
 @interface SyntheticTranslationRequest : MSIMECloudCandidateRequest
@@ -28,6 +29,9 @@
 - (NSTimeInterval)currentTime { return _now; }
 - (NSTimeInterval)unixTime { return _wallTime; }
 - (MSIMECloudCandidateRequest *)tencentRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    return [self requestForDescriptor:descriptor completion:completion];
+}
+- (MSIMECloudCandidateRequest *)AIRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
     return [self requestForDescriptor:descriptor completion:completion];
 }
 - (MSIMECloudCandidateRequest *)requestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
@@ -296,6 +300,19 @@ static void TestTencentFailuresAndCancellation() {
     assert(!weakBatch && request.cancelled);
     request.reply(TencentResponse(@[@"late"]));
 }
+static void TestAIItems() {
+    NSArray *items = @[
+        @{@"text":@"候选甲", @"request":@{@"url":@"https://ai.invalid/chat", @"method":@"POST", @"headers":@{@"Content-Type":@"application/json", @"Authorization":@"Bearer synthetic"}, @"body":@{@"model":@"synthetic"}, @"timeout_ms":@8000, @"connect_timeout_ms":@2500, @"max_response_bytes":@1048576}},
+    ];
+    __block BOOL done = NO;
+    SyntheticTranslationBatch *batch = [[SyntheticTranslationBatch alloc] initWithAIItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:^(NSArray *results) {
+        assert(([results isEqual:@[@{@"text":@"候选甲", @"translation":@"释义甲"}]])); done = YES;
+    }];
+    [batch start]; assert(batch.requests.count == 1 && batch.requests[0].started);
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"choices":@[@{@"message":@{@"content":@"{\"candidates\":[{\"text\":\"释义甲\"}]}"}}]} options:0 error:nil];
+    batch.requests[0].reply(body); assert(done);
+    AssertReleased(batch);
+}
 int main() {
     @autoreleasepool {
         TestSequentialResults();
@@ -305,6 +322,7 @@ int main() {
         TestBoundsAndEmptyResults();
         TestTencentGroups();
         TestTencentFailuresAndCancellation();
+        TestAIItems();
     }
     return 0;
 }
