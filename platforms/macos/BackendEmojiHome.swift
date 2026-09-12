@@ -79,17 +79,13 @@ struct MacEmojiHomeView: View {
             copy(items[index])
           })
       } else {
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
-        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-          let key = MacEmojiHomeKey(category: category, text: item.text, group: item.group)
-          Button(item.text) { selected = key; copy(item) }
-            .font(.title2)
-            .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selected == key))
-            .id(key)
-            .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
-            .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
-        }
-      }
+        MacEmojiGrid(items: items, palette: palette,
+          selected: { selected == MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          identity: { MacEmojiHomeKey(category: category, text: items[$0].text, group: items[$0].group) },
+          copy: { index in
+            selected = MacEmojiHomeKey(category: category, text: items[index].text, group: items[index].group)
+            copy(items[index])
+          })
       }
     }
   }

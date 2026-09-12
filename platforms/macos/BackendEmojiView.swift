@@ -11,8 +11,7 @@ struct MacEmojiView: View {
   }
   @State private var search = ""
   @State private var category = "home"
-  private var usesWideCells: Bool { category == "recent" || category == "clipboard" }
-  private var columns: Int { category == "clipboard" ? 1 : usesWideCells ? 3 : 8 }
+  private var columns: Int { category == "clipboard" ? 1 : MacEmojiGridMetrics.columns }
   @State private var group = ""
   @State private var parent = ""
   @State private var symbolGroups: [MacEmojiSymbolGroup] = []
@@ -176,24 +175,19 @@ struct MacEmojiView: View {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
                 selected: { selectedIndex == $0 }, identity: { $0 },
                 copy: { selectedIndex = $0; copyItem(flowItems[$0]) })
-            } else {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columns), spacing: category == "clipboard" ? MacClipboardPreview.gap : 8) {
+            } else if category == "clipboard" {
+            LazyVGrid(columns: [GridItem(.flexible())], spacing: MacClipboardPreview.gap) {
               ForEach(Array((loadedQuery == queryID ? items : []).enumerated()), id: \.offset) { index, item in
-                if category == "clipboard" {
                   MacEmojiClipboardRow(text: item.text, palette: palette, selected: selectedIndex == index,
                     deleting: deletingHistory, copy: { selectedIndex = index; copyItem(item) },
                     remove: { removeHistory(item.text) })
                     .id(index)
-                } else {
-                Button(item.text) { selectedIndex = index; copyItem(item) }
-                  .font(usesWideCells ? .body : .title2)
-                  .buttonStyle(MacEmojiCellStyle(palette: palette, selected: selectedIndex == index))
-                  .id(index)
-                  .help([item.group, item.annotation].filter { !$0.isEmpty }.joined(separator: " · "))
-                  .accessibilityLabel(item.annotation.isEmpty ? item.text : item.annotation)
-                }
               }
             }
+            } else {
+              MacEmojiGrid(items: loadedQuery == queryID ? items : [], palette: palette,
+                selected: { selectedIndex == $0 }, identity: { $0 },
+                copy: { selectedIndex = $0; copyItem(items[$0]) })
             }
           }
         }
@@ -207,7 +201,7 @@ struct MacEmojiView: View {
         selection.submit(items[selectedIndex].text, send: onSelect)
       }.disabled(loadedQuery != queryID || !items.indices.contains(selectedIndex))
       }
-    }.padding(20).frame(minWidth: 380, minHeight: 500)
+    }.padding(20).frame(minWidth: MacEmojiGridMetrics.minimumPanelWidth, minHeight: 500)
       .background(MacEmojiPalette.color(palette.background))
       .foregroundStyle(MacEmojiPalette.color(palette.text))
       .tint(MacEmojiPalette.color(palette.accent))
