@@ -266,9 +266,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
-        item.state = _appearance.englishMode == (mode == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+        item.state = (_appearance.englishMode == (mode == 1) && (mode == 1 || ![_view[@"dedicated_english"] isEqual:@YES])) ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
     }
+    NSMenuItem *englishCandidates = [[NSMenuItem alloc] initWithTitle:@"英文候选模式" action:@selector(toggleDedicatedEnglishMode:) keyEquivalent:@"e"];
+    englishCandidates.target = self;
+    englishCandidates.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    englishCandidates.state = !_appearance.englishMode && [_view[@"dedicated_english"] isEqual:@YES] ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:englishCandidates];
     [menu addItem:NSMenuItem.separatorItem];
     for (NSUInteger script = 0; script < 2; ++script) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:script ? @"繁体输出" : @"简体输出" action:script ? @selector(selectTraditionalOutput:) : @selector(selectSimplifiedOutput:) keyEquivalent:@""];
@@ -386,7 +391,31 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_panel orderOut:nil];
     [_keymapPanel orderOut:nil];
 }
-- (void)selectChineseMode:(id)sender { (void)sender; [self setEnglishInputMode:NO]; }
+- (void)selectChineseMode:(id)sender {
+    (void)sender;
+    if ([_view[@"dedicated_english"] isEqual:@YES]) [self setDedicatedEnglishInputMode:NO];
+    else [self setEnglishInputMode:NO];
+}
+- (void)setDedicatedEnglishInputMode:(BOOL)enabled {
+    if (!_activeClient) return;
+    [self ensureAppearance];
+    if (!_session || _focusPending) [self prepareSession];
+    if (!_session) return;
+    if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    NSError *error = nil;
+    NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
+    if (!view) { if (error) NSBeep(); return; }
+    _appearance.englishMode = NO;
+    [self apply:@{@"view":view}];
+}
+- (void)toggleDedicatedEnglishMode:(id)sender {
+    (void)sender;
+    [self setDedicatedEnglishInputMode:_appearance.englishMode || ![_view[@"dedicated_english"] isEqual:@YES]];
+}
 - (void)selectSimplifiedOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = NO; }
 - (void)selectTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = YES; }
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
@@ -681,6 +710,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (MSIMEPunctuationToggle(event)) {
         if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
+        return YES;
+    }
+    if (event.keyCode == 14 && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
+        if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
     if (_appearance.englishMode) return NO;

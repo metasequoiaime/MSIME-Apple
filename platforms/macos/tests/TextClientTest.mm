@@ -34,9 +34,22 @@ static void TestEngineMaintenance() {
     assert(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
         "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);", nullptr, nullptr, nullptr) == SQLITE_OK);
     assert(sqlite3_close(database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
+        "INSERT INTO english_words VALUES('hello','hello',100);", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(database) == SQLITE_OK);
     NSError *error = nil;
     MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
     assert(session && !error && [session setFocused:YES error:&error]);
+    NSDictionary *englishView = [session setDedicatedEnglishEnabled:YES error:&error];
+    assert(!error && [englishView[@"dedicated_english"] isEqual:@YES]);
+    assert([session typeASCII:'h' shift:NO error:&error]);
+    NSDictionary *englishTyped = [session typeASCII:'e' shift:NO error:&error];
+    assert(!error && [englishTyped[@"view"][@"dedicated_english"] isEqual:@YES]);
+    assert([englishTyped[@"view"][@"candidates"][0][@"text"] isEqual:@"hello"]);
+    assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"hello"]);
+    englishView = [session setDedicatedEnglishEnabled:NO error:&error];
+    assert(!error && [englishView[@"dedicated_english"] isEqual:@NO]);
     for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
     NSDictionary *identifier = MaintenanceCandidate(session);
     assert(identifier && !error);
