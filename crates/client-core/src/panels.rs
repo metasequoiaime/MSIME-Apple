@@ -40,22 +40,7 @@ pub struct KeyboardModifiers {
     pub win: bool,
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ClientFocusLease {
     pub client: u64,
     pub epoch: u64,
@@ -231,6 +216,40 @@ mod tests {
         InkStroke {
             points: vec![InkPoint { x: 1.0, y: 2.0 }, InkPoint { x: 3.0, y: 4.0 }],
         }
+    }
+
+    #[test]
+    fn client_key_event_validates_lease_key_and_modifiers() {
+        let mut event = ClientKeyEvent {
+            lease: ClientFocusLease {
+                client: 1,
+                epoch: 2,
+                token: 3,
+            },
+            virtual_key: 0x41,
+            scan_code: 30,
+            modifiers: 0x0f,
+            character: 'a',
+            ui_less: false,
+        };
+        assert!(event.validate().is_ok());
+        event.lease.token = 0;
+        assert_eq!(
+            event.validate(),
+            Err(PanelContractError::InvalidKeyboardInput)
+        );
+        event.lease.token = 3;
+        event.virtual_key = 0x100;
+        assert_eq!(
+            event.validate(),
+            Err(PanelContractError::InvalidKeyboardInput)
+        );
+        event.virtual_key = 0x41;
+        event.modifiers = 0x10;
+        assert_eq!(
+            event.validate(),
+            Err(PanelContractError::InvalidKeyboardInput)
+        );
     }
 
     #[test]
