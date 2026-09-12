@@ -12,9 +12,16 @@ struct MacEmojiView: View {
   @State private var search = ""
   @State private var category = "home"
   @State private var pendingEmojiGroup: String?
+  @State private var navigationRevision: UInt = 0
+  private var scrollID: [String] { [search, category, parent, group, String(navigationRevision)] }
+  private func resetNavigation() {
+    navigationRevision &+= 1
+    selectedIndex = 0
+  }
   private var emojiPage: Bool { category == "" || category == "recent" }
   private var emojiSection: Binding<MacEmojiSectionChoice> {
     Binding(get: { category == "recent" ? .recent : .group(group) }, set: { choice in
+      resetNavigation()
       switch choice {
       case .recent: pendingEmojiGroup = nil; category = "recent"
       case .group(let name):
@@ -25,6 +32,8 @@ struct MacEmojiView: View {
   }
   private func navigate(_ rawValue: String) {
     guard let page = MacEmojiMainPage(rawValue: rawValue) else { return }
+    resetNavigation()
+    toast.dismiss()
     pendingEmojiGroup = page == .emoji ? "" : nil
     category = page.destination(hasRecents: !recent.items.isEmpty)
   }
@@ -114,7 +123,7 @@ struct MacEmojiView: View {
             MacEmojiCategoryTabs(tabs: MacEmojiCategoryIcons.emojiTabs(groupsCategory == category ? groups : []),
               selected: emojiSection.wrappedValue, palette: palette, select: { emojiSection.wrappedValue = $0 })
           } else if category == "symbols" && !symbolTabs.isEmpty {
-            MacEmojiCategoryTabs(tabs: symbolTabs, selected: parent, palette: palette, select: { parent = $0 })
+            MacEmojiCategoryTabs(tabs: symbolTabs, selected: parent, palette: palette, select: { resetNavigation(); parent = $0 })
           } else { Text(MacEmojiMainPage.title(category: category)).font(.system(size: 16, weight: .semibold)) }
         }
       }
@@ -150,7 +159,7 @@ struct MacEmojiView: View {
       }
       if category == "home" {
         MacEmojiHomeView(resources: resources, search: search, recent: recent.matching(search),
-          palette: palette, copy: copyItem, more: navigate)
+          navigationRevision: navigationRevision, palette: palette, copy: copyItem, more: navigate)
       } else if let page = mediaPage {
         MacEmojiMediaPlaceholder(page: page, palette: palette)
       } else {
@@ -170,7 +179,7 @@ struct MacEmojiView: View {
             proxy.scrollTo(index)
             if case .activate = command { copyItem(items[index]) }
           }.frame(height: 24)
-          ScrollView {
+          MacEmojiScroll(resetID: scrollID) {
             if category == "kaomoji" {
               MacEmojiFlowGrid(items: flowItems, cells: flowCells, width: flowWidth, palette: palette,
                 selected: { selectedIndex == $0 }, identity: { $0 },

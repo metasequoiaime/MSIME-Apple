@@ -45,7 +45,7 @@ endif()
 enable_testing()
 include(ClipboardTests.cmake)
 set(MSIME_EMOJI_HOME_TEST_SOURCES BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
-  BackendEmojiAppearance.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
+  BackendEmojiAppearance.swift BackendEmojiScroll.swift BackendEmojiHome.swift BackendEmojiHomeNavigation.swift
   BackendEmojiKeyboard.swift BackendEmojiFlow.swift BackendEmojiGrid.swift BackendEmojiNavigation.swift tests/EmojiHomeTest.swift)
 list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
@@ -79,6 +79,16 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test"
 add_custom_target(emoji-grid-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test")
 add_test(NAME emoji-grid COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test")
 set_tests_properties(emoji-grid PROPERTIES LABELS "emoji-local" TIMEOUT 30)
+set(MSIME_EMOJI_SCROLL_TEST_SOURCES BackendEmojiScroll.swift tests/EmojiScrollTest.swift)
+list(TRANSFORM MSIME_EMOJI_SCROLL_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test"
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+    -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    ${MSIME_EMOJI_SCROLL_TEST_SOURCES} -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test"
+  DEPENDS ${MSIME_EMOJI_SCROLL_TEST_SOURCES} VERBATIM)
+add_custom_target(emoji-scroll-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test")
+add_test(NAME emoji-scroll COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test")
+set_tests_properties(emoji-scroll PROPERTIES LABELS "emoji-local" TIMEOUT 30)
 set(MSIME_EMOJI_SEARCH_TEST_SOURCES BackendEmojiAppearance.swift BackendEmojiSearchField.swift tests/EmojiSearchChromeTest.swift)
 list(TRANSFORM MSIME_EMOJI_SEARCH_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-search-test"

@@ -72,6 +72,7 @@ struct MacEmojiHomeView: View {
   let resources: String
   let search: String
   let recent: [MacEmojiCatalogItem]
+  var navigationRevision: UInt = 0
   let palette: MacEmojiPalette
   let copy: (MacEmojiCatalogItem) -> Void
   let more: (String) -> Void
@@ -126,7 +127,7 @@ struct MacEmojiHomeView: View {
           proxy.scrollTo(entry.key)
           if command == .activate { copy(entry.item) }
         }.frame(height: 24)
-        ScrollView {
+        MacEmojiScroll(resetID: [resources, search, String(navigationRevision)]) {
           VStack(alignment: .leading, spacing: 20) {
             if !recent.isEmpty { section("最近使用", category: "recent", items: recent, showMore: false, width: width, flowCells: []) }
             if loaded == [resources, search] {
@@ -141,7 +142,8 @@ struct MacEmojiHomeView: View {
         }
       }
     }
-    }.task(id: [resources, search]) {
+    }.onChange(of: navigationRevision) { _ in selected = nil }
+    .task(id: [resources, search]) {
       selected = nil
       loaded = []; sections = []; failed = false
       let directory = resources

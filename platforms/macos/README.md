@@ -88,7 +88,9 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 搜索框占位文字对齐固定 Windows 提交的 `UpdateSearchPlaceholder`：首页为 `Search emoji, kaomoji, and symbols`，表情／最近为 `Search emojis`，颜文字为 `Search kaomoji`，符号为 `Search symbols`，贴纸／GIF 为 `Search`，剪贴板为“搜索剪贴板”。普通页输入／占位字号为 14／12 点，剪贴板均为 16 点；搜索修改立即清除复制提示。搜索测试覆盖页面映射、字号配置以及两种主题、两种焦点状态的边框像素；不代表实际输入源焦点或跨平台字体逐像素验证。
 
-表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，同属 `emoji-local`）：
+首页和详情的滚动容器在搜索、页面／分类切换时重建视口，回到顶部；重复点击当前主标签或二级标签也触发重置。只重建滚动内容，不重建搜索框和键盘入口。普通最近记录／剪贴板刷新不改变滚动身份，内容尺寸变化仍可能由系统钳制位置。原生合成测试实际滚动 SwiftUI 内的 NSScrollView，验证查询及重复导航重置到顶部，并验证普通刷新保留滚动位置；不替代安装后的输入源交互。首页重置仍沿用现有清除选择逻辑，完整初始选择视觉对齐尚需继续。
+
+表情首页、普通网格与颜文字流式布局同样提供独立的本地测试（搜索框使用 `emoji-search-test-build`，滚动使用 `emoji-scroll-test-build`，同属 `emoji-local`）：
 
 ```sh
 cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-test-build emoji-grid-test-build emoji-toast-test-build emoji-main-tabs-test-build emoji-category-tabs-test-build emoji-symbol-sections-test-build emoji-catalog-cursor-test-build --parallel
