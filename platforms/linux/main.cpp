@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "SystemTheme.h"
 #include <array>
 #include <fstream>
 #include <iostream>
@@ -94,7 +95,9 @@ int main(int argc, char **argv) {
         }),
         argv[1]);
   }
+  const auto theme_watch = msime_watch_system_theme();
   ibus_main();
+  msime_unwatch_system_theme(theme_watch);
   if (monitor)
     g_object_unref(monitor);
   g_object_unref(config_file);

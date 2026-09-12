@@ -28,7 +28,10 @@ struct MsimePreviewEngine;
 namespace {
 Json configured;
 uint64_t configuration_generation = 0;
+bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
+  if (preferences.value("candidate_theme", "follow") == "follow")
+    preferences["candidate_theme"] = system_dark ? "dark" : "light";
   const auto selected = preferences.value("candidate_skin", "fluent");
   if (selected == "fluent" || selected == "wechat" || selected == "graphite" ||
       selected == "willow_green")
@@ -4335,6 +4338,12 @@ void msime_preview_configure(const std::string &options) {
     throw std::runtime_error("Invalid host preferences");
   if (next != configured) {
     configured = std::move(next);
+    ++configuration_generation;
+  }
+}
+void msime_preview_set_system_dark(bool dark) {
+  if (system_dark != dark) {
+    system_dark = dark;
     ++configuration_generation;
   }
 }
