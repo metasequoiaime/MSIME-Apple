@@ -126,6 +126,15 @@ int main() {
     const auto themed = PreviewConfig::parse(document.dump());
     require(themed.skin_directory == std::filesystem::u8path(skins) &&
             themed.skin_id == "wechat" && !themed.dark_theme);
+    require(themed.horizontal_candidates); // The shipped default is one row.
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "vertical"}};
+    require(!PreviewConfig::parse(document.dump()).horizontal_candidates);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "horizontal"}};
+    require(PreviewConfig::parse(document.dump()).horizontal_candidates);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", "grid"}};
+    reject(document);
+    document["appearance"] = {{"skin_directory", skins}, {"layout", 1}};
+    reject(document);
     document["appearance"] = {{"skin_directory", skins}};
     const auto rooted = PreviewConfig::parse(document.dump());
     require(rooted.skin_id.empty() && rooted.dark_theme);
@@ -144,6 +153,7 @@ int main() {
     document["appearance"] = {{"skin_directory", skins},
                               {"skin", "wechat"},
                               {"dark_theme", true},
+                              {"layout", "vertical"},
                               {"extra", 1}};
     reject(document);
     document["appearance"] = skins;

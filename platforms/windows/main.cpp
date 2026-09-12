@@ -33,8 +33,10 @@ resolve_palette(const msime::windows::PreviewConfig &config) {
     const auto document = nlohmann::json::parse(owned.get(), nullptr, false);
     if (document.is_discarded() || !document.value("ok", false))
       return builtin;
+    // Compatibility is checked against the layout actually being rendered.
     return msime::windows::candidate_skin_palette(
-        document.at("value"), config.skin_id, dark, "vertical");
+        document.at("value"), config.skin_id, dark,
+        config.horizontal_candidates ? "horizontal" : "vertical");
   } catch (const std::exception &) {
     return builtin;
   }
@@ -143,7 +145,8 @@ int wmain(int argc, wchar_t **argv) {
     CandidateWindow candidates(
         [&] { return server.candidate_view(); },
         [&](const CandidateClick &click) { (void)clicks.submit(click); }, 16, 16,
-        std::nullopt, "Segoe UI", {}, config.dark_theme);
+        std::nullopt, "Segoe UI", {}, config.dark_theme,
+        config.horizontal_candidates);
     const auto palette = resolve_palette(config);
     candidates.set_palette(palette);
     ModeWindow modes([&] { return server.mode_view(); },

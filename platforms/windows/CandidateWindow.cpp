@@ -142,9 +142,12 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   if (!RegisterClassExW(&descriptor) &&
       GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     throw std::runtime_error("Candidate class unavailable");
-  window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-                            class_name, L"", WS_POPUP | WS_BORDER, 0, 0, 1, 1,
-                            nullptr, nullptr, descriptor.hInstance, this);
+  // No redirection bitmap: the card is composed with per-pixel alpha, which is
+  // what gives it rounded corners instead of a rectangular window cut-out.
+  window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
+                                WS_EX_NOREDIRECTIONBITMAP,
+                            class_name, L"", WS_POPUP, 0, 0, 1, 1, nullptr,
+                            nullptr, descriptor.hInstance, this);
   if (!window_)
     throw std::runtime_error("Candidate window unavailable");
 }
@@ -270,7 +273,7 @@ void CandidateWindow::paint() {
   }
   if (value->candidates.size() > 9)
     throw std::invalid_argument("Oversized window page");
-  if (!device_.EnsureForWindow(window_))
+  if (!device_.EnsureForComposition(window_))
     throw std::runtime_error("Candidate device unavailable");
   auto *target = device_.GetRenderTarget();
   if (!target)
@@ -303,11 +306,13 @@ void CandidateWindow::paint() {
                                   GetBValue(*text_color_))
                   : palette_.text;
   target->BeginDraw();
-  target->Clear(D2D1::ColorF(palette_.surface.r, palette_.surface.g,
-                             palette_.surface.b, palette_.surface.a));
+  // Clear to nothing: only the rounded card itself is opaque, so the corners
+  // stay transparent rather than showing a square window edge.
+  target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
   const D2D1_ROUNDED_RECT card{
       {inset, inset, size.width - inset, size.height - inset},
       palette_.radius, palette_.radius};
+  target->FillRoundedRectangle(card, brush(palette_.surface));
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
   if (show_preedit_) {
@@ -358,6 +363,9 @@ void CandidateWindow::paint() {
                       brush(text_color));
   }
   const HRESULT drawn = target->EndDraw();
+  // A composition swap chain only reaches the screen once it is presented.
+  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
+    throw std::runtime_error("Candidate presentation failed");
   if (drawn == D2DERR_RECREATE_TARGET) {
     // Losing the device is not a presentation failure; rebuild on the next
     // refresh rather than hiding a live composition.
